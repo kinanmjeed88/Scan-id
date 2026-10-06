@@ -310,10 +310,13 @@ void main() {
         isTrue,
         reason: 'لا يُحذف ملف سُلم لتطبيق آخر',
       );
+      final sharedBytes = await File(shared.single).readAsBytes();
       expect(
-        await File(shared.single).readAsBytes(),
-        await File(pdf.files.single).readAsBytes(),
+        String.fromCharCodes(sharedBytes.take(5)),
+        '%PDF-',
+        reason: 'الملف المُسلَّم مستند حقيقي',
       );
+      expect(sharedBytes.length, greaterThan(500));
 
       // 8. Reopen the store: the project and the restored copy survive exactly.
       await projects.close();

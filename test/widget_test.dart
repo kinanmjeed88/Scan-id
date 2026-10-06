@@ -690,18 +690,14 @@ void main() {
         items: [itemFixture().copyWith(x: 50, y: 50)],
       ).copyWith(exportProfile: ExportProfile(format: ExportFormat.png));
       final handed = <List<String>>[];
-      final scratch = await Directory.systemTemp.createTemp('scan-widget-');
-      addTearDown(() => scratch.delete(recursive: true));
       final output = OutputService(
-        generate: (plan, directory) async {
-          final folder = await Directory(
-            '${directory.path}/$exportDirectoryName/${DateTime.now().microsecondsSinceEpoch}',
-          ).create(recursive: true);
-          final file = File('${folder.path}/${exportNames(plan).pages.first}');
-          await file.writeAsString('page');
-          return ExportBundle([file.path]);
-        },
-        temporary: () async => scratch,
+        // No real file I/O here: widget tests run in a fake-async zone where
+        // file futures would never complete, leaving the screen busy forever.
+        generate: (plan, directory) async => ExportBundle([
+          '${directory.path}/$exportDirectoryName/fake/'
+              '${exportNames(plan).pages.first}',
+        ]),
+        temporary: () async => Directory('/fake-cache'),
         save: (_, _) async => true,
         printPdf: (_, _) async => false,
         shareTarget: ShareTarget.shareSheet,
@@ -738,9 +734,16 @@ void main() {
       await tester.ensureVisible(share);
       await tester.pumpAndSettle();
       await tester.tap(share);
+      // The export pipeline is real asynchronous work, so it runs in the real
+      // zone and its result is applied on the next frame. Waiting only on
+      // animations here would hang instead of failing.
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
       await tester.pumpAndSettle();
 
-      expect(handed, hasLength(1));
+      expect(handed, hasLength(1), reason: 'يجب أن تُسلَّم الملفات مرة واحدة');
       expect(handed.single.single, endsWith('مستمسكات العائلة-صفحة-1.png'));
       expect(find.textContaining('تطبيق المشاركة'), findsOneWidget);
       expect(tester.takeException(), isNull);

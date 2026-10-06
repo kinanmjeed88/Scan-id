@@ -40,7 +40,8 @@ void main() {
     if (!await staging.exists()) {
       return const [];
     }
-    return [for (final entity in await staging.list()) p.basename(entity.path)];
+    final entries = await staging.list().toList();
+    return [for (final entity in entries) p.basename(entity.path)];
   }
 
   test(

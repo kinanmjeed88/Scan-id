@@ -2,7 +2,7 @@ name: Scan ID verification
 on:
   pull_request:
   push:
-    branches: [arena/39620afb-scan-id]
+    branches: [searchidf, arena/39620afb-scan-id, arena/52df725b-scan-id]
   workflow_dispatch:
 env:
   PYTHONIOENCODING: utf-8

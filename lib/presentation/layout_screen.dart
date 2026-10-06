@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../application/ids.dart';
 import '../application/packing_service.dart';
 import '../domain/packing.dart';
@@ -10,6 +12,8 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'page_canvas.dart';
 import 'export_screen.dart';
+import 'shared.dart';
+import 'shortcuts.dart';
 
 class LayoutScreen extends StatefulWidget {
   const LayoutScreen({
@@ -29,6 +33,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   late final _session = LayoutSession(widget.project, widget.service.projects);
   final _pageKey = GlobalKey();
   final _view = TransformationController();
+  final _canvasFocus = FocusNode(debugLabel: 'layout-canvas');
   final _selected = <String>{};
   bool _busy = false, _pan = false, _overlap = false;
   String? _error;
@@ -38,18 +43,82 @@ class _LayoutScreenState extends State<LayoutScreen> {
   bool _resizing = false;
   double _scale = 1;
   int _page = 0;
+  // Arrow-key nudges are shown immediately and committed once the key stops
+  // repeating, so holding a key does not write one revision per repeat.
+  Timer? _nudgeTimer;
+  String? _nudgeId;
+  double _nudgeDx = 0, _nudgeDy = 0;
   Project get _project => _dragPreview ?? _session.current;
   DocumentItem? get _active => _selected.isEmpty
       ? null
       : _project.items.where((e) => e.id == _selected.last).firstOrNull;
   @override
   void dispose() {
+    _nudgeTimer?.cancel();
+    _canvasFocus.dispose();
     _view.dispose();
     super.dispose();
   }
 
+  void _nudge(double dx, double dy) {
+    final item = _active;
+    if (item == null || item.locked || _busy || _pan || _dragItem != null) {
+      return;
+    }
+    if (_nudgeId != item.id) {
+      _nudgeId = item.id;
+      _nudgeDx = 0;
+      _nudgeDy = 0;
+    }
+    _nudgeDx += dx;
+    _nudgeDy += dy;
+    setState(
+      () => _dragPreview = _session.current.copyWith(
+        items: [
+          for (final entry in _session.current.items)
+            entry.id == item.id
+                ? entry.copyWith(x: entry.x + _nudgeDx, y: entry.y + _nudgeDy)
+                : entry,
+        ],
+      ),
+    );
+    _nudgeTimer?.cancel();
+    _nudgeTimer = Timer(
+      const Duration(milliseconds: 260),
+      () => unawaited(_flushNudge()),
+    );
+  }
+
+  Future<void> _flushNudge() async {
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+    final id = _nudgeId;
+    final dx = _nudgeDx, dy = _nudgeDy;
+    _nudgeId = null;
+    _nudgeDx = 0;
+    _nudgeDy = 0;
+    if (id == null || (dx == 0 && dy == 0)) {
+      return;
+    }
+    await _apply((p) => PageLayout.move(p, id, dx, dy, allowOverlap: _overlap));
+    if (mounted) {
+      setState(() => _dragPreview = null);
+    }
+  }
+
+  Future<void> _leave() async {
+    await _flushNudge();
+    if (mounted) {
+      Navigator.pop(context, _session.current);
+    }
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     if (_busy || _dragItem != null) return;
+    if (_nudgeId != null) {
+      await _flushNudge();
+      if (!mounted) return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -142,36 +211,78 @@ class _LayoutScreenState extends State<LayoutScreen> {
         'الارتفاع مم': 80 * asset.height / asset.width,
         'س مم': p.paper.margins.left,
         'ص مم': p.paper.margins.top,
+        'عدد النسخ الإضافية': 0,
       },
       notice:
-          'هذه قيم مبدئية وليست قياساً مستنتجاً من الصورة. أدخل المقاس الحقيقي.',
+          'هذه قيم مبدئية وليست قياساً مستنتجاً من الصورة. أدخل المقاس الحقيقي. النسخ الإضافية تُضاف غير موضوعة ليوزعها «اقتراح ترتيب».',
     );
     if (values == null || !mounted) return;
+    final copies = _count(values['عدد النسخ الإضافية']!);
+    if (copies == null) return;
     final id = newId();
+    final prototype = DocumentItem(
+      id: id,
+      assetId: asset.id,
+      pageIndex: _pageNumber(values['الصفحة (0 لغير الموضوعة)']!, p.pageCount),
+      x: values['س مم']!,
+      y: values['ص مم']!,
+      width: values['العرض مم']!,
+      height: values['الارتفاع مم']!,
+      zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
+    );
     await _apply(
-      (p) => PageLayout.add(
-        p,
-        DocumentItem(
-          id: id,
-          assetId: asset.id,
-          pageIndex: _pageNumber(
-            values['الصفحة (0 لغير الموضوعة)']!,
-            p.pageCount,
-          ),
-          x: values['س مم']!,
-          y: values['ص مم']!,
-          width: values['العرض مم']!,
-          height: values['الارتفاع مم']!,
-          zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
-        ),
-        allowOverlap: _overlap,
-      ),
+      (p) => PageLayout.addMany(p, [
+        prototype,
+        ...PageLayout.copies(prototype, copies, newId),
+      ], allowOverlap: _overlap),
     );
     if (mounted && _session.current.items.any((e) => e.id == id)) {
       setState(
         () => _selected
           ..clear()
           ..add(id),
+      );
+      if (copies > 0) {
+        showMessage(
+          context,
+          'أُضيفت $copies نسخة غير موضوعة. استخدم «اقتراح ترتيب» لتوزيعها، وسيظهر ما لا يتسع.',
+        );
+      }
+    }
+  }
+
+  /// Copies are a count the user types; a rejected value is explained in place
+  /// instead of escaping as an unhandled validation error.
+  int? _count(double value) {
+    if (value != value.roundToDouble() || value < 0 || value > 200) {
+      showMessage(context, 'عدد النسخ يجب أن يكون عدداً صحيحاً بين 0 و200.');
+      return null;
+    }
+    return value.toInt();
+  }
+
+  Future<void> _addCopies(DocumentItem item) async {
+    final values = await editMeasurements(
+      context,
+      'نسخ إضافية من العنصر',
+      {'عدد النسخ الإضافية': 3},
+      notice:
+          'لا تتغير النسخة الأصلية. تُضاف النسخ غير موضوعة، ثم يوزعها «اقتراح ترتيب» ويُبلّغ عن كل نسخة لا تتسع لها الصفحة.',
+    );
+    if (values == null || !mounted) return;
+    final count = _count(values['عدد النسخ الإضافية']!);
+    if (count == null || count == 0) return;
+    await _apply(
+      (p) => PageLayout.addMany(
+        p,
+        PageLayout.copies(item, count, newId),
+        allowOverlap: _overlap,
+      ),
+    );
+    if (mounted) {
+      showMessage(
+        context,
+        'أُضيفت $count نسخة غير موضوعة؛ رتّبها بـ«اقتراح ترتيب» أو يدوياً.',
       );
     }
   }
@@ -207,6 +318,120 @@ class _LayoutScreenState extends State<LayoutScreen> {
       ),
     );
   }
+
+  Future<void> _duplicate(DocumentItem e) => _apply(
+    (p) => PageLayout.add(
+      p,
+      e.copyWith(
+        id: newId(),
+        x: e.x + e.bounds.width + p.layout.horizontalGap,
+        locked: false,
+      ),
+      allowOverlap: _overlap,
+    ),
+  );
+
+  Future<void> _deleteSelected() async {
+    if (_selected.isEmpty || _busy) {
+      return;
+    }
+    final ids = {..._selected};
+    if (_session.current.items.any((e) => ids.contains(e.id) && e.locked)) {
+      showMessage(context, 'ألغِ تثبيت العناصر المحددة قبل حذفها.');
+      return;
+    }
+    await _apply((p) => PageLayout.remove(p, ids));
+    if (mounted) {
+      showMessage(
+        context,
+        'حُذف ${ids.length} عنصر من الورقة. يمكن التراجع بـCtrl + Z.',
+      );
+    }
+  }
+
+  List<ShortcutBinding> get _shortcuts => [
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyZ, control: true),
+      keys: 'Ctrl + Z',
+      description: 'تراجع عن آخر تغيير محفوظ',
+      run: () => unawaited(_run(_session.undo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        control: true,
+        shift: true,
+      ),
+      keys: 'Ctrl + Shift + Z',
+      description: 'إعادة التغيير الملغى',
+      run: () => unawaited(_run(_session.redo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyY, control: true),
+      keys: 'Ctrl + Y',
+      description: 'إعادة التغيير الملغى',
+      run: () => unawaited(_run(_session.redo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.delete),
+      keys: 'Delete',
+      description: 'حذف العناصر المحددة من الورقة',
+      run: () => unawaited(_deleteSelected()),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.backspace),
+      keys: 'Backspace',
+      description: 'حذف العناصر المحددة من الورقة',
+      run: () => unawaited(_deleteSelected()),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyD, control: true),
+      keys: 'Ctrl + D',
+      description: 'تكرار العنصر المحدد',
+      run: () {
+        final e = _active;
+        if (e != null && !e.locked) {
+          unawaited(_duplicate(e));
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.escape),
+      keys: 'Esc',
+      description: 'إلغاء التحديد',
+      run: () {
+        if (mounted) {
+          setState(_selected.clear);
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(
+        LogicalKeyboardKey.digit0,
+        control: true,
+      ),
+      keys: 'Ctrl + 0',
+      description: 'إعادة ضبط تكبير مساحة العمل',
+      run: () {
+        if (mounted) {
+          setState(() => _view.value = Matrix4.identity());
+        }
+      },
+    ),
+    // Handled by the canvas focus node so arrows inside menus and lists keep
+    // their normal meaning; listed here for discoverability.
+    const ShortcutBinding(
+      activator: SingleActivator(LogicalKeyboardKey.arrowLeft),
+      keys: '← → ↑ ↓',
+      description:
+          'تحريك العنصر المحدد 1 مم (مع Shift: 10 مم). يعمل عندما يكون التركيز على مساحة الورقة',
+    ),
+    const ShortcutBinding(
+      activator: SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true),
+      keys: 'Shift + ←',
+      description: 'تحريك العنصر المحدد 10 مم',
+    ),
+  ];
 
   Future<void> _paper() async {
     final p = _project;
@@ -252,7 +477,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   Future<void> _pack() async {
-    final options = await showDialog<(bool, bool)>(
+    final options = await showDialog<_PackingChoices>(
       context: context,
       builder: (_) => const _PackingOptions(),
     );
@@ -261,8 +486,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
     await _run(() async {
       proposal = await widget.proposeLayout(
         _session.current,
-        includeLocked: options.$1,
-        allowRotation: options.$2,
+        includeLocked: options.includeLocked,
+        allowRotation: options.allowRotation,
+        onlyUnplaced: options.onlyUnplaced,
         pageIndex: _page,
       );
     });
@@ -278,8 +504,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'لم يُحفظ الاقتراح. الاعتماد يغيّر المواضع الحالية؛ يمكن التراجع عنه وتعديله يدوياً. لا ضمان لترتيب أمثل.',
+                Text(
+                  options.onlyUnplaced
+                      ? 'لم يُحفظ الاقتراح. العناصر الموضوعة لا تتحرك؛ تُرتَّب العناصر غير الموضوعة فقط. يمكن رفض الاقتراح أو التراجع بعد اعتماده. لا ضمان لترتيب أمثل.'
+                      : 'لم يُحفظ الاقتراح. الاعتماد يغيّر المواضع الحالية؛ يمكن التراجع عنه وتعديله يدوياً. لا ضمان لترتيب أمثل.',
                 ),
                 Text('غير موضوعة: ${candidate.unplaced.length}'),
                 for (final id in candidate.unplaced)
@@ -341,76 +569,86 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope<Project>(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, _) {
-      if (!didPop && !_busy) Navigator.pop(context, _session.current);
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'رجوع للمشروع',
-          onPressed: _busy
-              ? null
-              : () => Navigator.pop(context, _session.current),
-          icon: const Icon(Icons.arrow_back),
+  Widget build(BuildContext context) => ScreenShortcuts(
+    shortcuts: _shortcuts,
+    child: PopScope<Project>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_busy) {
+          unawaited(_leave());
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'رجوع للمشروع',
+            onPressed: _busy ? null : () => unawaited(_leave()),
+            icon: const Icon(Icons.arrow_back),
+          ),
+          title: const Text('محرر A4'),
+          actions: [
+            IconButton(
+              tooltip: 'اختصارات لوحة المفاتيح',
+              onPressed: _busy
+                  ? null
+                  : () => showShortcuts(context, _shortcuts),
+              icon: const Icon(Icons.keyboard_outlined),
+            ),
+            IconButton(
+              tooltip: 'تراجع',
+              onPressed: _busy || !_session.history.canUndo
+                  ? null
+                  : () => _run(_session.undo),
+              icon: const Icon(Icons.undo),
+            ),
+            IconButton(
+              tooltip: 'إعادة',
+              onPressed: _busy || !_session.history.canRedo
+                  ? null
+                  : () => _run(_session.redo),
+              icon: const Icon(Icons.redo),
+            ),
+          ],
         ),
-        title: const Text('محرر A4'),
-        actions: [
-          IconButton(
-            tooltip: 'تراجع',
-            onPressed: _busy || !_session.history.canUndo
-                ? null
-                : () => _run(_session.undo),
-            icon: const Icon(Icons.undo),
-          ),
-          IconButton(
-            tooltip: 'إعادة',
-            onPressed: _busy || !_session.history.canRedo
-                ? null
-                : () => _run(_session.redo),
-            icon: const Icon(Icons.redo),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_busy) const LinearProgressIndicator(),
-          if (_error != null)
+        body: Column(
+          children: [
+            if (_busy) const LinearProgressIndicator(),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.all(8),
               child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                'صفحة ${_page + 1}/${_project.pageCount} · ${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Text(
-              'صفحة ${_page + 1}/${_project.pageCount} · ${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) => box.maxWidth >= 900
+                    ? Row(
+                        children: [
+                          Expanded(child: _workspace()),
+                          SizedBox(width: 320, child: _tools()),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(child: _workspace()),
+                          SizedBox(
+                            height: math.min(260, box.maxHeight * .45),
+                            child: _tools(),
+                          ),
+                        ],
+                      ),
+              ),
             ),
-          ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, box) => box.maxWidth >= 900
-                  ? Row(
-                      children: [
-                        Expanded(child: _workspace()),
-                        SizedBox(width: 320, child: _tools()),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Expanded(child: _workspace()),
-                        SizedBox(
-                          height: math.min(260, box.maxHeight * .45),
-                          child: _tools(),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );
@@ -434,26 +672,40 @@ class _LayoutScreenState extends State<LayoutScreen> {
             child: IgnorePointer(
               ignoring: _pan || _busy,
               child: Listener(
+                // Pointing at the sheet gives the arrow keys their target.
+                onPointerDown: (_) => _canvasFocus.requestFocus(),
                 onPointerCancel: (_) => setState(() {
                   _dragPreview = null;
                   _dragItem = null;
                   _dragStart = null;
                 }),
-                child: PageCanvas(
-                  project: _project,
-                  pageIndex: _page,
-                  assets: widget.service.assets,
-                  scale: _scale,
-                  pageKey: _pageKey,
-                  selected: _selected,
-                  onSelect: (id) => setState(
-                    () => _selected
-                      ..clear()
-                      ..add(id),
+                child: Focus(
+                  focusNode: _canvasFocus,
+                  autofocus: true,
+                  onKeyEvent: (_, event) => canvasArrowKeys(
+                    event,
+                    _nudge,
+                    enabled: _active != null && !_busy && !_pan,
                   ),
-                  onDragStart: _start,
-                  onDragUpdate: _drag,
-                  onDragEnd: _end,
+                  child: PageCanvas(
+                    project: _project,
+                    pageIndex: _page,
+                    assets: widget.service.assets,
+                    scale: _scale,
+                    pageKey: _pageKey,
+                    selected: _selected,
+                    onSelect: (id) {
+                      setState(
+                        () => _selected
+                          ..clear()
+                          ..add(id),
+                      );
+                      _canvasFocus.requestFocus();
+                    },
+                    onDragStart: _start,
+                    onDragUpdate: _drag,
+                    onDragEnd: _end,
+                  ),
                 ),
               ),
             ),
@@ -533,11 +785,15 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     ),
                   ),
           ),
-          OutlinedButton.icon(
-            key: const Key('packing-proposal'),
-            onPressed: _busy || _project.items.isEmpty ? null : _pack,
-            icon: const Icon(Icons.auto_awesome_mosaic),
-            label: const Text('اقتراح ترتيب'),
+          Tooltip(
+            message:
+                'الاقتراح لا يُطبَّق تلقائياً أبداً: تختار نطاقه ثم تراجعه وتعتمده أو ترفضه. والوضع الحر يدوي دائماً',
+            child: OutlinedButton.icon(
+              key: const Key('packing-proposal'),
+              onPressed: _busy || _project.items.isEmpty ? null : _pack,
+              icon: const Icon(Icons.auto_awesome_mosaic),
+              label: const Text('ترتيب تلقائي (اقتراح) أو وضع حر'),
+            ),
           ),
           SwitchListTile(
             key: const Key('workspace-pan'),
@@ -620,13 +876,18 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   selected: _selected.contains(item.id),
                   onSelected: _busy
                       ? null
-                      : (v) => setState(() {
-                          if (v) {
-                            _selected.add(item.id);
-                          } else {
-                            _selected.remove(item.id);
-                          }
-                        }),
+                      : (v) {
+                          setState(() {
+                            if (v) {
+                              _selected.add(item.id);
+                            } else {
+                              _selected.remove(item.id);
+                            }
+                          });
+                          // Selecting from the list is also how the arrow keys
+                          // get their target.
+                          _canvasFocus.requestFocus();
+                        },
                 ),
             ],
           ),
@@ -659,6 +920,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
               child: const Text('المقاس والموضع والتدوير'),
             ),
             OutlinedButton(
+              onPressed: _busy || e.locked ? null : () => _addCopies(e),
+              child: const Text('إضافة نسخ من العنصر'),
+            ),
+            OutlinedButton(
               onPressed: _busy || e.locked
                   ? null
                   : () => _apply(
@@ -678,18 +943,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
               child: const Text('إلى الأمام'),
             ),
             OutlinedButton(
-              onPressed: _busy || e.locked
-                  ? null
-                  : () => _apply(
-                      (p) => PageLayout.add(
-                        p,
-                        e.copyWith(
-                          id: newId(),
-                          x: e.x + e.bounds.width + p.layout.horizontalGap,
-                        ),
-                        allowOverlap: _overlap,
-                      ),
-                    ),
+              onPressed: _busy || e.locked ? null : () => _duplicate(e),
               child: const Text('تكرار العنصر'),
             ),
             TextButton(
@@ -854,6 +1108,12 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
   );
 }
 
+typedef _PackingChoices = ({
+  bool includeLocked,
+  bool allowRotation,
+  bool onlyUnplaced,
+});
+
 class _PackingOptions extends StatefulWidget {
   const _PackingOptions();
   @override
@@ -861,7 +1121,7 @@ class _PackingOptions extends StatefulWidget {
 }
 
 class _PackingOptionsState extends State<_PackingOptions> {
-  bool _all = false, _rotate = false;
+  bool _all = false, _rotate = false, _onlyUnplaced = false;
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('نطاق الاقتراح'),
@@ -869,13 +1129,22 @@ class _PackingOptionsState extends State<_PackingOptions> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'سيعاد ترتيب عناصر الصفحة والقائمة غير الموضوعة. لا تتغير المقاسات. لن يُحفظ شيء قبل مراجعة الاقتراح.',
+          'لا تتغير المقاسات، ولا يُحذف أو يُصغَّر عنصر. ما لا يتسع يُبلَّغ عنه. لن يُحفظ شيء قبل مراجعة الاقتراح.',
+        ),
+        CheckboxListTile(
+          key: const Key('packing-only-unplaced'),
+          title: const Text('عدم تحريك العناصر الموضوعة'),
+          subtitle: const Text(
+            '«الوضع الحر»: يبقى ما رتّبته يدوياً في مكانه، وتُرتب العناصر غير الموضوعة فقط',
+          ),
+          value: _onlyUnplaced,
+          onChanged: (v) => setState(() => _onlyUnplaced = v!),
         ),
         CheckboxListTile(
           title: const Text('جميع العناصر بما فيها المثبتة'),
           subtitle: const Text('دون التحديد: غير المثبتة فقط'),
           value: _all,
-          onChanged: (v) => setState(() => _all = v!),
+          onChanged: _onlyUnplaced ? null : (v) => setState(() => _all = v!),
         ),
         CheckboxListTile(
           title: const Text('السماح بإضافة دوران 90°'),
@@ -890,7 +1159,11 @@ class _PackingOptionsState extends State<_PackingOptions> {
         child: const Text('إلغاء'),
       ),
       FilledButton(
-        onPressed: () => Navigator.pop(context, (_all, _rotate)),
+        onPressed: () => Navigator.pop(context, (
+          includeLocked: _all,
+          allowRotation: _rotate,
+          onlyUnplaced: _onlyUnplaced,
+        )),
         child: const Text('إنشاء الاقتراح'),
       ),
     ],

@@ -1,12 +1,15 @@
 import 'dart:io';
+import 'package:scan_id/application/output_service.dart';
+import 'package:scan_id/domain/export_naming.dart';
+import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/presentation/export_screen.dart';
 import 'package:scan_id/presentation/project_screen.dart';
 import 'package:scan_id/application/project_backups.dart';
 import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/domain/crop_draft.dart';
@@ -39,7 +42,11 @@ void main() {
         _NoAssets(),
         backups: _UnusedBackups(),
       );
-      for (final size in [const Size(390, 844), const Size(844, 390)]) {
+      for (final size in [
+        const Size(390, 844),
+        const Size(844, 390),
+        const Size(320, 640),
+      ]) {
         tester.view.physicalSize = size;
         for (final screen in <Widget>[
           ProjectsScreen(service: service, pickImages: () async => []),
@@ -128,11 +135,13 @@ void main() {
                   project, {
                   required includeLocked,
                   required allowRotation,
+                  bool? onlyUnplaced,
                   required pageIndex,
                 }) async => proposePacking(
                   project,
                   includeLocked: includeLocked,
                   allowRotation: allowRotation,
+                  onlyUnplaced: onlyUnplaced ?? false,
                   pageIndex: pageIndex,
                 ),
           ),
@@ -351,7 +360,7 @@ void main() {
       );
       await tester.tap(find.text('صور'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('إضافة صور'));
+      await tester.tap(find.byTooltip('إضافة صور'));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
       expect(tester.takeException(), isNull);
@@ -541,6 +550,281 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'arrow keys nudge the selected A4 item, Shift scales the step, Ctrl+Z restores',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [itemFixture().copyWith(x: 50, y: 50, locked: false)],
+        ),
+      );
+      final service = ProjectService(repository, _NoAssets());
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(project: project, service: service),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(FilterChip).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(FilterChip).first);
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.x, 51);
+      expect(repository.values[project.id]!.items.single.y, 50);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.y, 60);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.y, 50);
+      expect(repository.values[project.id]!.items.single.x, 51);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'the automatic arrangement asks for its scope and never moves arranged work when asked to keep it',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [
+            itemFixture(id: 'manual').copyWith(locked: false, x: 100, y: 150),
+            itemFixture(
+              id: 'waiting',
+            ).copyWith(locked: false, unplaced: true, x: 0, y: 0),
+          ],
+        ),
+      );
+      final service = ProjectService(repository, _NoAssets());
+      bool? askedToKeepArrangement;
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(
+            project: project,
+            service: service,
+            proposeLayout:
+                (
+                  project, {
+                  required includeLocked,
+                  required allowRotation,
+                  bool? onlyUnplaced,
+                  required pageIndex,
+                }) async {
+                  askedToKeepArrangement = onlyUnplaced;
+                  return proposePacking(
+                    project,
+                    includeLocked: includeLocked,
+                    allowRotation: allowRotation,
+                    onlyUnplaced: onlyUnplaced ?? false,
+                    pageIndex: pageIndex,
+                  );
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('packing-proposal')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('packing-proposal')));
+      await tester.pumpAndSettle();
+      // The free-mode scope has to be a real, reachable option.
+      await tester.tap(find.byKey(const Key('packing-only-unplaced')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إنشاء الاقتراح'));
+      await tester.pumpAndSettle();
+      expect(find.text('مراجعة اقتراح الترتيب'), findsOneWidget);
+      await tester.tap(find.text('اعتماد ومتابعة التحرير'));
+      await tester.pumpAndSettle();
+
+      expect(
+        askedToKeepArrangement,
+        isTrue,
+        reason: 'الخيار المختار في النافذة يصل إلى محرك الترتيب',
+      );
+      final saved = repository.values[project.id]!;
+      final manual = saved.items.firstWhere((e) => e.id == 'manual');
+      expect(manual.x, 100, reason: 'العنصر الموضوع يدوياً لا يتحرك');
+      expect(manual.y, 150);
+      expect(
+        saved.items.firstWhere((e) => e.id == 'waiting').pageIndex,
+        isNotNull,
+        reason: 'العنصر المنتظر يُوضع في المساحة الحرة',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'the export screen shares the generated files on platforms that can, and reports the result',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final p = projectFixture(
+        assets: [assetFixture()],
+        items: [itemFixture().copyWith(x: 50, y: 50)],
+      ).copyWith(exportProfile: ExportProfile(format: ExportFormat.png));
+      final handed = <List<String>>[];
+      final output = OutputService(
+        // No real file I/O here: widget tests run in a fake-async zone where
+        // file futures would never complete, leaving the screen busy forever.
+        generate: (plan, directory) async => ExportBundle([
+          '${directory.path}/$exportDirectoryName/fake/'
+              '${exportNames(plan).pages.first}',
+        ]),
+        temporary: () async => Directory('/fake-cache'),
+        save: (_, _) async => true,
+        printPdf: (_, _) async => false,
+        shareTarget: ShareTarget.shareSheet,
+        share: (paths, mime) async {
+          handed.add(paths);
+          expect(mime, 'image/png');
+          return true;
+        },
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: ExportScreen(
+            project: p,
+            service: ProjectService(_MemoryProjects(), _NoAssets()),
+            output: output,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('مستمسكات العائلة'), findsWidgets);
+      final share = find.byKey(const Key('export-share'));
+      await tester.ensureVisible(share);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<OutlinedButton>(share).onPressed,
+        isNull,
+        reason: 'لا مشاركة قبل مراجعة المستخدم',
+      );
+      await tester.ensureVisible(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      expect(tester.widget<OutlinedButton>(share).onPressed, isNotNull);
+      await tester.ensureVisible(share);
+      await tester.pumpAndSettle();
+      await tester.tap(share);
+      // The export pipeline is real asynchronous work, so it runs in the real
+      // zone and its result is applied on the next frame. Waiting only on
+      // animations here would hang instead of failing.
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(handed, hasLength(1), reason: 'يجب أن تُسلَّم الملفات مرة واحدة');
+      expect(handed.single.single, endsWith('مستمسكات العائلة-صفحة-1.png'));
+      expect(find.textContaining('تطبيق المشاركة'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('Delete removes the selected item from the sheet', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [assetFixture()],
+        items: [
+          itemFixture().copyWith(x: 20, y: 50, locked: false),
+          itemFixture(id: 'item2').copyWith(x: 120, y: 50, locked: false),
+        ],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: LayoutScreen(project: project, service: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(FilterChip).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilterChip).first);
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+
+    expect(repository.values[project.id]!.items, hasLength(1));
+    expect(repository.values[project.id]!.items.single.id, 'item2');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('image library reorder is reachable without a drag gesture', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [
+          assetFixture(id: 'asset1'),
+          assetFixture(id: 'asset2'),
+        ],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('خيارات الصورة').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('نقل إلى ترتيب لاحق'));
+    await tester.pumpAndSettle();
+
+    expect(repository.values[project.id]!.assets.map((a) => a.id), [
+      'asset2',
+      'asset1',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _MemoryProjects implements ProjectRepository {
@@ -579,6 +863,14 @@ class _NoAssets implements AssetRepository {
   Future<ImageAsset> importImage(
     String projectId,
     String name,
+    Uint8List bytes,
+  ) => Future.error(
+    StateError('No asset operation expected in this widget test'),
+  );
+  @override
+  Future<ReplacementFiles> replaceImage(
+    String projectId,
+    String assetId,
     Uint8List bytes,
   ) => Future.error(
     StateError('No asset operation expected in this widget test'),

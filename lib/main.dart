@@ -16,6 +16,7 @@ import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
 import 'persistence/local_image_editor.dart';
 import 'persistence/local_project_recovery.dart';
+import 'persistence/local_storage_maintenance.dart';
 import 'presentation/shared.dart';
 import 'presentation/app.dart';
 
@@ -47,6 +48,14 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
       ? await LocalProjectRepository.recover(directory)
       : await LocalProjectRepository.open(directory);
   final assets = LocalAssetRepository(repository.files);
+  final maintenance = LocalStorageMaintenance(repository.files);
+  // Interrupted work is the only source of staging directories; a fresh start
+  // is the safe moment to clear the ones that are no longer in flight.
+  try {
+    await maintenance.pruneStaging();
+  } catch (_) {
+    // Best effort: cleanup must never block access to the projects themselves.
+  }
   return ProjectService(
     repository,
     assets,
@@ -59,6 +68,7 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
       LocalImageEditor(repository.files),
     ),
     backups: LocalProjectBackups(repository, repository.files),
+    maintenance: maintenance,
   );
 }
 

@@ -13,6 +13,9 @@ import java.util.UUID
 
 class CaptureFileProvider : FileProvider()
 
+/** Hands one generated export to another application, read-only. */
+class ExportFileProvider : FileProvider()
+
 class NativeCamera(private val activity: Activity) {
     private val preferences by lazy { activity.getSharedPreferences("pending_capture", Context.MODE_PRIVATE) }
     private var result: MethodChannel.Result? = null

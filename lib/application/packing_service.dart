@@ -6,12 +6,14 @@ Future<PackingProposal> createPackingProposal(
   Project project, {
   required bool includeLocked,
   required bool allowRotation,
+  bool onlyUnplaced = false,
   required int pageIndex,
 }) => Isolate.run(
   () => proposePacking(
     project,
     includeLocked: includeLocked,
     allowRotation: allowRotation,
+    onlyUnplaced: onlyUnplaced,
     pageIndex: pageIndex,
   ),
 );
@@ -21,5 +23,6 @@ typedef PackingProposer =
       Project project, {
       required bool includeLocked,
       required bool allowRotation,
+      bool onlyUnplaced,
       required int pageIndex,
     });

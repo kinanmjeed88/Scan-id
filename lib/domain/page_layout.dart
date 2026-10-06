@@ -88,6 +88,37 @@ class PageLayout {
     p.copyWith(items: [...p.items, value]),
     allowOverlap: allowOverlap,
   );
+
+  /// Extra copies of [item] that start unplaced, so the deterministic packing
+  /// proposal decides where they fit and reports the ones that do not.
+  /// Ids come from [idFactory] to keep the domain free of generation state.
+  static List<DocumentItem> copies(
+    DocumentItem item,
+    int count,
+    String Function() idFactory,
+  ) {
+    require(count >= 0 && count <= 200, 'عدد النسخ المطلوب غير صالح.');
+    return [
+      for (var index = 0; index < count; index++)
+        item.copyWith(
+          id: idFactory(),
+          unplaced: true,
+          locked: false,
+          keepAspectRatio: item.keepAspectRatio,
+          zIndex: item.zIndex + index + 1,
+        ),
+    ];
+  }
+
+  static Project addMany(
+    Project p,
+    Iterable<DocumentItem> values, {
+    bool allowOverlap = false,
+  }) => checked(
+    p.copyWith(items: [...p.items, ...values]),
+    allowOverlap: allowOverlap,
+  );
+
   static Project move(
     Project p,
     String id,

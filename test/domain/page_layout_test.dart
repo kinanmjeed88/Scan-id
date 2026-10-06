@@ -25,6 +25,7 @@ DocumentItem block(
 Project page(List<DocumentItem> items) =>
     projectFixture(assets: [assetFixture()], items: items);
 void main() {
+  final invalid = throwsA(isA<ValidationException>());
   test(
     'viewport scale preserves mm independently of display density and size',
     () {
@@ -169,5 +170,51 @@ void main() {
     final loaded = Project.fromJson(next.toJson());
     expect(loaded.items[1].toJson(), next.items[1].toJson());
     expect(PageLayout.remove(loaded, {'one'}).assets, hasLength(1));
+  });
+
+  test('copies start unplaced with fresh ids and can never collide', () {
+    final source = block('item1', 20, 25, rotation: 90, locked: true);
+    var counter = 0;
+    final copies = PageLayout.copies(source, 3, () => 'copy${counter++}');
+    expect(copies.map((e) => e.id), ['copy0', 'copy1', 'copy2']);
+    expect(copies.every((e) => e.pageIndex == null), isTrue);
+    expect(copies.every((e) => !e.locked), isTrue);
+    expect(copies.every((e) => e.rotation == 90), isTrue);
+    expect(copies.every((e) => e.width == source.width), isTrue);
+    expect(copies.map((e) => e.zIndex), [
+      source.zIndex + 1,
+      source.zIndex + 2,
+      source.zIndex + 3,
+    ]);
+  });
+
+  test(
+    'copies are rejected beyond the sheet budget and never silently dropped',
+    () {
+      final source = block('item1', 20, 25);
+      expect(() => PageLayout.copies(source, 201, () => 'copy'), invalid);
+      expect(PageLayout.copies(source, 0, () => 'copy'), isEmpty);
+    },
+  );
+
+  test('addMany validates the whole batch before anything is accepted', () {
+    final base = page([block('item1', 20, 25)]);
+    final accepted = PageLayout.addMany(base, [
+      block('item2', 60, 25),
+      block('item3', 100, 25),
+    ]);
+    expect(accepted.items, hasLength(3));
+    expect(
+      () => PageLayout.addMany(base, [
+        block('item2', 60, 25),
+        block('item3', 20, 25),
+      ]),
+      throwsA(
+        predicate(
+          (Object e) => e is ValidationException && e.message.contains('تداخل'),
+        ),
+      ),
+    );
+    expect(base.items, hasLength(1));
   });
 }

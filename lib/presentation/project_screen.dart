@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -287,6 +288,175 @@ class _ProjectScreenState extends State<ProjectScreen> {
     );
   }
 
+  /// Drag reorder for pointing devices, long-press reorder for touch, plus an
+  /// explicit menu so reordering is reachable without a drag gesture.
+  Widget _assetCard(int index) {
+    final asset = _project.assets[index];
+    final card = Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: _busy ? null : () => _view(asset),
+              child: SizedBox.expand(
+                child: LocalImage(
+                  repository: widget.service.assets,
+                  path: asset.thumbnailPath,
+                  cacheWidth: 320,
+                ),
+              ),
+            ),
+          ),
+          if (widget.service.imageEditor != null)
+            TextButton.icon(
+              onPressed: _busy ? null : () => _crop(asset),
+              icon: const Icon(Icons.crop),
+              label: const Text('قص وتصحيح'),
+            ),
+          ListTile(
+            dense: true,
+            title: Text(
+              asset.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              '${index + 1}/${_project.assets.length} · ${asset.width} × ${asset.height} px',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.ltr,
+            ),
+            trailing: PopupMenuButton<_AssetAction>(
+              tooltip: 'خيارات الصورة',
+              enabled: !_busy,
+              onSelected: (action) => switch (action) {
+                _AssetAction.replace => unawaited(_replace(asset)),
+                _AssetAction.moveUp => unawaited(_move(asset, index - 1)),
+                _AssetAction.moveDown => unawaited(_move(asset, index + 1)),
+                _AssetAction.remove => unawaited(_remove(asset)),
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: _AssetAction.replace,
+                  child: Text('استبدال الصورة بأخرى'),
+                ),
+                PopupMenuItem(
+                  value: _AssetAction.moveUp,
+                  enabled: index > 0,
+                  child: const Text('نقل إلى ترتيب أسبق'),
+                ),
+                PopupMenuItem(
+                  value: _AssetAction.moveDown,
+                  enabled: index + 1 < _project.assets.length,
+                  child: const Text('نقل إلى ترتيب لاحق'),
+                ),
+                const PopupMenuItem(
+                  value: _AssetAction.remove,
+                  child: Text('إزالة من قائمة الصور'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final draggable = _isDesktop
+        ? Draggable<String>(
+            data: asset.id,
+            feedback: _dragFeedback(asset),
+            child: card,
+          )
+        : LongPressDraggable<String>(
+            data: asset.id,
+            feedback: _dragFeedback(asset),
+            child: card,
+          );
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => !_busy && details.data != asset.id,
+      onAcceptWithDetails: (details) =>
+          unawaited(_moveToIndex(details.data, index)),
+      builder: (context, candidates, rejected) => Stack(
+        children: [
+          if (candidates.isNotEmpty)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          draggable,
+        ],
+      ),
+    );
+  }
+
+  Widget _dragFeedback(ImageAsset asset) => Material(
+    elevation: 4,
+    child: SizedBox(
+      width: 180,
+      height: 180,
+      child: LocalImage(
+        repository: widget.service.assets,
+        path: asset.thumbnailPath,
+        cacheWidth: 320,
+      ),
+    ),
+  );
+
+  Future<void> _moveToIndex(String assetId, int target) async {
+    if (_busy) {
+      return;
+    }
+    await _save(() => widget.service.moveAsset(_project, assetId, target));
+  }
+
+  Future<void> _move(ImageAsset asset, int target) async {
+    if (target < 0 || target >= _project.assets.length) {
+      return;
+    }
+    await _moveToIndex(asset.id, target);
+  }
+
+  Future<void> _replace(ImageAsset asset) async {
+    setState(() => _busy = true);
+    try {
+      final sources = await widget.pickImages();
+      if (sources.isEmpty || !mounted) {
+        return;
+      }
+      final report = await widget.service.replaceImage(
+        _project,
+        asset,
+        sources.first,
+      );
+      await widget.service.discardSources(sources.skip(1));
+      if (mounted) {
+        setState(() => _project = report.project);
+        showMessage(
+          context,
+          report.aspectChanged
+              ? 'استُبدلت الصورة. نسبة الأبعاد تغيّرت؛ راجع مقاس المستطيل في محرر A4 قبل التصدير.'
+              : 'استُبدلت الصورة، وبقيت مواضعها في ورقة A4 كما هي.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
@@ -299,13 +469,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
             onPressed: _busy ? null : _rename,
             icon: const Icon(Icons.edit_outlined),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: FilledButton.icon(
-              onPressed: _busy ? null : _import,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: const Text('إضافة صور'),
-            ),
+          AdaptableAction(
+            label: 'إضافة صور',
+            icon: Icons.add_photo_alternate_outlined,
+            onPressed: _busy ? null : _import,
           ),
         ],
       ),
@@ -399,51 +566,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
                     ),
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final asset = _project.assets[index];
-                      return Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: _busy ? null : () => _view(asset),
-                                child: SizedBox.expand(
-                                  child: LocalImage(
-                                    repository: widget.service.assets,
-                                    path: asset.thumbnailPath,
-                                    cacheWidth: 320,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (widget.service.imageEditor != null)
-                              TextButton.icon(
-                                onPressed: _busy ? null : () => _crop(asset),
-                                icon: const Icon(Icons.crop),
-                                label: const Text('قص وتصحيح'),
-                              ),
-                            ListTile(
-                              dense: true,
-                              title: Text(
-                                asset.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                '${asset.width} × ${asset.height} px',
-                                textDirection: TextDirection.ltr,
-                              ),
-                              trailing: IconButton(
-                                tooltip: 'إزالة الصورة',
-                                onPressed: _busy ? null : () => _remove(asset),
-                                icon: const Icon(Icons.close),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }, childCount: _project.assets.length),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _assetCard(index),
+                      childCount: _project.assets.length,
+                    ),
                   ),
                 ),
             ],
@@ -453,6 +579,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
     ),
   );
 }
+
+enum _AssetAction { replace, moveUp, moveDown, remove }
+
+/// Pointing devices drag immediately; touch keeps long-press so the grid still
+/// scrolls normally.
+bool get _isDesktop =>
+    Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
 class LocalImage extends StatefulWidget {
   const LocalImage({

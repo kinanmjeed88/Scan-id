@@ -56,6 +56,36 @@ class EmptyState extends StatelessWidget {
   );
 }
 
+/// A primary action that keeps its label on wide screens and collapses to an
+/// icon button with the same tooltip on phones, so an AppBar action row can
+/// never overflow a narrow layout.
+class AdaptableAction extends StatelessWidget {
+  const AdaptableAction({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    super.key,
+  });
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.sizeOf(context).width >= 600) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          label: Text(label),
+        ),
+      );
+    }
+    return IconButton(tooltip: label, onPressed: onPressed, icon: Icon(icon));
+  }
+}
+
 void showMessage(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(message), duration: const Duration(seconds: 6)),

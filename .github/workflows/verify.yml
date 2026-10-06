@@ -2,13 +2,15 @@ name: Scan ID verification
 on:
   pull_request:
   push:
-    branches: [arena/39620afb-scan-id]
+    branches: [searchidf, arena/39620afb-scan-id, arena/52df725b-scan-id]
   workflow_dispatch:
 env:
   PYTHONIOENCODING: utf-8
   PYTHONUTF8: 1
 permissions:
-  contents: read
+  # Write access exists only so a commit marked [format] can receive the real
+  # `dart format` output on its own branch; the report step never pushes.
+  contents: write
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
@@ -37,6 +39,12 @@ jobs:
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: SDK and target diagnostics
         run: flutter doctor -v
+      - name: Report formatter differences for review
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          SCAN_ID_FORMAT_COMMIT: ${{ contains(github.event.head_commit.message, '[format]') && '1' || '0' }}
+        run: python tool/format_report.py
       - name: Dart format gate
         run: python tool/ci_gate.py format dart format --output=none --set-exit-if-changed .
       - name: Flutter analyze

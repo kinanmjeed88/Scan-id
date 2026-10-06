@@ -7,6 +7,46 @@ import 'contracts.dart';
 import 'project_service.dart';
 
 const _documents = MethodChannel('iq.scanid/local_documents');
+
+/// Where generated files can be handed to another application, if anywhere.
+ShareTarget get shareTargetOnThisPlatform {
+  if (Platform.isAndroid) {
+    return ShareTarget.shareSheet;
+  }
+  if (Platform.isWindows) {
+    return ShareTarget.revealFolder;
+  }
+  return ShareTarget.none;
+}
+
+/// Hands generated files to the platform.
+///
+/// Android passes read-only content URIs to the system chooser; Windows reveals
+/// the files in the file manager instead of pretending to share them. Anything
+/// the platform refuses throws, so the caller can report it instead of claiming
+/// success.
+Future<bool> shareDocuments(List<String> paths, String mime) async {
+  if (paths.isEmpty) {
+    throw const StorageException('لا ملفات لمشاركتها.');
+  }
+  if (Platform.isAndroid) {
+    final accepted = await _documents.invokeMethod<bool>('share', {
+      'sources': paths,
+      'mime': mime,
+    });
+    return accepted ?? false;
+  }
+  if (Platform.isWindows) {
+    // explorer.exe reports exit code 1 after opening the window it was asked
+    // for, so both 0 and 1 mean the request was accepted.
+    final result = await Process.run('explorer.exe', ['/select,', paths.first]);
+    return result.exitCode == 0 || result.exitCode == 1;
+  }
+  throw const StorageException(
+    'لا تتوفر مشاركة على هذه المنصة؛ استخدم «تصدير الملفات».',
+  );
+}
+
 Future<bool> saveDocument(File source, String mime) async {
   final name = source.uri.pathSegments.last;
   if (Platform.isAndroid) {

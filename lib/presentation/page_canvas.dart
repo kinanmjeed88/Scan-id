@@ -34,6 +34,15 @@ class PageCanvas extends StatelessWidget {
   final VoidCallback? onDragEnd;
   final GlobalKey? pageKey;
   final bool showGuides;
+  String _itemLabel(DocumentItem item) {
+    for (final asset in project.assets) {
+      if (asset.id == item.assetId) {
+        return 'مستمسك: ${asset.name}';
+      }
+    }
+    return 'مستمسك بلا صورة';
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = project.items.where((e) => e.pageIndex == pageIndex).toList()
@@ -72,105 +81,122 @@ class PageCanvas extends StatelessWidget {
                   height: item.height * scale,
                   child: Transform.rotate(
                     angle: item.rotation * math.pi / 180,
-                    child: GestureDetector(
-                      key: Key('page-item-${item.id}'),
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onSelect == null ? null : () => onSelect!(item.id),
-                      onPanStart: onDragStart == null || item.locked
-                          ? null
-                          : (d) =>
-                                onDragStart!(item.id, d.globalPosition, false),
-                      onPanUpdate: onDragUpdate == null || item.locked
-                          ? null
-                          : (d) => onDragUpdate!(d.globalPosition),
-                      onPanEnd: onDragEnd == null || item.locked
-                          ? null
-                          : (_) => onDragEnd!(),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          // The user controls aspect locking. Fill reflects the exact chosen mm rectangle.
-                          FittedBox(
-                            fit: BoxFit.fill,
-                            child: SizedBox(
-                              width: project.assets
-                                  .firstWhere((a) => a.id == item.assetId)
-                                  .width
-                                  .toDouble(),
-                              height: project.assets
-                                  .firstWhere((a) => a.id == item.assetId)
-                                  .height
-                                  .toDouble(),
-                              child: LocalImage(
-                                repository: assets,
-                                path: highQuality
-                                    ? project.assets
-                                          .firstWhere(
-                                            (a) => a.id == item.assetId,
-                                          )
-                                          .workingPath
-                                    : project.assets
-                                          .firstWhere(
-                                            (a) => a.id == item.assetId,
-                                          )
-                                          .thumbnailPath,
-                                cacheWidth: highQuality ? 1800 : 320,
+                    child: Semantics(
+                      container: true,
+                      selected: selected.contains(item.id),
+                      label: _itemLabel(item),
+                      value:
+                          '${item.width.toStringAsFixed(0)} في ${item.height.toStringAsFixed(0)} مم، عند ${item.x.toStringAsFixed(0)} و${item.y.toStringAsFixed(0)} مم'
+                          '${item.locked ? '، مثبت' : ''}',
+                      child: GestureDetector(
+                        key: Key('page-item-${item.id}'),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onSelect == null
+                            ? null
+                            : () => onSelect!(item.id),
+                        onPanStart: onDragStart == null || item.locked
+                            ? null
+                            : (d) => onDragStart!(
+                                item.id,
+                                d.globalPosition,
+                                false,
                               ),
-                            ),
-                          ),
-                          if (selected.contains(item.id))
-                            IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: Colors.teal,
-                                    width: 2,
-                                  ),
+                        onPanUpdate: onDragUpdate == null || item.locked
+                            ? null
+                            : (d) => onDragUpdate!(d.globalPosition),
+                        onPanEnd: onDragEnd == null || item.locked
+                            ? null
+                            : (_) => onDragEnd!(),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // The user controls aspect locking. Fill reflects the exact chosen mm rectangle.
+                            FittedBox(
+                              fit: BoxFit.fill,
+                              child: SizedBox(
+                                width: project.assets
+                                    .firstWhere((a) => a.id == item.assetId)
+                                    .width
+                                    .toDouble(),
+                                height: project.assets
+                                    .firstWhere((a) => a.id == item.assetId)
+                                    .height
+                                    .toDouble(),
+                                child: LocalImage(
+                                  repository: assets,
+                                  path: highQuality
+                                      ? project.assets
+                                            .firstWhere(
+                                              (a) => a.id == item.assetId,
+                                            )
+                                            .workingPath
+                                      : project.assets
+                                            .firstWhere(
+                                              (a) => a.id == item.assetId,
+                                            )
+                                            .thumbnailPath,
+                                  cacheWidth: highQuality ? 1800 : 320,
                                 ),
                               ),
                             ),
-                          if (item.locked && showGuides)
-                            const Positioned(
-                              left: 2,
-                              top: 2,
-                              child: Icon(
-                                Icons.lock,
-                                size: 16,
-                                color: Colors.teal,
-                              ),
-                            ),
-                          if (selected.contains(item.id) &&
-                              !item.locked &&
-                              onDragStart != null)
-                            Positioned(
-                              right: 0,
-                              bottom: 0,
-                              child: GestureDetector(
-                                key: Key('resize-${item.id}'),
-                                behavior: HitTestBehavior.opaque,
-                                onPanStart: (d) => onDragStart!(
-                                  item.id,
-                                  d.globalPosition,
-                                  true,
-                                ),
-                                onPanUpdate: (d) =>
-                                    onDragUpdate!(d.globalPosition),
-                                onPanEnd: (_) => onDragEnd!(),
-                                child: const SizedBox(
-                                  width: 28,
-                                  height: 28,
-                                  child: ColoredBox(
-                                    color: Colors.teal,
-                                    child: Icon(
-                                      Icons.open_in_full,
-                                      size: 18,
-                                      color: Colors.white,
+                            if (selected.contains(item.id))
+                              IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: Colors.teal,
+                                      width: 2,
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                            if (item.locked && showGuides)
+                              const Positioned(
+                                left: 2,
+                                top: 2,
+                                child: Icon(
+                                  Icons.lock,
+                                  size: 16,
+                                  color: Colors.teal,
+                                ),
+                              ),
+                            if (selected.contains(item.id) &&
+                                !item.locked &&
+                                onDragStart != null)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: Semantics(
+                                  button: true,
+                                  label: 'مقبض تغيير حجم العنصر',
+                                  child: GestureDetector(
+                                    key: Key('resize-${item.id}'),
+                                    behavior: HitTestBehavior.opaque,
+                                    onPanStart: (d) => onDragStart!(
+                                      item.id,
+                                      d.globalPosition,
+                                      true,
+                                    ),
+                                    onPanUpdate: (d) =>
+                                        onDragUpdate!(d.globalPosition),
+                                    onPanEnd: (_) => onDragEnd!(),
+                                    child: const SizedBox(
+                                      width: 36,
+                                      height: 36,
+                                      child: ColoredBox(
+                                        color: Colors.teal,
+                                        child: Icon(
+                                          Icons.open_in_full,
+                                          size: 20,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

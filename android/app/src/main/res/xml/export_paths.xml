@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the dedicated export directory is shareable; the camera provider keeps
+     its own, separate capture directory. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="exports" path="scan-exports/" />
+</paths>

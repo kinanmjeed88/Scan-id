@@ -14,10 +14,16 @@ class PackingProposal {
 /// Deterministic MaxRects best-short-side fit, never a global optimum claim.
 /// Sizes never change. Gaps are reserved to the right/bottom of each bounding
 /// box, with an extra gap strip on the bin edge so border items still fit.
+///
+/// [onlyUnplaced] leaves every placed item exactly where the user put it and
+/// turns those items into obstacles, which is how a hand-made arrangement
+/// survives a later proposal. Without it the free arrangement is re-packed and
+/// only locked items are treated as immovable.
 PackingProposal proposePacking(
   Project project, {
   required bool includeLocked,
   required bool allowRotation,
+  bool onlyUnplaced = false,
   int pageIndex = 0,
 }) {
   require(
@@ -30,12 +36,16 @@ PackingProposal proposePacking(
   final changes = <String, DocumentItem>{};
 
   final fixed = project.items
-      .where((e) => e.pageIndex == pageIndex && e.locked && !includeLocked)
+      .where(
+        (e) =>
+            e.pageIndex == pageIndex &&
+            ((e.locked && !includeLocked) || onlyUnplaced),
+      )
       .toList();
   for (final item in fixed) {
     require(
       area.contains(item.bounds),
-      'عنصر مثبت خارج الهوامش؛ عدّل الورقة أو ألغِ تثبيته أولاً.',
+      'عنصر محفوظ الموضع خارج الهوامش؛ عدّل الورقة أو أعده داخل الحدود أولاً.',
     );
     final r = item.bounds;
     free = _subtract(free, RectMm(r.x, r.y, r.width + gx, r.height + gy));
@@ -47,7 +57,7 @@ PackingProposal proposePacking(
       final b = other.bounds;
       require(
         !_gapOverlap(a, b, gx, gy),
-        'العناصر المثبتة متداخلة أو لا تحترم الفجوات.',
+        'العناصر المحفوظة موضعياً متداخلة أو لا تحترم الفجوات المختارة.',
       );
     }
   }
@@ -55,7 +65,8 @@ PackingProposal proposePacking(
       .where(
         (e) =>
             (e.pageIndex == pageIndex || e.pageIndex == null) &&
-            (includeLocked || !e.locked),
+            (includeLocked || !e.locked) &&
+            (!onlyUnplaced || e.pageIndex == null),
       )
       .toList();
   if (project.layout.order == LayoutOrder.area) {

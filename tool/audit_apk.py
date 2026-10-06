@@ -29,7 +29,14 @@ if len(providers) != 1 or providers[0].get(android + 'exported') != 'false' or p
 paths = ET.parse('android/app/src/main/res/xml/capture_paths.xml').getroot()
 if len(paths) != 1 or paths[0].tag != 'files-path' or paths[0].get('path') != 'captures/':
     raise RuntimeError('Camera provider must expose only the private captures directory')
+exports = [node for node in application.findall('provider') if node.get(android + 'name', '').endswith('.ExportFileProvider')]
+if len(exports) != 1 or exports[0].get(android + 'exported') != 'false' or exports[0].get(android + 'grantUriPermissions') != 'true':
+    raise RuntimeError('Scoped, non-exported export provider missing from release APK')
+export_paths = ET.parse('android/app/src/main/res/xml/export_paths.xml').getroot()
+if len(export_paths) != 1 or export_paths[0].tag != 'cache-path' or export_paths[0].get('path') != 'scan-exports/':
+    raise RuntimeError('Export provider must expose only the generated export directory')
 print('Camera provider is non-exported with scoped URI grants; no CAMERA permission requested.')
+print('Export provider is non-exported and scoped to the generated-export directory only.')
 print('Release APK verified: no Internet or broad storage permissions; automatic backup disabled.')
 print('Declared permissions:', sorted(permissions))
 print('Minimum Android SDK:', subprocess.check_output(

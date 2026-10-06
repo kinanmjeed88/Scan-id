@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
@@ -55,6 +56,17 @@ void main() {
   tearDown(() async {
     await root.delete(recursive: true);
   });
+
+  /// Anything left behind inside the dedicated export directory.
+  Future<List<String>> leftovers() async {
+    final exports = Directory('${root.path}/$exportDirectoryName');
+    if (!await exports.exists()) {
+      return const [];
+    }
+    final entries = await exports.list().toList();
+    return [for (final entity in entries) entity.path];
+  }
+
   test(
     'export plan enforces placement and reports real source DPI without upscaling claims',
     () {
@@ -87,6 +99,16 @@ void main() {
       final result = await DocumentExporter(
         assets,
       ).generate(ExportPlan(project, ExportProfile()), root);
+      expect(
+        p.basename(result.files.single),
+        'مستمسكات العائلة.pdf',
+        reason: 'اسم الملف يحمل اسم المشروع',
+      );
+      expect(
+        p.split(result.files.single),
+        contains(exportDirectoryName),
+        reason: 'التصدير داخل المجلد المخصص للمشاركة فقط',
+      );
       final pdf = await File(result.files.single).readAsBytes();
       expect(String.fromCharCodes(pdf.take(5)), '%PDF-');
       expect(pdf.length, greaterThan(500));
@@ -109,6 +131,11 @@ void main() {
           assets,
         ).generate(ExportPlan(project, ExportProfile(format: format)), root);
         expect(result.files, hasLength(2));
+        expect(result.files.map(p.basename), [
+          'مستمسكات العائلة-صفحة-1.${format == ExportFormat.png ? 'png' : 'jpg'}',
+          'مستمسكات العائلة-صفحة-2.${format == ExportFormat.png ? 'png' : 'jpg'}',
+        ], reason: 'اسم لكل صفحة مع رقمها');
+        expect(result.files.toSet(), hasLength(2), reason: 'لا تعارض أسماء');
         for (var page = 0; page < 2; page++) {
           final bytes = await File(result.files[page]).readAsBytes();
           final image = img.decodeImage(bytes)!;
@@ -181,21 +208,7 @@ void main() {
         ).generate(ExportPlan(project, ExportProfile()), root),
         throwsA(isA<ValidationException>()),
       );
-      expect(
-        await root
-            .list()
-            .where(
-              (e) =>
-                  e is Directory &&
-                  e.path
-                      .split(Platform.pathSeparator)
-                      .last
-                      .startsWith('scan-export-') &&
-                  !e.path.endsWith(root.path),
-            )
-            .toList(),
-        isEmpty,
-      );
+      expect(await leftovers(), isEmpty, reason: 'لا بقايا بعد فشل التصدير');
       await source.delete();
       await expectLater(
         DocumentExporter(

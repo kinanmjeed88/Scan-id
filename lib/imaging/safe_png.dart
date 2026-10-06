@@ -165,7 +165,18 @@ Uint8List _safePng(Uint8List bytes) {
     offset = end;
   }
   require(ended, 'نهاية PNG مفقودة.');
-  return output.length == bytes.length ? bytes : output.takeBytes();
+  final clean = output.length == bytes.length ? bytes : output.takeBytes();
+  // image 4.5.4 consumes a filter byte for Adam7 passes with zero width.
+  // Normalize narrow images to standard non-interlaced PNG before that codec.
+  return interlace == 1 && header.width < 5
+      ? _deinterlaceNarrow(
+          clean,
+          header.width,
+          header.height,
+          channels * bits,
+          passes,
+        )
+      : clean;
 }
 
 class _Budget extends ByteConversionSinkBase {
@@ -197,4 +208,119 @@ int _crc(Uint8List bytes, int start, int end) {
     value = _table[(value ^ bytes[i]) & 255] ^ (value >>> 8);
   }
   return (value ^ 0xffffffff) & 0xffffffff;
+}
+
+Uint8List _chunk(String tag, Uint8List data) {
+  final bytes = Uint8List(data.length + 12);
+  final view = ByteData.sublistView(bytes);
+  view.setUint32(0, data.length);
+  bytes.setRange(4, 8, ascii.encode(tag));
+  bytes.setRange(8, 8 + data.length, data);
+  view.setUint32(bytes.length - 4, _crc(bytes, 4, bytes.length - 4));
+  return bytes;
+}
+
+/// Called only after CRC, dimensions and exact expanded size are validated.
+/// Output is a standards-compliant PNG; no invented empty-pass scanlines are
+/// fed to the codec, and the user's original is never rewritten.
+Uint8List _deinterlaceNarrow(
+  Uint8List bytes,
+  int width,
+  int height,
+  int depth,
+  List<List<int>> passes,
+) {
+  final packed = BytesBuilder(copy: false);
+  final result = BytesBuilder(copy: false)
+    ..add(Uint8List.sublistView(bytes, 0, 8));
+  final view = ByteData.sublistView(bytes);
+  for (var offset = 8; offset < bytes.length;) {
+    final size = view.getUint32(offset);
+    final tag = ascii.decode(
+      Uint8List.sublistView(bytes, offset + 4, offset + 8),
+    );
+    final data = Uint8List.sublistView(bytes, offset + 8, offset + 8 + size);
+    if (tag == 'IDAT') {
+      packed.add(data);
+    } else if (tag == 'IHDR') {
+      final header = Uint8List.fromList(data)..[12] = 0;
+      result.add(_chunk(tag, header));
+    } else if (tag != 'IEND') {
+      result.add(Uint8List.sublistView(bytes, offset, offset + size + 12));
+    }
+    offset += size + 12;
+  }
+  final raw = ZLibDecoder().convert(packed.takeBytes());
+  final stride = 1 + (width * depth + 7) ~/ 8;
+  final rows = Uint8List(height * stride);
+  final bpp = (depth + 7) ~/ 8;
+  var input = 0;
+  for (final pass in passes) {
+    final pw = width <= pass[0]
+        ? 0
+        : (width - pass[0] + pass[2] - 1) ~/ pass[2];
+    final ph = height <= pass[1]
+        ? 0
+        : (height - pass[1] + pass[3] - 1) ~/ pass[3];
+    if (pw == 0 || ph == 0) {
+      continue;
+    }
+    final rowBytes = (pw * depth + 7) ~/ 8;
+    var previous = Uint8List(rowBytes);
+    for (var y = 0; y < ph; y++) {
+      final filter = raw[input++];
+      require(filter <= 4, 'مرشح PNG غير صالح.');
+      final row = Uint8List.fromList(raw.sublist(input, input + rowBytes));
+      input += rowBytes;
+      for (var i = 0; i < rowBytes; i++) {
+        final a = i < bpp ? 0 : row[i - bpp];
+        final b = previous[i];
+        final c = i < bpp ? 0 : previous[i - bpp];
+        var prediction = 0;
+        if (filter == 1) {
+          prediction = a;
+        }
+        if (filter == 2) {
+          prediction = b;
+        }
+        if (filter == 3) {
+          prediction = (a + b) ~/ 2;
+        }
+        if (filter == 4) {
+          final p = a + b - c;
+          final da = (p - a).abs(), db = (p - b).abs(), dc = (p - c).abs();
+          prediction = da <= db && da <= dc
+              ? a
+              : db <= dc
+              ? b
+              : c;
+        }
+        row[i] = (row[i] + prediction) & 255;
+      }
+      final targetRow = (pass[1] + y * pass[3]) * stride + 1;
+      for (var x = 0; x < pw; x++) {
+        final targetX = pass[0] + x * pass[2];
+        if (depth < 8) {
+          final bit = x * depth;
+          final value =
+              (row[bit ~/ 8] >> (8 - depth - bit % 8)) & ((1 << depth) - 1);
+          final targetBit = targetX * depth;
+          rows[targetRow + targetBit ~/ 8] |=
+              value << (8 - depth - targetBit % 8);
+        } else {
+          rows.setRange(
+            targetRow + targetX * bpp,
+            targetRow + (targetX + 1) * bpp,
+            row,
+            x * bpp,
+          );
+        }
+      }
+      previous = row;
+    }
+  }
+  require(input == raw.length, 'بيانات Adam7 غير متطابقة.');
+  result.add(_chunk('IDAT', ZLibEncoder().convert(rows)));
+  result.add(_chunk('IEND', Uint8List(0)));
+  return result.takeBytes();
 }

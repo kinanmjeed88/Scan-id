@@ -39,6 +39,11 @@ void main() {
   test('valid Adam7 and 16-bit PNGs retain their pixel content', () {
     final a = decodeForProcessing(base64Decode(adam7));
     expect([a.width, a.height], [2, 2]);
+    expect(safePng(base64Decode(adam7))[28], 0);
+    expect(a.getPixel(0, 0).r, 255);
+    expect(a.getPixel(1, 1).r, 255);
+    expect(a.getPixel(1, 1).g, 255);
+    expect(a.getPixel(1, 1).b, 255);
     expect(a.getPixel(0, 1).g, 255);
     expect(a.getPixel(1, 0).b, 255);
     final b = decodeForProcessing(base64Decode(sixteenBit));

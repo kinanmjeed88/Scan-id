@@ -1,0 +1,137 @@
+name: Scan ID verification
+on:
+  pull_request:
+  push:
+    branches: [arena/39620afb-scan-id]
+  workflow_dispatch:
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: 1
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Generate native runners and resolve dependencies
+        shell: bash
+        run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
+      - name: SDK and target diagnostics
+        run: flutter doctor -v
+      - name: Dart format gate
+        run: python tool/ci_gate.py format dart format --output=none --set-exit-if-changed .
+      - name: Flutter analyze
+        run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
+      - name: Cache Linux test engine before network isolation
+        if: runner.os == 'Linux'
+        run: flutter precache --linux
+      - name: Flutter tests offline on Linux
+        if: runner.os == 'Linux'
+        run: python tool/ci_gate.py test python tool/offline_tests.py
+      - name: Flutter tests on Windows
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py test flutter test --coverage --reporter expanded
+      - name: Independent export audit dependencies
+        if: runner.os == 'Linux'
+        run: python -m pip install PyMuPDF==1.26.5 Pillow==11.3.0
+      - name: Independently validate exported documents
+        if: runner.os == 'Linux'
+        run: python tool/ci_gate.py export-audit python tool/verify_exports.py
+      - name: Build Android release (development signing, not distribution)
+        if: runner.os == 'Linux'
+        run: python tool/ci_gate.py android-build flutter build apk --release
+      - name: Build Windows release
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Audit built APK privacy configuration
+        if: runner.os == 'Linux'
+        run: python tool/ci_gate.py apk-privacy python tool/audit_apk.py
+      - name: Verify PDFium binary provenance and licenses
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py pdfium-audit python tool/audit_pdfium.py
+      - name: Windows release startup smoke
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py windows-smoke pwsh -File tool/windows_smoke.ps1
+      - name: Retain generated source for review
+        if: always()
+        run: python tool/ci_evidence.py 0
+      - name: Generated source evidence part 2
+        if: always()
+        run: python tool/ci_evidence.py 1
+      - name: Generated source evidence part 3
+        if: always()
+        run: python tool/ci_evidence.py 2
+      - name: Preserve evidence and resolved lockfile
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: verification-${{ runner.os }}
+          path: |
+            coverage/lcov.info
+            pubspec.lock
+            diagnostics/
+          if-no-files-found: warn
+      - name: Android development artifact
+        if: success() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-development-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+      - name: Windows unsigned portable artifact
+        if: success() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-unsigned-portable
+          path: build/windows/x64/runner/Release/
+
+  android-startup:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-development-release
+          path: android-package
+      - name: Enable hardware virtualization access
+        run: |
+          sudo chmod 666 /dev/kvm
+      - name: Android emulator offline startup
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
+          script: python tool/ci_gate.py android-smoke python tool/android_smoke.py
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: android-emulator-startup-proof
+          path: diagnostics/

@@ -56,7 +56,9 @@ class ExportPlan {
         );
       }
     }
-    if (inspectLayout(project).isNotEmpty) {
+    if (inspectLayout(project).any(
+      (issue) => project.items.any((e) => e.id == issue.itemId && includes(e)),
+    )) {
       result.add('يوجد تراكب بين عناصر؛ راجع أن ذلك مقصود.');
     }
     return result;

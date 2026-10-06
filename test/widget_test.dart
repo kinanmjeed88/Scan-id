@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:scan_id/presentation/export_screen.dart';
 import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 import 'dart:typed_data';
@@ -18,6 +19,44 @@ import 'package:scan_id/presentation/app.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
+  testWidgets(
+    'export requires renewed preview approval after settings change',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final p = projectFixture(
+        assets: [assetFixture()],
+        items: [itemFixture().copyWith(x: 50, y: 50)],
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: ExportScreen(
+            project: p,
+            service: ProjectService(_MemoryProjects(), _NoAssets()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final export = find.widgetWithText(FilledButton, 'تصدير الملفات');
+      expect(tester.widget<FilledButton>(export).onPressed, isNull);
+      await tester.ensureVisible(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(export).onPressed, isNotNull);
+      final format = find.byType(DropdownButton<ExportFormat>);
+      await tester.ensureVisible(format);
+      await tester.pumpAndSettle();
+      await tester.tap(format);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('PNG').last);
+      await tester.pumpAndSettle();
+      expect(tester.widget<FilledButton>(export).onPressed, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'packing proposal rejection writes nothing and acceptance remains undoable',
     (tester) async {

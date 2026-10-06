@@ -477,6 +477,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       builder: (_) => ExportScreen(
                         project: _session.current,
                         service: widget.service,
+                        onProfile: (profile) async {
+                          await _session.apply(
+                            (p) => p.copyWith(exportProfile: profile),
+                          );
+                          if (mounted) {
+                            setState(() {});
+                          }
+                        },
                       ),
                     ),
                   ),

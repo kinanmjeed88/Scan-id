@@ -58,6 +58,18 @@ add_subdirectory("runner")
 # Pinned, reviewed PDFium build instead of printing's historical default 5200.
 set(PDFIUM_VERSION "8086" CACHE STRING "PDFium revision" FORCE)
 include(flutter/generated_plugins.cmake)
+# Verify the retained download before compiling/linking any of its contents.
+file(GLOB_RECURSE SCAN_ID_PDFIUM_ARCHIVES "${CMAKE_BINARY_DIR}/*pdfium-win-x64.tgz")
+if(NOT SCAN_ID_PDFIUM_ARCHIVES)
+  message(FATAL_ERROR "Cannot verify the pinned x64 PDFium archive")
+endif()
+foreach(archive ${SCAN_ID_PDFIUM_ARCHIVES})
+  file(SHA256 "${archive}" archive_sha256)
+  if(NOT archive_sha256 STREQUAL "1fd8af952832dbb0eb16d9249f68fe09e5f5ebf7c3dd9f6066ea2720cc28487d")
+    message(FATAL_ERROR "PDFium archive SHA256 mismatch")
+  endif()
+endforeach()
+
 
 
 # === Installation ===

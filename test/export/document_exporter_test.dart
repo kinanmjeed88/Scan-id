@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/domain/export_plan.dart';
@@ -93,6 +94,10 @@ void main() {
       expect(project.toJson(), before);
       await Directory('diagnostics').create(recursive: true);
       await File(result.files.single).copy('diagnostics/export-proof.pdf');
+      final high = await DocumentExporter(
+        assets,
+      ).generate(ExportPlan(project, ExportProfile(dpi: 600)), root);
+      await File(high.files.single).copy('diagnostics/export-proof-600.pdf');
     },
   );
   test(
@@ -151,6 +156,17 @@ void main() {
       expect(ExportPlan(project, ExportProfile(dpi: 600)).pixelWidth, 4961);
       expect(ExportPlan(project, ExportProfile(dpi: 600)).pixelHeight, 7016);
       await File(result.files.single).copy('diagnostics/export-proof-600.png');
+      final jpeg = await DocumentExporter(assets).generate(
+        ExportPlan(
+          p,
+          ExportProfile(format: ExportFormat.jpg, dpi: 600),
+          pages: [0],
+        ),
+        root,
+      );
+      final jpgBytes = await File(jpeg.files.single).readAsBytes();
+      expect(ByteData.sublistView(jpgBytes).getUint16(14), 600);
+      await File(jpeg.files.single).copy('diagnostics/export-proof-600.jpg');
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

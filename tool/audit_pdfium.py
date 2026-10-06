@@ -12,4 +12,5 @@ for archive in archives:
 notices = Path('build/windows/x64/runner/Release/data/pdfium-licenses')
 if not any(p.is_file() and p.stat().st_size > 0 for p in notices.rglob('*')):
     raise RuntimeError('PDFium license notices were not packaged')
+print('Packaged notices:', ', '.join(sorted(str(p.relative_to(notices)) for p in notices.rglob('*') if p.is_file())))
 print('PDFium chromium/8086 archive SHA256 verified; license notices packaged with Windows.')

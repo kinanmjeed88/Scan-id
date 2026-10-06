@@ -7,16 +7,23 @@ import '../domain/project.dart';
 import 'page_canvas.dart';
 
 class ExportScreen extends StatefulWidget {
-  const ExportScreen({required this.project, required this.service, super.key});
+  const ExportScreen({
+    required this.project,
+    required this.service,
+    this.onProfile,
+    super.key,
+  });
   final Project project;
   final ProjectService service;
+  final Future<void> Function(ExportProfile)? onProfile;
   @override
   State<ExportScreen> createState() => _ExportScreenState();
 }
 
 class _ExportScreenState extends State<ExportScreen> {
-  ExportFormat _format = ExportFormat.pdf;
-  int _dpi = 300, _page = 0;
+  late ExportFormat _format = widget.project.exportProfile.format;
+  late int _dpi = widget.project.exportProfile.dpi;
+  int _page = 0;
   bool _busy = false, _reviewed = false;
   String? _message;
   int _first = 0;
@@ -32,9 +39,11 @@ class _ExportScreenState extends State<ExportScreen> {
       _message = null;
     });
     try {
+      final plan = _plan;
+      await widget.onProfile?.call(plan.profile);
       final message = await OutputService.native(
         widget.service.assets,
-      ).output(_plan, print: print);
+      ).output(plan, print: print);
       if (mounted) setState(() => _message = message);
     } catch (e) {
       if (mounted) setState(() => _message = userError(e));

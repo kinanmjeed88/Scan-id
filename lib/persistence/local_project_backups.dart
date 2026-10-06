@@ -267,14 +267,10 @@ void _backupPath(String name, String projectId) {
     name.startsWith('projects/$projectId/assets/'),
     'ملف خارج نطاق صور المشروع.',
   );
-  final reserved = RegExp(
-    r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$',
-    caseSensitive: false,
-  );
   require(
     name
         .split('/')
-        .every((part) => !part.endsWith('.') && !reserved.hasMatch(part)),
+        .every((part) => !part.endsWith('.') && !isReservedWindowsName(part)),
     'مسار غير محمول أو اسم جهاز Windows محجوز.',
   );
 }

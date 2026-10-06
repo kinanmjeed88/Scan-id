@@ -1,4 +1,5 @@
 import 'export_plan.dart';
+import 'validation.dart';
 
 /// Readable, deterministic and platform-safe file names for one export.
 ///
@@ -19,34 +20,6 @@ class ExportNames {
 /// Longest base name kept before the page suffix; short enough for the Android
 /// document provider and for Windows path-length limits.
 const _maximumBase = 60;
-
-/// Names Windows refuses regardless of extension. A project named "con" must
-/// still produce a writable file.
-const _reservedNames = {
-  'con',
-  'prn',
-  'aux',
-  'nul',
-  'clock$',
-  'com1',
-  'com2',
-  'com3',
-  'com4',
-  'com5',
-  'com6',
-  'com7',
-  'com8',
-  'com9',
-  'lpt1',
-  'lpt2',
-  'lpt3',
-  'lpt4',
-  'lpt5',
-  'lpt6',
-  'lpt7',
-  'lpt8',
-  'lpt9',
-};
 
 /// Strips everything a file name cannot safely carry and returns a usable stem.
 String exportBaseName(String projectName) {
@@ -70,7 +43,8 @@ String exportBaseName(String projectName) {
   if (name.isEmpty) {
     name = 'مستمسكات';
   }
-  if (_reservedNames.contains(name.toLowerCase())) {
+  // A project named "con" or "nul" must still produce a writable file.
+  if (isReservedWindowsName(name)) {
     name = '_$name';
   }
   return name;

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/export_naming.dart';
 import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/validation.dart';
 import '../fixtures.dart';
 
 void main() {
@@ -55,8 +56,12 @@ void main() {
   test('reserved Windows device names never reach the file system', () {
     for (final reserved in ['con', 'CON', 'Prn', 'nul', 'COM1', 'lpt9']) {
       expect(exportBaseName(reserved), '_$reserved');
+      // One shared rule also covers the extension form used by backups.
+      expect(isReservedWindowsName('$reserved.txt'), isTrue);
     }
+    expect(exportBaseName('clock\$'), '_clock\$');
     expect(exportBaseName('console'), 'console');
+    expect(isReservedWindowsName('console'), isFalse);
   });
 
   test('a very long name is shortened without splitting a character', () {

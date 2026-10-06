@@ -12,6 +12,7 @@ class PageCanvas extends StatelessWidget {
     required this.assets,
     required this.scale,
     this.selected = const {},
+    this.pageIndex = 0,
     this.onSelect,
     this.onDragStart,
     this.onDragUpdate,
@@ -23,6 +24,7 @@ class PageCanvas extends StatelessWidget {
   final Project project;
   final AssetRepository assets;
   final double scale;
+  final int pageIndex;
   final Set<String> selected;
   final void Function(String)? onSelect;
   final void Function(String, Offset, bool)? onDragStart;
@@ -32,7 +34,7 @@ class PageCanvas extends StatelessWidget {
   final bool showGuides;
   @override
   Widget build(BuildContext context) {
-    final items = [...project.items]
+    final items = project.items.where((e) => e.pageIndex == pageIndex).toList()
       ..sort((a, b) => a.zIndex.compareTo(b.zIndex));
     final area = project.paper.printable;
     return Directionality(

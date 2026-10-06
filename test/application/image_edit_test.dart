@@ -129,16 +129,19 @@ void main() {
     },
   );
   test(
-    'schema one migrates in memory with neutral adjustments; next save writes version two',
+    'schema one migrates in memory with neutral adjustments; next save writes current schema',
     () async {
       final old = projectFixture().toJson()..['schemaVersion'] = 1;
       final migrated = Project.fromJson(old);
-      expect(migrated.toJson()['schemaVersion'], 2);
+      expect(migrated.toJson()['schemaVersion'], Project.schemaVersion);
       final assetJson = assetFixture().toJson()..remove('adjustments');
       expect(ImageAsset.fromJson(assetJson).adjustments.brightness, 0);
       expect(ImageAsset.fromJson(assetJson).adjustments.contrast, 1);
       final created = await projects.create(migrated);
-      expect((await projects.get(created.id)).toJson()['schemaVersion'], 2);
+      expect(
+        (await projects.get(created.id)).toJson()['schemaVersion'],
+        Project.schemaVersion,
+      );
       expect(
         old['schemaVersion'],
         1,

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:scan_id/application/packing_service.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/contracts.dart';
@@ -19,6 +20,20 @@ void main() {
     await repo.close();
     await directory.delete(recursive: true);
   });
+  test(
+    'packing isolate returns metadata without committing or touching images',
+    () async {
+      final p = await repo.create(projectFixture());
+      final result = await createPackingProposal(
+        p,
+        includeLocked: false,
+        allowRotation: true,
+        pageIndex: 0,
+      );
+      expect(result.result.toJson(), p.toJson());
+      expect((await repo.get(p.id)).revision, 0);
+    },
+  );
   test(
     'every command undo and redo commits a revision and reopens physical layout',
     () async {

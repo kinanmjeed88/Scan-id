@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../application/ids.dart';
+import '../application/packing_service.dart';
+import '../domain/packing.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
 import '../domain/page_layout.dart';
@@ -9,9 +11,15 @@ import '../domain/validation.dart';
 import 'page_canvas.dart';
 
 class LayoutScreen extends StatefulWidget {
-  const LayoutScreen({required this.project, required this.service, super.key});
+  const LayoutScreen({
+    required this.project,
+    required this.service,
+    this.proposeLayout = createPackingProposal,
+    super.key,
+  });
   final Project project;
   final ProjectService service;
+  final PackingProposer proposeLayout;
   @override
   State<LayoutScreen> createState() => _LayoutScreenState();
 }
@@ -28,6 +36,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   Offset? _dragStart;
   bool _resizing = false;
   double _scale = 1;
+  int _page = 0;
   Project get _project => _dragPreview ?? _session.current;
   DocumentItem? get _active => _selected.isEmpty
       ? null
@@ -52,6 +61,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
       if (mounted) {
         setState(() {
           _busy = false;
+          _page = math.min(_page, _session.current.pageCount - 1);
           _selected.removeWhere(
             (id) => !_session.current.items.any((e) => e.id == id),
           );
@@ -126,6 +136,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
       context,
       'المقاسات الفعلية للمستمسك',
       {
+        'الصفحة (0 لغير الموضوعة)': (_page + 1).toDouble(),
         'العرض مم': 80,
         'الارتفاع مم': 80 * asset.height / asset.width,
         'س مم': p.paper.margins.left,
@@ -142,6 +153,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
         DocumentItem(
           id: id,
           assetId: asset.id,
+          pageIndex: _pageNumber(
+            values['الصفحة (0 لغير الموضوعة)']!,
+            p.pageCount,
+          ),
           x: values['س مم']!,
           y: values['ص مم']!,
           width: values['العرض مم']!,
@@ -165,6 +180,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
       context,
       'خصائص العنصر',
       {
+        'الصفحة (0 لغير الموضوعة)': ((e.pageIndex ?? -1) + 1).toDouble(),
         'س مم': e.x,
         'ص مم': e.y,
         'العرض مم': e.width,
@@ -172,18 +188,20 @@ class _LayoutScreenState extends State<LayoutScreen> {
         'الزاوية °': e.rotation,
       },
       notice: e.keepAspectRatio
-          ? 'النسبة مثبتة: تغيير العرض يحدد الارتفاع تلقائياً.'
+          ? 'النسبة مثبتة: تغيير أحد البعدين يضبط الآخر؛ عند تغيير كليهما يُعتمد العرض.'
           : 'تنبيه: تغيير النسبة قد يشوّه النصوص والوجوه.',
     );
     if (v == null || !mounted) return;
     await _apply(
       (p) => PageLayout.replace(
         p,
-        PageLayout.resize(
-          e,
-          v['العرض مم']!,
-          v['الارتفاع مم']!,
-        ).copyWith(x: v['س مم'], y: v['ص مم'], rotation: v['الزاوية °']),
+        PageLayout.resize(e, v['العرض مم']!, v['الارتفاع مم']!).copyWith(
+          x: v['س مم'],
+          y: v['ص مم'],
+          rotation: v['الزاوية °'],
+          pageIndex: _pageNumber(v['الصفحة (0 لغير الموضوعة)']!, p.pageCount),
+          unplaced: v['الصفحة (0 لغير الموضوعة)'] == 0,
+        ),
         allowOverlap: _overlap,
       ),
     );
@@ -222,6 +240,103 @@ class _LayoutScreenState extends State<LayoutScreen> {
         allowOverlap: _overlap,
       ),
     );
+  }
+
+  int? _pageNumber(double value, int count) {
+    require(
+      value == value.roundToDouble() && value >= 0 && value <= count,
+      'رقم الصفحة غير صالح.',
+    );
+    return value == 0 ? null : value.toInt() - 1;
+  }
+
+  Future<void> _pack() async {
+    final options = await showDialog<(bool, bool)>(
+      context: context,
+      builder: (_) => const _PackingOptions(),
+    );
+    if (options == null || !mounted) return;
+    PackingProposal? proposal;
+    await _run(() async {
+      proposal = await widget.proposeLayout(
+        _session.current,
+        includeLocked: options.$1,
+        allowRotation: options.$2,
+        pageIndex: _page,
+      );
+    });
+    if (proposal == null || !mounted) return;
+    final candidate = proposal!;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('مراجعة اقتراح الترتيب'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'لم يُحفظ الاقتراح. الاعتماد يغيّر المواضع الحالية؛ يمكن التراجع عنه وتعديله يدوياً. لا ضمان لترتيب أمثل.',
+                ),
+                Text('غير موضوعة: ${candidate.unplaced.length}'),
+                for (final id in candidate.unplaced)
+                  Text(
+                    candidate.result.assets
+                        .firstWhere(
+                          (a) =>
+                              a.id ==
+                              PageLayout.item(candidate.result, id).assetId,
+                        )
+                        .name,
+                  ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 340,
+                  child: LayoutBuilder(
+                    builder: (_, box) {
+                      final scale = PageViewport(
+                        candidate.result.paper,
+                        box.maxWidth,
+                        box.maxHeight,
+                      ).scale;
+                      return Center(
+                        child: PageCanvas(
+                          project: candidate.result,
+                          assets: widget.service.assets,
+                          scale: scale,
+                          pageIndex: _page,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('رفض الاقتراح'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('اعتماد ومتابعة التحرير'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && mounted) {
+      await _apply((p) {
+        require(
+          p.revision == candidate.original.revision,
+          'تغير المشروع؛ أنشئ اقتراحاً جديداً.',
+        );
+        return candidate.result;
+      });
+    }
   }
 
   @override
@@ -271,7 +386,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
           Padding(
             padding: const EdgeInsets.all(8),
             child: Text(
-              '${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
+              'صفحة ${_page + 1}/${_project.pageCount} · ${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
             ),
           ),
           Expanded(
@@ -325,6 +440,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 }),
                 child: PageCanvas(
                   project: _project,
+                  pageIndex: _page,
                   assets: widget.service.assets,
                   scale: _scale,
                   pageKey: _pageKey,
@@ -352,6 +468,53 @@ class _LayoutScreenState extends State<LayoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          DropdownButton<int>(
+            isExpanded: true,
+            value: _page,
+            items: [
+              for (var i = 0; i < _project.pageCount; i++)
+                DropdownMenuItem(value: i, child: Text('الصفحة ${i + 1}')),
+            ],
+            onChanged: _busy
+                ? null
+                : (v) => setState(() {
+                    _page = v!;
+                    _selected.clear();
+                    _view.value = Matrix4.identity();
+                  }),
+          ),
+          OutlinedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    await _apply((p) => p.copyWith(pageCount: p.pageCount + 1));
+                    if (mounted)
+                      setState(() => _page = _session.current.pageCount - 1);
+                  },
+            child: const Text('إضافة صفحة A4'),
+          ),
+          CheckboxListTile(
+            title: const Text('ترتيب الأكبر أولاً'),
+            value: _project.layout.order == LayoutOrder.area,
+            onChanged: _busy
+                ? null
+                : (v) => _apply(
+                    (p) => p.copyWith(
+                      layout: LayoutSettings(
+                        horizontalGap: p.layout.horizontalGap,
+                        verticalGap: p.layout.verticalGap,
+                        allowRotation: p.layout.allowRotation,
+                        order: v! ? LayoutOrder.area : LayoutOrder.input,
+                      ),
+                    ),
+                  ),
+          ),
+          OutlinedButton.icon(
+            key: const Key('packing-proposal'),
+            onPressed: _busy || _project.items.isEmpty ? null : _pack,
+            icon: const Icon(Icons.auto_awesome_mosaic),
+            label: const Text('اقتراح ترتيب'),
+          ),
           SwitchListTile(
             key: const Key('workspace-pan'),
             title: const Text('تكبير وتحريك مساحة العمل'),
@@ -423,10 +586,12 @@ class _LayoutScreenState extends State<LayoutScreen> {
           Wrap(
             spacing: 4,
             children: [
-              for (final item in _project.items)
+              for (final item in _project.items.where(
+                (e) => e.pageIndex == _page || e.pageIndex == null,
+              ))
                 FilterChip(
                   label: Text(
-                    '${_project.items.indexOf(item) + 1}${item.locked ? ' 🔒' : ''}',
+                    '${_project.items.indexOf(item) + 1}${item.pageIndex == null ? ' غير موضوع' : ''}${item.locked ? ' 🔒' : ''}',
                   ),
                   selected: _selected.contains(item.id),
                   onSelected: _busy
@@ -649,7 +814,10 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
               }
               final v = double.tryParse(text);
               require(v != null && v.isFinite, 'أدخل أرقاماً صالحة.');
-              values[e.key] = v!;
+              values[e.key] =
+                  e.value.text == widget.values[e.key]!.toStringAsFixed(2)
+                  ? widget.values[e.key]!
+                  : v!;
             }
             Navigator.pop(context, values);
           } catch (e) {
@@ -657,6 +825,49 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
           }
         },
         child: const Text('حفظ المقاسات'),
+      ),
+    ],
+  );
+}
+
+class _PackingOptions extends StatefulWidget {
+  const _PackingOptions();
+  @override
+  State<_PackingOptions> createState() => _PackingOptionsState();
+}
+
+class _PackingOptionsState extends State<_PackingOptions> {
+  bool _all = false, _rotate = false;
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('نطاق الاقتراح'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'سيعاد ترتيب عناصر الصفحة والقائمة غير الموضوعة. لا تتغير المقاسات. لن يُحفظ شيء قبل مراجعة الاقتراح.',
+        ),
+        CheckboxListTile(
+          title: const Text('جميع العناصر بما فيها المثبتة'),
+          subtitle: const Text('دون التحديد: غير المثبتة فقط'),
+          value: _all,
+          onChanged: (v) => setState(() => _all = v!),
+        ),
+        CheckboxListTile(
+          title: const Text('السماح بإضافة دوران 90°'),
+          value: _rotate,
+          onChanged: (v) => setState(() => _rotate = v!),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('إلغاء'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, (_all, _rotate)),
+        child: const Text('إنشاء الاقتراح'),
       ),
     ],
   );

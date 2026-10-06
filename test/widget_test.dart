@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 import 'dart:typed_data';
 
@@ -17,6 +18,71 @@ import 'package:scan_id/presentation/app.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
+  testWidgets(
+    'packing proposal rejection writes nothing and acceptance remains undoable',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final p = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [
+            DocumentItem(
+              id: 'one',
+              assetId: 'asset1',
+              x: 50,
+              y: 50,
+              width: 60,
+              height: 40,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(
+            project: p,
+            service: ProjectService(repository, _NoAssets()),
+            proposeLayout:
+                (
+                  project, {
+                  required includeLocked,
+                  required allowRotation,
+                  required pageIndex,
+                }) async => proposePacking(
+                  project,
+                  includeLocked: includeLocked,
+                  allowRotation: allowRotation,
+                  pageIndex: pageIndex,
+                ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final approve in [false, true]) {
+        await tester.ensureVisible(find.byKey(const Key('packing-proposal')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('packing-proposal')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('إنشاء الاقتراح'));
+        await tester.pumpAndSettle();
+        expect(repository.values[p.id]!.revision, 0);
+        await tester.tap(
+          find.text(approve ? 'اعتماد ومتابعة التحرير' : 'رفض الاقتراح'),
+        );
+        await tester.pumpAndSettle();
+        expect(repository.values[p.id]!.revision, approve ? 1 : 0);
+      }
+      expect(repository.values[p.id]!.items.single.x, 10);
+      await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.items.single.x, 50);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'A4 drag and resize commit mm, undo restores, workspace mode never moves items',
     (tester) async {

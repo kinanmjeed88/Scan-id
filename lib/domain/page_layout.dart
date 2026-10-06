@@ -31,11 +31,13 @@ List<LayoutIssue> inspectLayout(Project project) {
   final issues = <LayoutIssue>[];
   for (var i = 0; i < project.items.length; i++) {
     final item = project.items[i];
+    if (item.pageIndex == null) continue;
     if (!project.paper.printable.contains(item.bounds)) {
       issues.add(LayoutIssue(item.id, 'عنصر خارج حدود الطباعة'));
     }
     for (final other in project.items.take(i)) {
-      if (item.bounds.overlaps(other.bounds)) {
+      if (item.pageIndex == other.pageIndex &&
+          item.bounds.overlaps(other.bounds)) {
         issues.add(LayoutIssue(item.id, 'تداخل مع العنصر ${other.id}'));
       }
     }
@@ -63,6 +65,7 @@ class PageLayout {
 
   static Project checked(Project p, {bool allowOverlap = false}) {
     for (final e in p.items) {
+      if (e.pageIndex == null) continue;
       require(
         p.paper.printable.contains(e.bounds),
         'العنصر خارج حدود الطباعة؛ عدّل الموضع أو المقاس.',
@@ -102,8 +105,12 @@ class PageLayout {
 
   static DocumentItem resize(DocumentItem e, double width, double height) =>
       e.copyWith(
-        width: width,
-        height: e.keepAspectRatio ? width * e.height / e.width : height,
+        width: e.keepAspectRatio && width == e.width
+            ? height * e.width / e.height
+            : width,
+        height: e.keepAspectRatio && width != e.width
+            ? width * e.height / e.width
+            : height,
       );
   static Project lock(Project p, String id, bool locked) => p.copyWith(
     items: [
@@ -156,6 +163,11 @@ class PageLayout {
     bool allowOverlap = false,
   }) {
     final selected = p.items.where((e) => ids.contains(e.id)).toList();
+    require(
+      selected.every((e) => e.pageIndex != null) &&
+          selected.map((e) => e.pageIndex).toSet().length == 1,
+      'حدد عناصر من صفحة واحدة.',
+    );
     require(selected.length >= 3, 'حدد ثلاثة عناصر على الأقل للتوزيع.');
     require(
       selected.every((e) => !e.locked),

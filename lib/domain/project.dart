@@ -230,10 +230,13 @@ class DocumentItem {
     required this.width,
     required this.height,
     this.rotation = 0,
+    this.pageIndex = 0,
     this.zIndex = 0,
     this.locked = false,
     this.keepAspectRatio = true,
   }) {
+    final page = pageIndex;
+    require(page == null || (page >= 0 && page < 100), 'رقم الصفحة غير صالح.');
     validId(id);
     validId(assetId);
     require(
@@ -254,6 +257,7 @@ class DocumentItem {
   }
   final String id;
   final String assetId;
+  final int? pageIndex;
   final double x;
   final double y;
   final double width;
@@ -266,6 +270,8 @@ class DocumentItem {
 
   DocumentItem copyWith({
     String? id,
+    int? pageIndex,
+    bool unplaced = false,
     double? x,
     double? y,
     double? width,
@@ -276,6 +282,7 @@ class DocumentItem {
     bool? keepAspectRatio,
   }) => DocumentItem(
     id: id ?? this.id,
+    pageIndex: unplaced ? null : (pageIndex ?? this.pageIndex),
     assetId: assetId,
     x: x ?? this.x,
     y: y ?? this.y,
@@ -290,6 +297,7 @@ class DocumentItem {
   Map<String, Object?> toJson() => {
     'id': id,
     'assetId': assetId,
+    'pageIndex': pageIndex,
     'x': x,
     'y': y,
     'width': width,
@@ -303,6 +311,11 @@ class DocumentItem {
     final m = objectMap(json);
     return DocumentItem(
       id: text(m['id'], 'id'),
+      pageIndex: !m.containsKey('pageIndex')
+          ? 0
+          : m['pageIndex'] == null
+          ? null
+          : integer(m['pageIndex'], 'pageIndex'),
       assetId: text(m['assetId'], 'assetId'),
       x: finiteNumber(m['x'], 'x'),
       y: finiteNumber(m['y'], 'y'),
@@ -323,6 +336,7 @@ class Project {
     required this.createdAt,
     required this.updatedAt,
     this.revision = 0,
+    this.pageCount = 1,
     PaperSettings? paper,
     LayoutSettings? layout,
     ExportProfile? exportProfile,
@@ -333,6 +347,11 @@ class Project {
        exportProfile = exportProfile ?? ExportProfile(),
        assets = List.unmodifiable(assets),
        items = List.unmodifiable(items) {
+    require(pageCount > 0 && pageCount <= 100, 'عدد الصفحات غير صالح.');
+    require(
+      items.every((i) => i.pageIndex == null || i.pageIndex! < pageCount),
+      'عنصر يشير إلى صفحة غير موجودة.',
+    );
     validId(id);
     validName(name);
     require(revision >= 0, 'رقم مراجعة المشروع غير صالح.');
@@ -363,12 +382,13 @@ class Project {
       );
     }
   }
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
   final String id;
   final String name;
   final DateTime createdAt;
   final DateTime updatedAt;
   final int revision;
+  final int pageCount;
   final PaperSettings paper;
   final LayoutSettings layout;
   final ExportProfile exportProfile;
@@ -379,6 +399,7 @@ class Project {
     String? name,
     DateTime? updatedAt,
     int? revision,
+    int? pageCount,
     PaperSettings? paper,
     LayoutSettings? layout,
     ExportProfile? exportProfile,
@@ -390,6 +411,7 @@ class Project {
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     revision: revision ?? this.revision,
+    pageCount: pageCount ?? this.pageCount,
     paper: paper ?? this.paper,
     layout: layout ?? this.layout,
     exportProfile: exportProfile ?? this.exportProfile,
@@ -404,6 +426,7 @@ class Project {
     'createdAt': createdAt.toUtc().toIso8601String(),
     'updatedAt': updatedAt.toUtc().toIso8601String(),
     'revision': revision,
+    'pageCount': pageCount,
     'paper': paper.toJson(),
     'layout': layout.toJson(),
     'exportProfile': exportProfile.toJson(),
@@ -413,7 +436,11 @@ class Project {
   factory Project.fromJson(Object? json) {
     final m = objectMap(json);
     require(
-      [1, schemaVersion].contains(integer(m['schemaVersion'], 'schemaVersion')),
+      [
+        1,
+        2,
+        schemaVersion,
+      ].contains(integer(m['schemaVersion'], 'schemaVersion')),
       'إصدار المشروع غير مدعوم؛ لم يتم تعديل البيانات.',
     );
     final created = DateTime.tryParse(text(m['createdAt'], 'createdAt'));
@@ -425,6 +452,9 @@ class Project {
       createdAt: created!,
       updatedAt: updated!,
       revision: integer(m['revision'], 'revision'),
+      pageCount: m['pageCount'] == null
+          ? 1
+          : integer(m['pageCount'], 'pageCount'),
       paper: PaperSettings.fromJson(m['paper']),
       layout: LayoutSettings.fromJson(m['layout']),
       exportProfile: ExportProfile.fromJson(m['exportProfile']),

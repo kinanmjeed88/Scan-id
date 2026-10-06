@@ -49,13 +49,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = userError(e));
     } finally {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _busy = false;
           _selected.removeWhere(
             (id) => !_session.current.items.any((e) => e.id == id),
           );
         });
+      }
     }
   }
 
@@ -114,8 +115,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
       _dragItem = null;
       _dragStart = null;
     });
-    if (preview != null)
+    if (preview != null) {
       await _apply((_) => PageLayout.checked(preview, allowOverlap: _overlap));
+    }
   }
 
   Future<void> _add(ImageAsset asset) async {
@@ -149,12 +151,13 @@ class _LayoutScreenState extends State<LayoutScreen> {
         allowOverlap: _overlap,
       ),
     );
-    if (mounted && _session.current.items.any((e) => e.id == id))
+    if (mounted && _session.current.items.any((e) => e.id == id)) {
       setState(
         () => _selected
           ..clear()
           ..add(id),
       );
+    }
   }
 
   Future<void> _properties(DocumentItem e) async {

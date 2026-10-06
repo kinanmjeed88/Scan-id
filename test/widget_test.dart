@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:scan_id/presentation/export_screen.dart';
+import 'package:scan_id/presentation/project_screen.dart';
+import 'package:scan_id/application/project_backups.dart';
 import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 import 'dart:typed_data';
@@ -19,6 +21,42 @@ import 'package:scan_id/presentation/app.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
+  testWidgets(
+    'project, home and final export remain usable on short landscape and narrow portrait',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final p = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [itemFixture().copyWith(x: 50, y: 50)],
+        ),
+      );
+      final service = ProjectService(
+        repository,
+        _NoAssets(),
+        backups: _UnusedBackups(),
+      );
+      for (final size in [const Size(390, 844), const Size(844, 390)]) {
+        tester.view.physicalSize = size;
+        for (final screen in <Widget>[
+          ProjectsScreen(service: service, pickImages: () async => []),
+          ProjectScreen(
+            project: p,
+            service: service,
+            pickImages: () async => [],
+          ),
+          ExportScreen(project: p, service: service),
+        ]) {
+          await tester.pumpWidget(AppShell(home: screen));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
   testWidgets(
     'export requires renewed preview approval after settings change',
     (tester) async {
@@ -586,5 +624,16 @@ class _TestEditor implements ImageEditor {
     height: recipe.geometry.outputHeight,
     crop: recipe.geometry,
     adjustments: recipe.adjustments,
+  );
+}
+
+class _UnusedBackups implements ProjectBackups {
+  @override
+  Future<File> create(Project project, Directory temporary) => throw StateError(
+    'Native transfer is not invoked by the responsive layout test',
+  );
+  @override
+  Future<Project> restore(File source) => throw StateError(
+    'Native transfer is not invoked by the responsive layout test',
   );
 }

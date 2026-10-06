@@ -33,12 +33,22 @@ class AppShell extends StatelessWidget {
 }
 
 class ScanIdApp extends StatelessWidget {
-  const ScanIdApp({required this.service, required this.pickImages, super.key});
+  const ScanIdApp({
+    required this.service,
+    required this.pickImages,
+    this.recoverStorage,
+    super.key,
+  });
   final ProjectService service;
   final PickImages pickImages;
+  final Future<void> Function()? recoverStorage;
   @override
   Widget build(BuildContext context) => AppShell(
-    home: ProjectsScreen(service: service, pickImages: pickImages),
+    home: ProjectsScreen(
+      service: service,
+      pickImages: pickImages,
+      recoverStorage: recoverStorage,
+    ),
   );
 }
 
@@ -46,10 +56,12 @@ class ProjectsScreen extends StatefulWidget {
   const ProjectsScreen({
     required this.service,
     required this.pickImages,
+    this.recoverStorage,
     super.key,
   });
   final ProjectService service;
   final PickImages pickImages;
+  final Future<void> Function()? recoverStorage;
   @override
   State<ProjectsScreen> createState() => _ProjectsScreenState();
 }
@@ -125,6 +137,23 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     } catch (error) {
       if (mounted) {
         showMessage(context, userError(error));
+        final recovery = widget.service.recovery;
+        if (recovery != null &&
+            await confirm(
+              context,
+              'تعذر فتح ملفات المشروع',
+              'يمكن إعادة إنشاء الصور المعالجة والمصغرات من الأصول بوصفة القص المحفوظة، دون حذف شيء. إن كان الأصل مفقوداً فاستعد نسخة احتياطية كاملة.',
+            )) {
+          try {
+            project = await recovery.rebuildDerived(
+              await recovery.metadata(id),
+            );
+          } catch (repairError) {
+            if (mounted) {
+              showMessage(context, userError(repairError));
+            }
+          }
+        }
       }
     } finally {
       if (mounted) {
@@ -146,6 +175,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     );
     if (mounted) {
       _refresh();
+    }
+  }
+
+  Future<void> _recoverDatabase() async {
+    if (await confirm(
+      context,
+      'استرداد قاعدة المشاريع؟',
+      'ستُستعاد نقاط الحفظ إلى قاعدة جديدة مع إبقاء القديمة والصور. قد تختلف آخر تغييرات غير مكتملة. إن كانت البيانات من إصدار أحدث فحدّث التطبيق أولاً.',
+    )) {
+      await widget.recoverStorage?.call();
     }
   }
 
@@ -209,100 +248,114 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           constraints: const BoxConstraints(maxWidth: 1100),
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Row(
-                  children: [
-                    Icon(Icons.shield_outlined, size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text('محلي · لا يرسل التطبيق صورك عبر الشبكة'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'مساحة مستمسكاتك',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'أنشئ مشروعاً، واجمع صوره بأمان، ثم عد إليه من حيث توقفت.',
-                ),
-                if (widget.service.backups != null)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _restore,
-                    icon: const Icon(Icons.restore),
-                    label: const Text('استعادة نسخة احتياطية'),
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.shield_outlined, size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'محلي · لا يرسل التطبيق صورك عبر الشبكة',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'مساحة مستمسكاتك',
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'أنشئ مشروعاً، واجمع صوره بأمان، ثم عد إليه من حيث توقفت.',
+                      ),
+                      if (widget.service.backups != null)
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : _restore,
+                          icon: const Icon(Icons.restore),
+                          label: const Text('استعادة نسخة احتياطية'),
+                        ),
+                      const SizedBox(height: 20),
+                      const FoundationNotice(),
+                      const SizedBox(height: 16),
+                      if (_busy) const LinearProgressIndicator(),
+                    ],
                   ),
-                const SizedBox(height: 20),
-                const FoundationNotice(),
-                const SizedBox(height: 16),
-                if (_busy) const LinearProgressIndicator(),
-                Expanded(
-                  child: FutureBuilder<List<Project>>(
-                    future: _projects,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return Center(
+                ),
+                FutureBuilder<List<Project>>(
+                  future: _projects,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return SliverToBoxAdapter(
+                        child: Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(userError(snapshot.error!)),
+                              if (widget.recoverStorage != null)
+                                TextButton(
+                                  onPressed: _recoverDatabase,
+                                  child: const Text(
+                                    'استرداد نقاط الحفظ دون حذف الأصل',
+                                  ),
+                                ),
                               TextButton(
                                 onPressed: _refresh,
                                 child: const Text('إعادة المحاولة'),
                               ),
                             ],
                           ),
-                        );
-                      }
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      final projects = snapshot.requireData;
-                      if (projects.isEmpty) {
-                        return const EmptyState(
+                        ),
+                      );
+                    }
+                    if (!snapshot.hasData) {
+                      return const SliverToBoxAdapter(
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final projects = snapshot.requireData;
+                    if (projects.isEmpty) {
+                      return const SliverToBoxAdapter(
+                        child: EmptyState(
                           icon: Icons.folder_open_outlined,
                           title: 'مشروعك الأول يبدأ هنا',
                           message:
                               'اضغط «مشروع جديد» لإضافة الصور. سنحتفظ بالأصل ونسخة عمل مستقلة.',
-                        );
-                      }
-                      return ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        itemCount: projects.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
-                          final project = projects[index];
-                          return Card(
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 12,
-                              ),
-                              leading: const CircleAvatar(
-                                child: Icon(Icons.folder_outlined),
-                              ),
-                              title: Text(project.name),
-                              subtitle: Text(
-                                '${project.assets.length} صور · A4 · ${project.updatedAt.toLocal().toString().substring(0, 16)}',
-                              ),
-                              onTap: _busy ? null : () => _open(project.id),
-                              trailing: IconButton(
-                                tooltip: 'حذف المشروع',
-                                onPressed: _busy
-                                    ? null
-                                    : () => _delete(project),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ),
-                          );
-                        },
+                        ),
                       );
-                    },
-                  ),
+                    }
+                    return SliverList(
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final project = projects[index];
+                        return Card(
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.folder_outlined),
+                            ),
+                            title: Text(project.name),
+                            subtitle: Text(
+                              '${project.assets.length} صور · A4 · ${project.updatedAt.toLocal().toString().substring(0, 16)}',
+                            ),
+                            onTap: _busy ? null : () => _open(project.id),
+                            trailing: IconButton(
+                              tooltip: 'حذف المشروع',
+                              onPressed: _busy ? null : () => _delete(project),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ),
+                        );
+                      }, childCount: projects.length),
+                    );
+                  },
                 ),
               ],
             ),

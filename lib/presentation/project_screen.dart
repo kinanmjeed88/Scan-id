@@ -75,6 +75,17 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  Future<void> _repairImages() async {
+    if (await confirm(
+          context,
+          'إعادة إنشاء النسخ المعالجة؟',
+          'ستنشأ نسخ جديدة من الأصول باستخدام وصفات القص المحفوظة. تبقى النسخ القديمة والأصول ومقاسات الورقة؛ راجع الصور الناتجة. إذا كان الأصل مفقوداً أو فاسداً فاستعد نسختك الاحتياطية.',
+        ) &&
+        mounted) {
+      await _save(() => widget.service.recovery!.rebuildDerived(_project));
+    }
+  }
+
   Future<void> _camera() async {
     setState(() => _busy = true);
     try {
@@ -301,129 +312,140 @@ class _ProjectScreenState extends State<ProjectScreen> {
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1200),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const FoundationNotice(),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _layout,
-                      icon: const Icon(Icons.description_outlined),
-                      label: const Text('تحرير ورقة A4'),
-                    ),
-                    if (widget.service.camera != null)
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: _busy ? null : _camera,
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            label: const Text('التقاط بالكاميرا'),
-                          ),
-                          TextButton(
-                            onPressed: _busy ? null : _recoverCapture,
-                            child: const Text('استرداد التقاط معلق'),
-                          ),
-                        ],
-                      ),
-                    if (widget.service.backups != null)
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const FoundationNotice(),
                       OutlinedButton.icon(
-                        onPressed: _busy ? null : _backup,
-                        icon: const Icon(Icons.backup_outlined),
-                        label: const Text('نسخة احتياطية كاملة'),
+                        onPressed: _busy ? null : _layout,
+                        icon: const Icon(Icons.description_outlined),
+                        label: const Text('تحرير ورقة A4'),
                       ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${_project.assets.length} صور · JPEG / PNG · حتى 16 مليون بكسل للصورة',
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _busy
-                          ? 'جارٍ العمل والحفظ محلياً… يرجى عدم إغلاق التطبيق.'
-                          : 'تم حفظ الحالة المعروضة محلياً.',
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'لم يتم تعيين مقاسات طباعة للصور. لا يمكن استنتاج المقاس الحقيقي من الصورة وحدها.',
-                    ),
-                  ],
+                      if (widget.service.recovery != null)
+                        TextButton.icon(
+                          onPressed: _busy ? null : _repairImages,
+                          icon: const Icon(Icons.healing),
+                          label: const Text('إصلاح النسخ من الأصول'),
+                        ),
+                      if (widget.service.recovery?.warning != null)
+                        Text(widget.service.recovery!.warning!),
+                      if (widget.service.camera != null)
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _busy ? null : _camera,
+                              icon: const Icon(Icons.camera_alt_outlined),
+                              label: const Text('التقاط بالكاميرا'),
+                            ),
+                            TextButton(
+                              onPressed: _busy ? null : _recoverCapture,
+                              child: const Text('استرداد التقاط معلق'),
+                            ),
+                          ],
+                        ),
+                      if (widget.service.backups != null)
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : _backup,
+                          icon: const Icon(Icons.backup_outlined),
+                          label: const Text('نسخة احتياطية كاملة'),
+                        ),
+                      const SizedBox(height: 16),
+                      Text(
+                        '${_project.assets.length} صور · JPEG / PNG · حتى 16 مليون بكسل للصورة',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _busy
+                            ? 'جارٍ العمل والحفظ محلياً… يرجى عدم إغلاق التطبيق.'
+                            : 'تم حفظ الحالة المعروضة محلياً.',
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _project.items.isEmpty
+                            ? 'لا يمكن استنتاج المقاس الحقيقي من الصورة وحدها؛ عيّنه في محرر الورقة.'
+                            : '${_project.items.length} عناصر بمقاسات mm محفوظة في محرر الورقة.',
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              if (_busy) const LinearProgressIndicator(),
-              Expanded(
-                child: _project.assets.isEmpty
-                    ? const EmptyState(
-                        icon: Icons.add_photo_alternate_outlined,
-                        title: 'أضف صور المستمسكات',
-                        message:
-                            'اختر صورة أو عدة صور من الجهاز. تُنسخ الأصول إلى مساحة المشروع وتُنشأ صور مصغرة للعرض.',
-                      )
-                    : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 280,
-                          mainAxisExtent: widget.service.imageEditor == null
-                              ? 250
-                              : 290,
-                          crossAxisSpacing: 12,
-                          mainAxisSpacing: 12,
-                        ),
-                        itemCount: _project.assets.length,
-                        itemBuilder: (context, index) {
-                          final asset = _project.assets[index];
-                          return Card(
-                            clipBehavior: Clip.antiAlias,
-                            child: Column(
-                              children: [
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: _busy ? null : () => _view(asset),
-                                    child: SizedBox.expand(
-                                      child: LocalImage(
-                                        repository: widget.service.assets,
-                                        path: asset.thumbnailPath,
-                                        cacheWidth: 320,
-                                      ),
-                                    ),
+              if (_busy)
+                const SliverToBoxAdapter(child: LinearProgressIndicator()),
+              if (_project.assets.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: EmptyState(
+                    icon: Icons.add_photo_alternate_outlined,
+                    title: 'أضف صور المستمسكات',
+                    message:
+                        'اختر صورة أو عدة صور من الجهاز. تُحفظ الأصول ونسخ العمل مستقلة.',
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  sliver: SliverGrid(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 280,
+                      mainAxisExtent: widget.service.imageEditor == null
+                          ? 250
+                          : 290,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final asset = _project.assets[index];
+                      return Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: _busy ? null : () => _view(asset),
+                                child: SizedBox.expand(
+                                  child: LocalImage(
+                                    repository: widget.service.assets,
+                                    path: asset.thumbnailPath,
+                                    cacheWidth: 320,
                                   ),
                                 ),
-                                if (widget.service.imageEditor != null)
-                                  TextButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _crop(asset),
-                                    icon: const Icon(Icons.crop),
-                                    label: const Text('قص وتصحيح'),
-                                  ),
-                                ListTile(
-                                  dense: true,
-                                  title: Text(
-                                    asset.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    '${asset.width} × ${asset.height} px',
-                                    textDirection: TextDirection.ltr,
-                                  ),
-                                  trailing: IconButton(
-                                    tooltip: 'إزالة الصورة',
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _remove(asset),
-                                    icon: const Icon(Icons.close),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          );
-                        },
-                      ),
-              ),
+                            if (widget.service.imageEditor != null)
+                              TextButton.icon(
+                                onPressed: _busy ? null : () => _crop(asset),
+                                icon: const Icon(Icons.crop),
+                                label: const Text('قص وتصحيح'),
+                              ),
+                            ListTile(
+                              dense: true,
+                              title: Text(
+                                asset.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${asset.width} × ${asset.height} px',
+                                textDirection: TextDirection.ltr,
+                              ),
+                              trailing: IconButton(
+                                tooltip: 'إزالة الصورة',
+                                onPressed: _busy ? null : () => _remove(asset),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }, childCount: _project.assets.length),
+                  ),
+                ),
             ],
           ),
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import '../application/output_service.dart';
 import '../application/project_service.dart';
 import '../domain/export_plan.dart';
@@ -65,171 +66,177 @@ class _ExportScreenState extends State<ExportScreen> {
       canPop: !_busy,
       child: Scaffold(
         appBar: AppBar(title: const Text('المعاينة النهائية والتصدير')),
-        body: Column(
-          children: [
-            if (_busy) const LinearProgressIndicator(),
-            if (invalid != null)
-              Padding(padding: const EdgeInsets.all(12), child: Text(invalid)),
-            if (_message != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(_message!),
-              ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (_, box) {
-                  final scale = PageViewport(
-                    widget.project.paper,
-                    box.maxWidth - 24,
-                    box.maxHeight - 24,
-                  ).scale;
-                  return InteractiveViewer(
-                    child: Center(
-                      child: PageCanvas(
-                        project: widget.project,
-                        assets: widget.service.assets,
-                        scale: scale,
-                        pageIndex: _page,
-                        showGuides: false,
-                        highQuality: true,
+        body: LayoutBuilder(
+          builder: (_, available) => Column(
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (_, box) {
+                    final scale = PageViewport(
+                      widget.project.paper,
+                      math.max(1.0, box.maxWidth - 24),
+                      math.max(1.0, box.maxHeight - 24),
+                    ).scale;
+                    return InteractiveViewer(
+                      child: Center(
+                        child: PageCanvas(
+                          project: widget.project,
+                          assets: widget.service.assets,
+                          scale: scale,
+                          pageIndex: _page,
+                          showGuides: false,
+                          highQuality: true,
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            SizedBox(
-              height: 280,
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    Wrap(
-                      spacing: 12,
-                      children: [
-                        DropdownButton<int>(
-                          value: _page,
-                          items: [
-                            for (var i = 0; i < widget.project.pageCount; i++)
-                              DropdownMenuItem(
-                                value: i,
-                                child: Text('صفحة ${i + 1}'),
-                              ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (v) => setState(() => _page = v!),
-                        ),
-                        DropdownButton<ExportFormat>(
-                          value: _format,
-                          items: [
-                            for (final f in ExportFormat.values)
-                              DropdownMenuItem(
-                                value: f,
-                                child: Text(f.name.toUpperCase()),
-                              ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (v) => setState(() {
-                                  _format = v!;
-                                  _reviewed = false;
-                                }),
-                        ),
-                        DropdownButton<int>(
-                          value: _dpi,
-                          items: const [
-                            DropdownMenuItem(
-                              value: 300,
-                              child: Text('300 DPI'),
-                            ),
-                            DropdownMenuItem(
-                              value: 600,
-                              child: Text('600 DPI'),
-                            ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (v) => setState(() {
-                                  _dpi = v!;
-                                  _reviewed = false;
-                                }),
-                        ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 12,
-                      children: [
-                        DropdownButton<int>(
-                          value: _first,
-                          items: [
-                            for (var i = 0; i < widget.project.pageCount; i++)
-                              DropdownMenuItem(
-                                value: i,
-                                child: Text('من صفحة ${i + 1}'),
-                              ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (v) => setState(() {
-                                  _first = v!;
-                                  _reviewed = false;
-                                }),
-                        ),
-                        DropdownButton<int>(
-                          value: _last,
-                          items: [
-                            for (var i = 0; i < widget.project.pageCount; i++)
-                              DropdownMenuItem(
-                                value: i,
-                                child: Text('إلى صفحة ${i + 1}'),
-                              ),
-                          ],
-                          onChanged: _busy
-                              ? null
-                              : (v) => setState(() {
-                                  _last = v!;
-                                  _reviewed = false;
-                                }),
-                        ),
-                      ],
-                    ),
-                    const Text(
-                      'تُصدّر الصفحات المختارة. JPG/PNG ملف لكل صفحة. اختر حفظاً محلياً. للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
-                    ),
-                    if (plan != null)
-                      for (final warning in plan.warnings) Text(warning),
-                    CheckboxListTile(
-                      title: const Text(
-                        'راجعت الصفحات والمقاسات وتحذيرات الجودة والعناصر غير الموضوعة',
-                      ),
-                      value: _reviewed,
-                      onChanged: _busy
-                          ? null
-                          : (v) => setState(() => _reviewed = v!),
-                    ),
-                    Wrap(
-                      spacing: 12,
-                      children: [
-                        FilledButton(
-                          onPressed: _busy || !_reviewed || plan == null
-                              ? null
-                              : () => _output(false),
-                          child: const Text('تصدير الملفات'),
-                        ),
-                        OutlinedButton(
-                          onPressed: _busy || !_reviewed || plan == null
-                              ? null
-                              : () => _output(true),
-                          child: const Text('طباعة عبر النظام'),
-                        ),
-                      ],
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
-            ),
-          ],
+              SizedBox(
+                height: math.min(280.0, available.maxHeight * .5),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      if (_busy) const LinearProgressIndicator(),
+                      if (invalid != null)
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(invalid),
+                        ),
+                      if (_message != null)
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(_message!),
+                        ),
+
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          DropdownButton<int>(
+                            value: _page,
+                            items: [
+                              for (var i = 0; i < widget.project.pageCount; i++)
+                                DropdownMenuItem(
+                                  value: i,
+                                  child: Text('صفحة ${i + 1}'),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _page = v!),
+                          ),
+                          DropdownButton<ExportFormat>(
+                            value: _format,
+                            items: [
+                              for (final f in ExportFormat.values)
+                                DropdownMenuItem(
+                                  value: f,
+                                  child: Text(f.name.toUpperCase()),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() {
+                                    _format = v!;
+                                    _reviewed = false;
+                                  }),
+                          ),
+                          DropdownButton<int>(
+                            value: _dpi,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 300,
+                                child: Text('300 DPI'),
+                              ),
+                              DropdownMenuItem(
+                                value: 600,
+                                child: Text('600 DPI'),
+                              ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() {
+                                    _dpi = v!;
+                                    _reviewed = false;
+                                  }),
+                          ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          DropdownButton<int>(
+                            value: _first,
+                            items: [
+                              for (var i = 0; i < widget.project.pageCount; i++)
+                                DropdownMenuItem(
+                                  value: i,
+                                  child: Text('من صفحة ${i + 1}'),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() {
+                                    _first = v!;
+                                    _reviewed = false;
+                                  }),
+                          ),
+                          DropdownButton<int>(
+                            value: _last,
+                            items: [
+                              for (var i = 0; i < widget.project.pageCount; i++)
+                                DropdownMenuItem(
+                                  value: i,
+                                  child: Text('إلى صفحة ${i + 1}'),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() {
+                                    _last = v!;
+                                    _reviewed = false;
+                                  }),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        'تُصدّر الصفحات المختارة. JPG/PNG ملف لكل صفحة. اختر حفظاً محلياً. للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
+                      ),
+                      if (plan != null)
+                        for (final warning in plan.warnings) Text(warning),
+                      CheckboxListTile(
+                        title: const Text(
+                          'راجعت الصفحات والمقاسات وتحذيرات الجودة والعناصر غير الموضوعة',
+                        ),
+                        value: _reviewed,
+                        onChanged: _busy
+                            ? null
+                            : (v) => setState(() => _reviewed = v!),
+                      ),
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          FilledButton(
+                            onPressed: _busy || !_reviewed || plan == null
+                                ? null
+                                : () => _output(false),
+                            child: const Text('تصدير الملفات'),
+                          ),
+                          OutlinedButton(
+                            onPressed: _busy || !_reviewed || plan == null
+                                ? null
+                                : () => _output(true),
+                            child: const Text('طباعة عبر النظام'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

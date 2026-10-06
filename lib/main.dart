@@ -13,6 +13,8 @@ import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
 import 'persistence/local_image_editor.dart';
+import 'persistence/local_project_recovery.dart';
+import 'presentation/shared.dart';
 import 'presentation/app.dart';
 
 void main() {
@@ -20,7 +22,7 @@ void main() {
   runApp(const _Bootstrap());
 }
 
-Future<ProjectService> _openStorage() async {
+Future<ProjectService> _openStorage({bool recover = false}) async {
   final Directory support;
   if (Platform.isWindows) {
     // path_provider's support directory is RoamingAppData on Windows. Identity
@@ -33,9 +35,10 @@ Future<ProjectService> _openStorage() async {
   } else {
     support = await getApplicationSupportDirectory();
   }
-  final repository = await LocalProjectRepository.open(
-    Directory(p.join(support.path, 'scan_id')),
-  );
+  final directory = Directory(p.join(support.path, 'scan_id'));
+  final repository = recover
+      ? await LocalProjectRepository.recover(directory)
+      : await LocalProjectRepository.open(directory);
   final assets = LocalAssetRepository(repository.files);
   return ProjectService(
     repository,
@@ -44,6 +47,10 @@ Future<ProjectService> _openStorage() async {
         ? CameraCapture(repository, assets, NativeCamera())
         : null,
     imageEditor: LocalImageEditor(repository.files),
+    recovery: LocalProjectRecovery(
+      repository,
+      LocalImageEditor(repository.files),
+    ),
     backups: LocalProjectBackups(repository, repository.files),
   );
 }
@@ -71,14 +78,31 @@ class _Bootstrap extends StatefulWidget {
 
 class _BootstrapState extends State<_Bootstrap> {
   late Future<ProjectService> _service = _openStorage();
+  Future<void> _recover() async {
+    try {
+      await (await _service).projects.close();
+    } catch (_) {
+      /* Opening may have failed before a repository existed. */
+    }
+    final next = _openStorage(recover: true);
+    setState(() => _service = next);
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<ProjectService>(
     future: _service,
     builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const AppShell(
+          home: Scaffold(body: Center(child: CircularProgressIndicator())),
+        );
+      }
       if (snapshot.hasData) {
         return ScanIdApp(
+          key: ValueKey(snapshot.requireData),
           service: snapshot.requireData,
           pickImages: _pickImages,
+          recoverStorage: _recover,
         );
       }
       return AppShell(
@@ -99,6 +123,22 @@ class _BootstrapState extends State<_Bootstrap> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 16),
+                        Builder(
+                          builder: (context) => OutlinedButton(
+                            onPressed: () async {
+                              if (await confirm(
+                                context,
+                                'استعادة نقاط الحفظ المحلية؟',
+                                'ستنشأ قاعدة جديدة من آخر نقاط الحفظ. تبقى القاعدة القديمة والصور دون حذف. قد تفقد آخر تعديل إذا انقطع الحفظ؛ حدّث التطبيق أولاً إن كان إصدار البيانات أحدث.',
+                              )) {
+                                await _recover();
+                              }
+                            },
+                            child: const Text(
+                              'استرداد آمن دون حذف القاعدة القديمة',
+                            ),
+                          ),
+                        ),
                         FilledButton(
                           onPressed: () {
                             final next = _openStorage();

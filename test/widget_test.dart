@@ -612,11 +612,12 @@ void main() {
         projectFixture(
           assets: [assetFixture()],
           items: [
-            itemFixture(id: 'manual', locked: false).copyWith(x: 100, y: 150),
+            itemFixture(
+              id: 'manual',
+            ).copyWith(locked: false, x: 100, y: 150),
             itemFixture(
               id: 'waiting',
-              locked: false,
-            ).copyWith(pageIndex: null, x: 0, y: 0),
+            ).copyWith(locked: false, unplaced: true, x: 0, y: 0),
           ],
         ),
       );

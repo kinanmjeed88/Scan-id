@@ -62,7 +62,8 @@ void main() {
     if (!await exports.exists()) {
       return const [];
     }
-    return [for (final entity in await exports.list()) entity.path];
+    final entries = await exports.list().toList();
+    return [for (final entity in entries) entity.path];
   }
 
   test(

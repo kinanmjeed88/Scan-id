@@ -213,7 +213,7 @@ class _ExportScreenState extends State<ExportScreen> {
                       ),
                       if (plan != null)
                         Text(
-                          'أسماء الملفات تُشتق من اسم المشروع، مثل «${exportNames(plan!).files.first}». إن وُجد ملف بالاسم نفسه يسألك النظام قبل الاستبدال.',
+                          'أسماء الملفات تُشتق من اسم المشروع، مثل «${exportNames(plan).files.first}». إن وُجد ملف بالاسم نفسه يسألك النظام قبل الاستبدال.',
                         ),
                       if (plan != null)
                         for (final warning in plan.warnings) Text(warning),

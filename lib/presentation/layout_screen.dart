@@ -39,7 +39,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   Future<void> _run(Future<void> Function() action) async {
-    if (_busy) return;
+    if (_busy || _dragItem != null) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -81,7 +81,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
 
   void _drag(Offset global) {
     final old = _dragItem;
-    if (old == null) return;
+    if (old == null || _pan) return;
     final d = _point(global) - _dragStart!;
     try {
       final angle = old.rotation * math.pi / 180;
@@ -357,7 +357,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
             title: const Text('تكبير وتحريك مساحة العمل'),
             subtitle: const Text('لا تتحرك المستمسكات في هذا الوضع'),
             value: _pan,
-            onChanged: _busy ? null : (v) => setState(() => _pan = v),
+            onChanged: _busy
+                ? null
+                : (v) => setState(() {
+                    _pan = v;
+                    _dragPreview = null;
+                    _dragItem = null;
+                    _dragStart = null;
+                  }),
           ),
           TextButton(
             onPressed: () => setState(() => _view.value = Matrix4.identity()),

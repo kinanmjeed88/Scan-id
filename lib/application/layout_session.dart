@@ -32,6 +32,10 @@ class LayoutSession {
         revision: _current.revision,
         updatedAt: _current.updatedAt,
       );
+      require(
+        next.id == _current.id && next.createdAt == _current.createdAt,
+        'لا يجوز تغيير هوية المشروع داخل جلسة التحرير.',
+      );
       final saved = await repository.save(next);
       if (direction < 0) {
         history.undo();

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:scan_id/domain/validation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/layout_session.dart';
@@ -55,6 +56,26 @@ void main() {
       expect(reopened.items.single.x, 32);
       expect(reopened.items.single.y, 38);
       expect(reopened.items.single.locked, true);
+    },
+  );
+  test(
+    'concurrent commands cannot lose updates and a session cannot change project identity',
+    () async {
+      final p = await repo.create(projectFixture());
+      final session = LayoutSession(p, repo);
+      final first = session.apply((p) => p.copyWith(name: 'واحد'));
+      await expectLater(
+        session.apply((p) => p.copyWith(name: 'اثنان')),
+        throwsA(isA<ValidationException>()),
+      );
+      await first;
+      expect(session.current.name, 'واحد');
+      expect(session.current.revision, 1);
+      await expectLater(
+        session.apply((_) => projectFixture(id: 'other')),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(session.current.id, p.id);
     },
   );
   test('stale save does not advance draft or history', () async {

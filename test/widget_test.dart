@@ -15,6 +15,7 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
 
 void main() {
+  WidgetController.hitTestWarningShouldBeFatal = true;
   testWidgets(
     'empty state, project creation, rename and reopen use repository',
     (tester) async {
@@ -139,7 +140,8 @@ void main() {
       expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
       await tester.drag(
         find.byKey(const Key('crop-corner-0')),
-        const Offset(20, 10),
+        // Exceed Flutter's pan slop; a shorter motion is deliberately a tap.
+        const Offset(60, 35),
       );
       await tester.pumpAndSettle();
       expect(

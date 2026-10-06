@@ -109,12 +109,19 @@ img.Image warpPerspective(
       // codec's 8-bit getPixelInterpolate truncates e.g. 92.999999 to 92,
       // which even changed pixels in an identity warp. Premultiplied alpha
       // also avoids dark fringes beside transparent PNG pixels.
-      final w00 = (1 - tx) * (1 - ty) * p00.aNormalized;
-      final w10 = tx * (1 - ty) * p10.aNormalized;
-      final w01 = (1 - tx) * ty * p01.aNormalized;
-      final w11 = tx * ty * p11.aNormalized;
+      var w00 = (1 - tx) * (1 - ty) * p00.aNormalized;
+      var w10 = tx * (1 - ty) * p10.aNormalized;
+      var w01 = (1 - tx) * ty * p01.aNormalized;
+      var w11 = tx * ty * p11.aNormalized;
       final alpha = w00 + w10 + w01 + w11;
       final divisor = alpha == 0 ? 1 : alpha;
+      if (alpha == 0) {
+        // Preserve even hidden RGB values in fully transparent identity samples.
+        w00 = (1 - tx) * (1 - ty);
+        w10 = tx * (1 - ty);
+        w01 = (1 - tx) * ty;
+        w11 = tx * ty;
+      }
       output.setPixelRgba(
         x,
         y,

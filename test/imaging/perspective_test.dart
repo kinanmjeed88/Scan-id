@@ -36,6 +36,28 @@ void main() {
     }
     expect(bytes, before);
   });
+  test(
+    'transparent edges use premultiplied alpha without losing hidden identity RGB',
+    () {
+      final source = img.Image(width: 2, height: 1, numChannels: 4);
+      source.setPixelRgba(0, 0, 255, 0, 0, 255);
+      source.setPixelRgba(1, 0, 0, 255, 0, 0);
+      final output = warpPerspective(
+        img.encodePng(source),
+        ImageEditRecipe(
+          CropGeometry(
+            corners: CropDraft.fullImage().corners,
+            outputWidth: 3,
+            outputHeight: 1,
+          ),
+          ImageAdjustments(),
+        ),
+      );
+      final middle = output.getPixel(1, 0), end = output.getPixel(2, 0);
+      expect([middle.r, middle.g, middle.b, middle.a], [255, 0, 0, 128]);
+      expect([end.r, end.g, end.b, end.a], [0, 255, 0, 0]);
+    },
+  );
   test('homography is projective, not bilinear interpolation of corners', () {
     final geometry = CropGeometry(
       corners: [Point2(0, 0), Point2(1, 0), Point2(.75, 1), Point2(.25, 1)],

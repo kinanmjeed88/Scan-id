@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
@@ -99,16 +100,13 @@ void main() {
         assets,
       ).generate(ExportPlan(project, ExportProfile()), root);
       expect(
-        result.files.single.split(Platform.pathSeparator).last,
+        p.basename(result.files.single),
         'مستمسكات العائلة.pdf',
         reason: 'اسم الملف يحمل اسم المشروع',
       );
       expect(
-        result.files.single,
-        contains(
-          '${Platform.pathSeparator}$exportDirectoryName'
-          '${Platform.pathSeparator}',
-        ),
+        p.split(result.files.single),
+        contains(exportDirectoryName),
         reason: 'التصدير داخل المجلد المخصص للمشاركة فقط',
       );
       final pdf = await File(result.files.single).readAsBytes();
@@ -134,7 +132,7 @@ void main() {
         ).generate(ExportPlan(project, ExportProfile(format: format)), root);
         expect(result.files, hasLength(2));
         expect(
-          result.files.map((f) => f.split(Platform.pathSeparator).last),
+          result.files.map(p.basename),
           [
             'مستمسكات العائلة-صفحة-1.${format == ExportFormat.png ? 'png' : 'jpg'}',
             'مستمسكات العائلة-صفحة-2.${format == ExportFormat.png ? 'png' : 'jpg'}',

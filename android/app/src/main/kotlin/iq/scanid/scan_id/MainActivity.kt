@@ -52,7 +52,11 @@ class MainActivity : FlutterActivity() {
                         val single = uris.size == 1
                         val intent = Intent(if (single) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
                             type = mime
-                            putExtra(Intent.EXTRA_STREAM, if (single) uris.first() else ArrayList(uris))
+                            if (single) {
+                                putExtra(Intent.EXTRA_STREAM, uris.first())
+                            } else {
+                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                            }
                             putExtra(Intent.EXTRA_LOCAL_ONLY, true)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }

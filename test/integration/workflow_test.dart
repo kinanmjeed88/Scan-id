@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/ids.dart';
 import 'package:scan_id/application/output_service.dart';
@@ -208,7 +209,7 @@ void main() {
       );
       final pdf = await DocumentExporter(assets).generate(pdfPlan, workspace);
       expect(
-        pdf.files.single.split(Platform.pathSeparator).last,
+        p.basename(pdf.files.single),
         'ملف المستمسكات.pdf',
         reason: 'اسم الملف يشتق من اسم المشروع',
       );
@@ -236,7 +237,7 @@ void main() {
       );
       final png = await DocumentExporter(assets).generate(pngPlan, workspace);
       expect(
-        png.files.single.split(Platform.pathSeparator).last,
+        p.basename(png.files.single),
         'ملف المستمسكات-صفحة-1.png',
         reason: 'اسم كل صفحة يحمل رقمها',
       );

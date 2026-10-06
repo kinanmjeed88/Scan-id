@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 
 import '../domain/validation.dart';
 import 'image_header.dart';
+import 'safe_png.dart';
 
 class PreparedImage {
   const PreparedImage({
@@ -34,7 +35,7 @@ img.Image decodeForProcessing(Uint8List bytes) {
       decoded = img.decodeJpg(bytes);
     } else {
       final decoder = img.PngDecoder();
-      final info = decoder.startDecode(bytes);
+      final info = decoder.startDecode(safePng(bytes));
       require(
         info != null &&
             info.width == header.width &&

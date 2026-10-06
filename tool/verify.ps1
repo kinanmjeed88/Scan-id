@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
-flutter pub get
+flutter pub get --enforce-lockfile
 if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
 dart format --output=none --set-exit-if-changed .
 if ($LASTEXITCODE -ne 0) { throw 'Dart formatting failed.' }

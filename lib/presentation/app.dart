@@ -233,6 +233,20 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'عن التطبيق والتراخيص',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => showAboutDialog(
+              context: context,
+              applicationName: 'مستمسكات — Scan ID',
+              applicationVersion: '0.1.0 (تطوير)',
+              children: const [
+                Text(
+                  'معالجة محلية دون رفع. اختر مواقع حفظ محلية آمنة؛ النسخ الاحتياطية غير مشفرة. راجع الطباعة بالمسطرة.',
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: FilledButton.icon(

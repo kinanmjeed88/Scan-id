@@ -12,6 +12,7 @@ import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/image_header.dart';
+import '../imaging/safe_png.dart';
 
 class ExportBundle {
   const ExportBundle(this.files);
@@ -41,7 +42,7 @@ class DocumentExporter {
   }
 }
 
-img.Image _readWorking(String path) {
+img.Image _readWorking(String path, ImageAsset expected) {
   final file = File(path);
   require(
     file.lengthSync() > 0 && file.lengthSync() <= 128 * 1024 * 1024,
@@ -58,8 +59,12 @@ img.Image _readWorking(String path) {
         withinImageBudget(header.width, header.height),
     'نسخة عمل غير صالحة.',
   );
+  require(
+    header.width == expected.width && header.height == expected.height,
+    'أبعاد نسخة العمل لا تطابق البيانات؛ أعد إنشاء النسخ من الأصول.',
+  );
   final decoder = img.PngDecoder();
-  final info = decoder.startDecode(bytes);
+  final info = decoder.startDecode(safePng(bytes));
   require(
     info != null && decoder.numFrames() == 1,
     'نسخة عمل تالفة أو متحركة.',
@@ -100,7 +105,10 @@ Future<ExportBundle> _generate(
           (item.height / 25.4 * plan.profile.dpi).ceil(),
         );
       }
-      final source = _readWorking(paths[id]!);
+      final source = _readWorking(
+        paths[id]!,
+        plan.project.assets.firstWhere((a) => a.id == id),
+      );
       final factor = math.min(
         1.0,
         math.max(wantedW / source.width, wantedH / source.height),
@@ -200,7 +208,10 @@ img.Image renderPage(ExportPlan plan, int page, Map<String, String> paths) {
   img.fill(target, color: img.ColorRgb8(255, 255, 255));
   final scale = plan.profile.dpi / 25.4;
   for (final item in plan.items(page)) {
-    final source = _readWorking(paths[item.assetId]!);
+    final source = _readWorking(
+      paths[item.assetId]!,
+      plan.project.assets.firstWhere((a) => a.id == item.assetId),
+    );
     final bounds = item.bounds;
     final left = math.max(0, (bounds.x * scale).floor()),
         right = math.min(target.width, (bounds.right * scale).ceil());

@@ -11,6 +11,9 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
 import 'package:scan_id/persistence/safe_files.dart';
 
+/// Comfortably longer than the maintenance grace window.
+const _stale = Duration(hours: 2);
+
 void main() {
   late Directory root;
   late LocalProjectRepository projects;
@@ -30,9 +33,27 @@ void main() {
     return project;
   }
 
-  Future<bool> exists(String relative) async =>
-      FileSystemEntity.type('${root.path}/$relative', followLinks: false) !=
-      FileSystemEntityType.notFound;
+  Future<bool> exists(String relative) async {
+    final type = await FileSystemEntity.type(
+      '${root.path}/$relative',
+      followLinks: false,
+    );
+    return type != FileSystemEntityType.notFound;
+  }
+
+  /// Ages every file under [relative]. A directory timestamp stays current when
+  /// the entries inside it are rewritten, so files carry the age.
+  Future<void> ageTree(String relative, DateTime when) async {
+    final directory = Directory('${root.path}/$relative');
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is File) {
+        await entity.setLastModified(when);
+      }
+    }
+  }
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('scan_maintenance_test_');
@@ -78,6 +99,7 @@ void main() {
       // Metadata first, files after: simulate the file step being skipped.
       await projects.remove(project);
       expect(await exists(directory), isTrue);
+      await ageTree(directory, DateTime.now().toUtc().subtract(_stale));
 
       final orphans = await maintenance.findOrphans(await projects.list());
 
@@ -96,7 +118,7 @@ void main() {
           .join('/');
       // Unreferenced edit output, an unknown project directory and stale staging
       // are all leftovers; the referenced asset directory is not.
-      final old = DateTime.now().toUtc().subtract(const Duration(hours: 2));
+      final old = DateTime.now().toUtc().subtract(_stale);
       for (final path in [
         '$assetDirectory/edits/legacy',
         'projects/unknownproject/assets/legacy',
@@ -105,17 +127,17 @@ void main() {
         await Directory('${root.path}/$path').create(recursive: true);
         await File('${root.path}/$path/file.bin').writeAsBytes([1, 2, 3]);
       }
-      await File('${root.path}/active-abc123.tmp').writeAsString('{}');
+      final active = File('${root.path}/active-abc123.tmp');
+      await active.writeAsString('{}');
       for (final directory in [
+        assetDirectory,
         '$assetDirectory/edits/legacy',
         'projects/unknownproject/assets/legacy',
         'staging/leftover',
-        '$assetDirectory',
       ]) {
-        await Directory('${root.path}/$directory').setLastModified(old);
+        await ageTree(directory, old);
       }
-      final timestamp = old.add(const Duration(hours: 1));
-      await File('${root.path}/active-abc123.tmp').setLastModified(timestamp);
+      await active.setLastModified(old.add(const Duration(hours: 1)));
 
       final orphans = await maintenance.findOrphans(await projects.list());
 
@@ -150,7 +172,8 @@ void main() {
       final orphan = 'projects/${project.id}/assets/orphaned';
       await Directory('${root.path}/$orphan').create(recursive: true);
       await File('${root.path}/$orphan/data.bin').writeAsBytes([1, 2, 3]);
-      await Directory('${root.path}/$orphan').setLastModified(
+      await ageTree(
+        orphan,
         DateTime.now().toUtc().subtract(const Duration(hours: 1)),
       );
       final outside = await Directory.systemTemp.createTemp('scan_outside_');
@@ -204,7 +227,8 @@ void main() {
     () async {
       await Directory('${root.path}/staging/stale').create(recursive: true);
       await File('${root.path}/staging/stale/part').writeAsBytes([1]);
-      await Directory('${root.path}/staging/stale').setLastModified(
+      await ageTree(
+        'staging/stale',
         DateTime.now().toUtc().subtract(const Duration(days: 2)),
       );
       await Directory('${root.path}/staging/inflight').create(recursive: true);

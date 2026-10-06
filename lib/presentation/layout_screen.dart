@@ -12,6 +12,7 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'page_canvas.dart';
 import 'export_screen.dart';
+import 'shared.dart';
 import 'shortcuts.dart';
 
 class LayoutScreen extends StatefulWidget {

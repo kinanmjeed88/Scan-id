@@ -4,7 +4,6 @@ import 'package:scan_id/presentation/project_screen.dart';
 import 'package:scan_id/application/project_backups.dart';
 import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

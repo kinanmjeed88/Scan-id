@@ -94,7 +94,7 @@ void main() {
       // 2. Crop the first source with perspective, rotation and tone changes.
       final recipe = ImageEditRecipe(
         CropGeometry(
-          corners: const [
+          corners: [
             Point2(.04, .05),
             Point2(.96, .03),
             Point2(.97, .95),

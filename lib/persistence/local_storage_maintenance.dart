@@ -49,7 +49,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     await for (final project in _directories(projectsPath)) {
       final id = p.basename(project.path);
       if (!knownProjects.contains(id)) {
-        if ((await project.stat()).modified.toUtc().isAfter(cutoff)) {
+        if ((await _modified(project.path)).isAfter(cutoff)) {
           continue;
         }
         orphans.add('$_projects/$id');
@@ -120,8 +120,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     final cutoff = clock().toUtc().subtract(olderThan);
     var removed = 0;
     await for (final entity in Directory(path).list(followLinks: false)) {
-      final modified = (await entity.stat()).modified.toUtc();
-      if (modified.isAfter(cutoff)) {
+      if ((await _modified(entity.path)).isAfter(cutoff)) {
         continue;
       }
       if (await _deleteTree(entity.path)) {
@@ -145,11 +144,35 @@ class LocalStorageMaintenance implements StorageMaintenance {
       if (entity is! Directory) {
         continue;
       }
-      if (cutoff == null ||
-          !(await entity.stat()).modified.toUtc().isAfter(cutoff)) {
+      if (cutoff == null || !(await _modified(entity.path)).isAfter(cutoff)) {
         yield entity;
       }
     }
+  }
+
+  /// Newest modification time of the tree rooted at [path].
+  ///
+  /// A directory's own timestamp only changes when an entry is added or
+  /// removed, so a rewrite in place would make live files look stale. Deciding
+  /// staleness by the newest entry keeps such work out of the cleanup paths.
+  /// Links are reported as epoch: they are unlinked, never followed.
+  Future<DateTime> _modified(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound ||
+        type == FileSystemEntityType.link) {
+      return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
+    var newest = (await FileStat.stat(path)).modified.toUtc();
+    if (type != FileSystemEntityType.directory) {
+      return newest;
+    }
+    await for (final entity in Directory(path).list(followLinks: false)) {
+      final child = await _modified(entity.path);
+      if (child.isAfter(newest)) {
+        newest = child;
+      }
+    }
+    return newest;
   }
 
   Future<int> _size(String path) async {

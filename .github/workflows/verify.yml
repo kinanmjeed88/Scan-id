@@ -1,0 +1,66 @@
+name: Foundation verification
+on:
+  pull_request:
+  push:
+    branches: [arena/39620afb-scan-id]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Generate native runners and resolve dependencies
+        shell: bash
+        run: bash tool/bootstrap.sh
+      - name: SDK and target diagnostics
+        run: flutter doctor -v
+      - name: Format, analyze, unit, integration-service and widget tests
+        shell: bash
+        run: bash tool/verify.sh
+      - name: Build Android release (development signing, not distribution)
+        if: runner.os == 'Linux'
+        run: flutter build apk --release
+      - name: Build Windows release
+        if: runner.os == 'Windows'
+        run: flutter build windows --release
+      - name: Preserve evidence and resolved lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ runner.os }}
+          path: |
+            coverage/lcov.info
+            pubspec.lock
+          if-no-files-found: warn
+      - name: Android development artifact
+        if: success() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-development-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+      - name: Windows unsigned portable artifact
+        if: success() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-portable
+          path: build/windows/x64/runner/Release/

@@ -36,6 +36,42 @@ void main() {
       );
     },
   );
+  test(
+    'narrow Adam7 retains every sample for all filters and packed/16-bit pixels',
+    () {
+      for (final entry in narrowPngs.entries) {
+        final parts = entry.key.split('-').map(int.parse).toList();
+        final width = parts[0], bits = parts[1], color = parts[2];
+        final maximum = (1 << bits) - 1;
+        final original = base64Decode(entry.value);
+        final decoded = decodeForProcessing(original);
+        expect([decoded.width, decoded.height], [width, 17]);
+        for (var y = 0; y < 17; y++) {
+          for (var x = 0; x < width; x++) {
+            final pixel = decoded.getPixel(x, y);
+            final actual = [
+              pixel.rNormalized,
+              pixel.gNormalized,
+              pixel.bNormalized,
+              pixel.aNormalized,
+            ];
+            for (var c = 0; c < 4; c++) {
+              final channel = color == 0 ? 0 : c;
+              final expected = c == 3 && color != 6
+                  ? 1.0
+                  : ((x * 31 + y * 7 + channel * 19) & maximum) / maximum;
+              expect(
+                actual[c],
+                closeTo(expected, 1e-6),
+                reason: '${entry.key} pixel $x,$y channel $c',
+              );
+            }
+          }
+        }
+        expect(original, base64Decode(entry.value));
+      }
+    },
+  );
   test('valid Adam7 and 16-bit PNGs retain their pixel content', () {
     final a = decodeForProcessing(base64Decode(adam7));
     expect([a.width, a.height], [2, 2]);

@@ -210,7 +210,7 @@ int _crc(Uint8List bytes, int start, int end) {
   return (value ^ 0xffffffff) & 0xffffffff;
 }
 
-Uint8List _chunk(String tag, Uint8List data) {
+Uint8List _chunk(String tag, List<int> data) {
   final bytes = Uint8List(data.length + 12);
   final view = ByteData.sublistView(bytes);
   view.setUint32(0, data.length);

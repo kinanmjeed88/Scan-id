@@ -1,4 +1,5 @@
 import 'geometry.dart';
+import 'image_adjustments.dart';
 import 'validation.dart';
 import 'image_limits.dart';
 
@@ -153,8 +154,10 @@ class ImageAsset {
     required this.width,
     required this.height,
     this.crop,
+    ImageAdjustments? adjustments,
     List<String> transforms = const [],
-  }) : transforms = List.unmodifiable(transforms) {
+  }) : adjustments = adjustments ?? ImageAdjustments(),
+       transforms = List.unmodifiable(transforms) {
     validId(id);
     validName(name);
     for (final path in [originalPath, workingPath, thumbnailPath]) {
@@ -183,6 +186,7 @@ class ImageAsset {
   final int width;
   final int height;
   final CropGeometry? crop;
+  final ImageAdjustments adjustments;
   final List<String> transforms;
   Map<String, Object?> toJson() => {
     'id': id,
@@ -193,6 +197,7 @@ class ImageAsset {
     'width': width,
     'height': height,
     'crop': crop?.toJson(),
+    'adjustments': adjustments.toJson(),
     'transforms': transforms,
   };
   factory ImageAsset.fromJson(Object? json) {
@@ -206,6 +211,9 @@ class ImageAsset {
       width: integer(m['width'], 'width'),
       height: integer(m['height'], 'height'),
       crop: m['crop'] == null ? null : CropGeometry.fromJson(m['crop']),
+      adjustments: m['adjustments'] == null
+          ? ImageAdjustments()
+          : ImageAdjustments.fromJson(m['adjustments']),
       transforms: objectList(
         m['transforms'],
       ).map((v) => text(v, 'transform')).toList(),
@@ -331,7 +339,7 @@ class Project {
       );
     }
   }
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
   final String id;
   final String name;
   final DateTime createdAt;
@@ -381,7 +389,7 @@ class Project {
   factory Project.fromJson(Object? json) {
     final m = objectMap(json);
     require(
-      integer(m['schemaVersion'], 'schemaVersion') == schemaVersion,
+      [1, schemaVersion].contains(integer(m['schemaVersion'], 'schemaVersion')),
       'إصدار المشروع غير مدعوم؛ لم يتم تعديل البيانات.',
     );
     final created = DateTime.tryParse(text(m['createdAt'], 'createdAt'));

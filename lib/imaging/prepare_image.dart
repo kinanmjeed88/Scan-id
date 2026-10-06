@@ -23,7 +23,7 @@ class PreparedImage {
 
 /// Must run in an isolate. Reject oversized headers before allocating pixels.
 /// Only formats explicitly budgeted for here are accepted, regardless of name.
-PreparedImage prepareImage(Uint8List bytes) {
+img.Image decodeForProcessing(Uint8List bytes) {
   final header = inspectImageHeader(bytes);
   final isJpeg = header.encoding == ImageEncoding.jpeg;
   try {
@@ -50,9 +50,24 @@ PreparedImage prepareImage(Uint8List bytes) {
     if (decoded == null) {
       throw const ValidationException('تعذر فك ترميز الصورة.');
     }
-    // Work coordinates always refer to the EXIF-normalized image. The copied
-    // original bytes never change and may retain sensitive EXIF metadata.
-    final normalized = img.bakeOrientation(decoded);
+    // JPEG decoding already applies EXIF. Do not clone a full-resolution
+    // image merely to normalize an absent/identity orientation tag.
+    final orientation = decoded.exif.imageIfd.orientation;
+    return orientation == null || orientation == 1
+        ? decoded
+        : img.bakeOrientation(decoded);
+  } on ValidationException {
+    rethrow;
+  } catch (_) {
+    throw const ValidationException('تعذر قراءة الصورة؛ قد يكون الملف تالفاً.');
+  }
+}
+
+PreparedImage prepareImage(Uint8List bytes) {
+  final header = inspectImageHeader(bytes);
+  final isJpeg = header.encoding == ImageEncoding.jpeg;
+  try {
+    final normalized = decodeForProcessing(bytes);
     final working = img.encodePng(normalized);
     final thumbnail = img.copyResize(
       normalized,

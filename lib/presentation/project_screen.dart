@@ -7,6 +7,7 @@ import '../application/project_service.dart';
 import '../domain/project.dart';
 import 'app.dart';
 import 'shared.dart';
+import 'crop_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
   const ProjectScreen({
@@ -113,6 +114,21 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  Future<void> _crop(ImageAsset asset) async {
+    final saved = await Navigator.of(context).push<Project>(
+      MaterialPageRoute(
+        builder: (_) => CropScreen(
+          project: _project,
+          asset: asset,
+          service: widget.service,
+        ),
+      ),
+    );
+    if (saved != null && mounted) {
+      setState(() => _project = saved);
+    }
+  }
+
   Future<void> _view(ImageAsset asset) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -184,13 +200,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       )
                     : GridView.builder(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 280,
-                              mainAxisExtent: 250,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                            ),
+                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 280,
+                          mainAxisExtent: widget.service.imageEditor == null
+                              ? 250
+                              : 290,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
                         itemCount: _project.assets.length,
                         itemBuilder: (context, index) {
                           final asset = _project.assets[index];
@@ -210,6 +227,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
                                     ),
                                   ),
                                 ),
+                                if (widget.service.imageEditor != null)
+                                  TextButton.icon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _crop(asset),
+                                    icon: const Icon(Icons.crop),
+                                    label: const Text('قص وتصحيح'),
+                                  ),
                                 ListTile(
                                   dense: true,
                                   title: Text(

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'application/project_service.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_repository.dart';
+import 'persistence/local_image_editor.dart';
 import 'presentation/app.dart';
 
 void main() {
@@ -31,7 +32,11 @@ Future<ProjectService> _openStorage() async {
   final repository = await LocalProjectRepository.open(
     Directory(p.join(support.path, 'scan_id')),
   );
-  return ProjectService(repository, LocalAssetRepository(repository.files));
+  return ProjectService(
+    repository,
+    LocalAssetRepository(repository.files),
+    imageEditor: LocalImageEditor(repository.files),
+  );
 }
 
 Future<List<ImportSource>> _pickImages() async {

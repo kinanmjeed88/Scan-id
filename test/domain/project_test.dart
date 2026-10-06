@@ -42,9 +42,10 @@ void main() {
   });
 
   test('unknown schemas are not silently downgraded', () {
-    final json = projectFixture().toJson()..['schemaVersion'] = 2;
+    final json = projectFixture().toJson()
+      ..['schemaVersion'] = Project.schemaVersion + 1;
     expect(() => Project.fromJson(json), invalid);
-    expect(json['schemaVersion'], 2);
+    expect(json['schemaVersion'], Project.schemaVersion + 1);
   });
 
   test('malformed types, dates, enums, and missing fields are rejected', () {

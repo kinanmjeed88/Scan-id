@@ -146,7 +146,10 @@ void main() {
       db = await databaseFactoryIo.openDatabase(
         '${directory.path}/projects.db',
       );
-      expect((await store.record(project.id).get(db))!['schemaVersion'], 2);
+      expect(
+        (await store.record(project.id).get(db))!['schemaVersion'],
+        Project.schemaVersion + 1,
+      );
       await db.close();
       repository = await LocalProjectRepository.open(directory);
     },

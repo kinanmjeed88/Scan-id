@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../domain/project.dart';
+import '../domain/crop_draft.dart';
+import '../domain/geometry.dart';
 
 abstract interface class ProjectRepository {
   Future<List<Project>> list();
@@ -35,4 +37,18 @@ class StorageException implements Exception {
 class RevisionConflict extends StorageException {
   const RevisionConflict()
     : super('تغير المشروع في عملية أخرى. أعد فتحه قبل التعديل.');
+}
+
+class EditorSource {
+  const EditorSource(this.preview, this.width, this.height);
+  final Uint8List preview;
+  final int width;
+  final int height;
+}
+
+abstract interface class ImageEditor {
+  Future<EditorSource> open(ImageAsset asset);
+  Future<List<Point2>?> suggest(Uint8List preview);
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe);
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
 }

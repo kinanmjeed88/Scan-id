@@ -1,10 +1,10 @@
-import 'dart:typed_data';
-
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../domain/image_limits.dart';
 import 'contracts.dart';
 import 'ids.dart';
+import 'image_reader.dart';
+import '../domain/crop_draft.dart';
 
 class ImportSource {
   const ImportSource(this.name, this.openRead);
@@ -26,7 +26,8 @@ class ImportReport {
 }
 
 class ProjectService {
-  const ProjectService(this.projects, this.assets);
+  const ProjectService(this.projects, this.assets, {this.imageEditor});
+  final ImageEditor? imageEditor;
   final ProjectRepository projects;
   final AssetRepository assets;
 
@@ -57,7 +58,7 @@ class ProjectService {
           'وصل المشروع إلى حد 200 صورة.',
         );
         validName(source.name);
-        final bytes = await _boundedRead(source.openRead());
+        final bytes = await readBoundedImage(source.openRead());
         final asset = await assets.importImage(current.id, source.name, bytes);
         current = await projects.save(
           current.copyWith(assets: [...current.assets, asset]),
@@ -82,6 +83,33 @@ class ProjectService {
     return ImportReport(current, imported, List.unmodifiable(failures));
   }
 
+  Future<Project> applyCrop(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async {
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    require(
+      project.assets.any(
+        (a) =>
+            a.id == asset.id &&
+            a.originalPath == asset.originalPath &&
+            a.workingPath == asset.workingPath,
+      ),
+      'الصورة لا تطابق حالة المشروع الحالية.',
+    );
+    final updated = await editor!.createRevision(asset, recipe);
+    return projects.save(
+      project.copyWith(
+        assets: [
+          for (final current in project.assets)
+            current.id == asset.id ? updated : current,
+        ],
+      ),
+    );
+  }
+
   Future<Project> removeAsset(Project project, String assetId) {
     require(
       project.assets.any((asset) => asset.id == assetId),
@@ -97,18 +125,6 @@ class ProjectService {
       ),
     );
   }
-}
-
-Future<Uint8List> _boundedRead(Stream<List<int>> stream) async {
-  final builder = BytesBuilder(copy: false);
-  await for (final chunk in stream) {
-    require(
-      builder.length + chunk.length <= maxImportBytes,
-      'الصورة أكبر من حد الاستيراد (20 MiB).',
-    );
-    builder.add(chunk);
-  }
-  return builder.takeBytes();
 }
 
 /// Never expose absolute filesystem paths / personal filenames from IO errors.

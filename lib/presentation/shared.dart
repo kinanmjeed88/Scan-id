@@ -10,7 +10,7 @@ class FoundationNotice extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
     ),
     child: const Text(
-      'نسخة تأسيسية: مكتبة صور محلية. القص ومحرر A4 والترتيب والتصدير لم تُنفذ بعد.',
+      'نسخة تطوير: مكتبة صور وقص قابل للمراجعة. محرر A4 والترتيب والتصدير لم تُنفذ بعد.',
     ),
   );
 }

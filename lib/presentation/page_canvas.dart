@@ -13,6 +13,7 @@ class PageCanvas extends StatelessWidget {
     required this.scale,
     this.selected = const {},
     this.pageIndex = 0,
+    this.highQuality = false,
     this.onSelect,
     this.onDragStart,
     this.onDragUpdate,
@@ -25,6 +26,7 @@ class PageCanvas extends StatelessWidget {
   final AssetRepository assets;
   final double scale;
   final int pageIndex;
+  final bool highQuality;
   final Set<String> selected;
   final void Function(String)? onSelect;
   final void Function(String, Offset, bool)? onDragStart;
@@ -101,10 +103,18 @@ class PageCanvas extends StatelessWidget {
                                   .toDouble(),
                               child: LocalImage(
                                 repository: assets,
-                                path: project.assets
-                                    .firstWhere((a) => a.id == item.assetId)
-                                    .thumbnailPath,
-                                cacheWidth: 320,
+                                path: highQuality
+                                    ? project.assets
+                                          .firstWhere(
+                                            (a) => a.id == item.assetId,
+                                          )
+                                          .workingPath
+                                    : project.assets
+                                          .firstWhere(
+                                            (a) => a.id == item.assetId,
+                                          )
+                                          .thumbnailPath,
+                                cacheWidth: highQuality ? 1800 : 320,
                               ),
                             ),
                           ),

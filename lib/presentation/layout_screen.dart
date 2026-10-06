@@ -9,6 +9,7 @@ import '../domain/page_layout.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'page_canvas.dart';
+import 'export_screen.dart';
 
 class LayoutScreen extends StatefulWidget {
   const LayoutScreen({
@@ -468,6 +469,20 @@ class _LayoutScreenState extends State<LayoutScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          FilledButton.icon(
+            onPressed: _busy
+                ? null
+                : () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => ExportScreen(
+                        project: _session.current,
+                        service: widget.service,
+                      ),
+                    ),
+                  ),
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('معاينة وتصدير وطباعة'),
+          ),
           DropdownButton<int>(
             isExpanded: true,
             value: _page,

@@ -8,5 +8,5 @@ if (-not (Test-Path 'android/app/build.gradle.kts') -or -not (Test-Path 'windows
   flutter create --no-pub --platforms=android,windows --org iq.scanid --project-name scan_id .
   if ($LASTEXITCODE -ne 0) { throw 'Native runner generation failed.' }
 }
-flutter pub get --enforce-lockfile
+flutter pub get
 if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }

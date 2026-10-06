@@ -18,6 +18,8 @@ if part == 0:
         'git', 'ls-files', '--others', '--exclude-standard', '--',
         'android', 'windows', '.metadata', 'pubspec.lock',
     ], text=True).splitlines()
+    paths += subprocess.check_output(['git', 'diff', '--name-only', '--', 'android', 'windows'], text=True).splitlines()
+    paths = list(dict.fromkeys(paths))
     # Include the resolved lock even after it has been checked into the repository.
     if Path('pubspec.lock').is_file() and 'pubspec.lock' not in paths:
         paths.append('pubspec.lock')

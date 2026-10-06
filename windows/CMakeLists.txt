@@ -55,6 +55,8 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+# Pinned, reviewed PDFium build instead of printing's historical default 5200.
+set(PDFIUM_VERSION "8086" CACHE STRING "PDFium revision" FORCE)
 include(flutter/generated_plugins.cmake)
 
 
@@ -106,3 +108,9 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# Ship the PDFium distribution's licensing files with portable/install bundles.
+install(DIRECTORY "${CMAKE_BINARY_DIR}/pdfium-src/"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/pdfium-licenses" COMPONENT Runtime
+  FILES_MATCHING PATTERN "*LICENSE*" PATTERN "*license*" PATTERN "*.txt"
+  PATTERN "include" EXCLUDE PATTERN "lib" EXCLUDE PATTERN "bin" EXCLUDE)

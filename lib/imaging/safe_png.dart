@@ -66,7 +66,7 @@ Uint8List _safePng(Uint8List bytes) {
     }
   }
   final expanded = _Budget(expected);
-  final inflater = const ZLibDecoder().startChunkedConversion(expanded);
+  final inflater = ZLibDecoder().startChunkedConversion(expanded);
   final output = BytesBuilder(copy: false)
     ..add(Uint8List.sublistView(bytes, 0, 8));
   var offset = 8, count = 0, metadata = 0;
@@ -134,7 +134,7 @@ Uint8List _safePng(Uint8List bytes) {
           'ملف ألوان PNG غير صالح.',
         );
         final budget = _Budget(4 * 1024 * 1024);
-        final profile = const ZLibDecoder().startChunkedConversion(budget);
+        final profile = ZLibDecoder().startChunkedConversion(budget);
         profile.add(Uint8List.sublistView(data, zero + 2));
         profile.close();
       case 'gAMA':

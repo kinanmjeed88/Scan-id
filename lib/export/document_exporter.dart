@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../application/contracts.dart';
 import '../application/ids.dart';
+import '../domain/export_naming.dart';
 import '../domain/export_plan.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
@@ -15,9 +16,15 @@ import '../imaging/image_header.dart';
 import '../imaging/safe_png.dart';
 import '../imaging/prepare_image.dart' show normalizeChannels;
 
+/// Single directory that holds in-flight exports; the Android share provider is
+/// scoped to exactly this folder so no other cache content can be handed out.
+const exportDirectoryName = 'scan-exports';
+
+/// A finished export and the directory that owns its temporary files.
 class ExportBundle {
   const ExportBundle(this.files);
   final List<String> files;
+  Directory get directory => File(files.first).parent;
 }
 
 class DocumentExporter {
@@ -31,7 +38,7 @@ class DocumentExporter {
       final asset = plan.project.assets.firstWhere((a) => a.id == item.assetId);
       paths[asset.id] = (await assets.resolve(asset.workingPath)).path;
     }
-    final output = Directory('${temporary.path}/scan-export-${newId()}');
+    final output = Directory('${temporary.path}/$exportDirectoryName/${newId()}');
     await output.create(recursive: true);
     final root = output.path;
     try {
@@ -174,17 +181,18 @@ Future<ExportBundle> _generate(
         ),
       );
     }
-    final file = File('$directory/document.pdf');
+    final file = File('$directory/${exportNames(plan).document}');
     await file.writeAsBytes(await document.save(), flush: true);
     return ExportBundle([file.path]);
   }
   final result = <String>[];
+  final names = exportNames(plan);
   // One RGB page at a time (600 DPI ≈ 100 MiB), and one decoded source at a time.
   // Never allocate all page rasters or rotated source-sized copies together.
-  for (final page in plan.pages) {
+  for (final (index, page) in plan.pages.indexed) {
     final raster = renderPage(plan, page, paths);
     final extension = plan.profile.format == ExportFormat.png ? 'png' : 'jpg';
-    final file = File('$directory/page-${page + 1}.$extension');
+    final file = File('$directory/${names.pages[index]}');
     await file.writeAsBytes(
       extension == 'png'
           ? img.PngEncoder(

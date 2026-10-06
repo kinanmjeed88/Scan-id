@@ -477,7 +477,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   Future<void> _pack() async {
-    final options = await showDialog<(bool, bool)>(
+    final options = await showDialog<_PackingChoices>(
       context: context,
       builder: (_) => const _PackingOptions(),
     );
@@ -486,8 +486,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
     await _run(() async {
       proposal = await widget.proposeLayout(
         _session.current,
-        includeLocked: options.$1,
-        allowRotation: options.$2,
+        includeLocked: options.includeLocked,
+        allowRotation: options.allowRotation,
+        onlyUnplaced: options.onlyUnplaced,
         pageIndex: _page,
       );
     });
@@ -503,8 +504,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'لم يُحفظ الاقتراح. الاعتماد يغيّر المواضع الحالية؛ يمكن التراجع عنه وتعديله يدوياً. لا ضمان لترتيب أمثل.',
+                Text(
+                  options.onlyUnplaced
+                      ? 'لم يُحفظ الاقتراح. العناصر الموضوعة لا تتحرك؛ تُرتَّب العناصر غير الموضوعة فقط. يمكن رفض الاقتراح أو التراجع بعد اعتماده. لا ضمان لترتيب أمثل.'
+                      : 'لم يُحفظ الاقتراح. الاعتماد يغيّر المواضع الحالية؛ يمكن التراجع عنه وتعديله يدوياً. لا ضمان لترتيب أمثل.',
                 ),
                 Text('غير موضوعة: ${candidate.unplaced.length}'),
                 for (final id in candidate.unplaced)
@@ -782,11 +785,15 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     ),
                   ),
           ),
-          OutlinedButton.icon(
-            key: const Key('packing-proposal'),
-            onPressed: _busy || _project.items.isEmpty ? null : _pack,
-            icon: const Icon(Icons.auto_awesome_mosaic),
-            label: const Text('اقتراح ترتيب'),
+          Tooltip(
+            message:
+                'الاقتراح لا يُطبَّق تلقائياً أبداً: تختار نطاقه ثم تراجعه وتعتمده أو ترفضه. والوضع الحر يدوي دائماً',
+            child: OutlinedButton.icon(
+              key: const Key('packing-proposal'),
+              onPressed: _busy || _project.items.isEmpty ? null : _pack,
+              icon: const Icon(Icons.auto_awesome_mosaic),
+              label: const Text('ترتيب تلقائي (اقتراح) أو وضع حر'),
+            ),
           ),
           SwitchListTile(
             key: const Key('workspace-pan'),
@@ -1101,6 +1108,12 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
   );
 }
 
+typedef _PackingChoices = ({
+  bool includeLocked,
+  bool allowRotation,
+  bool onlyUnplaced,
+});
+
 class _PackingOptions extends StatefulWidget {
   const _PackingOptions();
   @override
@@ -1108,7 +1121,7 @@ class _PackingOptions extends StatefulWidget {
 }
 
 class _PackingOptionsState extends State<_PackingOptions> {
-  bool _all = false, _rotate = false;
+  bool _all = false, _rotate = false, _onlyUnplaced = false;
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('نطاق الاقتراح'),
@@ -1116,13 +1129,22 @@ class _PackingOptionsState extends State<_PackingOptions> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
-          'سيعاد ترتيب عناصر الصفحة والقائمة غير الموضوعة. لا تتغير المقاسات. لن يُحفظ شيء قبل مراجعة الاقتراح.',
+          'لا تتغير المقاسات، ولا يُحذف أو يُصغَّر عنصر. ما لا يتسع يُبلَّغ عنه. لن يُحفظ شيء قبل مراجعة الاقتراح.',
+        ),
+        CheckboxListTile(
+          key: const Key('packing-only-unplaced'),
+          title: const Text('عدم تحريك العناصر الموضوعة'),
+          subtitle: const Text(
+            '«الوضع الحر»: يبقى ما رتّبته يدوياً في مكانه، وتُرتب العناصر غير الموضوعة فقط',
+          ),
+          value: _onlyUnplaced,
+          onChanged: (v) => setState(() => _onlyUnplaced = v!),
         ),
         CheckboxListTile(
           title: const Text('جميع العناصر بما فيها المثبتة'),
           subtitle: const Text('دون التحديد: غير المثبتة فقط'),
           value: _all,
-          onChanged: (v) => setState(() => _all = v!),
+          onChanged: _onlyUnplaced ? null : (v) => setState(() => _all = v!),
         ),
         CheckboxListTile(
           title: const Text('السماح بإضافة دوران 90°'),
@@ -1137,7 +1159,11 @@ class _PackingOptionsState extends State<_PackingOptions> {
         child: const Text('إلغاء'),
       ),
       FilledButton(
-        onPressed: () => Navigator.pop(context, (_all, _rotate)),
+        onPressed: () => Navigator.pop(context, (
+          includeLocked: _all,
+          allowRotation: _rotate,
+          onlyUnplaced: _onlyUnplaced,
+        )),
         child: const Text('إنشاء الاقتراح'),
       ),
     ],

@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'package:scan_id/application/output_service.dart';
+import 'package:scan_id/domain/export_naming.dart';
+import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/presentation/export_screen.dart';
 import 'package:scan_id/presentation/project_screen.dart';
 import 'package:scan_id/application/project_backups.dart';
@@ -132,11 +135,13 @@ void main() {
                   project, {
                   required includeLocked,
                   required allowRotation,
+                  bool? onlyUnplaced,
                   required pageIndex,
                 }) async => proposePacking(
                   project,
                   includeLocked: includeLocked,
                   allowRotation: allowRotation,
+                  onlyUnplaced: onlyUnplaced ?? false,
                   pageIndex: pageIndex,
                 ),
           ),
@@ -595,6 +600,153 @@ void main() {
     },
   );
 
+  testWidgets(
+    'the automatic arrangement asks for its scope and never moves arranged work when asked to keep it',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [
+            itemFixture(id: 'manual', locked: false).copyWith(x: 100, y: 150),
+            itemFixture(
+              id: 'waiting',
+              locked: false,
+            ).copyWith(pageIndex: null, x: 0, y: 0),
+          ],
+        ),
+      );
+      final service = ProjectService(repository, _NoAssets());
+      bool? askedToKeepArrangement;
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(
+            project: project,
+            service: service,
+            proposeLayout:
+                (
+                  project, {
+                  required includeLocked,
+                  required allowRotation,
+                  bool? onlyUnplaced,
+                  required pageIndex,
+                }) async {
+                  askedToKeepArrangement = onlyUnplaced;
+                  return proposePacking(
+                    project,
+                    includeLocked: includeLocked,
+                    allowRotation: allowRotation,
+                    onlyUnplaced: onlyUnplaced ?? false,
+                    pageIndex: pageIndex,
+                  );
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('packing-proposal')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('packing-proposal')));
+      await tester.pumpAndSettle();
+      // The free-mode scope has to be a real, reachable option.
+      await tester.tap(find.byKey(const Key('packing-only-unplaced')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إنشاء الاقتراح'));
+      await tester.pumpAndSettle();
+      expect(find.text('مراجعة اقتراح الترتيب'), findsOneWidget);
+      await tester.tap(find.text('اعتماد ومتابعة التحرير'));
+      await tester.pumpAndSettle();
+
+      expect(
+        askedToKeepArrangement,
+        isTrue,
+        reason: 'الخيار المختار في النافذة يصل إلى محرك الترتيب',
+      );
+      final saved = repository.values[project.id]!;
+      final manual = saved.items.firstWhere((e) => e.id == 'manual');
+      expect(manual.x, 100, reason: 'العنصر الموضوع يدوياً لا يتحرك');
+      expect(manual.y, 150);
+      expect(
+        saved.items.firstWhere((e) => e.id == 'waiting').pageIndex,
+        isNotNull,
+        reason: 'العنصر المنتظر يُوضع في المساحة الحرة',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'the export screen shares the generated files on platforms that can, and reports the result',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final p = projectFixture(
+        assets: [assetFixture()],
+        items: [itemFixture().copyWith(x: 50, y: 50)],
+      ).copyWith(exportProfile: ExportProfile(format: ExportFormat.png));
+      final handed = <List<String>>[];
+      final scratch = await Directory.systemTemp.createTemp('scan-widget-');
+      addTearDown(() => scratch.delete(recursive: true));
+      final output = OutputService(
+        generate: (plan, directory) async {
+          final folder = await Directory(
+            '${directory.path}/$exportDirectoryName/${DateTime.now().microsecondsSinceEpoch}',
+          ).create(recursive: true);
+          final file = File('${folder.path}/${exportNames(plan).pages.first}');
+          await file.writeAsString('page');
+          return ExportBundle([file.path]);
+        },
+        temporary: () async => scratch,
+        save: (_, _) async => true,
+        printPdf: (_, _) async => false,
+        shareTarget: ShareTarget.shareSheet,
+        share: (paths, mime) async {
+          handed.add(paths);
+          expect(mime, 'image/png');
+          return true;
+        },
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: ExportScreen(
+            project: p,
+            service: ProjectService(_MemoryProjects(), _NoAssets()),
+            output: output,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('مستمسكات العائلة'), findsWidgets);
+      final share = find.byKey(const Key('export-share'));
+      await tester.ensureVisible(share);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<OutlinedButton>(share).onPressed,
+        isNull,
+        reason: 'لا مشاركة قبل مراجعة المستخدم',
+      );
+      await tester.ensureVisible(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CheckboxListTile));
+      await tester.pumpAndSettle();
+      expect(tester.widget<OutlinedButton>(share).onPressed, isNotNull);
+      await tester.ensureVisible(share);
+      await tester.pumpAndSettle();
+      await tester.tap(share);
+      await tester.pumpAndSettle();
+
+      expect(handed, hasLength(1));
+      expect(handed.single.single, endsWith('مستمسكات العائلة-صفحة-1.png'));
+      expect(find.textContaining('تطبيق المشاركة'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('Delete removes the selected item from the sheet', (
     tester,
   ) async {

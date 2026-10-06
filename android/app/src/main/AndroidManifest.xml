@@ -10,6 +10,11 @@
         <provider android:name=".CaptureFileProvider" android:authorities="${applicationId}.capture" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/capture_paths" />
         </provider>
+        <!-- Sharing an export hands out a read-only URI for one generated file.
+             Separate authority and separate path scope from the camera provider. -->
+        <provider android:name=".ExportFileProvider" android:authorities="${applicationId}.exports" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/export_paths" />
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"

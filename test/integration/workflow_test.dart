@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/ids.dart';
+import 'package:scan_id/application/output_service.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/export_plan.dart';
@@ -206,6 +207,11 @@ void main() {
         ExportProfile(format: ExportFormat.pdf, dpi: 300),
       );
       final pdf = await DocumentExporter(assets).generate(pdfPlan, workspace);
+      expect(
+        pdf.files.single.split(Platform.pathSeparator).last,
+        'ملف المستمسكات.pdf',
+        reason: 'اسم الملف يشتق من اسم المشروع',
+      );
       final pdfBytes = await File(pdf.files.single).readAsBytes();
       expect(
         String.fromCharCodes(pdfBytes.take(5)),
@@ -229,6 +235,11 @@ void main() {
         ExportProfile(format: ExportFormat.png, dpi: 300),
       );
       final png = await DocumentExporter(assets).generate(pngPlan, workspace);
+      expect(
+        png.files.single.split(Platform.pathSeparator).last,
+        'ملف المستمسكات-صفحة-1.png',
+        reason: 'اسم كل صفحة يحمل رقمها',
+      );
       final decoded = img.decodePng(await File(png.files.single).readAsBytes());
       expect(decoded, isNotNull);
       expect(decoded!.width, 2480);
@@ -271,14 +282,47 @@ void main() {
         project.items.map((e) => e.assetId).toSet(),
       );
 
-      // 7. Reopen the store: the project and the restored copy survive exactly.
+      // 7. Hand the PDF over the way Android does: real files, real names, and
+      //    files that outlive the call so the receiving application can read
+      //    them. Nothing is saved to a user location in this path.
+      late List<String> shared;
+      final output = OutputService(
+        generate: DocumentExporter(assets).generate,
+        temporary: () async => workspace,
+        save: (_, _) async => throw StateError('not saving in this step'),
+        printPdf: (_, _) async => throw StateError('not printing in this step'),
+        shareTarget: ShareTarget.shareSheet,
+        share: (paths, mime) async {
+          shared = paths;
+          expect(mime, 'application/pdf');
+          return true;
+        },
+      );
+      final shareMessage = await output.output(
+        pdfPlan,
+        target: OutputTarget.share,
+      );
+      expect(shareMessage, contains('تطبيق المشاركة'));
+      expect(shared, hasLength(1));
+      expect(shared.single, endsWith('ملف المستمسكات.pdf'));
+      expect(
+        await File(shared.single).exists(),
+        isTrue,
+        reason: 'لا يُحذف ملف سُلم لتطبيق آخر',
+      );
+      expect(
+        await File(shared.single).readAsBytes(),
+        await File(pdf.files.single).readAsBytes(),
+      );
+
+      // 8. Reopen the store: the project and the restored copy survive exactly.
       await projects.close();
       projects = await LocalProjectRepository.open(root);
       wireService();
       expect((await projects.get(project.id)).toJson(), project.toJson());
       expect((await projects.get(restored.id)).toJson(), restored.toJson());
 
-      // 8. Delete the restored copy: only its own files leave the app storage.
+      // 9. Delete the restored copy: only its own files leave the app storage.
       final deletion = await service.deleteProject(restored);
       expect(deletion.warning, isNull);
       expect(

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../application/contracts.dart';
 import '../application/output_service.dart';
 import '../application/project_service.dart';
+import '../domain/export_naming.dart';
 import '../domain/export_plan.dart';
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
@@ -12,11 +14,15 @@ class ExportScreen extends StatefulWidget {
     required this.project,
     required this.service,
     this.onProfile,
+    this.output,
     super.key,
   });
   final Project project;
   final ProjectService service;
   final Future<void> Function(ExportProfile)? onProfile;
+
+  /// Injected by tests; the app builds the platform service itself.
+  final OutputService? output;
   @override
   State<ExportScreen> createState() => _ExportScreenState();
 }
@@ -26,6 +32,7 @@ class _ExportScreenState extends State<ExportScreen> {
   late int _dpi = widget.project.exportProfile.dpi;
   int _page = 0;
   bool _busy = false, _reviewed = false;
+  late final OutputService _output = widget.output ?? _platformOutput();
   String? _message;
   int _first = 0;
   late int _last = widget.project.pageCount - 1;
@@ -34,7 +41,10 @@ class _ExportScreenState extends State<ExportScreen> {
     ExportProfile(format: _format, dpi: _dpi),
     pages: [for (var i = _first; i <= _last; i++) i],
   );
-  Future<void> _output(bool print) async {
+  OutputService _platformOutput() =>
+      OutputService.native(widget.service.assets);
+
+  Future<void> _run(OutputTarget target) async {
     setState(() {
       _busy = true;
       _message = null;
@@ -42,9 +52,7 @@ class _ExportScreenState extends State<ExportScreen> {
     try {
       final plan = _plan;
       await widget.onProfile?.call(plan.profile);
-      final message = await OutputService.native(
-        widget.service.assets,
-      ).output(plan, print: print);
+      final message = await _output.output(plan, target: target);
       if (mounted) setState(() => _message = message);
     } catch (e) {
       if (mounted) setState(() => _message = userError(e));
@@ -204,6 +212,10 @@ class _ExportScreenState extends State<ExportScreen> {
                         'تُصدّر الصفحات المختارة. JPG/PNG ملف لكل صفحة. اختر حفظاً محلياً. للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
                       ),
                       if (plan != null)
+                        Text(
+                          'أسماء الملفات تُشتق من اسم المشروع، مثل «${exportNames(plan!).files.first}». إن وُجد ملف بالاسم نفسه يسألك النظام قبل الاستبدال.',
+                        ),
+                      if (plan != null)
                         for (final warning in plan.warnings) Text(warning),
                       CheckboxListTile(
                         title: const Text(
@@ -220,15 +232,32 @@ class _ExportScreenState extends State<ExportScreen> {
                           FilledButton(
                             onPressed: _busy || !_reviewed || plan == null
                                 ? null
-                                : () => _output(false),
+                                : () => _run(OutputTarget.save),
                             child: const Text('تصدير الملفات'),
                           ),
                           OutlinedButton(
                             onPressed: _busy || !_reviewed || plan == null
                                 ? null
-                                : () => _output(true),
+                                : () => _run(OutputTarget.print),
                             child: const Text('طباعة عبر النظام'),
                           ),
+                          if (_output.shareTarget != ShareTarget.none)
+                            OutlinedButton.icon(
+                              key: const Key('export-share'),
+                              onPressed: _busy || !_reviewed || plan == null
+                                  ? null
+                                  : () => _run(OutputTarget.share),
+                              icon: Icon(
+                                _output.shareTarget == ShareTarget.shareSheet
+                                    ? Icons.ios_share
+                                    : Icons.folder_open,
+                              ),
+                              label: Text(
+                                _output.shareTarget == ShareTarget.shareSheet
+                                    ? 'مشاركة الملفات'
+                                    : 'فتح موقع الملفات',
+                              ),
+                            ),
                         ],
                       ),
                     ],

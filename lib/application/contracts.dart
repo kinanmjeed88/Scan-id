@@ -95,6 +95,18 @@ abstract interface class StorageMaintenance {
   Future<int> pruneStaging({Duration olderThan});
 }
 
+/// How a platform can hand generated files to another application, if at all.
+enum ShareTarget {
+  /// No share surface; saving and printing still work.
+  none,
+
+  /// Android: the system chooser receives read-only content URIs.
+  shareSheet,
+
+  /// Windows: the generated files are revealed in the file manager.
+  revealFolder,
+}
+
 class EditorSource {
   const EditorSource(this.preview, this.width, this.height);
   final Uint8List preview;

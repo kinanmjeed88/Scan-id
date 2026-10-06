@@ -1,8 +1,10 @@
 package iq.scanid.scan_id
 
 import android.app.Activity
+import android.content.ClipData
 import android.content.Intent
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
 import java.util.UUID
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -38,12 +40,40 @@ class MainActivity : FlutterActivity() {
                     }
                     return@setMethodCallHandler
                 }
+                if (call.method == "share") {
+                    try {
+                        val sources = (call.argument<List<String>>("sources") ?: emptyList())
+                            .map { exportFile(it) }
+                        require(sources.isNotEmpty() && sources.size <= 200)
+                        val mime = call.argument<String>("mime") ?: "application/octet-stream"
+                        val uris = sources.map {
+                            FileProvider.getUriForFile(this, "$packageName.exports", it)
+                        }
+                        val single = uris.size == 1
+                        val intent = Intent(if (single) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE).apply {
+                            type = mime
+                            putExtra(Intent.EXTRA_STREAM, if (single) uris.first() else ArrayList(uris))
+                            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        // Read permission must cover every handed-over URI, also
+                        // when the chooser forwards the intent.
+                        val clip = ClipData.newUri(contentResolver, "exports", uris.first())
+                        for (uri in uris.drop(1)) clip.addItem(ClipData.Item(uri))
+                        intent.clipData = clip
+                        val chooser = Intent.createChooser(intent, null)
+                        chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        startActivity(chooser)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("share", "Unable to share generated files", null)
+                    }
+                    return@setMethodCallHandler
+                }
                 if (call.method != "save") { result.notImplemented(); return@setMethodCallHandler }
                 if (pending != null) { result.error("busy", "A document request is active", null); return@setMethodCallHandler }
                 try {
-                    val file = File(call.argument<String>("source") ?: "").canonicalFile
-                    val allowed = listOf(filesDir.canonicalPath, cacheDir.canonicalPath)
-                    require(allowed.any { file.path.startsWith(it + File.separator) } && file.isFile)
+                    val file = privateFile(call.argument<String>("source") ?: "")
                     source = file
                     pending = result
                     val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -59,6 +89,26 @@ class MainActivity : FlutterActivity() {
                 }
             }
     }
+    /** A file the app owns and may read or hand over; anything else is refused. */
+    private fun privateFile(raw: String): File {
+        val file = File(raw).canonicalFile
+        val allowed = listOf(filesDir.canonicalPath, cacheDir.canonicalPath)
+        require(allowed.any { file.path.startsWith(it + File.separator) } && file.isFile)
+        return file
+    }
+
+    /**
+     * A generated export inside the dedicated export directory. The share
+     * provider is scoped to exactly that directory, so the canonical check here
+     * and the provider's declared path agree.
+     */
+    private fun exportFile(raw: String): File {
+        val file = privateFile(raw)
+        val exports = File(cacheDir, "scan-exports").canonicalFile
+        require(file.path.startsWith(exports.path + File.separator))
+        return file
+    }
+
     @Deprecated("Activity callback used for the system document picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)

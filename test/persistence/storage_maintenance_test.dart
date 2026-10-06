@@ -141,8 +141,10 @@ void main() {
 
       final orphans = await maintenance.findOrphans(await projects.list());
 
+      // A project directory that no record mentions is reported as one unit;
+      // inside a known project only the unreferenced asset and edit folders are.
       expect(orphans.paths.toSet(), {
-        'projects/unknownproject/assets/legacy',
+        'projects/unknownproject',
         '$assetDirectory/edits/legacy',
         'active-abc123.tmp',
       });

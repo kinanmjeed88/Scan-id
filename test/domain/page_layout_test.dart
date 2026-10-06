@@ -181,17 +181,21 @@ void main() {
     expect(copies.every((e) => !e.locked), isTrue);
     expect(copies.every((e) => e.rotation == 90), isTrue);
     expect(copies.every((e) => e.width == source.width), isTrue);
-    expect(copies.map((e) => e.zIndex), [source.zIndex + 1, source.zIndex + 2, source.zIndex + 3]);
+    expect(copies.map((e) => e.zIndex), [
+      source.zIndex + 1,
+      source.zIndex + 2,
+      source.zIndex + 3,
+    ]);
   });
 
-  test('copies are rejected beyond the sheet budget and never silently dropped', () {
-    final source = block('item1', 20, 25);
-    expect(
-      () => PageLayout.copies(source, 201, () => 'copy'),
-      invalid,
-    );
-    expect(PageLayout.copies(source, 0, () => 'copy'), isEmpty);
-  });
+  test(
+    'copies are rejected beyond the sheet budget and never silently dropped',
+    () {
+      final source = block('item1', 20, 25);
+      expect(() => PageLayout.copies(source, 201, () => 'copy'), invalid);
+      expect(PageLayout.copies(source, 0, () => 'copy'), isEmpty);
+    },
+  );
 
   test('addMany validates the whole batch before anything is accepted', () {
     final base = page([block('item1', 20, 25)]);

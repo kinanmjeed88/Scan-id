@@ -557,7 +557,9 @@ void main() {
       );
       final service = ProjectService(repository, _NoAssets());
       await tester.pumpWidget(
-        AppShell(home: LayoutScreen(project: project, service: service)),
+        AppShell(
+          home: LayoutScreen(project: project, service: service),
+        ),
       );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byType(FilterChip).first);
@@ -588,7 +590,9 @@ void main() {
     },
   );
 
-  testWidgets('Delete removes the selected item from the sheet', (tester) async {
+  testWidgets('Delete removes the selected item from the sheet', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1200, 900);
     addTearDown(tester.view.resetPhysicalSize);
     final repository = _MemoryProjects();
@@ -603,7 +607,9 @@ void main() {
     );
     final service = ProjectService(repository, _NoAssets());
     await tester.pumpWidget(
-      AppShell(home: LayoutScreen(project: project, service: service)),
+      AppShell(
+        home: LayoutScreen(project: project, service: service),
+      ),
     );
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byType(FilterChip).first);
@@ -619,13 +625,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('image library reorder is reachable without a drag gesture', (tester) async {
+  testWidgets('image library reorder is reachable without a drag gesture', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(1200, 900);
     addTearDown(tester.view.resetPhysicalSize);
     final repository = _MemoryProjects();
     final project = await repository.create(
       projectFixture(
-        assets: [assetFixture(id: 'asset1'), assetFixture(id: 'asset2')],
+        assets: [
+          assetFixture(id: 'asset1'),
+          assetFixture(id: 'asset2'),
+        ],
       ),
     );
     final service = ProjectService(repository, _NoAssets());
@@ -645,10 +656,10 @@ void main() {
     await tester.tap(find.text('نقل إلى ترتيب لاحق'));
     await tester.pumpAndSettle();
 
-    expect(
-      repository.values[project.id]!.assets.map((a) => a.id),
-      ['asset2', 'asset1'],
-    );
+    expect(repository.values[project.id]!.assets.map((a) => a.id), [
+      'asset2',
+      'asset1',
+    ]);
     expect(tester.takeException(), isNull);
   });
 }

@@ -32,14 +32,21 @@ void main() {
   late LocalProjectBackups backups;
   late ProjectService service;
 
-  Future<String> digest(String relative) async =>
-      sha256.convert(await (await assets.resolve(relative)).readAsBytes()).toString();
+  Future<String> digest(String relative) async => sha256
+      .convert(await (await assets.resolve(relative)).readAsBytes())
+      .toString();
 
   Uint8List sample(int width, int height, int seed) {
     final image = img.Image(width: width, height: height);
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
-        image.setPixelRgb(x, y, (x * 3 + seed) % 256, (y * 5 + seed) % 256, 200);
+        image.setPixelRgb(
+          x,
+          y,
+          (x * 3 + seed) % 256,
+          (y * 5 + seed) % 256,
+          200,
+        );
       }
     }
     return Uint8List.fromList(img.encodePng(image));
@@ -114,7 +121,10 @@ void main() {
         originalSize,
       );
       expect(asset.workingPath, isNot(project.assets.first.workingPath));
-      expect(await (await assets.resolve(asset.workingPath)).length(), greaterThan(0));
+      expect(
+        await (await assets.resolve(asset.workingPath)).length(),
+        greaterThan(0),
+      );
       project = cropped;
 
       // 3. Place the documents at their real sizes and add three more copies of
@@ -213,9 +223,7 @@ void main() {
         ExportProfile(format: ExportFormat.png, dpi: 300),
       );
       final png = await DocumentExporter(assets).generate(pngPlan, workspace);
-      final decoded = img.decodePng(
-        await File(png.files.single).readAsBytes(),
-      );
+      final decoded = img.decodePng(await File(png.files.single).readAsBytes());
       expect(decoded, isNotNull);
       expect(decoded!.width, 2480);
       expect(decoded.height, 3508);
@@ -235,8 +243,14 @@ void main() {
         expect(after.width, before.width);
         expect(after.height, before.height);
         expect(after.crop?.toJson(), before.crop?.toJson());
-        expect(await digest(after.originalPath), await digest(before.originalPath));
-        expect(await digest(after.workingPath), await digest(before.workingPath));
+        expect(
+          await digest(after.originalPath),
+          await digest(before.originalPath),
+        );
+        expect(
+          await digest(after.workingPath),
+          await digest(before.workingPath),
+        );
         expect(
           await digest(after.thumbnailPath),
           await digest(before.thumbnailPath),
@@ -246,7 +260,10 @@ void main() {
         restored.items.map(_geometry).toList(),
         project.items.map(_geometry).toList(),
       );
-      expect(restored.items.map((e) => e.assetId).toSet(), project.items.map((e) => e.assetId).toSet());
+      expect(
+        restored.items.map((e) => e.assetId).toSet(),
+        project.items.map((e) => e.assetId).toSet(),
+      );
 
       // 7. Reopen the store: the project and the restored copy survive exactly.
       await projects.close();
@@ -265,16 +282,24 @@ void main() {
         await Directory('${root.path}/projects/${project.id}').exists(),
         isTrue,
       );
-      await expectLater(projects.get(restored.id), throwsA(isA<StorageException>()));
+      await expectLater(
+        projects.get(restored.id),
+        throwsA(isA<StorageException>()),
+      );
       expect((await service.findOrphans()).count, 0);
-      expect((await projects.get(project.id)).items, hasLength(project.items.length));
+      expect(
+        (await projects.get(project.id)).items,
+        hasLength(project.items.length),
+      );
     },
   );
 }
 
 List<(double, double)> _mediaBoxes(Uint8List bytes) {
   final text = String.fromCharCodes(bytes);
-  final pattern = RegExp(r'/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)');
+  final pattern = RegExp(
+    r'/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)',
+  );
   return [
     for (final match in pattern.allMatches(text))
       (

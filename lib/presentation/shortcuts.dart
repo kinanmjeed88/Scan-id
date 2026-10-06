@@ -71,10 +71,7 @@ Future<void> showShortcuts(
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(shortcut.description),
-                    ),
+                    Expanded(flex: 2, child: Text(shortcut.description)),
                   ],
                 ),
               ),

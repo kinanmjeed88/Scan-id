@@ -69,7 +69,8 @@ class RevisionConflict extends StorageException {
 
 /// App-owned files that no saved project references any more.
 class OrphanFiles {
-  OrphanFiles(List<String> paths, this.bytes) : paths = List.unmodifiable(paths);
+  OrphanFiles(List<String> paths, this.bytes)
+    : paths = List.unmodifiable(paths);
   final List<String> paths;
   final int bytes;
   int get count => paths.length;

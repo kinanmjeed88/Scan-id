@@ -282,96 +282,98 @@ class _CropScreenState extends State<CropScreen> {
   Widget build(BuildContext context) => ScreenShortcuts(
     shortcuts: _shortcuts,
     child: PopScope<Project>(
-    canPop: !_busy && !_dirty,
-    onPopInvokedWithResult: (didPop, _) {
-      if (!didPop) {
-        unawaited(_leave());
-      }
-    },
-    child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'إلغاء القص',
-          onPressed: _busy ? null : _leave,
-          icon: const Icon(Icons.close),
+      canPop: !_busy && !_dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          unawaited(_leave());
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'إلغاء القص',
+            onPressed: _busy ? null : _leave,
+            icon: const Icon(Icons.close),
+          ),
+          title: const Text('قص وتصحيح المستمسك'),
+          actions: [
+            IconButton(
+              tooltip: 'اختصارات لوحة المفاتيح',
+              onPressed: _busy
+                  ? null
+                  : () => showShortcuts(context, _shortcuts),
+              icon: const Icon(Icons.keyboard_outlined),
+            ),
+            IconButton(
+              tooltip: 'تراجع',
+              onPressed: !_busy && (_history?.canUndo ?? false)
+                  ? () => _undo(false)
+                  : null,
+              icon: const Icon(Icons.undo),
+            ),
+            IconButton(
+              tooltip: 'إعادة',
+              onPressed: !_busy && (_history?.canRedo ?? false)
+                  ? () => _undo(true)
+                  : null,
+              icon: const Icon(Icons.redo),
+            ),
+          ],
         ),
-        title: const Text('قص وتصحيح المستمسك'),
-        actions: [
-          IconButton(
-            tooltip: 'اختصارات لوحة المفاتيح',
-            onPressed: _busy ? null : () => showShortcuts(context, _shortcuts),
-            icon: const Icon(Icons.keyboard_outlined),
-          ),
-          IconButton(
-            tooltip: 'تراجع',
-            onPressed: !_busy && (_history?.canUndo ?? false)
-                ? () => _undo(false)
-                : null,
-            icon: const Icon(Icons.undo),
-          ),
-          IconButton(
-            tooltip: 'إعادة',
-            onPressed: !_busy && (_history?.canRedo ?? false)
-                ? () => _undo(true)
-                : null,
-            icon: const Icon(Icons.redo),
-          ),
-        ],
-      ),
-      body: _source == null
-          ? Center(
-              child: _busy
-                  ? const CircularProgressIndicator()
-                  : Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(_error ?? 'تعذر فتح الصورة.'),
-                    ),
-            )
-          : Column(
-              children: [
-                if (_busy) const LinearProgressIndicator(),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+        body: _source == null
+            ? Center(
+                child: _busy
+                    ? const CircularProgressIndicator()
+                    : Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(_error ?? 'تعذر فتح الصورة.'),
+                      ),
+              )
+            : Column(
+                children: [
+                  if (_busy) const LinearProgressIndicator(),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
-                  ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      if (constraints.maxWidth >= 900) {
-                        return Row(
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (constraints.maxWidth >= 900) {
+                          return Row(
+                            children: [
+                              Expanded(child: _imageArea()),
+                              SizedBox(
+                                width: 310,
+                                child: SingleChildScrollView(child: _tools()),
+                              ),
+                            ],
+                          );
+                        }
+                        return ListView(
                           children: [
-                            Expanded(child: _imageArea()),
                             SizedBox(
-                              width: 310,
-                              child: SingleChildScrollView(child: _tools()),
+                              height: math.max(
+                                240,
+                                math.min(440, constraints.maxHeight * .52),
+                              ),
+                              child: _imageArea(),
                             ),
+                            _tools(),
                           ],
                         );
-                      }
-                      return ListView(
-                        children: [
-                          SizedBox(
-                            height: math.max(
-                              240,
-                              math.min(440, constraints.maxHeight * .52),
-                            ),
-                            child: _imageArea(),
-                          ),
-                          _tools(),
-                        ],
-                      );
-                    },
+                      },
+                    ),
                   ),
-                ),
-              ],
-            ),
-    ),
+                ],
+              ),
+      ),
     ),
   );
 

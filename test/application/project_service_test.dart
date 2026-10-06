@@ -313,30 +313,36 @@ void main() {
     },
   );
 
-  test('a corrupt replacement leaves the project and old files untouched', () async {
-    final bytes = img.encodePng(img.Image(width: 8, height: 8));
-    var project = await service.create('استبدال تالف');
-    project = (await service.importImages(project, [
-      ImportSource('good.png', () => Stream.value(bytes)),
-    ])).project;
-    final asset = project.assets.single;
+  test(
+    'a corrupt replacement leaves the project and old files untouched',
+    () async {
+      final bytes = img.encodePng(img.Image(width: 8, height: 8));
+      var project = await service.create('استبدال تالف');
+      project = (await service.importImages(project, [
+        ImportSource('good.png', () => Stream.value(bytes)),
+      ])).project;
+      final asset = project.assets.single;
 
-    // The decode runs in an isolate, so the concrete error type may be wrapped;
-    // what matters is that the call fails and nothing changed.
-    await expectLater(
-      service.replaceImage(
-        project,
-        asset,
-        ImportSource('broken.png', () => Stream.value([1, 2, 3])),
-      ),
-      throwsA(anything),
-    );
+      // The decode runs in an isolate, so the concrete error type may be wrapped;
+      // what matters is that the call fails and nothing changed.
+      await expectLater(
+        service.replaceImage(
+          project,
+          asset,
+          ImportSource('broken.png', () => Stream.value([1, 2, 3])),
+        ),
+        throwsA(anything),
+      );
 
-    final stored = await projects.get(project.id);
-    expect(stored.toJson(), project.toJson());
-    expect(await (await assets.resolve(asset.originalPath)).readAsBytes(), bytes);
-    expect(await Directory('${root.path}/staging').exists(), isFalse);
-  });
+      final stored = await projects.get(project.id);
+      expect(stored.toJson(), project.toJson());
+      expect(
+        await (await assets.resolve(asset.originalPath)).readAsBytes(),
+        bytes,
+      );
+      expect(await Directory('${root.path}/staging').exists(), isFalse);
+    },
+  );
 
   test('discarding picked sources releases every picker-owned copy', () async {
     var released = 0;

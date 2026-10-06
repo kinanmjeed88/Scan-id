@@ -99,9 +99,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
     if (id == null || (dx == 0 && dy == 0)) {
       return;
     }
-    await _apply(
-      (p) => PageLayout.move(p, id, dx, dy, allowOverlap: _overlap),
-    );
+    await _apply((p) => PageLayout.move(p, id, dx, dy, allowOverlap: _overlap));
     if (mounted) {
       setState(() => _dragPreview = null);
     }
@@ -232,11 +230,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
       zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
     );
     await _apply(
-      (p) => PageLayout.addMany(
-        p,
-        [prototype, ...PageLayout.copies(prototype, copies, newId)],
-        allowOverlap: _overlap,
-      ),
+      (p) => PageLayout.addMany(p, [
+        prototype,
+        ...PageLayout.copies(prototype, copies, newId),
+      ], allowOverlap: _overlap),
     );
     if (mounted && _session.current.items.any((e) => e.id == id)) {
       setState(
@@ -578,74 +575,76 @@ class _LayoutScreenState extends State<LayoutScreen> {
         }
       },
       child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'رجوع للمشروع',
-          onPressed: _busy ? null : () => unawaited(_leave()),
-          icon: const Icon(Icons.arrow_back),
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'رجوع للمشروع',
+            onPressed: _busy ? null : () => unawaited(_leave()),
+            icon: const Icon(Icons.arrow_back),
+          ),
+          title: const Text('محرر A4'),
+          actions: [
+            IconButton(
+              tooltip: 'اختصارات لوحة المفاتيح',
+              onPressed: _busy
+                  ? null
+                  : () => showShortcuts(context, _shortcuts),
+              icon: const Icon(Icons.keyboard_outlined),
+            ),
+            IconButton(
+              tooltip: 'تراجع',
+              onPressed: _busy || !_session.history.canUndo
+                  ? null
+                  : () => _run(_session.undo),
+              icon: const Icon(Icons.undo),
+            ),
+            IconButton(
+              tooltip: 'إعادة',
+              onPressed: _busy || !_session.history.canRedo
+                  ? null
+                  : () => _run(_session.redo),
+              icon: const Icon(Icons.redo),
+            ),
+          ],
         ),
-        title: const Text('محرر A4'),
-        actions: [
-          IconButton(
-            tooltip: 'اختصارات لوحة المفاتيح',
-            onPressed: _busy ? null : () => showShortcuts(context, _shortcuts),
-            icon: const Icon(Icons.keyboard_outlined),
-          ),
-          IconButton(
-            tooltip: 'تراجع',
-            onPressed: _busy || !_session.history.canUndo
-                ? null
-                : () => _run(_session.undo),
-            icon: const Icon(Icons.undo),
-          ),
-          IconButton(
-            tooltip: 'إعادة',
-            onPressed: _busy || !_session.history.canRedo
-                ? null
-                : () => _run(_session.redo),
-            icon: const Icon(Icons.redo),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_busy) const LinearProgressIndicator(),
-          if (_error != null)
+        body: Column(
+          children: [
+            if (_busy) const LinearProgressIndicator(),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.all(8),
               child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                'صفحة ${_page + 1}/${_project.pageCount} · ${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Text(
-              'صفحة ${_page + 1}/${_project.pageCount} · ${_project.paper.width.toInt()} × ${_project.paper.height.toInt()} مم · ${_busy ? 'جارٍ الحفظ…' : 'محفوظ محلياً'} · الفجوات ${_project.layout.horizontalGap}/${_project.layout.verticalGap} مم',
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) => box.maxWidth >= 900
+                    ? Row(
+                        children: [
+                          Expanded(child: _workspace()),
+                          SizedBox(width: 320, child: _tools()),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(child: _workspace()),
+                          SizedBox(
+                            height: math.min(260, box.maxHeight * .45),
+                            child: _tools(),
+                          ),
+                        ],
+                      ),
+              ),
             ),
-          ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, box) => box.maxWidth >= 900
-                  ? Row(
-                      children: [
-                        Expanded(child: _workspace()),
-                        SizedBox(width: 320, child: _tools()),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        Expanded(child: _workspace()),
-                        SizedBox(
-                          height: math.min(260, box.maxHeight * .45),
-                          child: _tools(),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     ),
   );
@@ -685,23 +684,23 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     enabled: _active != null && !_busy && !_pan,
                   ),
                   child: PageCanvas(
-                  project: _project,
-                  pageIndex: _page,
-                  assets: widget.service.assets,
-                  scale: _scale,
-                  pageKey: _pageKey,
-                  selected: _selected,
-                  onSelect: (id) {
-                    setState(
-                      () => _selected
-                        ..clear()
-                        ..add(id),
-                    );
-                    _canvasFocus.requestFocus();
-                  },
-                  onDragStart: _start,
-                  onDragUpdate: _drag,
-                  onDragEnd: _end,
+                    project: _project,
+                    pageIndex: _page,
+                    assets: widget.service.assets,
+                    scale: _scale,
+                    pageKey: _pageKey,
+                    selected: _selected,
+                    onSelect: (id) {
+                      setState(
+                        () => _selected
+                          ..clear()
+                          ..add(id),
+                      );
+                      _canvasFocus.requestFocus();
+                    },
+                    onDragStart: _start,
+                    onDragUpdate: _drag,
+                    onDragEnd: _end,
                   ),
                 ),
               ),

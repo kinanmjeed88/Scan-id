@@ -362,7 +362,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
       ),
     );
     final draggable = _isDesktop
-        ? Draggable<String>(data: asset.id, feedback: _dragFeedback(asset), child: card)
+        ? Draggable<String>(
+            data: asset.id,
+            feedback: _dragFeedback(asset),
+            child: card,
+          )
         : LongPressDraggable<String>(
             data: asset.id,
             feedback: _dragFeedback(asset),

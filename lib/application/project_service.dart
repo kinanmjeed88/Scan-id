@@ -231,7 +231,8 @@ class ProjectService {
     final store = maintenance;
     if (store == null) {
       return const ProjectDeletion(
-        warning: 'حُذف المشروع من القائمة. صيانة الملفات غير متاحة في هذا البناء.',
+        warning:
+            'حُذف المشروع من القائمة. صيانة الملفات غير متاحة في هذا البناء.',
       );
     }
     try {

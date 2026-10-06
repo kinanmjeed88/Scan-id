@@ -79,6 +79,11 @@ void main() {
         ScanIdApp(service: service, pickImages: () async => []),
       );
       await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'Home header must fit the phone',
+      );
       await tester.tap(find.text('صور'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('إضافة صور'));

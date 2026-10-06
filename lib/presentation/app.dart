@@ -56,7 +56,12 @@ class ProjectsScreen extends StatefulWidget {
 class _ProjectsScreenState extends State<ProjectsScreen> {
   late Future<List<Project>> _projects = widget.service.projects.list();
   bool _busy = false;
-  void _refresh() => setState(() => _projects = widget.service.projects.list());
+  void _refresh() {
+    final next = widget.service.projects.list();
+    setState(() {
+      _projects = next;
+    });
+  }
 
   Future<void> _newProject() async {
     final name = await askName(context, title: 'مشروع جديد', initial: '');
@@ -151,7 +156,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           children: [
             Icon(Icons.document_scanner_outlined),
             SizedBox(width: 12),
-            Text('مستمسكات'),
+            Expanded(
+              child: Text(
+                'مستمسكات',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: [

@@ -83,8 +83,12 @@ class _BootstrapState extends State<_Bootstrap> {
                         ),
                         const SizedBox(height: 16),
                         FilledButton(
-                          onPressed: () =>
-                              setState(() => _service = _openStorage()),
+                          onPressed: () {
+                            final next = _openStorage();
+                            setState(() {
+                              _service = next;
+                            });
+                          },
                           child: const Text('إعادة المحاولة'),
                         ),
                       ],

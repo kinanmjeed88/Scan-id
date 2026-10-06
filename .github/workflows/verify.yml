@@ -51,7 +51,13 @@ jobs:
         run: python tool/ci_gate.py windows-build flutter build windows --release
       - name: Retain generated source for review
         if: always()
-        run: python tool/ci_evidence.py
+        run: python tool/ci_evidence.py 0
+      - name: Generated source evidence part 2
+        if: always()
+        run: python tool/ci_evidence.py 1
+      - name: Generated source evidence part 3
+        if: always()
+        run: python tool/ci_evidence.py 2
       - name: Preserve evidence and resolved lockfile
         if: always()
         uses: actions/upload-artifact@v6

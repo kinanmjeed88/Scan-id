@@ -2,12 +2,14 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../domain/image_limits.dart';
 import 'contracts.dart';
+import 'project_backups.dart';
 import 'ids.dart';
 import 'image_reader.dart';
 import '../domain/crop_draft.dart';
 
 class ImportSource {
-  const ImportSource(this.name, this.openRead);
+  const ImportSource(this.name, this.openRead, {this.cleanup});
+  final Future<void> Function()? cleanup;
   final String name;
   final Stream<List<int>> Function() openRead;
 }
@@ -26,7 +28,13 @@ class ImportReport {
 }
 
 class ProjectService {
-  const ProjectService(this.projects, this.assets, {this.imageEditor});
+  const ProjectService(
+    this.projects,
+    this.assets, {
+    this.imageEditor,
+    this.backups,
+  });
+  final ProjectBackups? backups;
   final ImageEditor? imageEditor;
   final ProjectRepository projects;
   final AssetRepository assets;
@@ -78,6 +86,13 @@ class ProjectService {
         break;
       } catch (error) {
         failures.add(ImportFailure(source.name, userError(error)));
+      }
+    }
+    for (final source in sources) {
+      try {
+        await source.cleanup?.call();
+      } catch (_) {
+        /* Private cache may be reclaimed by the OS; never delete external originals. */
       }
     }
     return ImportReport(current, imported, List.unmodifiable(failures));

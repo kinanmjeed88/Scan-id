@@ -19,6 +19,7 @@ dependencies:
   sembast: 3.7.2
   pdf: 3.12.0
   printing: 5.14.3
+  crypto: 3.0.7
 
 dev_dependencies:
   flutter_test:

@@ -6,7 +6,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'application/project_service.dart';
+import 'application/native_documents.dart';
 import 'persistence/local_asset_repository.dart';
+import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
 import 'persistence/local_image_editor.dart';
 import 'presentation/app.dart';
@@ -36,10 +38,14 @@ Future<ProjectService> _openStorage() async {
     repository,
     LocalAssetRepository(repository.files),
     imageEditor: LocalImageEditor(repository.files),
+    backups: LocalProjectBackups(repository, repository.files),
   );
 }
 
 Future<List<ImportSource>> _pickImages() async {
+  if (Platform.isAndroid) {
+    return pickAndroidImages();
+  }
   const group = XTypeGroup(
     label: 'JPEG / PNG',
     extensions: ['jpg', 'jpeg', 'png'],

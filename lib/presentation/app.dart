@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../application/project_service.dart';
+import '../application/backup_transfer.dart';
 import '../domain/project.dart';
 import 'project_screen.dart';
 import 'shared.dart';
@@ -61,6 +62,33 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     setState(() {
       _projects = next;
     });
+  }
+
+  Future<void> _restore() async {
+    if (!await confirm(
+          context,
+          'استعادة نسخة احتياطية؟',
+          'اختر ملف Scan ID محلياً موثوقاً. تُستعاد الصور والبيانات كمشروع جديد؛ لن يُستبدل أي مشروع موجود.',
+        ) ||
+        !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final project = await BackupTransfer(widget.service.backups!).restore();
+      if (mounted && project != null) {
+        _refresh();
+        showMessage(context, 'استُعيد المشروع كاملاً كنسخة مستقلة.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _newProject() async {
@@ -189,7 +217,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     Icon(Icons.shield_outlined, size: 18),
                     SizedBox(width: 8),
                     Expanded(
-                      child: Text('محلي بالكامل · صورك لا تغادر الجهاز'),
+                      child: Text('محلي · لا يرسل التطبيق صورك عبر الشبكة'),
                     ),
                   ],
                 ),
@@ -202,6 +230,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                 const Text(
                   'أنشئ مشروعاً، واجمع صوره بأمان، ثم عد إليه من حيث توقفت.',
                 ),
+                if (widget.service.backups != null)
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _restore,
+                    icon: const Icon(Icons.restore),
+                    label: const Text('استعادة نسخة احتياطية'),
+                  ),
                 const SizedBox(height: 20),
                 const FoundationNotice(),
                 const SizedBox(height: 16),

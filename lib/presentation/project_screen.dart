@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../application/contracts.dart';
+import '../application/backup_transfer.dart';
 import '../application/project_service.dart';
 import '../domain/project.dart';
 import 'app.dart';
@@ -61,6 +62,37 @@ class _ProjectScreenState extends State<ProjectScreen> {
               ),
             ],
           ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _backup() async {
+    if (!await confirm(
+          context,
+          'نسخة احتياطية كاملة؟',
+          'تشمل الأصول والنسخ المعالجة السابقة وبيانات المشروع. النسخة غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
+        ) ||
+        !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final saved = await BackupTransfer(
+        widget.service.backups!,
+      ).save(_project);
+      if (mounted) {
+        showMessage(
+          context,
+          saved ? 'حُفظت النسخة الاحتياطية الكاملة.' : 'أُلغي حفظ النسخة.',
         );
       }
     } catch (error) {
@@ -188,6 +220,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       icon: const Icon(Icons.description_outlined),
                       label: const Text('تحرير ورقة A4'),
                     ),
+                    if (widget.service.backups != null)
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _backup,
+                        icon: const Icon(Icons.backup_outlined),
+                        label: const Text('نسخة احتياطية كاملة'),
+                      ),
                     const SizedBox(height: 16),
                     Text(
                       '${_project.assets.length} صور · JPEG / PNG · حتى 16 مليون بكسل للصورة',

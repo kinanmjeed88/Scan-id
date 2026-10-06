@@ -2,6 +2,8 @@ package iq.scanid.scan_id
 
 import android.app.Activity
 import android.content.Intent
+import android.provider.OpenableColumns
+import java.util.UUID
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -10,10 +12,30 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private var pending: MethodChannel.Result? = null
     private var source: File? = null
+    private var pickLimit = 20L * 1024 * 1024
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/local_documents")
             .setMethodCallHandler { call, result ->
+                if (call.method == "open") {
+                    if (pending != null) { result.error("busy", "A document request is active", null); return@setMethodCallHandler }
+                    try {
+                        pickLimit = call.argument<Number>("maxBytes")!!.toLong()
+                        require(pickLimit > 0 && pickLimit <= 64L * 1024 * 1024 * 1024 + 16 * 1024 * 1024 + 64)
+                        pending = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = call.argument<String>("mime") ?: "application/octet-stream"
+                            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.argument<Boolean>("multiple") ?: false)
+                        }
+                        startActivityForResult(intent, 7302)
+                    } catch (error: Exception) {
+                        pending = null
+                        result.error("open", "Unable to open local documents", null)
+                    }
+                    return@setMethodCallHandler
+                }
                 if (call.method != "save") { result.notImplemented(); return@setMethodCallHandler }
                 if (pending != null) { result.error("busy", "A document request is active", null); return@setMethodCallHandler }
                 try {
@@ -38,6 +60,53 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Activity callback used for the system document picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 7302) {
+            val result = pending ?: return
+            if (resultCode != Activity.RESULT_OK || data == null) { pending = null; result.success(emptyList<Any>()); return }
+            val uris = data.clipData?.let { clips -> (0 until clips.itemCount).map { clips.getItemAt(it).uri } } ?: listOfNotNull(data.data)
+            if (uris.size > 200) { pending = null; result.error("limit", "Too many files", null); return }
+            val limit = pickLimit
+            Thread {
+                val folder = File(cacheDir, "scan-picked-${UUID.randomUUID()}")
+                try {
+                    check(folder.mkdirs())
+                    val selected = uris.map { uri ->
+                        var name = "image"
+                        val file = File(folder, UUID.randomUUID().toString())
+                        try {
+                            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                                if (cursor.moveToFirst()) name = cursor.getString(0) ?: name
+                            }
+                            name = name.replace("\u0000", "").take(160).ifBlank { "image" }
+                            contentResolver.openInputStream(uri).use { input ->
+                                require(input != null)
+                                file.outputStream().use { output ->
+                                    val buffer = ByteArray(65536)
+                                    var total = 0L
+                                    while (true) {
+                                        val count = input.read(buffer)
+                                        if (count < 0) break
+                                        total += count
+                                        require(total <= limit && cacheDir.usableSpace > 64L * 1024 * 1024)
+                                        output.write(buffer, 0, count)
+                                    }
+                                }
+                            }
+                            mapOf("name" to name, "path" to file.path)
+                        } catch (error: Exception) {
+                            file.delete()
+                            mapOf("name" to name, "error" to "تعذر قراءة الملف أو تجاوزه حد الحجم أو عدم كفاية المساحة.")
+                        }
+                    }
+                    if (folder.listFiles()?.isEmpty() == true) folder.delete()
+                    runOnUiThread { pending = null; result.success(selected) }
+                } catch (error: Exception) {
+                    folder.deleteRecursively()
+                    runOnUiThread { pending = null; result.error("read", "Unable to read documents", null) }
+                }
+            }.start()
+            return
+        }
         if (requestCode != 7301) return
         val result = pending ?: return
         val file = source

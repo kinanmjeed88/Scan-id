@@ -44,6 +44,22 @@ void main() {
       throwsA(isA<ValidationException>()),
     );
   });
+  test(
+    '32-bit PNG dimensions cannot bypass budget through integer overflow',
+    () {
+      final bytes = Uint8List(33);
+      bytes.setAll(0, [137, 80, 78, 71, 13, 10, 26, 10]);
+      final data = ByteData.sublistView(bytes);
+      data.setUint32(8, 13);
+      data.setUint32(12, 0x49484452);
+      data.setUint32(16, 0xffffffff);
+      data.setUint32(20, 0xffffffff);
+      expect(
+        () => inspectImageHeader(bytes),
+        throwsA(isA<ValidationException>()),
+      );
+    },
+  );
   test('zero-size PNG header cannot enter a codec', () {
     final bytes = Uint8List(33);
     bytes.setAll(0, [137, 80, 78, 71, 13, 10, 26, 10]);

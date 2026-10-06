@@ -34,7 +34,9 @@ void main() {
       final prepared = prepareImage(bytes);
       expect([prepared.width, prepared.height], [20, 40]);
       expect(bytes, before);
-      expect(img.decodeJpg(bytes)!.exif.imageIfd.orientation, 6);
+      // decodeJpg bakes EXIF and deliberately removes the orientation tag.
+      // Read the encoded metadata, not the already-normalized decoded image.
+      expect(img.decodeJpgExif(bytes)!.imageIfd.orientation, 6);
     },
   );
   test('oversized PNG header is rejected before frame decoding', () {

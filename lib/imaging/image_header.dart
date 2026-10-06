@@ -8,7 +8,7 @@ enum ImageEncoding { jpeg, png }
 class ImageHeader {
   ImageHeader(this.encoding, this.width, this.height) {
     require(
-      width > 0 && height > 0 && width * height <= maxImportPixels,
+      withinImageBudget(width, height),
       'الصورة تتجاوز حد المعالجة (16 مليون بكسل).',
     );
   }

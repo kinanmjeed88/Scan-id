@@ -133,6 +133,32 @@ void main() {
     expect(await Directory('${root.path}/projects').exists(), isFalse);
     expect(await Directory('${root.path}/staging').exists(), isFalse);
   });
+  test(
+    'simultaneous imports keep one committed revision and report the conflict',
+    () async {
+      final project = await service.create('متزامن');
+      final bytes = img.encodePng(img.Image(width: 8, height: 8));
+      final reports = await Future.wait([
+        service.importImages(project, [
+          ImportSource('first.png', () => Stream.value(bytes)),
+        ]),
+        service.importImages(project, [
+          ImportSource('second.png', () => Stream.value(bytes)),
+        ]),
+      ]);
+      expect(reports.map((r) => r.imported).reduce((a, b) => a + b), 1);
+      expect(reports.expand((r) => r.failures), hasLength(1));
+      final saved = await projects.get(project.id);
+      expect(saved.revision, 1);
+      expect(saved.assets, hasLength(1));
+      expect(
+        await (await assets.resolve(
+          saved.assets.single.originalPath,
+        )).readAsBytes(),
+        bytes,
+      );
+    },
+  );
   test('file-picker cancellation is an empty batch with no save', () async {
     final project = await service.create('إلغاء');
     final report = await service.importImages(project, []);

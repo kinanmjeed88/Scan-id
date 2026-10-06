@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.stdout.reconfigure(encoding='utf-8')
 name, *command = sys.argv[1:]
 Path('diagnostics').mkdir(exist_ok=True)
 log = Path('diagnostics') / f'{name}.log'
@@ -26,7 +27,18 @@ text = log.read_text(encoding='utf-8')
 # in the normal workflow artifact. Do not weaken/ignore any failing command.
 text = text[-48000:] if code else text[-1800:]
 level = 'error' if code else 'notice'
-for index in range(0, len(text), 6000):
-    chunk = text[index:index + 6000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-    print(f'::{level} title={name} exit={code} part={index // 6000 + 1}::{chunk}')
+# GitHub truncates annotation messages at 4096 UTF-8 bytes, not characters.
+chunks, chunk, size = [], '', 0
+for character in text:
+    length = len(character.encode('utf-8'))
+    if size + length > 3000:
+        chunks.append(chunk)
+        chunk, size = '', 0
+    chunk += character
+    size += length
+if chunk:
+    chunks.append(chunk)
+for index, chunk in enumerate(chunks, start=1):
+    escaped = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print(f'::{level} title={name} exit={code} part={index}::{escaped}')
 sys.exit(code)

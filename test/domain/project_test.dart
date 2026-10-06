@@ -157,6 +157,20 @@ void main() {
     },
   );
 
+  test('image and crop allocation budgets cannot overflow native integers', () {
+    final json = assetFixture().toJson()
+      ..['width'] = 1 << 32
+      ..['height'] = 1 << 32;
+    expect(() => ImageAsset.fromJson(json), invalid);
+    expect(
+      () => CropGeometry(
+        corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+        outputWidth: 1 << 32,
+        outputHeight: 1 << 32,
+      ),
+      invalid,
+    );
+  });
   test('A4 orientation and printable coordinates use mm', () {
     final portrait = PaperSettings();
     final landscape = PaperSettings(orientation: PaperOrientation.landscape);

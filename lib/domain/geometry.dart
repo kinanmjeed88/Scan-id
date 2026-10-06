@@ -75,9 +75,7 @@ class CropGeometry {
   }) : corners = List.unmodifiable(corners) {
     require(corners.length == 4, 'يجب تحديد أربع زوايا.');
     require(
-      outputWidth > 0 &&
-          outputHeight > 0 &&
-          outputWidth * outputHeight <= maxImportPixels,
+      withinImageBudget(outputWidth, outputHeight),
       'أبعاد القص تتجاوز حد المعالجة الآمن.',
     );
     for (final p in corners) {

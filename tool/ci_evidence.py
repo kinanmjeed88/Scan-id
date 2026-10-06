@@ -31,5 +31,5 @@ if len(data) > 240000:
     raise RuntimeError('Generated source archive is unexpectedly large; inspect normal artifact')
 encoded = base64.b64encode(data).decode('ascii')
 print(f'::notice title=generated-source sha256::{hashlib.sha256(data).hexdigest()}')
-for index in range(0, len(encoded), 6000):
-    print(f'::notice title=generated-source chunk={index // 6000 + 1:03d}::{encoded[index:index + 6000]}')
+for index in range(0, len(encoded), 3000):
+    print(f'::notice title=generated-source chunk={index // 3000 + 1:03d}::{encoded[index:index + 3000]}')

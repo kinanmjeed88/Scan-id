@@ -167,7 +167,7 @@ class ImageAsset {
       'الأصل ونسخ العمل يجب أن تكون ملفات مستقلة.',
     );
     require(
-      width > 0 && height > 0 && width * height <= maxImportPixels,
+      withinImageBudget(width, height),
       'أبعاد الصورة غير صالحة أو تتجاوز حد الاستيراد.',
     );
     require(

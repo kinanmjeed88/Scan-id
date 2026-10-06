@@ -4,6 +4,9 @@ on:
   push:
     branches: [arena/39620afb-scan-id]
   workflow_dispatch:
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: 1
 permissions:
   contents: read
 concurrency:
@@ -51,7 +54,7 @@ jobs:
         run: python tool/ci_evidence.py
       - name: Preserve evidence and resolved lockfile
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: verification-${{ runner.os }}
           path: |
@@ -61,13 +64,13 @@ jobs:
           if-no-files-found: warn
       - name: Android development artifact
         if: success() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: android-development-release
           path: build/app/outputs/flutter-apk/app-release.apk
       - name: Windows unsigned portable artifact
         if: success() && runner.os == 'Windows'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: windows-unsigned-portable
           path: build/windows/x64/runner/Release/

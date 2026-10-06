@@ -32,7 +32,8 @@ void main() {
       await tester.tap(find.text('حفظ'));
       await tester.pumpAndSettle();
       expect(repository.values.values.single.name, 'وثائق السفر');
-      await tester.pageBack();
+      // pageBack() searches for the English tooltip 'Back'; this app is Arabic.
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       await tester.tap(find.text('وثائق السفر'));
       await tester.pumpAndSettle();

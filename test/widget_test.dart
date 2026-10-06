@@ -138,27 +138,42 @@ void main() {
       await tester.tap(find.text('فتح القص'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
-      await tester.drag(
-        find.byKey(const Key('crop-corner-0')),
-        // Exceed Flutter's pan slop; a shorter motion is deliberately a tap.
-        const Offset(60, 35),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<IconButton>(
-              find.byWidgetPredicate(
-                (w) => w is IconButton && w.tooltip == 'تراجع',
-              ),
-            )
-            .onPressed,
-        isNotNull,
-      );
-      await tester.tap(find.byTooltip('تراجع'));
-      await tester.pumpAndSettle();
+      for (var i = 0; i < 4; i++) {
+        final corner = find.byKey(Key('crop-corner-$i'));
+        final before = tester.getCenter(corner);
+        // Send multiple move events beyond pan slop, as a real finger does.
+        await tester.timedDrag(
+          corner,
+          Offset(i == 0 || i == 3 ? 60 : -60, i < 2 ? 40 : -40),
+          const Duration(milliseconds: 300),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          (tester.getCenter(corner) - before).distance,
+          greaterThan(10),
+          reason: 'Corner $i must be draggable from its visible centre',
+        );
+        expect(
+          tester
+              .widget<IconButton>(
+                find.byWidgetPredicate(
+                  (w) => w is IconButton && w.tooltip == 'تراجع',
+                ),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        await tester.tap(find.byTooltip('تراجع'));
+        await tester.pumpAndSettle();
+        expect((tester.getCenter(corner) - before).distance, lessThan(.01));
+      }
       await tester.ensureVisible(find.text('اقتراح الحدود'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح الحدود'));
+      await tester.pumpAndSettle();
+      // Let the real four-second feedback snackbar expire before tapping
+      // controls underneath it. pumpAndSettle does not advance idle timers.
+      await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
       await tester.tap(find.byTooltip('تراجع'));

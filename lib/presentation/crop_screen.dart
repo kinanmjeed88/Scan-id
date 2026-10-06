@@ -346,13 +346,13 @@ class _CropScreenState extends State<CropScreen> {
               )
             : ClipRect(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(4),
                   child: LayoutBuilder(
                     builder: (context, box) {
                       final ratio = _source!.width / _source!.height;
                       final width = math.min(
-                        box.maxWidth,
-                        box.maxHeight * ratio,
+                        box.maxWidth - 40,
+                        (box.maxHeight - 40) * ratio,
                       );
                       final height = width / ratio;
                       return Center(
@@ -362,29 +362,45 @@ class _CropScreenState extends State<CropScreen> {
                           maxScale: 5,
                           clipBehavior: Clip.none,
                           child: SizedBox(
-                            key: _canvasKey,
-                            width: width,
-                            height: height,
+                            // The hit-test box includes the entire corner handles,
+                            // not just the image. Clip.none alone only expands paint.
+                            width: width + 40,
+                            height: height + 40,
                             child: Stack(
                               clipBehavior: Clip.none,
                               children: [
-                                Positioned.fill(
-                                  child: Image.memory(
-                                    _source!.preview,
-                                    fit: BoxFit.fill,
-                                  ),
-                                ),
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    child: CustomPaint(
-                                      painter: _CropPainter(_draft!.corners),
+                                Positioned(
+                                  left: 20,
+                                  top: 20,
+                                  width: width,
+                                  height: height,
+                                  child: SizedBox(
+                                    key: _canvasKey,
+                                    child: Stack(
+                                      children: [
+                                        Positioned.fill(
+                                          child: Image.memory(
+                                            _source!.preview,
+                                            fit: BoxFit.fill,
+                                          ),
+                                        ),
+                                        Positioned.fill(
+                                          child: IgnorePointer(
+                                            child: CustomPaint(
+                                              painter: _CropPainter(
+                                                _draft!.corners,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
                                 for (var i = 0; i < 4; i++)
                                   Positioned(
-                                    left: _draft!.corners[i].x * width - 20,
-                                    top: _draft!.corners[i].y * height - 20,
+                                    left: _draft!.corners[i].x * width,
+                                    top: _draft!.corners[i].y * height,
                                     child: GestureDetector(
                                       key: Key('crop-corner-$i'),
                                       behavior: HitTestBehavior.opaque,

@@ -145,7 +145,7 @@ void main() {
         root,
       );
       final bytes = await File(result.files.single).readAsBytes();
-      final info = img.PngDecoder().startDecode(bytes)!;
+      final info = img.PngDecoder().startDecode(bytes)! as img.PngInfo;
       expect([info.width, info.height], [7016, 4961]);
       expect(info.pixelDimensions, img.PngPhysicalPixelDimensions.dpi(600));
       expect(ExportPlan(project, ExportProfile(dpi: 600)).pixelWidth, 4961);

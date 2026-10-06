@@ -58,6 +58,9 @@ jobs:
       - name: Audit built APK privacy configuration
         if: runner.os == 'Linux'
         run: python tool/ci_gate.py apk-privacy python tool/audit_apk.py
+      - name: Verify PDFium binary provenance and licenses
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py pdfium-audit python tool/audit_pdfium.py
       - name: Windows release startup smoke
         if: runner.os == 'Windows'
         run: python tool/ci_gate.py windows-smoke pwsh -File tool/windows_smoke.ps1

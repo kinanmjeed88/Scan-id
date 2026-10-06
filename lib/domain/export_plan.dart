@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'geometry.dart';
+import 'page_layout.dart';
 import 'project.dart';
 import 'validation.dart';
 
@@ -44,10 +45,19 @@ class ExportPlan {
     for (final e in project.items.where(includes)) {
       final a = project.assets.firstWhere((a) => a.id == e.assetId);
       final dpi = math.min(a.width / e.width, a.height / e.height) * 25.4;
-      if (dpi < profile.dpi)
+      if (dpi < profile.dpi) {
         result.add(
           '${a.name}: دقة المصدر الفعلية ${dpi.floor()} DPI؛ التكبير لا يضيف تفاصيل.',
         );
+      }
+      if (((e.width / e.height) / (a.width / a.height) - 1).abs() > .01) {
+        result.add(
+          '${a.name}: نسبة المستطيل تختلف عن الصورة؛ راجع التشوه قبل الاعتماد.',
+        );
+      }
+    }
+    if (inspectLayout(project).isNotEmpty) {
+      result.add('يوجد تراكب بين عناصر؛ راجع أن ذلك مقصود.');
     }
     return result;
   }

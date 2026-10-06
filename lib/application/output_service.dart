@@ -70,10 +70,11 @@ class OutputService {
       }
       return 'تم حفظ $saved من ${bundle.files.length} ملفات.';
     } catch (_) {
-      if (saved > 0)
+      if (saved > 0) {
         throw StorageException(
           'تم حفظ $saved ملفات قبل حدوث خطأ. الملفات المحفوظة باقية؛ تحقق من المساحة والصلاحيات.',
         );
+      }
       rethrow;
     } finally {
       if (bundle != null && bundle.files.isNotEmpty) {

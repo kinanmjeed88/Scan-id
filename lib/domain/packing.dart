@@ -78,12 +78,15 @@ PackingProposal proposePacking(
       final b = rotated.bounds;
       final w = b.width + gx, h = b.height + gy;
       for (final space in free) {
-        if (w > space.width + 1e-7 || h > space.height + 1e-7) continue;
+        if (w > space.width + 1e-7 || h > space.height + 1e-7) {
+          continue;
+        }
         final short = math.min(space.width - w, space.height - h),
             long = math.max(space.width - w, space.height - h);
         if (short > bestShort + 1e-7 ||
-            (short - bestShort).abs() < 1e-7 && long >= bestLong)
+            (short - bestShort).abs() < 1e-7 && long >= bestLong) {
           continue;
+        }
         final candidate = rotated.copyWith(
           x: space.x + (b.width - item.width) / 2,
           y: space.y + (b.height - item.height) / 2,
@@ -126,11 +129,13 @@ List<RectMm> _subtract(List<RectMm> free, RectMm used) {
       continue;
     }
     if (used.x > r.x) split.add(RectMm(r.x, r.y, used.x - r.x, r.height));
-    if (used.right < r.right)
+    if (used.right < r.right) {
       split.add(RectMm(used.right, r.y, r.right - used.right, r.height));
+    }
     if (used.y > r.y) split.add(RectMm(r.x, r.y, r.width, used.y - r.y));
-    if (used.bottom < r.bottom)
+    if (used.bottom < r.bottom) {
       split.add(RectMm(r.x, used.bottom, r.width, r.bottom - used.bottom));
+    }
   }
   final result = <RectMm>[];
   for (var i = 0; i < split.length; i++) {

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
@@ -10,6 +11,7 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/domain/image_limits.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
+import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
 void main() {
@@ -21,12 +23,25 @@ void main() {
     root = await Directory.systemTemp.createTemp('scan_import_test_');
     projects = await LocalProjectRepository.open(root);
     assets = LocalAssetRepository(projects.files);
-    service = ProjectService(projects, assets);
+    service = ProjectService(
+      projects,
+      assets,
+      imageEditor: LocalImageEditor(projects.files),
+    );
   });
   tearDown(() async {
     await projects.close();
     await root.delete(recursive: true);
   });
+
+  /// Anything left under staging after an operation, by relative name.
+  Future<List<String>> stagingEntries() async {
+    final staging = Directory('${root.path}/staging');
+    if (!await staging.exists()) {
+      return const [];
+    }
+    return [for (final entity in await staging.list()) p.basename(entity.path)];
+  }
 
   test(
     'import pipeline commits original, normalized copy and thumbnail then reopens',
@@ -214,7 +229,10 @@ void main() {
           ],
         ),
       );
-      expect(() => service.removeAsset(used, asset.id), throwsException);
+      await expectLater(
+        service.removeAsset(used, asset.id),
+        throwsA(isA<ValidationException>()),
+      );
       final cleared = await projects.save(used.copyWith(items: []));
       final result = await service.removeAsset(cleared, asset.id);
       expect(result.assets, isEmpty);
@@ -340,7 +358,7 @@ void main() {
         await (await assets.resolve(asset.originalPath)).readAsBytes(),
         bytes,
       );
-      expect(await Directory('${root.path}/staging').exists(), isFalse);
+      expect(await stagingEntries(), isEmpty);
     },
   );
 

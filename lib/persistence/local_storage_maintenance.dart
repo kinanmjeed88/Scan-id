@@ -150,25 +150,37 @@ class LocalStorageMaintenance implements StorageMaintenance {
     }
   }
 
-  /// Newest modification time of the tree rooted at [path].
+  /// Modification time that decides whether [path] counts as stale.
   ///
-  /// A directory's own timestamp only changes when an entry is added or
-  /// removed, so a rewrite in place would make live files look stale. Deciding
-  /// staleness by the newest entry keeps such work out of the cleanup paths.
-  /// Links are reported as epoch: they are unlinked, never followed.
+  /// A directory timestamp only changes when an entry is created or removed, so
+  /// rewriting a file in place would make live work look untouched. The newest
+  /// file in the tree decides instead; a tree without files falls back to its
+  /// own timestamp, so an empty directory is never treated as ancient. Links
+  /// are never followed.
   Future<DateTime> _modified(String path) async {
-    final type = await FileSystemEntity.type(path, followLinks: false);
-    if (type == FileSystemEntityType.notFound ||
-        type == FileSystemEntityType.link) {
-      return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
-    }
-    var newest = (await FileStat.stat(path)).modified.toUtc();
-    if (type != FileSystemEntityType.directory) {
+    final newest = await _newestFile(path);
+    if (newest != null) {
       return newest;
     }
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) {
+      return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
+    return (await FileStat.stat(path)).modified.toUtc();
+  }
+
+  Future<DateTime?> _newestFile(String path) async {
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.file) {
+      return (await FileStat.stat(path)).modified.toUtc();
+    }
+    if (type != FileSystemEntityType.directory) {
+      return null;
+    }
+    DateTime? newest;
     await for (final entity in Directory(path).list(followLinks: false)) {
-      final child = await _modified(entity.path);
-      if (child.isAfter(newest)) {
+      final child = await _newestFile(entity.path);
+      if (child != null && (newest == null || child.isAfter(newest))) {
         newest = child;
       }
     }

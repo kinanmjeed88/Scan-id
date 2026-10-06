@@ -52,10 +52,9 @@ void main() {
     return Uint8List.fromList(img.encodePng(image));
   }
 
-  setUp(() async {
-    root = await Directory.systemTemp.createTemp('scan_workflow_store_');
-    workspace = await Directory.systemTemp.createTemp('scan_workflow_output_');
-    projects = await LocalProjectRepository.open(root);
+  /// Every dependency is rebuilt around [projects], so a test can reopen the
+  /// store and keep working through the same service, as the app does.
+  void wireService() {
     assets = LocalAssetRepository(projects.files);
     backups = LocalProjectBackups(projects, projects.files);
     service = ProjectService(
@@ -65,6 +64,13 @@ void main() {
       backups: backups,
       maintenance: LocalStorageMaintenance(projects.files),
     );
+  }
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('scan_workflow_store_');
+    workspace = await Directory.systemTemp.createTemp('scan_workflow_output_');
+    projects = await LocalProjectRepository.open(root);
+    wireService();
   });
   tearDown(() async {
     await projects.close();
@@ -268,6 +274,7 @@ void main() {
       // 7. Reopen the store: the project and the restored copy survive exactly.
       await projects.close();
       projects = await LocalProjectRepository.open(root);
+      wireService();
       expect((await projects.get(project.id)).toJson(), project.toJson());
       expect((await projects.get(restored.id)).toJson(), restored.toJson());
 

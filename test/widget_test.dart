@@ -39,7 +39,11 @@ void main() {
         _NoAssets(),
         backups: _UnusedBackups(),
       );
-      for (final size in [const Size(390, 844), const Size(844, 390)]) {
+      for (final size in [
+        const Size(390, 844),
+        const Size(844, 390),
+        const Size(320, 640),
+      ]) {
         tester.view.physicalSize = size;
         for (final screen in <Widget>[
           ProjectsScreen(service: service, pickImages: () async => []),
@@ -351,7 +355,7 @@ void main() {
       );
       await tester.tap(find.text('صور'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('إضافة صور'));
+      await tester.tap(find.byTooltip('إضافة صور'));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
       expect(tester.takeException(), isNull);
@@ -546,7 +550,9 @@ void main() {
     'arrow keys nudge the selected A4 item, Shift scales the step, Ctrl+Z restores',
     (tester) async {
       tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final repository = _MemoryProjects();
       final project = await repository.create(
         projectFixture(
@@ -593,7 +599,9 @@ void main() {
     tester,
   ) async {
     tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final repository = _MemoryProjects();
     final project = await repository.create(
       projectFixture(
@@ -628,7 +636,9 @@ void main() {
     tester,
   ) async {
     tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final repository = _MemoryProjects();
     final project = await repository.create(
       projectFixture(

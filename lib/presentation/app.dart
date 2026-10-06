@@ -312,13 +312,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: FilledButton.icon(
-              onPressed: _busy ? null : _newProject,
-              icon: const Icon(Icons.add),
-              label: const Text('مشروع جديد'),
-            ),
+          AdaptableAction(
+            label: 'مشروع جديد',
+            icon: Icons.add,
+            onPressed: _busy ? null : _newProject,
           ),
         ],
       ),

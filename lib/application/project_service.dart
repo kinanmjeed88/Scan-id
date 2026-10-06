@@ -64,14 +64,14 @@ class ProjectService {
   final ProjectRepository projects;
   final AssetRepository assets;
 
-  Future<Project> create(String name) {
+  Future<Project> create(String name) async {
     final now = DateTime.now().toUtc();
     return projects.create(
       Project(id: newId(), name: name.trim(), createdAt: now, updatedAt: now),
     );
   }
 
-  Future<Project> rename(Project project, String name) =>
+  Future<Project> rename(Project project, String name) async =>
       projects.save(project.copyWith(name: name.trim()));
 
   /// Each successfully imported image is committed before processing the next.
@@ -147,7 +147,11 @@ class ProjectService {
   }
 
   /// Moves an image inside the library order; the sheet itself is untouched.
-  Future<Project> moveAsset(Project project, String assetId, int targetIndex) {
+  Future<Project> moveAsset(
+    Project project,
+    String assetId,
+    int targetIndex,
+  ) async {
     final from = project.assets.indexWhere((asset) => asset.id == assetId);
     require(from >= 0, 'الصورة ليست ضمن هذا المشروع.');
     return projects.save(project.reorderAssets(from, targetIndex));
@@ -207,7 +211,7 @@ class ProjectService {
     }
   }
 
-  Future<Project> removeAsset(Project project, String assetId) {
+  Future<Project> removeAsset(Project project, String assetId) async {
     require(
       project.assets.any((asset) => asset.id == assetId),
       'الصورة ليست ضمن هذا المشروع.',

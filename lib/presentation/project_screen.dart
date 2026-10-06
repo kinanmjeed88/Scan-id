@@ -469,13 +469,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
             onPressed: _busy ? null : _rename,
             icon: const Icon(Icons.edit_outlined),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: FilledButton.icon(
-              onPressed: _busy ? null : _import,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-              label: const Text('إضافة صور'),
-            ),
+          AdaptableAction(
+            label: 'إضافة صور',
+            icon: Icons.add_photo_alternate_outlined,
+            onPressed: _busy ? null : _import,
           ),
         ],
       ),

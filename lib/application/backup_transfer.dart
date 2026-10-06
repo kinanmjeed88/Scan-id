@@ -14,7 +14,11 @@ class BackupTransfer {
     try {
       return await saveDocument(file, 'application/octet-stream');
     } finally {
-      await file.parent.delete(recursive: true);
+      try {
+        await file.parent.delete(recursive: true);
+      } catch (_) {
+        /* Keep private cache rather than misreport a successful save as failed. */
+      }
     }
   }
 
@@ -27,7 +31,11 @@ class BackupTransfer {
       try {
         return await backups.restore(source);
       } finally {
-        await removePickedFile(source);
+        try {
+          await removePickedFile(source);
+        } catch (_) {
+          /* The restore may already be committed. */
+        }
       }
     }
     const group = XTypeGroup(
@@ -60,7 +68,11 @@ class BackupTransfer {
       }
       return await backups.restore(file);
     } finally {
-      await folder.delete(recursive: true);
+      try {
+        await folder.delete(recursive: true);
+      } catch (_) {
+        /* OS cache cleanup may reclaim it later. */
+      }
     }
   }
 }

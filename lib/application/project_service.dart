@@ -76,6 +76,7 @@ class ProjectService {
         failures.add(ImportFailure(source.name, error.message));
         // The in-memory project is stale; continuing would create more orphans.
         for (final skipped in sources.skip(index + 1)) {
+          await _cleanupSource(skipped);
           failures.add(
             ImportFailure(
               skipped.name,
@@ -86,13 +87,8 @@ class ProjectService {
         break;
       } catch (error) {
         failures.add(ImportFailure(source.name, userError(error)));
-      }
-    }
-    for (final source in sources) {
-      try {
-        await source.cleanup?.call();
-      } catch (_) {
-        /* Private cache may be reclaimed by the OS; never delete external originals. */
+      } finally {
+        await _cleanupSource(source);
       }
     }
     return ImportReport(current, imported, List.unmodifiable(failures));
@@ -151,4 +147,12 @@ String userError(Object error) {
     return error.message;
   }
   return 'تعذرت العملية. تحقق من سلامة الملفات، والصلاحيات والمساحة المتاحة. لم يتم استبدال الأصل.';
+}
+
+Future<void> _cleanupSource(ImportSource source) async {
+  try {
+    await source.cleanup?.call();
+  } catch (_) {
+    /* Only private picker cache; never let cleanup mask a committed import. */
+  }
 }

@@ -101,6 +101,11 @@ Future<void> _writeBackup(Project project, String root, String output) async {
   );
   final names = records.map((r) => r['path']).toSet();
   require(
+    records.map((r) => (r['path']! as String).toLowerCase()).toSet().length ==
+        records.length,
+    'أسماء الملفات تتصادم على Windows.',
+  );
+  require(
     _references(project).every(names.contains),
     'النسخة غير مكتملة؛ أحد ملفات المشروع مفقود.',
   );
@@ -122,7 +127,7 @@ Future<void> _writeBackup(Project project, String root, String output) async {
       var written = 0;
       await for (final chunk in source.openRead()) {
         written += chunk.length;
-        require(written <= record['size']! as int, 'تغير ملف أثناء النسخ.');
+        require(written <= (record['size']! as int), 'تغير ملف أثناء النسخ.');
         hashing.add(chunk);
         await writer.writeFrom(chunk);
       }

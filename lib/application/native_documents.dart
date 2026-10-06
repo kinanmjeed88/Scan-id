@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'contracts.dart';
 import 'project_service.dart';
 
@@ -60,7 +62,18 @@ Future<File?> pickAndroidBackup() async {
 }
 
 Future<void> removePickedFile(File file) async {
-  // Only callers with an app-created picker cache file use this operation.
+  // A bridge regression must never turn cache cleanup into external deletion.
+  final cache = await (await getTemporaryDirectory()).resolveSymbolicLinks();
+  if (!await file.exists()) {
+    return;
+  }
+  final parent = await file.parent.resolveSymbolicLinks();
+  if (!path.isWithin(cache, parent) ||
+      !path.basename(parent).startsWith('scan-picked-') ||
+      await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+    throw const StorageException('رُفض تنظيف ملف خارج ذاكرة الاستيراد الخاصة.');
+  }
   if (await file.exists()) {
     await file.delete();
   }

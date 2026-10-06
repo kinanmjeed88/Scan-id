@@ -64,6 +64,7 @@ void main() {
     }
     return [for (final entity in await exports.list()) entity.path];
   }
+
   test(
     'export plan enforces placement and reports real source DPI without upscaling claims',
     () {
@@ -103,8 +104,10 @@ void main() {
       );
       expect(
         result.files.single,
-        contains('${Platform.pathSeparator}$exportDirectoryName'
-            '${Platform.pathSeparator}'),
+        contains(
+          '${Platform.pathSeparator}$exportDirectoryName'
+          '${Platform.pathSeparator}',
+        ),
         reason: 'التصدير داخل المجلد المخصص للمشاركة فقط',
       );
       final pdf = await File(result.files.single).readAsBytes();

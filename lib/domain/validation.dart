@@ -61,8 +61,7 @@ final _reservedWindowsNames = RegExp(
   r'^(con|prn|aux|nul|clock\$|com[1-9]|lpt[1-9])(?:\..*)?$',
   caseSensitive: false,
 );
-bool isReservedWindowsName(String name) =>
-    _reservedWindowsNames.hasMatch(name);
+bool isReservedWindowsName(String name) => _reservedWindowsNames.hasMatch(name);
 
 void validId(String id) =>
     require(RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(id), 'معرّف غير صالح.');

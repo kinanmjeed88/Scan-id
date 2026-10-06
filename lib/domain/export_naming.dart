@@ -11,6 +11,7 @@ import 'validation.dart';
 class ExportNames {
   ExportNames({required this.document, required List<String> pages})
     : pages = List.unmodifiable(pages);
+
   /// Name of the multipage PDF, or null when the plan exports raster pages.
   final String? document;
   final List<String> pages;
@@ -26,7 +27,9 @@ String exportBaseName(String projectName) {
   final buffer = StringBuffer();
   for (final rune in projectName.runes) {
     final forbidden =
-        rune < 0x20 || rune == 0x7f || r'<>:"/\|?*'.contains(String.fromCharCode(rune));
+        rune < 0x20 ||
+        rune == 0x7f ||
+        r'<>:"/\|?*'.contains(String.fromCharCode(rune));
     buffer.write(forbidden ? ' ' : String.fromCharCode(rune));
   }
   var name = buffer.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -58,9 +61,7 @@ ExportNames exportNames(ExportPlan plan) {
   final extension = plan.profile.format == ExportFormat.png ? 'png' : 'jpg';
   return ExportNames(
     document: null,
-    pages: [
-      for (final page in plan.pages) '$base-صفحة-${page + 1}.$extension',
-    ],
+    pages: [for (final page in plan.pages) '$base-صفحة-${page + 1}.$extension'],
   );
 }
 

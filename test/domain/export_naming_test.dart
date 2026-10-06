@@ -18,11 +18,7 @@ void main() {
     expect(pdf.pages, isEmpty);
 
     final png = exportNames(
-      ExportPlan(
-        project,
-        ExportProfile(format: ExportFormat.png),
-        pages: [0],
-      ),
+      ExportPlan(project, ExportProfile(format: ExportFormat.png), pages: [0]),
     );
     expect(png.document, isNull);
     expect(png.pages, ['مستمسكات العائلة-صفحة-1.png']);

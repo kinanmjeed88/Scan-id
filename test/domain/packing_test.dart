@@ -175,38 +175,37 @@ void main() {
       );
     },
   );
-  test(
-    'free mode keeps hand-placed items exactly where the user put them', () {
-      // Two items arranged by hand on a page, plus two waiting copies.
-      final placed = [
-        card('manual1', 60, 40, x: 30, y: 30),
-        card('manual2', 50, 35, x: 120, y: 200),
-      ];
-      final p = page([
-        ...placed,
-        card('waiting1', 40, 30, x: 0, y: 0, page: null),
-        card('waiting2', 45, 35, x: 0, y: 0, page: null),
-      ]);
-      final result = proposePacking(
-        p,
-        includeLocked: false,
-        allowRotation: false,
-        onlyUnplaced: true,
-      ).result;
+  test('free mode keeps hand-placed items exactly where the user put them', () {
+    // Two items arranged by hand on a page, plus two waiting copies.
+    final placed = [
+      card('manual1', 60, 40, x: 30, y: 30),
+      card('manual2', 50, 35, x: 120, y: 200),
+    ];
+    final p = page([
+      ...placed,
+      card('waiting1', 40, 30, x: 0, y: 0, page: null),
+      card('waiting2', 45, 35, x: 0, y: 0, page: null),
+    ]);
+    final result = proposePacking(
+      p,
+      includeLocked: false,
+      allowRotation: false,
+      onlyUnplaced: true,
+    ).result;
 
-      for (final before in placed) {
-        final after = result.items.firstWhere((e) => e.id == before.id);
-        expect(after.x, before.x);
-        expect(after.y, before.y);
-        expect(after.pageIndex, before.pageIndex);
-      }
-      final placedNow = result.items.where((e) => e.pageIndex != null).length;
-      expect(placedNow, 4, reason: 'النسختان المنتظرتان تجدان مكاناً هنا');
-      assertSafe(result);
-    },
-  );
+    for (final before in placed) {
+      final after = result.items.firstWhere((e) => e.id == before.id);
+      expect(after.x, before.x);
+      expect(after.y, before.y);
+      expect(after.pageIndex, before.pageIndex);
+    }
+    final placedNow = result.items.where((e) => e.pageIndex != null).length;
+    expect(placedNow, 4, reason: 'النسختان المنتظرتان تجدان مكاناً هنا');
+    assertSafe(result);
+  });
   test(
-    'free mode reports an item that cannot fit instead of moving arranged work', () {
+    'free mode reports an item that cannot fit instead of moving arranged work',
+    () {
       // The hand-placed item leaves a strip too small for the waiting copy.
       final p = page([
         card('manual', 190, 240, x: 10, y: 10),
@@ -228,37 +227,27 @@ void main() {
       );
     },
   );
-  test(
-    're-packing everything is still possible and stays deterministic', () {
-      final p = page([
-        card('a', 60, 40, x: 90, y: 150),
-        card('b', 50, 35, x: 20, y: 20, page: null),
-      ]);
-      final free = proposePacking(
-        p,
-        includeLocked: false,
-        allowRotation: false,
-        onlyUnplaced: true,
-      ).result;
-      expect(
-        free.items.firstWhere((e) => e.id == 'a').y,
-        150,
-        reason: 'الوضع الحر لا يحرك الموضوع',
-      );
-      final all = proposePacking(
-        p,
-        includeLocked: false,
-        allowRotation: false,
-      );
-      final again = proposePacking(
-        p,
-        includeLocked: false,
-        allowRotation: false,
-      );
-      expect(again.result.toJson(), all.result.toJson());
-      expect(all.result.items.firstWhere((e) => e.id == 'a').y, isNot(150));
-    },
-  );
+  test('re-packing everything is still possible and stays deterministic', () {
+    final p = page([
+      card('a', 60, 40, x: 90, y: 150),
+      card('b', 50, 35, x: 20, y: 20, page: null),
+    ]);
+    final free = proposePacking(
+      p,
+      includeLocked: false,
+      allowRotation: false,
+      onlyUnplaced: true,
+    ).result;
+    expect(
+      free.items.firstWhere((e) => e.id == 'a').y,
+      150,
+      reason: 'الوضع الحر لا يحرك الموضوع',
+    );
+    final all = proposePacking(p, includeLocked: false, allowRotation: false);
+    final again = proposePacking(p, includeLocked: false, allowRotation: false);
+    expect(again.result.toJson(), all.result.toJson());
+    expect(all.result.items.firstWhere((e) => e.id == 'a').y, isNot(150));
+  });
   test(
     'seeded mixed-size and rotated cases never violate margins gaps or fixed sizes',
     () {

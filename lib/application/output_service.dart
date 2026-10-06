@@ -171,9 +171,7 @@ class OutputService {
     DateTime now,
   ) async {
     try {
-      final root = Directory(
-        '${temporaryDirectory.path}/$exportDirectoryName',
-      );
+      final root = Directory('${temporaryDirectory.path}/$exportDirectoryName');
       if (!await root.exists()) {
         return;
       }

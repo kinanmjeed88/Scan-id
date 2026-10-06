@@ -38,7 +38,8 @@ PackingProposal proposePacking(
   final fixed = project.items
       .where(
         (e) =>
-            e.pageIndex == pageIndex && ((e.locked && !includeLocked) || onlyUnplaced),
+            e.pageIndex == pageIndex &&
+            ((e.locked && !includeLocked) || onlyUnplaced),
       )
       .toList();
   for (final item in fixed) {

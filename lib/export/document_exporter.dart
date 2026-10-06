@@ -38,7 +38,9 @@ class DocumentExporter {
       final asset = plan.project.assets.firstWhere((a) => a.id == item.assetId);
       paths[asset.id] = (await assets.resolve(asset.workingPath)).path;
     }
-    final output = Directory('${temporary.path}/$exportDirectoryName/${newId()}');
+    final output = Directory(
+      '${temporary.path}/$exportDirectoryName/${newId()}',
+    );
     await output.create(recursive: true);
     final root = output.path;
     try {

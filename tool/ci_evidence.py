@@ -40,3 +40,9 @@ if part == 0:
 # GitHub retains at most 10 notices per step, so publish at most 8 chunks.
 for index in range(part * 24000, min(len(encoded), (part + 1) * 24000), 3000):
     print(f'::notice title=generated-source chunk={index // 3000 + 1:03d}::{encoded[index:index + 3000]}')
+
+if part == 0 and Path('coverage/lcov.info').is_file():
+    lines = Path('coverage/lcov.info').read_text(encoding='utf-8').splitlines()
+    found = sum(int(line[3:]) for line in lines if line.startswith('LF:'))
+    hit = sum(int(line[3:]) for line in lines if line.startswith('LH:'))
+    print(f'::notice title=coverage lines::{hit}/{found} instrumented lines hit')

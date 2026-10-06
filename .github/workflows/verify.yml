@@ -49,6 +49,12 @@ jobs:
       - name: Build Windows release
         if: runner.os == 'Windows'
         run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Audit built APK privacy configuration
+        if: runner.os == 'Linux'
+        run: python tool/ci_gate.py apk-privacy python tool/audit_apk.py
+      - name: Windows release startup smoke
+        if: runner.os == 'Windows'
+        run: python tool/ci_gate.py windows-smoke pwsh -File tool/windows_smoke.ps1
       - name: Retain generated source for review
         if: always()
         run: python tool/ci_evidence.py 0

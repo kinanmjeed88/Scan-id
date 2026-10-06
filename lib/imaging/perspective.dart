@@ -90,18 +90,56 @@ img.Image warpPerspective(
     for (var x = 0; x < width; x++) {
       final u = width == 1 ? .5 : x / (width - 1);
       final point = map.at(u, v);
-      final pixel = source.getPixelInterpolate(
-        (point.x * (source.width - 1)).clamp(0, source.width - 1).toDouble(),
-        (point.y * (source.height - 1)).clamp(0, source.height - 1).toDouble(),
-        interpolation: img.Interpolation.linear,
+      final sx = (point.x * (source.width - 1))
+          .clamp(0, source.width - 1)
+          .toDouble();
+      final sy = (point.y * (source.height - 1))
+          .clamp(0, source.height - 1)
+          .toDouble();
+      final x0 = sx.floor(), y0 = sy.floor();
+      final tx = sx - x0, ty = sy - y0;
+      final p00 = source.getPixel(x0, y0);
+      final p10 = source.getPixel(math.min(x0 + 1, source.width - 1), y0);
+      final p01 = source.getPixel(x0, math.min(y0 + 1, source.height - 1));
+      final p11 = source.getPixel(
+        math.min(x0 + 1, source.width - 1),
+        math.min(y0 + 1, source.height - 1),
       );
+      // Keep interpolation in floating point until the final rounding. The
+      // codec's 8-bit getPixelInterpolate truncates e.g. 92.999999 to 92,
+      // which even changed pixels in an identity warp. Premultiplied alpha
+      // also avoids dark fringes beside transparent PNG pixels.
+      final w00 = (1 - tx) * (1 - ty) * p00.aNormalized;
+      final w10 = tx * (1 - ty) * p10.aNormalized;
+      final w01 = (1 - tx) * ty * p01.aNormalized;
+      final w11 = tx * ty * p11.aNormalized;
+      final alpha = w00 + w10 + w01 + w11;
+      final divisor = alpha == 0 ? 1 : alpha;
       output.setPixelRgba(
         x,
         y,
-        adjust(pixel.rNormalized),
-        adjust(pixel.gNormalized),
-        adjust(pixel.bNormalized),
-        (pixel.aNormalized * 255).round(),
+        adjust(
+          (p00.rNormalized * w00 +
+                  p10.rNormalized * w10 +
+                  p01.rNormalized * w01 +
+                  p11.rNormalized * w11) /
+              divisor,
+        ),
+        adjust(
+          (p00.gNormalized * w00 +
+                  p10.gNormalized * w10 +
+                  p01.gNormalized * w01 +
+                  p11.gNormalized * w11) /
+              divisor,
+        ),
+        adjust(
+          (p00.bNormalized * w00 +
+                  p10.bNormalized * w10 +
+                  p01.bNormalized * w01 +
+                  p11.bNormalized * w11) /
+              divisor,
+        ),
+        (alpha * 255).round(),
       );
     }
   }

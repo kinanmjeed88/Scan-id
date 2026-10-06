@@ -143,12 +143,19 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(
-        tester.widget<IconButton>(find.byTooltip('تراجع')).onPressed,
+        tester
+            .widget<IconButton>(
+              find.byWidgetPredicate(
+                (w) => w is IconButton && w.tooltip == 'تراجع',
+              ),
+            )
+            .onPressed,
         isNotNull,
       );
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('اقتراح الحدود'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح الحدود'));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
@@ -161,6 +168,7 @@ void main() {
         isNull,
       );
       await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       expect(editor.previewCount, 1);
@@ -171,6 +179,7 @@ void main() {
       );
       expect(repository.values[project.id]!.revision, 0);
       await tester.ensureVisible(find.byKey(const Key('crop-brightness')));
+      await tester.pumpAndSettle();
       await tester.drag(
         find.byKey(const Key('crop-brightness')),
         const Offset(35, 0),
@@ -184,9 +193,11 @@ void main() {
         reason: 'An old preview cannot approve new parameters',
       );
       await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('accept-crop')));
       await tester.pumpAndSettle();
       expect(accepted, isNotNull);
@@ -199,6 +210,10 @@ void main() {
   testWidgets(
     'crossed handles cannot be processed and cancellation leaves project unchanged',
     (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final repository = _MemoryProjects();
       final editor = _TestEditor();
       final project = await repository.create(
@@ -236,6 +251,7 @@ void main() {
       await tester.dragFrom(start, end - start);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       expect(editor.previewCount, 0);

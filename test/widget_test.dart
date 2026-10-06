@@ -7,6 +7,7 @@ import 'package:scan_id/presentation/layout_screen.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/domain/crop_draft.dart';
@@ -541,6 +542,111 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'arrow keys nudge the selected A4 item, Shift scales the step, Ctrl+Z restores',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      addTearDown(tester.view.resetPhysicalSize);
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [itemFixture().copyWith(x: 50, y: 50, locked: false)],
+        ),
+      );
+      final service = ProjectService(repository, _NoAssets());
+      await tester.pumpWidget(
+        AppShell(home: LayoutScreen(project: project, service: service)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(FilterChip).first);
+      await tester.pumpAndSettle();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.x, 51);
+      expect(repository.values[project.id]!.items.single.y, 50);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.y, 60);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyZ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(repository.values[project.id]!.items.single.y, 50);
+      expect(repository.values[project.id]!.items.single.x, 51);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Delete removes the selected item from the sheet', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    addTearDown(tester.view.resetPhysicalSize);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [assetFixture()],
+        items: [
+          itemFixture().copyWith(x: 20, y: 50, locked: false),
+          itemFixture(id: 'item2').copyWith(x: 120, y: 50, locked: false),
+        ],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(home: LayoutScreen(project: project, service: service)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilterChip).first);
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    await tester.pumpAndSettle();
+
+    expect(repository.values[project.id]!.items, hasLength(1));
+    expect(repository.values[project.id]!.items.single.id, 'item2');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('image library reorder is reachable without a drag gesture', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    addTearDown(tester.view.resetPhysicalSize);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [assetFixture(id: 'asset1'), assetFixture(id: 'asset2')],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('خيارات الصورة').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('نقل إلى ترتيب لاحق'));
+    await tester.pumpAndSettle();
+
+    expect(
+      repository.values[project.id]!.assets.map((a) => a.id),
+      ['asset2', 'asset1'],
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _MemoryProjects implements ProjectRepository {
@@ -579,6 +685,14 @@ class _NoAssets implements AssetRepository {
   Future<ImageAsset> importImage(
     String projectId,
     String name,
+    Uint8List bytes,
+  ) => Future.error(
+    StateError('No asset operation expected in this widget test'),
+  );
+  @override
+  Future<ReplacementFiles> replaceImage(
+    String projectId,
+    String assetId,
     Uint8List bytes,
   ) => Future.error(
     StateError('No asset operation expected in this widget test'),

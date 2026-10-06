@@ -34,6 +34,15 @@ class PageCanvas extends StatelessWidget {
   final VoidCallback? onDragEnd;
   final GlobalKey? pageKey;
   final bool showGuides;
+  String _itemLabel(DocumentItem item) {
+    for (final asset in project.assets) {
+      if (asset.id == item.assetId) {
+        return 'مستمسك: ${asset.name}';
+      }
+    }
+    return 'مستمسك بلا صورة';
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = project.items.where((e) => e.pageIndex == pageIndex).toList()
@@ -72,7 +81,14 @@ class PageCanvas extends StatelessWidget {
                   height: item.height * scale,
                   child: Transform.rotate(
                     angle: item.rotation * math.pi / 180,
-                    child: GestureDetector(
+                    child: Semantics(
+                      container: true,
+                      selected: selected.contains(item.id),
+                      label: _itemLabel(item),
+                      value:
+                          '${item.width.toStringAsFixed(0)} في ${item.height.toStringAsFixed(0)} مم، عند ${item.x.toStringAsFixed(0)} و${item.y.toStringAsFixed(0)} مم'
+                          '${item.locked ? '، مثبت' : ''}',
+                      child: GestureDetector(
                       key: Key('page-item-${item.id}'),
                       behavior: HitTestBehavior.opaque,
                       onTap: onSelect == null ? null : () => onSelect!(item.id),
@@ -145,7 +161,10 @@ class PageCanvas extends StatelessWidget {
                             Positioned(
                               right: 0,
                               bottom: 0,
-                              child: GestureDetector(
+                              child: Semantics(
+                                button: true,
+                                label: 'مقبض تغيير حجم العنصر',
+                                child: GestureDetector(
                                 key: Key('resize-${item.id}'),
                                 behavior: HitTestBehavior.opaque,
                                 onPanStart: (d) => onDragStart!(
@@ -157,22 +176,24 @@ class PageCanvas extends StatelessWidget {
                                     onDragUpdate!(d.globalPosition),
                                 onPanEnd: (_) => onDragEnd!(),
                                 child: const SizedBox(
-                                  width: 28,
-                                  height: 28,
+                                  width: 36,
+                                  height: 36,
                                   child: ColoredBox(
                                     color: Colors.teal,
                                     child: Icon(
                                       Icons.open_in_full,
-                                      size: 18,
+                                      size: 20,
                                       color: Colors.white,
                                     ),
                                   ),
+                                ),
                                 ),
                               ),
                             ),
                         ],
                       ),
                     ),
+                  ),
                   ),
                 ),
             ],

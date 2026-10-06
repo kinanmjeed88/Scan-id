@@ -428,6 +428,21 @@ class Project {
     items: items ?? this.items,
   );
 
+  /// Moves one image inside the library order, which is the order the editor
+  /// and the packing proposal present to the user. Layout items are untouched.
+  Project reorderAssets(int from, int to) {
+    require(
+      from >= 0 && from < assets.length && to >= 0 && to < assets.length,
+      'ترتيب الصور المطلوب خارج القائمة.',
+    );
+    if (from == to) {
+      return this;
+    }
+    final next = [...assets];
+    next.insert(to, next.removeAt(from));
+    return copyWith(assets: next);
+  }
+
   Map<String, Object?> toJson() => {
     'schemaVersion': schemaVersion,
     'id': id,

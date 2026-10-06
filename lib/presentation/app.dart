@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -191,17 +193,58 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _delete(Project project) async {
     final yes = await confirm(
       context,
-      'حذف المشروع من القائمة؟',
-      'ستُزال بيانات «${project.name}» من قاعدة المشاريع. تبقى نسخ الصور المحلية مؤقتاً للاسترداد، ولا تُحذف الصور الأصلية من جهازك. لا يوجد تراجع عن حذف بيانات المشروع حالياً.',
+      'حذف المشروع وملفاته؟',
+      'ستُزال بيانات «${project.name}» من قاعدة المشاريع، ثم تُحذف نسخ الصور والمصغرات التي أنشأها التطبيق داخل مساحته الخاصة. لا تُحذف ملفات جهازك الأصلية ولا مشاريع أخرى. لا يوجد تراجع عن حذف المشروع.',
     );
     if (!yes || !mounted) {
       return;
     }
     setState(() => _busy = true);
     try {
-      await widget.service.projects.remove(project);
+      final report = await widget.service.deleteProject(project);
       if (mounted) {
         _refresh();
+        showMessage(
+          context,
+          report.warning ?? 'حُذف المشروع وملفاته من مساحة التطبيق.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _maintenance() async {
+    setState(() => _busy = true);
+    try {
+      final orphans = await widget.service.findOrphans();
+      if (!mounted) {
+        return;
+      }
+      if (orphans.count == 0) {
+        showMessage(context, 'لا ملفات غير مرتبطة بمشاريعك.');
+        return;
+      }
+      final megabytes = (orphans.bytes / (1024 * 1024)).toStringAsFixed(2);
+      final yes = await confirm(
+        context,
+        'حذف الملفات غير المرتبطة؟',
+        'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
+            'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. '
+            'لا تُحذف ملفات المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق حمايةً لعمل جارٍ.',
+      );
+      if (!yes || !mounted) {
+        return;
+      }
+      final removed = await widget.service.deleteOrphans();
+      if (mounted) {
+        showMessage(context, 'أُزيل $removed من ${orphans.count} عناصر.');
       }
     } catch (error) {
       if (mounted) {
@@ -233,6 +276,28 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           ],
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'أدوات أخرى',
+            enabled: !_busy,
+            onSelected: (value) {
+              if (value == 'maintenance') {
+                unawaited(_maintenance());
+              } else if (value == 'recover') {
+                unawaited(_recoverDatabase());
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'maintenance',
+                child: Text('صيانة المساحة والملفات غير المرتبطة'),
+              ),
+              if (widget.recoverStorage != null)
+                const PopupMenuItem(
+                  value: 'recover',
+                  child: Text('استرداد قاعدة المشاريع من نقاط الحفظ'),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'عن التطبيق والتراخيص',
             icon: const Icon(Icons.info_outline),

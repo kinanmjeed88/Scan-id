@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../application/ids.dart';
 import '../application/packing_service.dart';
 import '../domain/packing.dart';
@@ -10,6 +12,7 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'page_canvas.dart';
 import 'export_screen.dart';
+import 'shortcuts.dart';
 
 class LayoutScreen extends StatefulWidget {
   const LayoutScreen({
@@ -29,6 +32,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   late final _session = LayoutSession(widget.project, widget.service.projects);
   final _pageKey = GlobalKey();
   final _view = TransformationController();
+  final _canvasFocus = FocusNode(debugLabel: 'layout-canvas');
   final _selected = <String>{};
   bool _busy = false, _pan = false, _overlap = false;
   String? _error;
@@ -38,18 +42,84 @@ class _LayoutScreenState extends State<LayoutScreen> {
   bool _resizing = false;
   double _scale = 1;
   int _page = 0;
+  // Arrow-key nudges are shown immediately and committed once the key stops
+  // repeating, so holding a key does not write one revision per repeat.
+  Timer? _nudgeTimer;
+  String? _nudgeId;
+  double _nudgeDx = 0, _nudgeDy = 0;
   Project get _project => _dragPreview ?? _session.current;
   DocumentItem? get _active => _selected.isEmpty
       ? null
       : _project.items.where((e) => e.id == _selected.last).firstOrNull;
   @override
   void dispose() {
+    _nudgeTimer?.cancel();
+    _canvasFocus.dispose();
     _view.dispose();
     super.dispose();
   }
 
+  void _nudge(double dx, double dy) {
+    final item = _active;
+    if (item == null || item.locked || _busy || _pan || _dragItem != null) {
+      return;
+    }
+    if (_nudgeId != item.id) {
+      _nudgeId = item.id;
+      _nudgeDx = 0;
+      _nudgeDy = 0;
+    }
+    _nudgeDx += dx;
+    _nudgeDy += dy;
+    setState(
+      () => _dragPreview = _session.current.copyWith(
+        items: [
+          for (final entry in _session.current.items)
+            entry.id == item.id
+                ? entry.copyWith(x: entry.x + _nudgeDx, y: entry.y + _nudgeDy)
+                : entry,
+        ],
+      ),
+    );
+    _nudgeTimer?.cancel();
+    _nudgeTimer = Timer(
+      const Duration(milliseconds: 260),
+      () => unawaited(_flushNudge()),
+    );
+  }
+
+  Future<void> _flushNudge() async {
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+    final id = _nudgeId;
+    final dx = _nudgeDx, dy = _nudgeDy;
+    _nudgeId = null;
+    _nudgeDx = 0;
+    _nudgeDy = 0;
+    if (id == null || (dx == 0 && dy == 0)) {
+      return;
+    }
+    await _apply(
+      (p) => PageLayout.move(p, id, dx, dy, allowOverlap: _overlap),
+    );
+    if (mounted) {
+      setState(() => _dragPreview = null);
+    }
+  }
+
+  Future<void> _leave() async {
+    await _flushNudge();
+    if (mounted) {
+      Navigator.pop(context, _session.current);
+    }
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     if (_busy || _dragItem != null) return;
+    if (_nudgeId != null) {
+      await _flushNudge();
+      if (!mounted) return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -142,28 +212,29 @@ class _LayoutScreenState extends State<LayoutScreen> {
         'الارتفاع مم': 80 * asset.height / asset.width,
         'س مم': p.paper.margins.left,
         'ص مم': p.paper.margins.top,
+        'عدد النسخ الإضافية': 0,
       },
       notice:
-          'هذه قيم مبدئية وليست قياساً مستنتجاً من الصورة. أدخل المقاس الحقيقي.',
+          'هذه قيم مبدئية وليست قياساً مستنتجاً من الصورة. أدخل المقاس الحقيقي. النسخ الإضافية تُضاف غير موضوعة ليوزعها «اقتراح ترتيب».',
     );
     if (values == null || !mounted) return;
+    final copies = _count(values['عدد النسخ الإضافية']!);
+    if (copies == null) return;
     final id = newId();
+    final prototype = DocumentItem(
+      id: id,
+      assetId: asset.id,
+      pageIndex: _pageNumber(values['الصفحة (0 لغير الموضوعة)']!, p.pageCount),
+      x: values['س مم']!,
+      y: values['ص مم']!,
+      width: values['العرض مم']!,
+      height: values['الارتفاع مم']!,
+      zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
+    );
     await _apply(
-      (p) => PageLayout.add(
+      (p) => PageLayout.addMany(
         p,
-        DocumentItem(
-          id: id,
-          assetId: asset.id,
-          pageIndex: _pageNumber(
-            values['الصفحة (0 لغير الموضوعة)']!,
-            p.pageCount,
-          ),
-          x: values['س مم']!,
-          y: values['ص مم']!,
-          width: values['العرض مم']!,
-          height: values['الارتفاع مم']!,
-          zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
-        ),
+        [prototype, ...PageLayout.copies(prototype, copies, newId)],
         allowOverlap: _overlap,
       ),
     );
@@ -172,6 +243,48 @@ class _LayoutScreenState extends State<LayoutScreen> {
         () => _selected
           ..clear()
           ..add(id),
+      );
+      if (copies > 0) {
+        showMessage(
+          context,
+          'أُضيفت $copies نسخة غير موضوعة. استخدم «اقتراح ترتيب» لتوزيعها، وسيظهر ما لا يتسع.',
+        );
+      }
+    }
+  }
+
+  /// Copies are a count the user types; a rejected value is explained in place
+  /// instead of escaping as an unhandled validation error.
+  int? _count(double value) {
+    if (value != value.roundToDouble() || value < 0 || value > 200) {
+      showMessage(context, 'عدد النسخ يجب أن يكون عدداً صحيحاً بين 0 و200.');
+      return null;
+    }
+    return value.toInt();
+  }
+
+  Future<void> _addCopies(DocumentItem item) async {
+    final values = await editMeasurements(
+      context,
+      'نسخ إضافية من العنصر',
+      {'عدد النسخ الإضافية': 3},
+      notice:
+          'لا تتغير النسخة الأصلية. تُضاف النسخ غير موضوعة، ثم يوزعها «اقتراح ترتيب» ويُبلّغ عن كل نسخة لا تتسع لها الصفحة.',
+    );
+    if (values == null || !mounted) return;
+    final count = _count(values['عدد النسخ الإضافية']!);
+    if (count == null || count == 0) return;
+    await _apply(
+      (p) => PageLayout.addMany(
+        p,
+        PageLayout.copies(item, count, newId),
+        allowOverlap: _overlap,
+      ),
+    );
+    if (mounted) {
+      showMessage(
+        context,
+        'أُضيفت $count نسخة غير موضوعة؛ رتّبها بـ«اقتراح ترتيب» أو يدوياً.',
       );
     }
   }
@@ -207,6 +320,120 @@ class _LayoutScreenState extends State<LayoutScreen> {
       ),
     );
   }
+
+  Future<void> _duplicate(DocumentItem e) => _apply(
+    (p) => PageLayout.add(
+      p,
+      e.copyWith(
+        id: newId(),
+        x: e.x + e.bounds.width + p.layout.horizontalGap,
+        locked: false,
+      ),
+      allowOverlap: _overlap,
+    ),
+  );
+
+  Future<void> _deleteSelected() async {
+    if (_selected.isEmpty || _busy) {
+      return;
+    }
+    final ids = {..._selected};
+    if (_session.current.items.any((e) => ids.contains(e.id) && e.locked)) {
+      showMessage(context, 'ألغِ تثبيت العناصر المحددة قبل حذفها.');
+      return;
+    }
+    await _apply((p) => PageLayout.remove(p, ids));
+    if (mounted) {
+      showMessage(
+        context,
+        'حُذف ${ids.length} عنصر من الورقة. يمكن التراجع بـCtrl + Z.',
+      );
+    }
+  }
+
+  List<ShortcutBinding> get _shortcuts => [
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyZ, control: true),
+      keys: 'Ctrl + Z',
+      description: 'تراجع عن آخر تغيير محفوظ',
+      run: () => unawaited(_run(_session.undo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        control: true,
+        shift: true,
+      ),
+      keys: 'Ctrl + Shift + Z',
+      description: 'إعادة التغيير الملغى',
+      run: () => unawaited(_run(_session.redo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyY, control: true),
+      keys: 'Ctrl + Y',
+      description: 'إعادة التغيير الملغى',
+      run: () => unawaited(_run(_session.redo)),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.delete),
+      keys: 'Delete',
+      description: 'حذف العناصر المحددة من الورقة',
+      run: () => unawaited(_deleteSelected()),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.backspace),
+      keys: 'Backspace',
+      description: 'حذف العناصر المحددة من الورقة',
+      run: () => unawaited(_deleteSelected()),
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyD, control: true),
+      keys: 'Ctrl + D',
+      description: 'تكرار العنصر المحدد',
+      run: () {
+        final e = _active;
+        if (e != null && !e.locked) {
+          unawaited(_duplicate(e));
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.escape),
+      keys: 'Esc',
+      description: 'إلغاء التحديد',
+      run: () {
+        if (mounted) {
+          setState(_selected.clear);
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(
+        LogicalKeyboardKey.digit0,
+        control: true,
+      ),
+      keys: 'Ctrl + 0',
+      description: 'إعادة ضبط تكبير مساحة العمل',
+      run: () {
+        if (mounted) {
+          setState(() => _view.value = Matrix4.identity());
+        }
+      },
+    ),
+    // Handled by the canvas focus node so arrows inside menus and lists keep
+    // their normal meaning; listed here for discoverability.
+    const ShortcutBinding(
+      activator: SingleActivator(LogicalKeyboardKey.arrowLeft),
+      keys: '← → ↑ ↓',
+      description:
+          'تحريك العنصر المحدد 1 مم (مع Shift: 10 مم). يعمل عندما يكون التركيز على مساحة الورقة',
+    ),
+    const ShortcutBinding(
+      activator: SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true),
+      keys: 'Shift + ←',
+      description: 'تحريك العنصر المحدد 10 مم',
+    ),
+  ];
 
   Future<void> _paper() async {
     final p = _project;
@@ -341,22 +568,29 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope<Project>(
-    canPop: false,
-    onPopInvokedWithResult: (didPop, _) {
-      if (!didPop && !_busy) Navigator.pop(context, _session.current);
-    },
-    child: Scaffold(
+  Widget build(BuildContext context) => ScreenShortcuts(
+    shortcuts: _shortcuts,
+    child: PopScope<Project>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_busy) {
+          unawaited(_leave());
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'رجوع للمشروع',
-          onPressed: _busy
-              ? null
-              : () => Navigator.pop(context, _session.current),
+          onPressed: _busy ? null : () => unawaited(_leave()),
           icon: const Icon(Icons.arrow_back),
         ),
         title: const Text('محرر A4'),
         actions: [
+          IconButton(
+            tooltip: 'اختصارات لوحة المفاتيح',
+            onPressed: _busy ? null : () => showShortcuts(context, _shortcuts),
+            icon: const Icon(Icons.keyboard_outlined),
+          ),
           IconButton(
             tooltip: 'تراجع',
             onPressed: _busy || !_session.history.canUndo
@@ -412,6 +646,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
           ),
         ],
       ),
+      ),
     ),
   );
   Widget _workspace() => ColoredBox(
@@ -434,26 +669,40 @@ class _LayoutScreenState extends State<LayoutScreen> {
             child: IgnorePointer(
               ignoring: _pan || _busy,
               child: Listener(
+                // Pointing at the sheet gives the arrow keys their target.
+                onPointerDown: (_) => _canvasFocus.requestFocus(),
                 onPointerCancel: (_) => setState(() {
                   _dragPreview = null;
                   _dragItem = null;
                   _dragStart = null;
                 }),
-                child: PageCanvas(
+                child: Focus(
+                  focusNode: _canvasFocus,
+                  autofocus: true,
+                  onKeyEvent: (_, event) => canvasArrowKeys(
+                    event,
+                    _nudge,
+                    enabled: _active != null && !_busy && !_pan,
+                  ),
+                  child: PageCanvas(
                   project: _project,
                   pageIndex: _page,
                   assets: widget.service.assets,
                   scale: _scale,
                   pageKey: _pageKey,
                   selected: _selected,
-                  onSelect: (id) => setState(
-                    () => _selected
-                      ..clear()
-                      ..add(id),
-                  ),
+                  onSelect: (id) {
+                    setState(
+                      () => _selected
+                        ..clear()
+                        ..add(id),
+                    );
+                    _canvasFocus.requestFocus();
+                  },
                   onDragStart: _start,
                   onDragUpdate: _drag,
                   onDragEnd: _end,
+                  ),
                 ),
               ),
             ),
@@ -620,13 +869,18 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   selected: _selected.contains(item.id),
                   onSelected: _busy
                       ? null
-                      : (v) => setState(() {
-                          if (v) {
-                            _selected.add(item.id);
-                          } else {
-                            _selected.remove(item.id);
-                          }
-                        }),
+                      : (v) {
+                          setState(() {
+                            if (v) {
+                              _selected.add(item.id);
+                            } else {
+                              _selected.remove(item.id);
+                            }
+                          });
+                          // Selecting from the list is also how the arrow keys
+                          // get their target.
+                          _canvasFocus.requestFocus();
+                        },
                 ),
             ],
           ),
@@ -659,6 +913,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
               child: const Text('المقاس والموضع والتدوير'),
             ),
             OutlinedButton(
+              onPressed: _busy || e.locked ? null : () => _addCopies(e),
+              child: const Text('إضافة نسخ من العنصر'),
+            ),
+            OutlinedButton(
               onPressed: _busy || e.locked
                   ? null
                   : () => _apply(
@@ -678,18 +936,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
               child: const Text('إلى الأمام'),
             ),
             OutlinedButton(
-              onPressed: _busy || e.locked
-                  ? null
-                  : () => _apply(
-                      (p) => PageLayout.add(
-                        p,
-                        e.copyWith(
-                          id: newId(),
-                          x: e.x + e.bounds.width + p.layout.horizontalGap,
-                        ),
-                        allowOverlap: _overlap,
-                      ),
-                    ),
+              onPressed: _busy || e.locked ? null : () => _duplicate(e),
               child: const Text('تكرار العنصر'),
             ),
             TextButton(

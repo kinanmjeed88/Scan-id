@@ -182,4 +182,37 @@ void main() {
     expect(portrait.printable.contains(RectMm(10, 10, 190, 277)), isTrue);
     expect(portrait.printable.contains(RectMm(9, 10, 190, 277)), isFalse);
   });
+
+  test('library order follows the user and rejects impossible moves', () {
+    final project = projectFixture(
+      assets: [
+        assetFixture(id: 'asset1'),
+        assetFixture(id: 'asset2'),
+        assetFixture(id: 'asset3'),
+      ],
+    );
+    expect(
+      project.reorderAssets(2, 0).assets.map((a) => a.id),
+      ['asset3', 'asset1', 'asset2'],
+    );
+    expect(
+      project.reorderAssets(0, 2).assets.map((a) => a.id),
+      ['asset2', 'asset3', 'asset1'],
+    );
+    expect(project.reorderAssets(1, 1).toJson(), project.toJson());
+    expect(() => project.reorderAssets(-1, 1), invalid);
+    expect(() => project.reorderAssets(0, 3), invalid);
+    expect(project.reorderAssets(2, 0).items, isEmpty);
+  });
+
+  test('a reordered library round-trips through storage unchanged', () {
+    final project = projectFixture(
+      assets: [assetFixture(id: 'asset1'), assetFixture(id: 'asset2')],
+    ).reorderAssets(1, 0);
+    final restored = Project.fromJson(
+      jsonDecode(jsonEncode(project.toJson())),
+    );
+    expect(restored.assets.first.id, 'asset2');
+    expect(restored.toJson(), project.toJson());
+  });
 }

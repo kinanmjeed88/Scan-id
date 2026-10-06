@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../application/contracts.dart';
 import '../application/project_service.dart';
@@ -12,6 +13,7 @@ import '../domain/geometry.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/project.dart';
 import 'shared.dart';
+import 'shortcuts.dart';
 
 class CropScreen extends StatefulWidget {
   const CropScreen({
@@ -223,8 +225,63 @@ class _CropScreenState extends State<CropScreen> {
     }
   }
 
+  List<ShortcutBinding> get _shortcuts => [
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyZ, control: true),
+      keys: 'Ctrl + Z',
+      description: 'تراجع عن تعديل الزوايا أو الضبط',
+      run: () {
+        if (_history?.canUndo ?? false) {
+          _undo(false);
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(
+        LogicalKeyboardKey.keyZ,
+        control: true,
+        shift: true,
+      ),
+      keys: 'Ctrl + Shift + Z',
+      description: 'إعادة التعديل الملغى',
+      run: () {
+        if (_history?.canRedo ?? false) {
+          _undo(true);
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.keyY, control: true),
+      keys: 'Ctrl + Y',
+      description: 'إعادة التعديل الملغى',
+      run: () {
+        if (_history?.canRedo ?? false) {
+          _undo(true);
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.enter),
+      keys: 'Enter',
+      description: 'إنشاء معاينة التصحيح قبل الاعتماد',
+      run: () {
+        if (!_busy && _source != null) {
+          unawaited(_render());
+        }
+      },
+    ),
+    ShortcutBinding(
+      activator: const SingleActivator(LogicalKeyboardKey.escape),
+      keys: 'Esc',
+      description: 'الخروج (مع تأكيد عند وجود تعديلات غير محفوظة)',
+      run: () => unawaited(_leave()),
+    ),
+  ];
+
   @override
-  Widget build(BuildContext context) => PopScope<Project>(
+  Widget build(BuildContext context) => ScreenShortcuts(
+    shortcuts: _shortcuts,
+    child: PopScope<Project>(
     canPop: !_busy && !_dirty,
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop) {
@@ -240,6 +297,11 @@ class _CropScreenState extends State<CropScreen> {
         ),
         title: const Text('قص وتصحيح المستمسك'),
         actions: [
+          IconButton(
+            tooltip: 'اختصارات لوحة المفاتيح',
+            onPressed: _busy ? null : () => showShortcuts(context, _shortcuts),
+            icon: const Icon(Icons.keyboard_outlined),
+          ),
           IconButton(
             tooltip: 'تراجع',
             onPressed: !_busy && (_history?.canUndo ?? false)
@@ -309,6 +371,7 @@ class _CropScreenState extends State<CropScreen> {
                 ),
               ],
             ),
+    ),
     ),
   );
 

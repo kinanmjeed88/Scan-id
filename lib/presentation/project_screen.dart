@@ -322,7 +322,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              '${asset.width} × ${asset.height} px · ترتيب ${index + 1} من ${_project.assets.length}',
+              '${index + 1}/${_project.assets.length} · ${asset.width} × ${asset.height} px',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               textDirection: TextDirection.ltr,
             ),
             trailing: PopupMenuButton<_AssetAction>(

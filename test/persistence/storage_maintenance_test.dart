@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
@@ -112,12 +113,12 @@ void main() {
     final orphans = await maintenance.findOrphans(await projects.list());
 
     expect(
-      orphans.paths,
-      containsAll(<String>[
+      orphans.paths.toSet(),
+      {
         'projects/unknownproject/assets/legacy',
         '$assetDirectory/edits/legacy',
         'active-abc123.tmp',
-      ]),
+      },
     );
     expect(orphans.paths, isNot(contains(assetDirectory)));
     expect(orphans.paths, isNot(contains('staging/leftover')));
@@ -155,11 +156,11 @@ void main() {
     expect(await exists('projects/${project.id}/assets'), isTrue);
     await expectLater(
       maintenance.deleteFiles(['../${outside.path.split('/').last}/precious.txt']),
-      throwsA(isA<StorageException>()),
+      throwsA(isA<ValidationException>()),
     );
     await expectLater(
       maintenance.deleteFiles([outside.path]),
-      throwsA(isA<StorageException>()),
+      throwsA(isA<ValidationException>()),
     );
     expect(await File('${outside.path}/precious.txt').exists(), isTrue);
   });

@@ -546,7 +546,7 @@ void main() {
   testWidgets(
     'arrow keys nudge the selected A4 item, Shift scales the step, Ctrl+Z restores',
     (tester) async {
-      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.physicalSize = const Size(1400, 1200);
       addTearDown(tester.view.resetPhysicalSize);
       final repository = _MemoryProjects();
       final project = await repository.create(
@@ -559,6 +559,8 @@ void main() {
       await tester.pumpWidget(
         AppShell(home: LayoutScreen(project: project, service: service)),
       );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(FilterChip).first);
       await tester.pumpAndSettle();
       await tester.tap(find.byType(FilterChip).first);
       await tester.pumpAndSettle();
@@ -603,6 +605,8 @@ void main() {
     await tester.pumpWidget(
       AppShell(home: LayoutScreen(project: project, service: service)),
     );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(FilterChip).first);
     await tester.pumpAndSettle();
     await tester.tap(find.byType(FilterChip).first);
     await tester.pumpAndSettle();

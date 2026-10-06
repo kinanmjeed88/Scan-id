@@ -18,8 +18,37 @@ import sys
 
 sys.stdout.reconfigure(encoding='utf-8')
 apply_to_branch = os.environ.get('SCAN_ID_FORMAT_COMMIT') == '1'
-code = subprocess.call(['dart', 'format', '.'])
+
+
+def annotate(level, title, text):
+    """Publish text as chunked check annotations, the only log channel reachable
+    from clients that cannot read the Actions blob store."""
+    chunks, chunk, size = [], '', 0
+    for character in text:
+        length = len(character.encode('utf-8'))
+        if size + length > 3000:
+            chunks.append(chunk)
+            chunk, size = '', 0
+        chunk += character
+        size += length
+    if chunk:
+        chunks.append(chunk)
+    for index, chunk in enumerate(chunks, start=1):
+        escaped = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::{level} title={title} part={index}::{escaped}')
+
+
+result = subprocess.run(
+    ['dart', 'format', '.'], capture_output=True, text=True,
+    encoding='utf-8', errors='replace',
+)
+print(result.stdout, end='')
+print(result.stderr, end='')
+code = result.returncode
 if code != 0:
+    # A parse error is reported on stderr; without this it would only exist in a
+    # log file that API-only clients cannot read.
+    annotate('error', 'dart-format-failure', result.stdout + result.stderr)
     sys.exit(code)
 subprocess.call(['git', 'add', '-A'])
 diff = subprocess.run(
@@ -46,19 +75,7 @@ if apply_to_branch and os.environ.get('GITHUB_EVENT_NAME') == 'push':
     print('Applied and pushed the formatter output to this branch.')
     sys.exit(0)
 # Publish the diff, then restore so the gate reports the same failure again.
-chunks, chunk, size = [], '', 0
-for character in diff:
-    length = len(character.encode('utf-8'))
-    if size + length > 3000:
-        chunks.append(chunk)
-        chunk, size = '', 0
-    chunk += character
-    size += length
-if chunk:
-    chunks.append(chunk)
-for index, chunk in enumerate(chunks, start=1):
-    escaped = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-    print(f'::error title=format-diff part={index}::{escaped}')
+annotate('error', 'format-diff', diff)
 subprocess.check_call(['git', 'reset'])
 subprocess.check_call(['git', 'checkout', '--', '.'])
 print('Restored the tree; the format gate below reports the real status.')

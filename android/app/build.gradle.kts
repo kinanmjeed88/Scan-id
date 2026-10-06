@@ -42,3 +42,6 @@ android {
 flutter {
     source = "../.."
 }
+
+// Apache-2.0 AndroidX FileProvider; scoped camera URI grants, no storage permission.
+dependencies { implementation("androidx.core:core:1.13.1") }

@@ -144,3 +144,20 @@ Windows يستخدم PDFium مثبتاً عند chromium/8086 بدلاً من ا
 - مصدر مراجعة العيب: https://github.com/flutter/packages/blob/file_selector_android-v0.5.2%2B6/packages/file_selector/file_selector_android/lib/src/file_selector_android.dart
 - لا يعني هذا أن الكاميرا أو نقاط الاسترداد أو كل حالات الصور الفاسدة أُنجزت؛
   تلك تكملة E بعد تحقق هذا الجزء.
+
+## E2 — كاميرا Android واسترداد الالتقاط (قيد البوابة)
+- ACTION_IMAGE_CAPTURE إلى تطبيق كاميرا يختاره النظام، لا CAMERA permission ولا
+  إضافة Flutter جديدة. FileProvider من AndroidX core1.13.1 (Apache2، متوافق مع
+  minSDK24) معلن مباشرة؛ لا exported provider ولا root-path/cache-path واسع:
+  فقط private files/captures، ومنح read/write للـURI المحدد تُلغى عند الرجوع.
+- توثيق API/licensing: https://developer.android.com/reference/androidx/core/content/FileProvider
+  وhttps://android.googlesource.com/platform/frameworks/support/+/androidx-main/LICENSE.txt
+- SharedPreferences.commit قبل مغادرة Activity يحفظ id/projectId؛ ملف JPEG الخاص
+  يبقى عند قتل العملية أو فشل الحفظ. استرداده/حذفه صراحة من شاشة مشروع، مع معاينة.
+- ImageAsset.captureId حقل اختياري متوافق مع schema3 والبيانات السابقة؛ لا يُقص
+  مع سجل التحويلات ذي500عملية. تنسخه معالجة القص وتحتفظ به النسخ الاحتياطية.
+  يفحص التطبيق الإيصال قبل الاستيراد ويزيل الملف المؤقت **بعد** commit فقط؛ فشل
+  التنظيف لا يحول الحفظ الناجح إلى خطأ أو نسخة مكررة بعد إعادة الفتح.
+- يلزم تطبيق كاميرا متاح وضبط صورة ≤16MP/20MiB. تطبيق الكاميرا خارجي؛ سياسة
+  الشبكة الخاصة به ليست تحت سيطرة Scan ID. اختبارات الخدمة لا تحاكي إثبات عمل
+  كاميرا فعلية أو lifecycle لكل OEM؛ ينبغي تجربة الالتقاط/الإلغاء/قتل العملية.

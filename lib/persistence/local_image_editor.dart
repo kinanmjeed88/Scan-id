@@ -103,6 +103,7 @@ Future<ImageAsset> _saveRevision(
     final log = [...asset.transforms, 'perspective-edit:$id'];
     return ImageAsset(
       id: asset.id,
+      captureId: asset.captureId,
       name: asset.name,
       originalPath: asset.originalPath,
       workingPath: '$relative/working.png',

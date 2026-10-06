@@ -3,6 +3,7 @@ import '../domain/validation.dart';
 import '../domain/image_limits.dart';
 import 'contracts.dart';
 import 'project_backups.dart';
+import 'camera_capture.dart';
 import 'ids.dart';
 import 'image_reader.dart';
 import '../domain/crop_draft.dart';
@@ -33,8 +34,10 @@ class ProjectService {
     this.assets, {
     this.imageEditor,
     this.backups,
+    this.camera,
   });
   final ProjectBackups? backups;
+  final CameraCapture? camera;
   final ImageEditor? imageEditor;
   final ProjectRepository projects;
   final AssetRepository assets;

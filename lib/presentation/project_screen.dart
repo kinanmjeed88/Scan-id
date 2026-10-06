@@ -75,6 +75,101 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  Future<void> _camera() async {
+    setState(() => _busy = true);
+    try {
+      final saved = await widget.service.camera!.capture(_project.id);
+      if (mounted && saved != null) {
+        setState(() => _project = saved);
+        showMessage(
+          context,
+          'حُفظ الالتقاط والأصل محلياً. يمكنك الآن القص والتصحيح.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _recoverCapture() async {
+    setState(() => _busy = true);
+    try {
+      final camera = widget.service.camera!;
+      final photo = await camera.port.pending();
+      if (!mounted) {
+        return;
+      }
+      if (photo == null) {
+        showMessage(context, 'لا يوجد التقاط معلق.');
+        return;
+      }
+      final action = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('التقاط غير مؤكد الحفظ'),
+          content: SizedBox(
+            width: 360,
+            height: 260,
+            child: Image.file(
+              photo.file,
+              cacheWidth: 1200,
+              errorBuilder: (_, _, _) =>
+                  const Text('تعذر عرض الالتقاط؛ قد يكون ناقصاً أو مفقوداً.'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'discard'),
+              child: const Text('حذف الالتقاط المؤقت'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'accept'),
+              child: const Text('استيراد إلى هذا المشروع'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (action == 'accept') {
+        final saved = await camera.accept(photo, _project.id);
+        if (mounted) {
+          setState(() => _project = saved);
+          showMessage(
+            context,
+            'تم حفظ الالتقاط دون تكرار صورة سبق حفظها في المشروع.',
+          );
+        }
+      } else if (action == 'discard' &&
+          await confirm(
+            context,
+            'حذف الالتقاط المعلق؟',
+            'سيُحذف ملف الكاميرا المؤقت نهائياً. لا تُحذف صور أي مشروع محفوظ.',
+          )) {
+        await camera.port.discard(photo.id);
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
   Future<void> _backup() async {
     if (!await confirm(
           context,
@@ -220,6 +315,21 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       icon: const Icon(Icons.description_outlined),
                       label: const Text('تحرير ورقة A4'),
                     ),
+                    if (widget.service.camera != null)
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _busy ? null : _camera,
+                            icon: const Icon(Icons.camera_alt_outlined),
+                            label: const Text('التقاط بالكاميرا'),
+                          ),
+                          TextButton(
+                            onPressed: _busy ? null : _recoverCapture,
+                            child: const Text('استرداد التقاط معلق'),
+                          ),
+                        ],
+                      ),
                     if (widget.service.backups != null)
                       OutlinedButton.icon(
                         onPressed: _busy ? null : _backup,

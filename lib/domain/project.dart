@@ -154,11 +154,15 @@ class ImageAsset {
     required this.width,
     required this.height,
     this.crop,
+    this.captureId,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
   }) : adjustments = adjustments ?? ImageAdjustments(),
        transforms = List.unmodifiable(transforms) {
     validId(id);
+    if (captureId != null) {
+      validId(captureId!);
+    }
     validName(name);
     for (final path in [originalPath, workingPath, thumbnailPath]) {
       validAssetPath(path);
@@ -178,6 +182,7 @@ class ImageAsset {
       'سجل تحويلات الصورة كبير جداً.',
     );
   }
+  final String? captureId;
   final String id;
   final String name;
   final String originalPath;
@@ -190,6 +195,7 @@ class ImageAsset {
   final List<String> transforms;
   Map<String, Object?> toJson() => {
     'id': id,
+    'captureId': captureId,
     'name': name,
     'originalPath': originalPath,
     'workingPath': workingPath,
@@ -204,6 +210,9 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
+      captureId: m['captureId'] == null
+          ? null
+          : text(m['captureId'], 'captureId'),
       name: text(m['name'], 'name'),
       originalPath: text(m['originalPath'], 'originalPath'),
       workingPath: text(m['workingPath'], 'workingPath'),

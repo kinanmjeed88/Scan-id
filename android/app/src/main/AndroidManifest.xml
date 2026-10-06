@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No INTERNET, CAMERA or broad media/storage permission in this phase. -->
+    <!-- External camera intent: no INTERNET, CAMERA or broad storage permission. -->
     <application
         android:label="مستمسكات"
         android:name="${applicationName}"
@@ -7,6 +7,9 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules">
+        <provider android:name=".CaptureFileProvider" android:authorities="${applicationId}.capture" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/capture_paths" />
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -27,6 +30,7 @@
         <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
     <queries>
+        <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />

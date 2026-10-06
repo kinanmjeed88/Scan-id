@@ -10,11 +10,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private val camera by lazy { NativeCamera(this) }
     private var pending: MethodChannel.Result? = null
     private var source: File? = null
     private var pickLimit = 20L * 1024 * 1024
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
+        camera.configure(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/local_documents")
             .setMethodCallHandler { call, result ->
                 if (call.method == "open") {
@@ -60,6 +62,7 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Activity callback used for the system document picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (camera.onResult(requestCode, resultCode)) return
         if (requestCode == 7302) {
             val result = pending ?: return
             if (resultCode != Activity.RESULT_OK || data == null) { pending = null; result.success(emptyList<Any>()); return }

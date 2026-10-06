@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 
 import 'application/project_service.dart';
 import 'application/native_documents.dart';
+import 'application/camera_capture.dart';
+import 'application/native_camera.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
@@ -34,9 +36,13 @@ Future<ProjectService> _openStorage() async {
   final repository = await LocalProjectRepository.open(
     Directory(p.join(support.path, 'scan_id')),
   );
+  final assets = LocalAssetRepository(repository.files);
   return ProjectService(
     repository,
-    LocalAssetRepository(repository.files),
+    assets,
+    camera: Platform.isAndroid
+        ? CameraCapture(repository, assets, NativeCamera())
+        : null,
     imageEditor: LocalImageEditor(repository.files),
     backups: LocalProjectBackups(repository, repository.files),
   );

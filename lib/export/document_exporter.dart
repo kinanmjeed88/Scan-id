@@ -13,6 +13,7 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/image_header.dart';
 import '../imaging/safe_png.dart';
+import '../imaging/prepare_image.dart' show normalizeChannels;
 
 class ExportBundle {
   const ExportBundle(this.files);
@@ -76,7 +77,7 @@ img.Image _readWorking(String path, ImageAsset expected) {
         image.height == header.height,
     'تعذر فك نسخة العمل.',
   );
-  return image!;
+  return normalizeChannels(image!);
 }
 
 Future<ExportBundle> _generate(

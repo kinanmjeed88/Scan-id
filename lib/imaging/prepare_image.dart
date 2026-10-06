@@ -53,10 +53,11 @@ img.Image decodeForProcessing(Uint8List bytes) {
     }
     // JPEG decoding already applies EXIF. Do not clone a full-resolution
     // image merely to normalize an absent/identity orientation tag.
-    final orientation = decoded.exif.imageIfd.orientation;
+    final normalized = normalizeChannels(decoded);
+    final orientation = normalized.exif.imageIfd.orientation;
     return orientation == null || orientation == 1
-        ? decoded
-        : img.bakeOrientation(decoded);
+        ? normalized
+        : img.bakeOrientation(normalized);
   } on ValidationException {
     rethrow;
   } catch (_) {
@@ -92,4 +93,22 @@ PreparedImage prepareImage(Uint8List bytes) {
   } catch (_) {
     throw const ValidationException('تعذر قراءة الصورة؛ قد يكون الملف تالفاً.');
   }
+}
+
+/// image 4.5.4 exposes absent channels as zero for packed/16-bit pixels.
+/// Expand grayscale/palettes and supply opaque alpha where needed so crops
+/// and raster exports do not turn valid monochrome/RGB16 sources transparent.
+/// Keep ordinary RGB8/RGBA images as-is to avoid an unnecessary large copy.
+img.Image normalizeChannels(img.Image image) {
+  if (image.hasPalette ||
+      image.numChannels < 3 ||
+      (image.format != img.Format.uint8 && image.numChannels == 3)) {
+    return image.convert(
+      format: image.format == img.Format.uint16
+          ? img.Format.uint16
+          : img.Format.uint8,
+      numChannels: 4,
+    );
+  }
+  return image;
 }

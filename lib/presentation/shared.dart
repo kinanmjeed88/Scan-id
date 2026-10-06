@@ -82,11 +82,7 @@ class AdaptableAction extends StatelessWidget {
         ),
       );
     }
-    return IconButton(
-      tooltip: label,
-      onPressed: onPressed,
-      icon: Icon(icon),
-    );
+    return IconButton(tooltip: label, onPressed: onPressed, icon: Icon(icon));
   }
 }
 

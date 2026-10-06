@@ -488,8 +488,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 ? null
                 : () async {
                     await _apply((p) => p.copyWith(pageCount: p.pageCount + 1));
-                    if (mounted)
+                    if (mounted) {
                       setState(() => _page = _session.current.pageCount - 1);
+                    }
                   },
             child: const Text('إضافة صفحة A4'),
           ),

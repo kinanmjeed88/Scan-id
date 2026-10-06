@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
-dart format --output=none --set-exit-if-changed lib test
+flutter pub get
+if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed.' }
+dart format --output=none --set-exit-if-changed .
 if ($LASTEXITCODE -ne 0) { throw 'Dart formatting failed.' }
 flutter analyze --fatal-infos
 if ($LASTEXITCODE -ne 0) { throw 'Flutter analysis failed.' }

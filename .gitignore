@@ -21,3 +21,4 @@ windows/flutter/ephemeral/
 *.db
 *.db-journal
 local-data/
+diagnostics/

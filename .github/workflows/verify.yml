@@ -14,12 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         if: runner.os == 'Linux'
         with:
           distribution: temurin
@@ -31,36 +31,43 @@ jobs:
           cache: true
       - name: Generate native runners and resolve dependencies
         shell: bash
-        run: bash tool/bootstrap.sh
+        run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: SDK and target diagnostics
         run: flutter doctor -v
-      - name: Format, analyze, unit, integration-service and widget tests
-        shell: bash
-        run: bash tool/verify.sh
+      - name: Dart format gate
+        run: python tool/ci_gate.py format dart format --output=none --set-exit-if-changed .
+      - name: Flutter analyze
+        run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
+      - name: Flutter tests
+        run: python tool/ci_gate.py test flutter test --coverage --reporter expanded
       - name: Build Android release (development signing, not distribution)
         if: runner.os == 'Linux'
-        run: flutter build apk --release
+        run: python tool/ci_gate.py android-build flutter build apk --release
       - name: Build Windows release
         if: runner.os == 'Windows'
-        run: flutter build windows --release
+        run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Retain generated source for review
+        if: always()
+        run: python tool/ci_evidence.py
       - name: Preserve evidence and resolved lockfile
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: verification-${{ runner.os }}
           path: |
             coverage/lcov.info
             pubspec.lock
+            diagnostics/
           if-no-files-found: warn
       - name: Android development artifact
         if: success() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: android-development-release
           path: build/app/outputs/flutter-apk/app-release.apk
       - name: Windows unsigned portable artifact
         if: success() && runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-unsigned-portable
           path: build/windows/x64/runner/Release/

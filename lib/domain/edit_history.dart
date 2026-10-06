@@ -11,6 +11,8 @@ class EditHistory<T> {
   final List<T> _past = [];
   final List<T> _future = [];
   T get current => _current;
+  T? get previous => _past.isEmpty ? null : _past.last;
+  T? get next => _future.isEmpty ? null : _future.last;
   bool get canUndo => _past.isNotEmpty;
   bool get canRedo => _future.isNotEmpty;
 

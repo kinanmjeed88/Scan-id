@@ -8,6 +8,7 @@ import '../domain/project.dart';
 import 'app.dart';
 import 'shared.dart';
 import 'crop_screen.dart';
+import 'layout_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
   const ProjectScreen({
@@ -129,6 +130,16 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  Future<void> _layout() async {
+    final saved = await Navigator.of(context).push<Project>(
+      MaterialPageRoute(
+        builder: (_) =>
+            LayoutScreen(project: _project, service: widget.service),
+      ),
+    );
+    if (saved != null && mounted) setState(() => _project = saved);
+  }
+
   Future<void> _view(ImageAsset asset) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -172,6 +183,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const FoundationNotice(),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _layout,
+                      icon: const Icon(Icons.description_outlined),
+                      label: const Text('تحرير ورقة A4'),
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       '${_project.assets.length} صور · JPEG / PNG · حتى 16 مليون بكسل للصورة',

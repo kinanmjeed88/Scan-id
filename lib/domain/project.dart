@@ -263,6 +263,30 @@ class DocumentItem {
   final bool locked;
   final bool keepAspectRatio;
   RectMm get bounds => RectMm(x, y, width, height).rotatedBounds(rotation);
+
+  DocumentItem copyWith({
+    String? id,
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+    double? rotation,
+    int? zIndex,
+    bool? locked,
+    bool? keepAspectRatio,
+  }) => DocumentItem(
+    id: id ?? this.id,
+    assetId: assetId,
+    x: x ?? this.x,
+    y: y ?? this.y,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    rotation: rotation ?? this.rotation,
+    zIndex: zIndex ?? this.zIndex,
+    locked: locked ?? this.locked,
+    keepAspectRatio: keepAspectRatio ?? this.keepAspectRatio,
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'assetId': assetId,

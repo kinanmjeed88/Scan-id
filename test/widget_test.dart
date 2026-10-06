@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:scan_id/presentation/layout_screen.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,120 @@ import 'package:scan_id/presentation/app.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
+  testWidgets(
+    'A4 drag and resize commit mm, undo restores, workspace mode never moves items',
+    (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final p = await repository.create(
+        projectFixture(
+          assets: [assetFixture()],
+          items: [
+            DocumentItem(
+              id: 'one',
+              assetId: 'asset1',
+              x: 30,
+              y: 30,
+              width: 60,
+              height: 40,
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(
+            project: p,
+            service: ProjectService(repository, _NoAssets()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final item = find.byKey(const Key('page-item-one'));
+      await tester.timedDrag(
+        item,
+        const Offset(70, 45),
+        const Duration(milliseconds: 400),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.items.single.x, greaterThan(30));
+      expect(repository.values[p.id]!.items.single.y, greaterThan(30));
+      await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.items.single.x, 30);
+      await tester.timedDrag(
+        find.byKey(const Key('resize-one')),
+        const Offset(70, 45),
+        const Duration(milliseconds: 400),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.items.single.width, greaterThan(60));
+      expect(
+        repository.values[p.id]!.items.single.width /
+            repository.values[p.id]!.items.single.height,
+        closeTo(1.5, 1e-9),
+      );
+      final before = repository.values[p.id]!.toJson();
+      await tester.tap(find.byKey(const Key('workspace-pan')));
+      await tester.pumpAndSettle();
+      final start = tester.getCenter(item);
+      await tester.timedDragFrom(
+        start,
+        const Offset(80, 50),
+        const Duration(milliseconds: 400),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.toJson(), before);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'A4 editor changes physical orientation and persists undo and redo on a phone',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final p = await repository.create(projectFixture());
+      await tester.pumpWidget(
+        AppShell(
+          home: LayoutScreen(
+            project: p,
+            service: ProjectService(repository, _NoAssets()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final dropdown = find.byType(DropdownButton<PaperOrientation>);
+      await tester.ensureVisible(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('A4 أفقي').last);
+      await tester.pumpAndSettle();
+      expect(
+        repository.values[p.id]!.paper.orientation,
+        PaperOrientation.landscape,
+      );
+      await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      expect(
+        repository.values[p.id]!.paper.orientation,
+        PaperOrientation.portrait,
+      );
+      await tester.tap(find.byTooltip('إعادة'));
+      await tester.pumpAndSettle();
+      expect(
+        repository.values[p.id]!.paper.orientation,
+        PaperOrientation.landscape,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'empty state, project creation, rename and reopen use repository',
     (tester) async {

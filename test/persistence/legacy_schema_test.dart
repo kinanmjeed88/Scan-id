@@ -46,45 +46,48 @@ import '../legacy_schemas/v3c_64d146e/validation.dart' as v3cv;
 /// 3cf6a4f, merged as 64d146e).
 void main() {
   for (final legacy in _formats) {
-    test('${legacy.label} opens, keeps its data and upgrades on save', () async {
-      final directory = await Directory.systemTemp.createTemp('scan_legacy_');
-      addTearDown(() => directory.delete(recursive: true));
-      final stored = legacy.write();
-      expect(stored['schemaVersion'], legacy.schema);
-      // The fixture is real: the release that wrote it reads it back.
-      expect(() => legacy.read(stored), returnsNormally);
+    test(
+      '${legacy.label} opens, keeps its data and upgrades on save',
+      () async {
+        final directory = await Directory.systemTemp.createTemp('scan_legacy_');
+        addTearDown(() => directory.delete(recursive: true));
+        final stored = legacy.write();
+        expect(stored['schemaVersion'], legacy.schema);
+        // The fixture is real: the release that wrote it reads it back.
+        expect(() => legacy.read(stored), returnsNormally);
 
-      final files = await _writeAssetFiles(directory);
-      await _putRaw(directory, stored);
+        final files = await _writeAssetFiles(directory);
+        await _putRaw(directory, stored);
 
-      var repository = await LocalProjectRepository.open(directory);
-      expect((await repository.list()).single.id, _projectId);
-      final opened = await repository.get(_projectId);
-      _expectSameData(opened, legacy);
-      await repository.close();
+        var repository = await LocalProjectRepository.open(directory);
+        expect((await repository.list()).single.id, _projectId);
+        final opened = await repository.get(_projectId);
+        _expectSameData(opened, legacy);
+        await repository.close();
 
-      // Opening never rewrites the stored record.
-      expect(await _getRaw(directory), stored);
+        // Opening never rewrites the stored record.
+        expect(await _getRaw(directory), stored);
 
-      repository = await LocalProjectRepository.open(directory);
-      final saved = await repository.save(opened.copyWith(name: 'بعد الحفظ'));
-      expect(saved.revision, 4);
-      await repository.close();
+        repository = await LocalProjectRepository.open(directory);
+        final saved = await repository.save(opened.copyWith(name: 'بعد الحفظ'));
+        expect(saved.revision, 4);
+        await repository.close();
 
-      final upgraded = (await _getRaw(directory))!;
-      expect(upgraded['schemaVersion'], Project.schemaVersion);
-      expect(Project.fromJson(upgraded).toJson(), saved.toJson());
-      // The release that wrote the project cannot open it any more, and says
-      // so instead of misreading it.
-      expect(() => legacy.read(upgraded), legacy.rejects);
-      for (final entry in files.entries) {
-        expect(
-          await File('${directory.path}/${entry.key}').readAsString(),
-          entry.value,
-          reason: 'image files are never rewritten by an upgrade',
-        );
-      }
-    });
+        final upgraded = (await _getRaw(directory))!;
+        expect(upgraded['schemaVersion'], Project.schemaVersion);
+        expect(Project.fromJson(upgraded).toJson(), saved.toJson());
+        // The release that wrote the project cannot open it any more, and says
+        // so instead of misreading it.
+        expect(() => legacy.read(upgraded), legacy.rejects);
+        for (final entry in files.entries) {
+          expect(
+            await File('${directory.path}/${entry.key}').readAsString(),
+            entry.value,
+            reason: 'image files are never rewritten by an upgrade',
+          );
+        }
+      },
+    );
   }
 }
 
@@ -566,9 +569,7 @@ void _expectSameData(Project p, _Format legacy) {
   expect(asset.workingPath, '$_prefix/working.png');
   expect(asset.thumbnailPath, '$_prefix/thumb.jpg');
   expect([asset.width, asset.height], [1600, 1000]);
-  expect([
-    for (final c in asset.crop!.corners) (c.x, c.y),
-  ], _corners);
+  expect([for (final c in asset.crop!.corners) (c.x, c.y)], _corners);
   expect([asset.crop!.outputWidth, asset.crop!.outputHeight], [1200, 760]);
   expect(asset.transforms, _transforms);
   expect(asset.captureId, legacy.capture ? 'capture1' : isNull);

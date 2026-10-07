@@ -229,19 +229,67 @@ void main() {
     },
   );
 
+  // Touch has no Ctrl key: «تحديد متعدد» replaces Ctrl-click on Android, and
+  // the mode must never turn a press into a move.
+  testWidgets(
+    'multi-select mode: taps add and remove documents and nothing moves',
+    (tester) async {
+      final editor = await EditorHarness.pump(tester, project: _twoCards());
+      final revision = editor.saved.revision;
+      final scale = pageScale(tester);
+
+      await tapKey(tester, const Key('rb-multi-select'));
+      await tapKey(tester, const Key('page-item-card'));
+      await tapKey(tester, const Key('page-item-residence'));
+      expect(firstCanvas(tester).selected, {'card', 'residence'});
+
+      // A selected document takes the press, but only to leave the selection.
+      await _swipe(
+        tester,
+        _centre(tester, 'card'),
+        _steps(Offset(10 * scale, 0)),
+        PointerDeviceKind.touch,
+      );
+      expect(firstCanvas(tester).selected, {'residence'});
+      await _swipe(
+        tester,
+        _centre(tester, 'card'),
+        [const Offset(4, 0), ..._steps(Offset(10 * scale, 0))],
+        PointerDeviceKind.mouse,
+      );
+      expect(firstCanvas(tester).selected, {'card', 'residence'});
+      expect(itemIn(editor.saved, 'card').x, 10);
+      expect(editor.saved.revision, revision, reason: 'nothing was edited');
+
+      // Off again: a tap selects only the tapped document.
+      await tapKey(tester, const Key('rb-multi-select'));
+      await tapKey(tester, const Key('page-item-card'));
+      expect(firstCanvas(tester).selected, {'card'});
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'mouse: any unlocked document drags at once; dragging the paper never scrolls',
     (tester) async {
       final editor = await EditorHarness.pump(tester, project: _twoCards());
       final scale = pageScale(tester);
 
-      // Unselected: the drag starts once the 2 px mouse slop is passed.
+      // Unselected: the drag starts once the 2 px mouse slop is passed and
+      // selects the document. The drag must survive the rebuild that its
+      // own start causes and end normally.
       await _swipe(tester, _centre(tester, 'card'), [
         const Offset(4, 0),
         ..._steps(Offset(10 * scale, 0)),
       ], PointerDeviceKind.mouse);
       expect(itemIn(editor.saved, 'card').x, closeTo(20, .05));
       expect(firstCanvas(tester).selected, {'card'});
+
+      // The editor is not left mid-drag: commands still apply.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(itemIn(editor.saved, 'card').x, closeTo(21, .05));
 
       // Selected: the drag starts on the press itself.
       await _swipe(

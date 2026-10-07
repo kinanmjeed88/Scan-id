@@ -38,10 +38,12 @@ class ArrangementResult {
 ///
 /// Documents are taken in category order (unified card, residence card,
 /// passport, ration card, others) and, within a category, by the project's
-/// [LayoutOrder]. Locked documents never move and act as obstacles (as do
-/// placed documents whose size is not confirmed yet); with
+/// [LayoutOrder]. Locked documents never move and act as obstacles; with
 /// [keepPlaced] every document already on a page stays where it is and only
-/// off-sheet documents are arranged. Pages are added while needed (up to
+/// off-sheet documents are arranged. A document whose size is not confirmed
+/// is never kept on a page: like a saved project does when it is opened, it
+/// waits off the sheet ([ArrangementResult.awaitingSize]) until its category
+/// or size is chosen. Pages are added while needed (up to
 /// [maxArrangedPages]) and empty trailing pages are removed.
 ArrangementResult arrangeDocuments(
   Project project, {
@@ -50,44 +52,51 @@ ArrangementResult arrangeDocuments(
   bool? allowRotation,
 }) {
   final rotate = allowRotation ?? project.layout.allowRotation;
+  // The same rule as Project.fromJson and PageLayout.checked: a size that is
+  // not confirmed has no place on the paper.
+  final source = project.copyWith(
+    items: [
+      for (final item in project.items)
+        if (!item.sizeConfirmed && item.pageIndex != null)
+          item.copyWith(unplaced: true)
+        else
+          item,
+    ],
+  );
   final fixed = <DocumentItem>[
-    for (final item in project.items)
-      // A placed document without a confirmed size (an older project) is
-      // left where it is, as an obstacle, until its category is chosen.
-      if (item.pageIndex != null &&
-          (item.locked || keepPlaced || !item.sizeConfirmed))
-        item,
+    for (final item in source.items)
+      if (item.pageIndex != null && (item.locked || keepPlaced)) item,
   ];
   final fixedIds = {for (final item in fixed) item.id};
   final movable = <DocumentItem>[
-    for (final item in project.items)
+    for (final item in source.items)
       if (item.sizeConfirmed && !item.locked && !fixedIds.contains(item.id))
         item,
   ];
   final awaiting = [
-    for (final item in project.items)
+    for (final item in source.items)
       if (!item.sizeConfirmed && item.pageIndex == null) item.id,
   ];
   final inputOrder = {
-    for (var i = 0; i < project.items.length; i++) project.items[i].id: i,
+    for (var i = 0; i < source.items.length; i++) source.items[i].id: i,
   };
   movable.sort((a, b) {
     final kind = a.documentKind.order.compareTo(b.documentKind.order);
     if (kind != 0) return kind;
-    if (project.layout.order == LayoutOrder.area) {
+    if (source.layout.order == LayoutOrder.area) {
       final size = (b.width * b.height).compareTo(a.width * a.height);
       if (size != 0) return size;
     }
     return inputOrder[a.id]!.compareTo(inputOrder[b.id]!);
   });
 
-  final placed = switch (strategy ?? project.layout.strategy) {
-    ArrangementStrategy.ordered => _ordered(project, fixed, movable, rotate),
-    ArrangementStrategy.compact => _compact(project, movable, rotate),
+  final placed = switch (strategy ?? source.layout.strategy) {
+    ArrangementStrategy.ordered => _ordered(source, fixed, movable, rotate),
+    ArrangementStrategy.compact => _compact(source, movable, rotate),
   };
 
   final items = [
-    for (final item in project.items)
+    for (final item in source.items)
       if (placed.containsKey(item.id))
         placed[item.id]!
       else if (movable.any((m) => m.id == item.id))
@@ -99,7 +108,7 @@ ArrangementResult arrangeDocuments(
     0,
     (last, item) => math.max(last, item.pageIndex ?? 0),
   );
-  final result = project.copyWith(pageCount: lastPage + 1, items: items);
+  final result = source.copyWith(pageCount: lastPage + 1, items: items);
   return ArrangementResult(
     project,
     result,

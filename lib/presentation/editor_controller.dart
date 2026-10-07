@@ -57,6 +57,12 @@ class LayoutEditorController extends ChangeNotifier {
   bool autoFlow = true;
   bool allowOverlap = false;
   bool showGuides = true;
+
+  /// Touch-friendly multi-selection: while on, selecting a document adds it
+  /// to the selection or removes it (what Ctrl/Shift-click does with a mouse)
+  /// and pressing or dragging a document never moves it. Resize handles and
+  /// the arrow keys keep working.
+  bool multiSelect = false;
   ZoomMode zoomMode = ZoomMode.pageWidth;
   double zoom = 1;
   int visiblePage = 0;
@@ -175,10 +181,10 @@ class LayoutEditorController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Selection
 
-  /// Selects one document ([toggle] adds/removes it instead). [reveal]
-  /// scrolls the sheet to its page.
+  /// Selects one document ([toggle], or [multiSelect], adds/removes it
+  /// instead). [reveal] scrolls the sheet to its page.
   void select(String id, {bool toggle = false, bool reveal = false}) {
-    if (toggle) {
+    if (toggle || multiSelect) {
       if (!selected.remove(id)) selected.add(id);
     } else {
       selected
@@ -205,6 +211,11 @@ class LayoutEditorController extends ChangeNotifier {
 
   void clearSelection() {
     selected.clear();
+    _notify();
+  }
+
+  void setMultiSelect(bool value) {
+    multiSelect = value;
     _notify();
   }
 

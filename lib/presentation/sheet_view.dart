@@ -234,6 +234,7 @@ class _SheetViewState extends State<SheetView> {
         assets: _c.service.assets,
         scale: _scale,
         selected: _c.selected,
+        toggleSelection: _c.multiSelect,
         showGuides: _c.showGuides,
         imageBuilder: _liveImage,
         onSelect: (id, {toggle = false}) {

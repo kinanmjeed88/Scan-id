@@ -371,12 +371,31 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     tooltip: 'حذف المحدد من الورق (Delete)',
                     onPressed: busy || !hasSelection ? null : c.deleteSelected,
                   ),
+                ],
+              ),
+            ],
+          ),
+          RibbonGroup(
+            label: 'التحديد',
+            children: [
+              RibbonStack(
+                children: [
                   RibbonButton(
                     key: const Key('rb-select-all'),
                     icon: Icons.select_all,
                     label: 'تحديد الكل',
                     tooltip: 'تحديد الكل (Ctrl + A)',
                     onPressed: project.items.isEmpty ? null : c.selectAll,
+                  ),
+                  RibbonButton(
+                    key: const Key('rb-multi-select'),
+                    icon: Icons.library_add_check_outlined,
+                    label: 'تحديد متعدد',
+                    tooltip:
+                        'كل نقرة تضيف المستمسك إلى التحديد أو تزيله '
+                        '(مثل Ctrl + نقرة)، ولا تُحرَّك المستمسكات في هذا الوضع',
+                    selected: c.multiSelect,
+                    onPressed: () => c.setMultiSelect(!c.multiSelect),
                   ),
                 ],
               ),

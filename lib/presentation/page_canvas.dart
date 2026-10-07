@@ -31,6 +31,7 @@ class PageCanvas extends StatelessWidget {
     this.onDragCancel,
     this.imageBuilder,
     this.showGuides = true,
+    this.toggleSelection = false,
     super.key,
   });
 
@@ -43,7 +44,8 @@ class PageCanvas extends StatelessWidget {
   final bool highQuality;
   final Set<String> selected;
 
-  /// Called with `toggle: true` for Ctrl/Shift-clicks.
+  /// Called with `toggle: true` for Ctrl/Shift-clicks and, with
+  /// [toggleSelection], for every tap.
   final void Function(String id, {bool toggle})? onSelect;
 
   /// Global pointer position where a move ([resize] false) or a resize
@@ -57,6 +59,11 @@ class PageCanvas extends StatelessWidget {
   final VoidCallback? onDragCancel;
   final DocumentImageBuilder? imageBuilder;
   final bool showGuides;
+
+  /// Multi-selection mode for touch screens: a tap or press adds the document
+  /// to the selection or removes it, as Ctrl/Shift-click does with a mouse,
+  /// and does not move it. Resize handles keep working.
+  final bool toggleSelection;
 
   String _itemLabel(DocumentItem item, ImageAsset? asset) => asset == null
       ? 'مستمسك بلا صورة'
@@ -120,10 +127,14 @@ class PageCanvas extends StatelessWidget {
           value:
               '${item.width.toStringAsFixed(1)} في ${item.height.toStringAsFixed(1)} مم'
               '${item.locked ? '، مثبت' : ''}',
-          child: _gestures(
-            item: item,
-            selectedAndDraggable: isSelected && draggable,
-            draggable: draggable,
+          child: RawGestureDetector(
+            key: Key('page-item-${item.id}'),
+            behavior: HitTestBehavior.opaque,
+            gestures: _documentGestures(
+              item.id,
+              selected: isSelected,
+              draggable: draggable,
+            ),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -171,7 +182,14 @@ class PageCanvas extends StatelessWidget {
                       child: RawGestureDetector(
                         key: Key('resize-${item.id}'),
                         behavior: HitTestBehavior.opaque,
-                        gestures: _eagerPan(item.id, resize: true),
+                        gestures: {
+                          _DocumentPanGestureRecognizer: _pan(
+                            item.id,
+                            resize: true,
+                            eager: true,
+                            devices: _selectedDragDevices,
+                          ),
+                        },
                         child: SizedBox(
                           width: 28,
                           height: 28,
@@ -195,81 +213,115 @@ class PageCanvas extends StatelessWidget {
     );
   }
 
-  /// Ctrl/Shift-press on a selected document toggles it instead of moving it.
-  void _start(String id, Offset global, {required bool resize}) {
+  /// Whether a tap or press adds/removes a document instead of replacing the
+  /// selection: Ctrl/Shift held, or the touch multi-selection mode.
+  bool get _toggling {
     final keys = HardwareKeyboard.instance;
-    if (!resize && (keys.isControlPressed || keys.isShiftPressed)) {
+    return toggleSelection || keys.isControlPressed || keys.isShiftPressed;
+  }
+
+  /// A toggling press on a document changes the selection instead of moving
+  /// the document.
+  void _start(String id, Offset global, {required bool resize}) {
+    if (!resize && _toggling) {
       onSelect?.call(id, toggle: true);
       return;
     }
     onDragStart?.call(id, global, resize: resize);
   }
 
-  /// A selected document (and its resize handle) claims the pointer at once,
-  /// so dragging it moves it instead of scrolling the pages on touch screens.
-  Map<Type, GestureRecognizerFactory> _eagerPan(
+  /// The gestures of one document. The same recognizers serve it selected
+  /// and unselected, only their settings change, so a drag that selects the
+  /// document keeps running through the rebuild instead of being dropped.
+  ///
+  /// * Not selected: a tap selects it. Only a mouse drags it directly, as in
+  ///   Word; on touch and stylus screens the swipe scrolls the pages.
+  /// * Selected: the document claims the press at once, so it follows the
+  ///   finger, pen or mouse instead of the pages scrolling.
+  /// * Locked: never dragged; a swipe over it scrolls the pages.
+  ///
+  /// A touchpad's two-finger swipe is a pan/zoom gesture and always scrolls
+  /// (a touchpad click-and-drag arrives as a mouse).
+  Map<Type, GestureRecognizerFactory> _documentGestures(
+    String id, {
+    required bool selected,
+    required bool draggable,
+  }) {
+    final select = onSelect;
+    return {
+      TapGestureRecognizer:
+          GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+            TapGestureRecognizer.new,
+            (recognizer) {
+              // A selected, movable document answers presses with its pan.
+              recognizer.onTap = select == null || (selected && draggable)
+                  ? null
+                  : () => select(id, toggle: _toggling);
+            },
+          ),
+      _DocumentPanGestureRecognizer: _pan(
+        id,
+        resize: false,
+        eager: selected,
+        devices: !draggable
+            ? const {}
+            : selected
+            ? _selectedDragDevices
+            : _unselectedDragDevices,
+      ),
+    };
+  }
+
+  GestureRecognizerFactory _pan(
     String id, {
     required bool resize,
-  }) => {
-    _EagerPanGestureRecognizer:
-        GestureRecognizerFactoryWithHandlers<_EagerPanGestureRecognizer>(
-          _EagerPanGestureRecognizer.new,
-          (recognizer) {
-            recognizer.onStart = (d) =>
-                _start(id, d.globalPosition, resize: resize);
-            recognizer.onUpdate = (d) => onDragUpdate?.call(d.globalPosition);
-            recognizer.onEnd = (_) => onDragEnd?.call();
-            recognizer.onCancel = () => onDragCancel?.call();
-          },
-        ),
-  };
-
-  Widget _gestures({
-    required DocumentItem item,
-    required bool selectedAndDraggable,
-    required bool draggable,
-    required Widget child,
-  }) {
-    if (selectedAndDraggable) {
-      return RawGestureDetector(
-        key: Key('page-item-${item.id}'),
-        behavior: HitTestBehavior.opaque,
-        gestures: _eagerPan(item.id, resize: false),
-        child: child,
-      );
-    }
-    return GestureDetector(
-      key: Key('page-item-${item.id}'),
-      behavior: HitTestBehavior.opaque,
-      onTap: onSelect == null
-          ? null
-          : () {
-              final keys = HardwareKeyboard.instance;
-              onSelect!(
-                item.id,
-                toggle: keys.isControlPressed || keys.isShiftPressed,
-              );
-            },
-      onPanStart: draggable
-          ? (d) => _start(item.id, d.globalPosition, resize: false)
-          : null,
-      onPanUpdate: draggable
-          ? (d) => onDragUpdate?.call(d.globalPosition)
-          : null,
-      onPanEnd: draggable ? (_) => onDragEnd?.call() : null,
-      onPanCancel: draggable ? () => onDragCancel?.call() : null,
-      child: child,
-    );
-  }
+    required bool eager,
+    required Set<PointerDeviceKind> devices,
+  }) => GestureRecognizerFactoryWithHandlers<_DocumentPanGestureRecognizer>(
+    _DocumentPanGestureRecognizer.new,
+    (recognizer) {
+      recognizer.eager = eager;
+      recognizer.devices = devices;
+      recognizer.onStart = (d) => _start(id, d.globalPosition, resize: resize);
+      recognizer.onUpdate = (d) => onDragUpdate?.call(d.globalPosition);
+      recognizer.onEnd = (_) => onDragEnd?.call();
+      recognizer.onCancel = () => onDragCancel?.call();
+    },
+  );
 }
 
-/// Accepts the drag on pointer-down instead of waiting for the slop.
-class _EagerPanGestureRecognizer extends PanGestureRecognizer {
-  _EagerPanGestureRecognizer({super.debugOwner});
+/// Pointers that drag a selected document: fingers, pens and the mouse.
+const _selectedDragDevices = {
+  PointerDeviceKind.touch,
+  PointerDeviceKind.stylus,
+  PointerDeviceKind.invertedStylus,
+  PointerDeviceKind.mouse,
+};
+
+/// Pointers that drag a document that is not selected yet.
+const _unselectedDragDevices = {PointerDeviceKind.mouse};
+
+/// The pan of one document. Its settings follow the selection while one
+/// instance lives as long as the document's widget, so a running drag
+/// survives the rebuild its own start causes.
+class _DocumentPanGestureRecognizer extends PanGestureRecognizer {
+  /// Accept the drag on pointer-down instead of waiting for the pan slop.
+  bool eager = false;
+
+  /// Pointer kinds that may start a drag; empty for a locked document.
+  Set<PointerDeviceKind> devices = const {};
+
+  @override
+  bool isPointerAllowed(PointerDownEvent event) =>
+      devices.contains(event.kind) && super.isPointerAllowed(event);
+
+  @override
+  bool isPointerPanZoomAllowed(PointerPanZoomStartEvent event) =>
+      devices.contains(event.kind) && super.isPointerPanZoomAllowed(event);
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
     super.addAllowedPointer(event);
-    resolvePointer(event.pointer, GestureDisposition.accepted);
+    if (eager) resolvePointer(event.pointer, GestureDisposition.accepted);
   }
 }

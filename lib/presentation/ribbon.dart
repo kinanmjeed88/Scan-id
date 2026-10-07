@@ -87,8 +87,9 @@ class _RibbonState extends State<Ribbon> {
                             tab: tab,
                             selected: tab.id == current.id,
                             onTap: () {
-                              if (_collapsed)
+                              if (_collapsed) {
                                 setState(() => _collapsed = false);
+                              }
                               widget.onTabSelected?.call(tab.id);
                             },
                           ),

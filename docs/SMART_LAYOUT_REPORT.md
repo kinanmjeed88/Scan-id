@@ -1,198 +1,466 @@
-# معمارية التعرّف الذكي على الدفعات + الترتيب التلقائي
+# Smart Layout Report — Final Architecture, Schema v5 Migration Design, and Dataset Specification
 
-**التاريخ:** 2026-10-08 · **الفرع:** `arena/bc17c7f3-scan-id` (PR #4) · **الحالة: معمارية نهائية مقترحة قبل اختيار أي نموذج**
+**Date:** 2026-10-07<br>
+**Branch:** `arena/629ddbfe-scan-id`<br>
+**Current stored schema:** v4
+**Decision status:** **Schema v5 approved in principle only. The migration is not implemented and implementation must wait for explicit approval.**
 
-> **لا يوجد في المستودع أي OCR أو نموذج تعلّم آلي، ولم يُبدأ تنفيذهما.** يصف هذا التقرير الطبقات والقرارات المعتمدة، ويقابلها بالشيفرة الحالية (مع مراجع الملفات)، ويضع خطة ترحيل للتخزين. لا يتغير أي سلوك تخزين أو تصدير قبل اعتماد هذه الخطة وتنفيذها مع اختباراتها.
+> This report is a design decision and compatibility contract. This change updates documentation only. It does not add AI, OCR, a detector, a classifier, a model, model training, a schema-v5 reader/writer, a migration, or an export change.
 
-## 1. القرارات المعتمدة
+## 0. Scope and non-goals
 
-| # | القرار |
-|---|---|
-| D1 | **المستند هو الوحدة الأساسية، لا الصورة.** صورة مصدر واحدة قد تحتوي عدة مستندات |
-| D2 | **الصورة الأصلية لا تُمس أبداً**: لا تعديل ولا حذف ولا استبدال |
-| D3 | لكل مستند مكتشف زوايا/مضلّع وقص ونسخة معالجة مستقلة مشتقة من الأصل |
-| D4 | فصل مفاهيمي بين: `SourceImage`، `DetectedDocument`، `DocumentInstance`، `DocumentSide`، `ProcessedDocumentAsset`، `DocumentLayoutItem` |
-| D5 | الوجه والظهر ليسا مستندين مستقلين دائماً: `DocumentInstance` ← `Front` و`Back` |
-| D6 | **لا دمج تلقائي للوجه والظهر لمجرد تطابق النوع**؛ أدلة متعددة، وطلب تأكيد عند عدم كفاية الثقة |
-| D7 | خمس ثقات منفصلة: `detectionConfidence`، `classificationConfidence`، `ocrConfidence`، `geometryConfidence`، `finalConfidence` |
-| D8 | نطاقات أولية: **≥ 0.90** اعتماد تلقائي · **0.70–0.89** اعتماد مع مراجعة · **< 0.70** لا نوع ولا مقاس نهائي تلقائياً. أولية فقط، تُعاير لاحقاً على Dataset بمقاييس precision/recall |
-| D9 | **OCR وحده لا يحدد نوع المستند** |
-| D10 | **الذكاء الاصطناعي لا يقرر إحداثيات A4.** محرك الترتيب يبقى حتمياً بالمليمتر (`arrangeDocuments`) |
-| D11 | المستند بمقاس غير مؤكد **غير صالح للترتيب التلقائي**: حالة صريحة (`AutoLayoutStatus.sizeUnconfirmed`) يعرضها المحرر، لا مجرد وجوده خارج الورقة |
-| D12 | لا تغيير في سلوك التصدير أو التخزين الحالي قبل خطة ترحيل وتوافق للخلف (القسم 7) |
-| D13 | «إضافة صفحة لا تمرّر إليها» مشكلة معروفة منفصلة، خارج هذه المرحلة |
+The current non-AI architecture and all current fixes remain the baseline:
 
-## 2. الطبقات
+- source pixels are immutable;
+- image processing is local and non-destructive;
+- measurements and layout are in millimetres;
+- `arrangeDocuments` remains deterministic and is the only A4 layout engine;
+- a document with an unconfirmed size remains outside automatic layout;
+- automatic layout never silently scales a document to make it fit;
+- optimistic revisions, safe paths, staging, backups, recovery, and export safeguards remain in force;
+- opening a project does not rewrite it; an explicit save is required to persist a migration;
+- no network recognition or model training is introduced.
 
+Schema v5 is therefore a storage and domain-separation design, not an AI feature. The implementation gate is at the end of this report.
+
+## 1. Final architecture
+
+The canonical object flow is:
+
+```text
+SourceImage
+→ DetectedDocument
+→ DocumentInstance
+→ DocumentSide
+→ ProcessedDocumentAsset
+→ DocumentLayoutItem
 ```
-SourceImage                      صورة كما استوردها المستخدم (لا تُمس)
-  └── DetectedDocument × n       مضلّع في إحداثيات الصورة + detectionConfidence + geometryConfidence
-        └── DocumentSide         وجه واحد: front | back | unknown، وأدلة النوع
-              ├── ProcessedDocumentAsset   صورة مشتقة مقصوصة ومصححة لهذا الوجه فقط
-              └── ∈ DocumentInstance       مستند مادي واحد: النوع، المقاس، 1–2 وجه، finalConfidence
-                    └── DocumentLayoutItem × k   موضع على A4 بالمليمتر (نسخة مطبوعة لوجه)
-```
 
-| الطبقة | ما يملكه | من ينتجه | ثابت أم متغير |
-|---|---|---|---|
-| `SourceImage` | ملف الأصل، نسخة عمل مصححة EXIF، الأبعاد، `captureId` | الاستيراد/الكاميرا | **ثابت إلى الأبد** |
-| `DetectedDocument` | زوايا مطبّعة في إحداثيات المصدر، `detectionConfidence`، `geometryConfidence`، اسم الكاشف وإصداره | الكاشف (الحالي أو نموذج لاحق)، أو المستخدم يدوياً | يُستبدل عند إعادة الكشف، لا يُعدَّل |
-| `DocumentSide` | `side` (front/back/unknown)، مرشحو النوع مع `classificationConfidence`، نص OCR مع `ocrConfidence`، قائمة الأدلة | المصنِّف + المستخدم | يتغير بتأكيد المستخدم |
-| `ProcessedDocumentAsset` | وصفة القص (زوايا + أبعاد الناتج + تعديلات اللون والدوران)، ملفات العمل والمصغرة، رقم مراجعة | `ImageEditor.createRevision` الحالي | كل تعديل نسخة جديدة؛ القديمة تبقى |
-| `DocumentInstance` | النوع، المقاس المؤكد (من الكتالوج أو المستخدم)، الأوجه، أدلة الإقران و`pairingConfidence`، `finalConfidence`، حالة المراجعة | دمج الأدلة + المستخدم | يتغير بالمراجعة |
-| `DocumentLayoutItem` | `x`، `y`، `width`، `height`، `rotation`، `pageIndex`، `locked`، `zIndex` بالمليمتر | **فقط** `arrangeDocuments` أو المستخدم | يتغير بالتحرير |
+The arrows describe ownership and processing references, not a promise that every stage must be generated by a model. A legacy record may contain no detection or recognition evidence; its v5 records must then say that the evidence is absent rather than inventing it.
 
-**قواعد بين الطبقات**
-- المقاس بالمليمتر يأتي من `DocumentInstance` (كتالوج أو إدخال المستخدم)، ولا يُستنتج من بكسلات `ProcessedDocumentAsset`.
-- `DocumentLayoutItem.width/height` = مقاس `DocumentInstance` (مع تدوير 90° عند الحاجة). لا تصغير تلقائي.
-- حذف `DocumentInstance` لا يحذف `SourceImage`. حذف المصدر يتطلب ألا يشير إليه أي مستند (السلوك الحالي: الملفات لا تُحذف إلا بجامع اليتامى الصريح).
+### 1.1 Responsibilities and invariants
 
-## 3. مقابلة الشيفرة الحالية
-
-| المفهوم | اليوم | الفجوة |
+| Entity | Responsibility | Required invariants |
 |---|---|---|
-| `SourceImage` | `ImageAsset.originalPath` (+ `workingPath` المصحح EXIF عند الاستيراد) | الأصل محفوظ فعلاً ولا يُستبدل (`LocalImageEditor.createRevision` يكتب مجلد `edits/<id>` جديداً) ✔ |
-| `DetectedDocument` | ناتج مؤقت من `ImageEditor.suggest` → `List<Point2>?` (رباعي واحد)؛ لا يُحفظ | **مستند واحد لكل صورة**؛ لا ثقة كشف ولا حفظ |
-| `ProcessedDocumentAsset` | `ImageAsset.crop` + `adjustments` + `workingPath` بعد القص | **القص محفوظ على الصورة**: صورة = نسخة معالجة واحدة. مستندان من صورة واحدة غير ممكنين دون ترحيل |
-| `DocumentSide` | غير موجود | لا وجه/ظهر |
-| `DocumentInstance` | `DocumentItem.documentKind`، `recognitionConfidence`، `sizeConfirmed` | النوع والثقة على عنصر الورقة؛ نسختان من مستند واحد = عنصران مستقلان |
-| `DocumentLayoutItem` | `DocumentItem` (مم) + `arrangeDocuments` + `PageLayout` | ✔ يبقى كما هو |
-| الثقة | `recognitionConfidence` واحدة؛ تحذير تصدير تحتها 0.85 | ثقة واحدة مدمجة؛ لا مكونات |
-| الصلاحية للترتيب | `AutoLayoutStatus` (هذا الـ PR): `eligible` / `sizeUnconfirmed` / `tooLarge` | ✔ الأساس الذي تُربط به النطاقات |
+| `SourceImage` | The user-imported source and its immutable source metadata. | Original bytes, source identity, dimensions, capture metadata, and source paths are never changed by recognition or migration. |
+| `DetectedDocument` | One candidate document region in a `SourceImage`, including normalized corners and detection/geometry provenance. | One source image may produce zero, one, or many regions. A legacy asset without region data is represented as `legacy-unsegmented`, not as a fabricated high-confidence detection. |
+| `DocumentInstance` | One logical physical document, independent of its pixels and its printed placement. | Type, physical size, review state, evidence references, and front/back pairing state live here. Same type is not identity. |
+| `DocumentSide` | The `front`, `back`, or `unknown` side of an instance. | A side may refer to a detected region and one or more immutable processed revisions. Legacy items default to `unknown`; migration never guesses front/back. |
+| `ProcessedDocumentAsset` | An immutable, derived image revision for a side: crop, perspective correction, rotation, colour adjustments, and thumbnail. | It points back to a source and keeps its recipe, dimensions, paths, and revision. Recognition never overwrites a prior revision. |
+| `DocumentLayoutItem` | A printable occurrence of a processed side on A4. | Position, size, rotation, page, lock state, z-order, and copy/occurrence identity are layout metadata. It is written only by explicit editing or deterministic layout. |
 
-## 4. نموذج الثقة
+A source image can contain multiple document regions. Multiple layout items can intentionally refer to the same processed asset for copies; this must not cause the migration to duplicate image bytes or infer that two copies are two different physical documents.
 
-كل ثقة في [0, 1]، وقد تكون **غير متاحة** (`null`) بدل قيمة مخترعة.
+### 1.2 What remains non-AI
 
-| الثقة | تقيس | مصدرها |
+The present local boundary heuristic remains the current detector. The present filename/aspect-ratio suggestion remains a conservative legacy suggestion. Future interfaces may replace those implementations, but this report does not implement them.
+
+The pipeline contract is:
+
+1. import and preserve `SourceImage`;
+2. detect zero or more regions into `DetectedDocument`;
+3. produce or select a `ProcessedDocumentAsset` without changing the source;
+4. collect independent recognition evidence for `DocumentSide` and `DocumentInstance`;
+5. pair sides using a confidence-based rule;
+6. apply a user-reviewable plan;
+7. lay out confirmed documents with deterministic millimetre rules;
+8. export from the resulting `DocumentLayoutItem` records.
+
+AI, OCR, detector, classifier, and training code are all outside this change.
+
+## 2. Recognition and evidence fusion
+
+### 2.1 OCR is in the pipeline, but is not the classifier or layout engine
+
+OCR remains an evidence source in the recognition pipeline. It may provide text, script, field candidates, field consistency, and OCR quality for semantic analysis. OCR is **not** the sole classifier. OCR text must not by itself choose a document kind, pair a front with a back, assign a physical size, or place anything on A4.
+
+The A4 layout engine never consumes OCR text and never asks OCR or a model for coordinates. It consumes a reviewed/eligible document size and applies deterministic geometry, page, margin, gap, rotation, lock, and overflow rules. OCR may help classification and semantic analysis only.
+
+The planned evidence interfaces are conceptual only:
+
+- visual classification evidence;
+- OCR/semantic evidence;
+- deterministic geometry/aspect evidence;
+- document-structure evidence;
+- pairing evidence;
+- human confirmation and correction.
+
+Every evidence record must retain its family, producer/version, input scope, score, candidate label, and dependency information so that the decision can be audited and recalibrated later.
+
+### 2.2 What counts as independent evidence
+
+“Two independent evidences” means **two different signal families derived through separate computation paths from different observable information, with neither result supplied as an input to the other**. Agreement between two scores from the same signal, model, crop, or text output is one evidence family, not two.
+
+The following are the defined signal families:
+
+| Evidence family | What qualifies | What does not create a second independent evidence |
 |---|---|---|
-| `detectionConfidence` | أن هذا المضلّع مستند فعلاً وليس خلفية أو ظلاً | الكاشف |
-| `geometryConfidence` | جودة المضلّع: استقامة الحواف، الزوايا، تطابق النسبة مع مقاس النوع المرشح، تشوه المنظور | قياس هندسي حتمي على المضلّع |
-| `classificationConfidence` | النوع والوجه من الصورة نفسها (تخطيط، ألوان، شعارات) | مصنِّف |
-| `ocrConfidence` | جودة قراءة النص وتطابق الحقول المتوقعة لنوع مرشح | OCR (اختياري) |
-| `finalConfidence` | قرار المستند كله | دمج حتمي موثق (أدناه) |
+| **Visual classification** | A visual classifier evaluates appearance, visual layout, colours, logos, security design, or other image features without receiving OCR tokens, the filename, or the aspect-ratio label. | Running the same classifier twice, or splitting one classifier score into several named scores. |
+| **OCR / semantic** | OCR reads glyphs and field candidates; a separate semantic rule or model checks script, expected fields, and field relationships from that text. | OCR engine confidence, character confidence, and field match derived from the same OCR text count as one OCR family. OCR alone never suffices. |
+| **Geometry / aspect ratio** | A quadrilateral, rectified dimensions, edge quality, and aspect ratio are measured against the size catalog by a deterministic geometry component. | `detectionConfidence` and `geometryConfidence` computed from the same boundary are not two families. Two aspect-ratio tolerances are still one geometry family. |
+| **Document structure** | Independent spatial/structural features such as the arrangement of document zones, expected front/back role, or presence/order of non-text regions are evaluated without reusing the same outer aspect score. | Structure calculated only from OCR tokens is dependent on OCR and must be labelled as such; structure calculated only from the same outer rectangle is dependent on geometry. |
+| **Source metadata** | Filename and capture context may be retained as provenance hints and may help order a review queue. | Filename, folder name, or capture order is not an independent machine recognition evidence for automatic acceptance. |
+| **Human confirmation** | A user explicitly selects a kind, size, side, or pairing. This is authoritative manual resolution. | It is not counted as a second machine evidence; it is a review outcome. |
 
-**قاعدة الدمج المقترحة (حتمية وقابلة للمعايرة):**
-1. يلزم **دليلان مستقلان على الأقل** يتفقان على النوع. الأدلة: اسم الملف، شكل المضلّع (`geometryConfidence` مقابل الكتالوج)، المصنِّف، OCR. **OCR وحده لا يكفي** (D9)، ولا يكفي معه اسم الملف وحده.
-2. `finalConfidence = min(detectionConfidence, ثقة النوع المدمجة)`، حيث ثقة النوع هي متوسط موزون للأدلة المتفقة مع خصم للتعارض. الحد الأدنى يضمن أن كشفاً ضعيفاً لا يُعتمد بتصنيف قوي.
-3. أي تعارض صريح (مثلاً المصنِّف «جواز» والشكل «بطاقة سكن» بفارق كبير) يُنزل الناتج إلى «منخفض» مهما كانت القيم.
-4. تُحفظ كل المكونات الخام وأسماء الأدلة، لإعادة المعايرة دون إعادة المعالجة.
+Examples:
 
-**النطاقات وربطها بالترتيب**
+- Visual classification saying “passport” plus an OCR/semantic result identifying a passport data-page field pattern qualifies as two families **only if the visual computation did not consume the OCR output**.
+- Geometry saying “ID-1 aspect” plus independent document-structure evidence for an ID-1 layout qualifies.
+- `detectionConfidence` plus `geometryConfidence` from the same quadrilateral does **not** qualify.
+- OCR character confidence plus OCR field confidence does **not** qualify.
+- Two classifiers that consume the same crop and the same features do not automatically qualify merely because they have different names.
 
-| النطاق | `finalConfidence` | النوع والمقاس | `AutoLayoutStatus` | ما يراه المستخدم |
-|---|---|---|---|---|
-| مرتفع | ≥ 0.90 | يُطبَّقان | `eligible` | لا شيء خاص |
-| متوسط | 0.70–0.89 | يُطبَّقان | `eligible` + علامة «يحتاج مراجعة» | شارة على المستند وتحذير قبل التصدير |
-| منخفض | < 0.70 | **لا يُطبَّق نوع ولا مقاس نهائي**؛ يبقى الاقتراح ظاهراً | `sizeUnconfirmed` | خارج الترتيب التلقائي حتى يؤكد بنقرة |
+The fusion layer must record conflicts instead of hiding them. A strong score from one family cannot erase a hard contradiction from another family. Missing evidence is `null`/absent, not a fabricated zero or an assumed agreement.
 
-العتبات **أولية** وقد تصبح لكل نوع على حدة. تُعاير على مجموعة بيانات موسومة بحيث يحقق نطاق «مرتفع» دقة (precision) مستهدفة تُحدد عند جمع البيانات، مع قياس recall لكل نوع. تحذير التصدير الحالي (< 0.85) يُستبدل بنطاق «متوسط» عند التنفيذ، لا قبله.
+### 2.3 Confidence definitions and provisional thresholds
 
-## 5. الوجه والظهر
+The following confidence components are separate and nullable when unavailable:
 
-`DocumentInstance` يملك وجهاً واحداً (مستند بلا ظهر أو صفحة جواز) أو وجهين. **تطابق النوع وحده لا يقرن وجهين أبداً** (D6).
+- `detectionConfidence`: confidence that a proposed region is a document rather than background or an artefact;
+- `visualClassificationConfidence`: confidence in the visually proposed kind/side;
+- `ocrSemanticConfidence`: confidence in the OCR and semantic field interpretation;
+- `geometryConfidence`: confidence in the region geometry and its compatibility with a candidate size;
+- `structureConfidence`: confidence in document-zone/side structure;
+- `pairingConfidence`: confidence that two sides belong to one physical instance;
+- `finalConfidence`: the auditable fusion result for the specific recognition decision.
 
-أدلة الإقران المقترحة، ويلزم اتفاق اثنين مستقلين على الأقل:
+The provisional policy is:
 
-| الدليل | ملاحظة |
-|---|---|
-| تكامل الأوجه | أحدهما مصنَّف `front` والآخر `back` للنوع نفسه |
-| تطابق المقاس | نسبة المضلّعين ضمن التسامح للنوع نفسه |
-| قرب الالتقاط | الصورة نفسها، أو صورتان متتاليتان في الاستيراد أو الكاميرا |
-| تطابق حقول OCR | رقم البطاقة نفسه على الوجهين: دليل داعم فقط |
-| فعل المستخدم | تجميع يدوي: يحسم دائماً |
-
-- `pairingConfidence` ≥ 0.90 مع دليلين مستقلين: يُقترح الإقران ويُطبَّق، ويمكن فكّه بنقرة.
-- دون ذلك: سؤال صريح «هل هذان وجها المستند نفسه؟». الافتراضي مستندان منفصلان.
-- عدة بطاقات من النوع نفسه في دفعة واحدة (أفراد عائلة) لا تُقرن إلا بأدلة تميّز كل بطاقة، كتطابق حقول أو التقاط متجاور.
-- الطباعة: يرتّب `arrangeDocuments` وجهي المستند متجاورين (قاعدة ترتيب حتمية جديدة: الوجه ثم ظهره في الصف نفسه عند الإمكان).
-
-## 6. خط معالجة الدفعة
-
-```
-1 الكشف     SourceImage → DetectedDocument[]                   (نموذج مسموح: زوايا + detectionConfidence)
-2 التصحيح   DetectedDocument → ProcessedDocumentAsset          (CropDraft/ImageEditRecipe/createRevision الحالية، لكل مستند)
-3 التصنيف   ProcessedDocumentAsset → DocumentSide              (نموذج مسموح: نوع/وجه + classificationConfidence؛ OCR + ocrConfidence)
-4 التجميع   DocumentSide[] → DocumentInstance[]                (قواعد الإقران، القسم 5)
-5 الدمج     → finalConfidence + النطاق + AutoLayoutStatus      (حتمي)
-6 الاعتماد  → DocumentLayoutItem عبر DocumentEdits + arrangeDocuments(keepPlaced: true)
-```
-
-- المراحل 1–5 تنتج **خطة نقية** (`RecognitionPlan`) دون أي كتابة، داخل isolate، مع تقدّم لكل صورة وإلغاء.
-- المرحلة 6 تكتب الخطة كأمر واحد قابل للتراجع. فشل في منتصف الدفعة لا يترك حالة جزئية؛ اليوم كل قص يُحفظ وحده (F8).
-- **حدود الذكاء الاصطناعي:** يساهم فقط في المرحلتين 1 و3. لا يُخرج مليمترات ولا مقاسات ولا مواضع صفحات (D10). المقاس من الكتالوج أو المستخدم، والموضع من `arrangeDocuments`.
-- واجهات الربط: `DocumentDetector` (تعميم `ImageEditor.suggest` ليعيد عدة مضلعات مع ثقتها) و`DocumentClassifier`. التنفيذ الافتراضي لكليهما يغلّف الشيفرة الحالية (`suggestDocumentCorners`، `suggestDocumentType`)، فيكون أول تغيير بلا تغيير سلوك ومحمياً بالاختبارات الحالية.
-
-## 7. خطة الترحيل والتوافق (شرط قبل أي تغيير تخزين أو تصدير)
-
-**ما ثبت فعلياً عن التوافق الحالي** (`test/persistence/legacy_schema_test.dart`): كل صيغة شُحنت سابقاً تُكتب بشيفرة إصدارها الأصلية، بلا تعديل، في قاعدة Sembast حقيقية. الصيغ هي: schema 1، schema 2، وثلاث صيغ تحت الرقم 3. يتحقق الاختبار من أن الإصدار الحالي:
-- يفتحها ويحتفظ بكل القيم؛
-- لا يعيد كتابة السجل عند الفتح؛
-- يرقّيها إلى 4 عند الحفظ دون لمس ملفات الصور؛
-
-ويتحقق كذلك من أن الإصدار القديم يرفض السجل المرقّى برسالة ولا يسيء قراءته. النتيجة في STATUS.
-
-**schema 5 المقترح (لم يُنفَّذ):**
-
-| الجديد | من أين يُرحَّل من 1–4 |
-|---|---|
-| `sources[]` (`SourceImage`) | كل `ImageAsset`: نفس `originalPath` و`workingPath` و`captureId` والأبعاد. بلا نسخ ملفات |
-| `processed[]` (`ProcessedDocumentAsset`) | من كل `ImageAsset`: `crop` + `adjustments` + `transforms` + ملف العمل الحالي، ومعرّفه = معرّف الصورة القديم لتبقى المراجع صالحة |
-| `documents[]` (`DocumentInstance` + `sides`) | لكل `DocumentItem`: مستند بوجه واحد `unknown`. `documentKind` و`sizeConfirmed` ينتقلان إليه، و`recognitionConfidence` يصبح `finalConfidence`، وبقية المكونات `null` (لا تُخترع) |
-| `DocumentItem.sideId` | يشير إلى الوجه؛ بقية حقول الموضع كما هي |
-
-قواعد الترحيل:
-1. قراءة 1–4 تبقى، والكتابة 5. ترحيل في الذاكرة عند القراءة؛ السجل المخزن لا يتغير حتى أول حفظ (كما اليوم).
-2. **لا نقل ولا حذف لأي ملف صورة** أثناء الترحيل.
-3. النسخ الاحتياطية `.scanid` (صيغة الغلاف 1) تضم JSON المشروع؛ الغلاف لا يتغير، وقراءة نسخة قديمة تمر بالترحيل نفسه.
-4. التصدير: عقده الحالي (مستطيلات مم + ملف الصورة المعالجة + تدوير المركز) يبقى. يُضاف محوّل يقرأ ملف `ProcessedDocumentAsset` بدل `ImageAsset.workingPath`. يجب أن يعطي التصدير قبل الترحيل وبعده مخرجات متطابقة بايتياً على المشروع نفسه.
-5. الإصدار القديم يرفض 5 برسالة (مثل رفضه 4 اليوم)، ولا يسيء القراءة.
-6. **اختبارات إلزامية قبل الدمج:**
-   - إضافة كاتب schema 4 الحالي إلى `test/legacy_schemas`، وتمرير كل الصيغ عبر الترحيل؛
-   - استعادة نسخة احتياطية قديمة؛
-   - مقارنة تصدير PDF/PNG قبل الترحيل وبعده؛
-   - إعادة فتح بعد حفظ؛
-   - الملفات لا تتغير.
-
-## 8. ما لا يتغير
-
-- المليمتر وحدة النموذج الوحيدة؛ `PageCanvas` المحوّل الوحيد إلى بكسلات.
-- `arrangeDocuments` المرتّب الوحيد، حتمي ومتزامن، ولا يُصغّر.
-- `DocumentSizeCatalog` مصدر المقاس الوحيد للأنواع المعروفة.
-- `AutoLayoutStatus` حالة الصلاحية الوحيدة التي يعرضها المحرر.
-- «مقاس غير مؤكد لا يوضع على الورقة ولا يدخل الترتيب التلقائي».
-
-## 9. نتائج التدقيق ووضعها
-
-| # | الفجوة | الوضع |
+| `finalConfidence` | Definition | Required user/system behavior |
 |---|---|---|
-| F1 | مستند واحد لكل صورة | يحلها D1 + المرحلة 1 |
-| F2 | القص على الصورة لا على المستند | يحلها `ProcessedDocumentAsset` + schema 5 (القسم 7) |
-| F3 | الثقة لا تتحكم في الوضع: نسبة 1.445 بين السكن (1.471) والجواز (1.420) تُصنَّف بثقة 0.5 وتوضع | يحلها D8: < 0.70 ← `sizeUnconfirmed` |
-| F4 | التصنيف من اسم الملف والشكل فقط؛ السكن والجواز متقاربان 3.6% | يحتاج دليلاً ثانياً (مصنِّف)؛ OCR داعم فقط |
-| F5 | لا تقدّم ولا إلغاء في الاستيراد الآلي | `RecognitionPlan` في isolate |
-| F6 | سبب التصنيف لا يُحفظ | قائمة الأدلة والمكونات الخام في `DocumentSide` |
-| F7 | لا وجه/ظهر | D5/D6 |
-| F8 | كل قص يُحفظ وحده | اعتماد الخطة كأمر واحد |
-| F9 | الترتيب متزامن على خيط الواجهة | يُقاس قبل دفعات بالمئات |
-| F10 | الصيغ السابقة لـ 64d146e لا تسجل تأكيد المقاس، فمستنداتها تُفتح خارج الورقة (الموضع والمقاس محفوظان)، ويُفقد رقم الصفحة الأصلي عند أول حفظ | موروث من PR #3، لم يُغيَّر (D12)؛ مقترح: حفظ رقم الصفحة الأصلي في حقل منفصل ضمن ترحيل schema 5 لاستعادة الموضع بعد التأكيد |
+| **`>= 0.90`** | **Eligible for automatic recognition/layout** | It may enter automatic recognition/layout only when at least two qualifying independent evidence families agree, there is no hard conflict, the size is confirmed or catalog-backed, and all normal layout constraints pass. |
+| **`0.70–<0.90`** | **Recognition candidate requiring review** | Show the candidate and evidence summary; do not present it as silently accepted. A user review/confirmation is required before relying on it for automatic layout. |
+| **`< 0.70`** | **Unresolved/manual** | Do not finalize kind, side, size, pairing, or automatic layout from the score. Keep it reviewable and require manual resolution. |
 
-## 10. الاختبارات التي تحمي هذه المعمارية
+These thresholds are **provisional and not validated thresholds**. They must not be presented as validated accuracy, precision, recall, calibration, or production performance. They are policy gates pending a labelled evaluation set and a later calibration decision. A legacy numeric score is not proof that the legacy record met the new evidence requirements.
 
-| الاختبار | المكوّن | ما يحميه | لماذا يهم التعرّف الذكي / الترتيب التلقائي |
-|---|---|---|---|
-| `legacy_schema_test` (5 صيغ) | `Project.fromJson`، `LocalProjectRepository` | كل مشروع قديم يُفتح بقيمه، ولا يُعاد كتابته عند الفتح، ويُرقّى عند الحفظ، والصور لا تُمس | أساس الترحيل إلى schema 5؛ يُضاف إليه كاتب schema 4 قبل تغيير الصيغة |
-| `arrangement_test`: حالة الصلاحية | `autoLayoutStatus`، `arrangeDocuments` | `sizeUnconfirmed` / `tooLarge` / `eligible`، والدوران المسموح يغيّر الحكم، ولا تصغير | الحالة التي يُربط بها نطاق الثقة المنخفضة |
-| `arrangement_test`: المقاس غير المؤكد لا يبقى على الورقة | `arrangeDocuments` | في الطريقتين ومع `keepPlaced` وبدونه، مع `takenOffSheet` | ناتج المصنِّف منخفض الثقة يمر في هذا المسار |
-| `off_sheet_tray_test` | الشريط خارج الورق، شريط الحالة، رسالة الترتيب | كل مستند مستبعد يظهر بسببه؛ النسخة التي لم تجد مكاناً ليست «أكبر من مساحة الطباعة» | واجهة المراجعة لنطاقَي الثقة المتوسط والمنخفض |
-| `canvas_input_test` (12) | `PageCanvas`، `SheetView`، المتحكم | الأجهزة والدقة بالمليمتر واكتمال السحب | التصحيح اليدوي بعد الترتيب الآلي |
-| `editor_ribbon_test`: التحسين التلقائي | المتحكم، الشريط | بدء ← معالجة ← مراجعة محفوظة ← حالة نهائية | نمط «عمل غير متزامن ثم اعتماد» نفسه في الدفعة |
+## 3. Front/back pairing
 
-## 11. أسئلة يجب حسمها قبل اختيار النموذج
+Pairing remains confidence-based and user-reviewable:
 
-1. **مكان التشغيل:** على الجهاز فقط (Android وWindows دون شبكة؛ لا إذن INTERNET اليوم)؟ هذا يحدد حجم النموذج وترخيصه.
-2. **أي مرحلة أولاً:** الكشف المتعدد (F1) أم المصنِّف (F3/F4)؟ المصنِّف وحده لا يحل مستندين في صورة واحدة.
-3. **لغات OCR وحقوله**، إن استُخدم: العربية والإنجليزية، والكردية؟ أي حقول لكل نوع؟
-4. **مجموعة البيانات:** مصدرها وخصوصيتها (مستمسكات حقيقية لأشخاص)، وحجمها لكل نوع ووجه، لمعايرة العتبات.
-5. **ميزانية الأداء:** زمن الصورة الواحدة وذاكرتها على هاتف 4GB.
-6. **اعتماد schema 5** (القسم 7) قبل أي تنفيذ يمس النموذج.
+- two documents are never paired solely because they have the same detected type;
+- type equality is only a compatibility condition, not identity evidence;
+- useful independent pair signals may include distinct front/back structural roles, compatible geometry/size, capture adjacency or same-source provenance, and matching identity fields from OCR;
+- matching OCR fields is supporting evidence and must not override a conflict or be treated as a substitute for visual/structural evidence;
+- a manual user pair is authoritative and is recorded as a manual decision;
+- a candidate below the pairing policy, or a candidate with conflicting signals, remains two separate reviewable sides by default;
+- several cards of the same kind in one batch require evidence that distinguishes the physical instances; they must not be paired by order alone.
+
+For legacy migration, every old `DocumentItem` becomes an `unknown` side unless the old record explicitly contained a side (the current v1–v4 formats do not). Migration creates no front/back pair and does not merge items that happen to share an asset, type, or page.
+
+## 4. Schema v5 conceptual model
+
+Schema v5 separates source, recognition, derived image, and placement records while keeping a compatibility/provenance block. The exact Dart classes and JSON writer are not implemented yet.
+
+The v5 project retains the existing project-level metadata and adds canonical collections equivalent to:
+
+```text
+project metadata
+sources[]                 // SourceImage
+ detectedDocuments[]      // DetectedDocument
+ documentInstances[]      // DocumentInstance
+ documentSides[]          // DocumentSide
+ processedDocumentAssets[]// ProcessedDocumentAsset
+ layoutItems[]            // DocumentLayoutItem
+ migrationProvenance      // source schema/variant and legacy mappings
+```
+
+The v5 model must retain, without recomputation or replacement:
+
+- project identity, name, created/updated timestamps, revision, page count;
+- paper orientation, all margins, layout gaps, rotation policy, order/strategy, and catalog values;
+- export format, DPI, JPEG quality, and all export-related settings;
+- source/image IDs, names, capture IDs, dimensions, original/working/thumbnail references, crop corners and output dimensions, adjustments, transforms, replacement/revision history, and image ordering;
+- every old item ID and asset ID mapping;
+- `x`, `y`, `width`, `height`, rotation, z-index, lock state, aspect-ratio flag, kind, recognition value, size confirmation, and page placement;
+- whether a value was present, absent, implicit, user-confirmed, or inherited from a legacy default.
+
+A missing legacy field may receive a neutral runtime value where the current domain requires one, but the v5 provenance must say that it was absent. A neutral value is not evidence and must not be reported as a measured or recognized value.
+
+### 4.1 Legacy image-reference map
+
+For each legacy `ImageAsset.id`, the migration creates a deterministic, collision-checked mapping such as:
+
+```text
+legacyAssetId
+  → sourceImageId
+  → detectedDocumentId (legacy-unsegmented, if an image-level record is needed)
+  → processedDocumentAssetId
+  → every legacy layout/item reference using that asset
+```
+
+The old path strings are retained byte-for-byte in the relevant v5 references. The migration does not move, rename, decode, re-encode, crop, replace, or delete any image file. It does not calculate a new crop from a catalog size. If several old layout items reference one asset, they continue to reference the same processed bytes while retaining separate layout-item IDs and placements.
+
+The old `workingPath` may already point to a processed revision in the current application. The migration must preserve that path as the current processed asset path and retain the old source/working relationship as legacy provenance; it must not assume that a new source file exists or create one merely to make the names look cleaner.
+
+### 4.2 Page-index contract
+
+Schema v5 has two deliberately different values:
+
+- `DocumentLayoutItem.pageIndex`: the effective current layout page, zero-based, used by the existing layout and export rules;
+- `DocumentLayoutItem.legacyPageIndex`: the original page value represented by the legacy record, immutable provenance that is not overwritten when a user later moves the item.
+
+A small `legacyPageIndexState`/provenance value distinguishes `explicit`, `explicit-unplaced`, `implicit-single-page`, and `absent`. This prevents a missing field, page zero, and an explicit `null` from being conflated.
+
+Rules:
+
+1. v1 and v2 have no page field and only one implicit page. Every old item receives `legacyPageIndex = 0` with state `implicit-single-page`; this is a fact about the old format, not a guessed geometry.
+2. All v3 variants and v4 are read from the raw stored JSON. An integer page is copied exactly. An explicit `null` remains an explicit unplaced value. A missing v3/v4 page field follows the old reader's implicit page-zero rule and is marked `implicit-single-page`.
+3. `pageCount` is copied exactly when present. For v1/v2 it is the format's implicit value `1`. It is never reduced because a page becomes empty, and it is never increased by migration to make an item fit.
+4. The migration does not call `arrangeDocuments`, sort items, move items, normalize coordinates, or remove trailing pages.
+5. The current safety invariant remains: an item without a confirmed physical size is not eligible to remain on the active automatic-layout sheet. If current v4 semantics make its effective `pageIndex` `null`, v5 keeps that effective value while preserving the raw old page in `legacyPageIndex` and retaining all `x/y/width/height/rotation/z/lock` values. A later user confirmation may explicitly offer restoration to that recorded page; migration does not silently do it.
+6. For a legacy item that was size-confirmed and placed, the effective page is copied unchanged. No layout change is made merely because v5 has a new entity structure.
+
+This is the explicit schema/safety exception and the only reason an effective page can differ from the raw legacy value. The original page index is never discarded.
+
+## 5. Migration design: v1, v2, every v3 variant, and v4
+
+Migration is a pure, in-memory conversion from the raw stored JSON to a v5 candidate. It must not first pass the record through a reader that normalizes away page indices. Variant detection uses the raw keys and field shapes, not only `schemaVersion == 3`.
+
+| Source format | Fields that exist in that format | v5 conversion and preservation rules |
+|---|---|---|
+| **v1** (`v1_1c68dbc`) | Project/paper/layout/export metadata; `ImageAsset` source/working/thumbnail paths, dimensions, optional crop, transforms; `DocumentItem` geometry and placement fields. No image adjustments, capture ID, page count/page index, document kind, recognition confidence, or size confirmation. | Preserve all present project, image, and item fields exactly. Use neutral image adjustments only as runtime compatibility values and mark colour/adjustment fields absent. Create one implicit page (`pageCount = 1`, `legacyPageIndex = 0`). Create an unknown/manual side and no recognition evidence. Apply the current unconfirmed-size safety rule to effective placement without losing the raw page-zero provenance. |
+| **v2** (`v2_cd58739`) | v1 fields plus brightness, contrast, and quarter-turn adjustments. Still no page fields, capture ID, or recognition fields. | Preserve all v1 fields and the three adjustment values exactly. Saturation/sharpness are absent, not inferred. Use the same implicit-single-page and unresolved/manual rules as v1. |
+| **v3a** (`v3a_478e098`) | v2-style adjustments plus `pageCount` and per-item `pageIndex`; no capture ID or recognition fields. | Preserve `pageCount`, each raw page integer or explicit `null`, all geometry, and all image data. Mark absent capture/recognition/side evidence. Do not let the current domain constructor erase the raw page before the v5 mapping. |
+| **v3b** (`v3b_90de23c`) | v3a plus `ImageAsset.captureId`; still no document category, confidence, or size confirmation. | Preserve `captureId` exactly in `SourceImage` provenance. Preserve v3a page and adjustment behavior exactly. No front/back inference and no automatic recognition. |
+| **v3c** (`v3c_64d146e`) | v3b plus saturation/sharpness-compatible adjustments and `documentKind`, `recognitionConfidence`, and `sizeConfirmed` on items. | Preserve all colour/adjustment values and all recognition fields exactly, including an explicit legacy confidence provenance. The old score is not re-labelled as validated evidence and cannot qualify for automatic recognition by itself. Preserve `sizeConfirmed` and apply the page-index rules above. |
+| **v4** (current) | v3c data plus current page/layout/catalog/strategy fields and the current v4 project rules. | Read the raw v4 record before v4 in-memory normalization. Preserve catalog, strategy, export profile, page count, all paths, assets, items, and revisions. Map the old single-image/single-item relationship to the separated v5 entities without re-detecting, re-cropping, pairing, sorting, or arranging. |
+
+For all formats:
+
+- one old `ImageAsset` becomes one stable source mapping and one legacy processed-asset mapping; no image bytes are copied or regenerated;
+- one old `DocumentItem` becomes one `DocumentInstance`, one `DocumentSide(unknown)`, and one `DocumentLayoutItem`, except that repeated asset references may share the processed asset while keeping distinct item/occurrence records;
+- old `documentKind`, size, dimensions, and placement are copied; the catalog is never used to overwrite stored item dimensions;
+- absent evidence remains absent; the migration does not claim that a filename, aspect ratio, old heuristic, or old numeric score was evidence-fused;
+- old list order and IDs are retained through explicit legacy IDs/mappings;
+- a malformed or internally inconsistent record is rejected instead of being “repaired” by dropping fields or resetting the project.
+
+### 5.1 Migration provenance
+
+Each migrated v5 project records, outside the user-facing recognition decision, at least:
+
+- source schema number;
+- exact v3 variant (`v3a`, `v3b`, or `v3c`) when applicable;
+- migration policy version;
+- legacy asset/item ID maps;
+- page-index state for every legacy layout item;
+- whether each recognition/adjustment/capture field was present, absent, or defaulted for compatibility.
+
+This provenance is for audit and rollback. It is not a recognition claim and must not make an old project look as though it was processed by a new detector or OCR system.
+
+## 6. Project open and save
+
+### 6.1 Open
+
+1. Read the stored project record without writing it.
+2. Identify v1, v2, v3a/v3b/v3c, v4, or v5 from the raw record and validate its shape.
+3. Capture raw page values, raw key presence, IDs, paths, and legacy variant before constructing the v5 in-memory view.
+4. Validate all image references with the existing safe-file rules. A missing or unsafe file is an open/validation error, not a reason to create a placeholder.
+5. Return the v5 in-memory representation with a `migrationPending`/source-schema marker. Opening alone does not change the database record, image files, revision, page count, export profile, or layout.
+6. An unknown schema or unsupported variant is rejected with a clear error. The database is not deleted, recreated, reset, or overwritten.
+
+### 6.2 Save
+
+- A v5 record is written only after an explicit save or an explicit operation that already saves user changes.
+- The existing optimistic revision check remains. The raw old record is read inside the transaction, and a stale caller cannot overwrite it.
+- Before committing metadata, every v5 referenced file is checked. No migration step creates a new image file.
+- The transaction writes one canonical v5 record. It does not write a half-migrated mixture of old arrays and new arrays.
+- A successful save increments the revision using the existing rule and retains the existing project identity and creation timestamp.
+- If the user opens a legacy project and closes it without saving, the stored record remains its original v1/v2/v3/v4 form.
+- An old application must reject a v5 record explicitly rather than misreading it. There is no silent downgrade.
+
+## 7. Backup and restore
+
+The current `.scanid` container contract remains unchanged unless a separately approved backup-format change is required:
+
+- the magic/header and manifest format remain the existing backup format;
+- the manifest may contain a project schema from v1 through v5;
+- the backup includes all files in the project asset tree, including original files, working/processed files, thumbnails, replacements, edits, and other existing revisions, not metadata only;
+- hashes, safe relative paths, file-size limits, duplicate/case-collision checks, and symlink/path protections remain;
+- backup creation never mutates the project or images.
+
+### 7.1 Creating a backup
+
+- Verify the latest project revision before copying, as today.
+- Do not implicitly save or migrate a legacy project merely because a backup was requested. Until an explicit save, the backup may retain the persisted legacy JSON and its source-schema provenance; after an explicit save it contains the canonical v5 JSON.
+- Copy the complete project file tree and verify each hash. A missing referenced image prevents a successful backup.
+- A failed backup removes only its own temporary output; the project, prior backups, and image bytes are unchanged.
+
+### 7.2 Restoring a backup
+
+- Validate the container, manifest, project schema, all paths, sizes, hashes, and references before publishing anything.
+- A v1/v2/v3a/v3b/v3c/v4 project is migrated in memory using the same raw-record rules above. A v5 project is validated directly.
+- Restore uses a new project identity as the current restore behavior requires. Path prefixes are remapped only for the restored project identity; image contents, relative asset structure, page indices, geometry, and export settings are not changed.
+- Extract to a private staging directory, verify every byte, validate the remapped v5 model, then publish the asset directory and create the project record. Existing projects are never overwritten.
+- A failed validation or extraction removes only the private staging directory. If the operating system reports a database failure after a verified directory has been published, the verified new directory is retained for recovery rather than deleting data that may already be committed. The original project and source backup remain untouched.
+- Restore does not pair sides, re-run recognition, re-run OCR, re-crop, or arrange pages.
+
+## 8. Image references and file safety
+
+The migration is metadata-only with respect to image bytes:
+
+- no original, working, thumbnail, replacement, or edit file is rewritten;
+- no image is decoded and re-encoded as part of migration;
+- no path is changed in place in a local project;
+- no file is deleted, even if it appears unused, by migration;
+- all current `originalPath`, `workingPath`, and `thumbnailPath` values remain valid references under the same project root;
+- replacement/edit histories remain available and are retained in the backup tree;
+- a bad/missing reference is a hard validation failure, not an instruction to point to another image;
+- restore is the only operation that changes the project path prefix, and it changes metadata paths while copying the same verified bytes into the new project identity.
+
+The image-reference map is persisted so export, editor, recovery, and future garbage collection can distinguish a current reference from a historical/orphan candidate. Migration itself performs no garbage collection.
+
+## 9. Export compatibility
+
+Export remains a consumer of the layout model, not of recognition internals:
+
+1. Resolve each `DocumentLayoutItem` to its `ProcessedDocumentAsset` and then to the same working/processed file that the v4 exporter used.
+2. Use the copied paper size, margins, page index, millimetre rectangle, rotation, z-order, export profile, DPI, JPEG quality, and page range.
+3. Preserve the existing behavior for unplaced items: an item with effective `pageIndex == null` is not silently exported onto a page. Its preserved `legacyPageIndex` is provenance for review, not an implicit export instruction.
+4. Do not use OCR, a classifier, an aspect ratio, or a model to alter crop, printed size, page, coordinates, rotation, or scale.
+5. Do not pair or merge image sides at export time.
+6. Do not change PDF/PNG/JPG naming, dimensions, DPI handling, sharing, or warning semantics as part of v5.
+
+The required compatibility result is that a project with the same source bytes and persisted v4 layout produces the same page count, page dimensions, element order, positions, rotations, image pixels, and export settings before and after migration. Tests should compare decoded output pixels and physical dimensions, and compare bytes where the existing encoder is deterministic. A path or entity-ID change alone is not an export behavior change; a rendered pixel, placement, page, or image-byte change is a migration failure.
+
+## 10. Failure, rollback, and recovery behavior
+
+Migration is divided into phases with explicit write boundaries:
+
+| Phase | Allowed work | Failure result |
+|---|---|---|
+| Preflight | Read raw JSON, identify variant, validate fields, collect paths and raw page values. | No database or file mutation. The original record remains readable. |
+| In-memory conversion | Build mappings and v5 entities, retain provenance, validate references. | Discard the candidate. No files are touched and no revision changes. |
+| Optional explicit save | Recheck optimistic revision and files; write one v5 record in the database transaction. | Transaction aborts; the old record remains. The in-memory candidate may show the error and can be retried. |
+| Backup creation | Stream files to a unique temporary backup and verify hashes. | Delete only that temporary backup; source project and prior backups remain. |
+| Backup restore | Validate, extract, hash, remap, and stage files before publication. | Delete only private staging where safe. Never overwrite the source project or an existing destination. |
+| Post-publish DB error | Keep the verified new restore directory for explicit recovery, as current recovery behavior requires. | Do not guess whether a commit happened by deleting the directory. Report a recoverable warning. |
+
+Additional rules:
+
+- Migration is idempotent: retrying the same legacy record uses deterministic mappings and does not make duplicate image files.
+- A crash during open leaves the stored legacy record unchanged.
+- A crash during a metadata transaction leaves either the old record or the complete new record, never a partial JSON shape.
+- Unknown schema, unknown v3 variant, duplicate IDs, unsafe paths, missing files, invalid pages, invalid dimensions, and conflicting references fail closed.
+- There is no fallback that drops an item, sets a page to zero, substitutes an image, or resets the project to defaults.
+- The old record is retained until a successful explicit v5 save; any future archival copy must be additive and must not be the only recovery path.
+
+## 11. Required implementation and verification plan (not implemented)
+
+Implementation may begin only after approval of this report. Before merging it, tests must cover at minimum:
+
+1. Frozen writers for v1, v2, v3a, v3b, v3c, and v4, with raw JSON snapshots.
+2. Round-trip preservation of every project, image, crop, adjustment, capture, recognition, catalog, layout, export, and list-order field.
+3. Page-index tests for implicit v1/v2 page zero, explicit v3/v4 pages, explicit `null`, missing fields, unconfirmed size, confirmed size, and later explicit restoration.
+4. Proof that opening does not rewrite the stored record and that explicit save writes only one valid v5 record.
+5. Byte/hash checks proving migration does not change source, working, thumbnail, replacement, or edit files.
+6. Shared-asset/repeated-layout-item reference tests.
+7. Old and new backup creation/restoration tests, including corrupt, truncated, missing, unsafe, duplicate, and hash-mismatched backups.
+8. Failure injection around staging, database commit, rename, and cleanup, with the rollback rules above.
+9. Export comparisons before/after migration for PDF, PNG, and JPG: physical page size, pixel output, page index, placement, rotation, and image selection.
+10. Rejection tests proving an older reader does not misread schema v5.
+
+No detector, classifier, OCR implementation, AI dependency, model training, or dataset upload is authorized by these tests or by this report.
+
+## 12. Dataset specification for future recognition work
+
+This is a data-contract specification only. It does not authorize collection, training, OCR implementation, or model selection.
+
+### 12.1 Purpose and units
+
+The dataset must support independent evaluation of:
+
+- multi-document region detection;
+- visual classification;
+- OCR and semantic field interpretation;
+- geometry/aspect scoring;
+- document-structure reasoning;
+- front/back pairing and ambiguity handling;
+- confidence fusion and calibration;
+- the deterministic layout/export invariants that consume the recognition result.
+
+The annotation hierarchy is:
+
+```text
+CaptureSession
+  └── SourceImage
+        └── DocumentRegion / DetectedDocument ground truth × n
+              └── DocumentInstance ground truth
+                    └── DocumentSide ground truth (front/back/unknown)
+                          ├── geometry and physical-size annotation
+                          ├── visual/class labels
+                          ├── OCR transcription and field boxes
+                          ├── document-structure zones
+                          └── pairing links and ambiguity labels
+```
+
+One source image must be allowed to contain zero, one, or multiple documents. The dataset must include multiple same-type documents in one image and multiple captures of the same physical document so that order and type equality cannot masquerade as identity.
+
+### 12.2 Required annotation fields
+
+Each record should include:
+
+- stable dataset IDs, capture/session grouping, source dimensions, orientation, capture conditions, and an original-byte hash;
+- document-region quadrilateral in normalized source coordinates, visibility/truncation flags, occlusion/blur/glare/background quality, and region count;
+- instance ID, side (`front`, `back`, `unknown`), document-kind taxonomy including `unknown` and `other`, and the authority/version of any physical-size measurement;
+- measured physical width/height when available, measurement uncertainty, natural orientation, and whether the size is catalog-backed or user-measured;
+- independent visual labels/features and annotator provenance;
+- verbatim OCR transcription for approved languages, token/line/field boxes, script, field type, redaction status, and semantic field relationships; raw personal values must be protected or replaced by controlled pseudonyms in the ordinary dataset;
+- structure zones, expected field positions, non-text marks/logos/security regions, and front/back structural role, explicitly separated from outer aspect ratio;
+- positive, negative, and ambiguous pairing labels, with the evidence available to the annotator and the reason for ambiguity;
+- crop/processed-asset recipe where a derived image is supplied, while retaining the unmodified source reference;
+- annotation version, annotator ID/pseudonym, timestamp, disagreement notes, adjudication result, and license/consent status.
+
+The gold labels must preserve uncertainty. An annotator must be able to say “unknown”, “not visible”, “not measurable”, or “ambiguous” instead of forcing a kind or pair.
+
+### 12.3 Independence protocol for the dataset
+
+Evidence-family annotations must be collected and stored separately:
+
+- visual annotators/evaluators are blinded to OCR text and filename labels;
+- OCR transcription is produced from the pixels and is stored independently of visual classification;
+- geometry is calculated from independently annotated corners and measured dimensions, not from the visual classifier's output;
+- structure annotations use zones and spatial relationships; if an annotator sees OCR, the record is marked dependent on OCR;
+- filename, capture order, and user decisions are stored as metadata/manual labels, not counted as independent machine evidence;
+- model or rule outputs used later for calibration must include their input and producer version.
+
+This protocol makes “two independent evidences” testable instead of a vague requirement.
+
+### 12.4 Sampling and splits
+
+The collection should be stratified across:
+
+- every supported document kind and side, plus unknown/other;
+- multiple documents per source, same-kind collisions, front/back batches, and ambiguous pairs;
+- lighting, shadows, backgrounds, camera perspective, rotation, blur, glare, occlusion, folds, cropping at the image edge, and common camera aspect ratios;
+- languages/scripts and realistic OCR quality levels;
+- document editions/templates and valid physical-size variations.
+
+Train/validation/test splits, if later approved, must be grouped by person, physical document, capture session, and near-duplicate source so that the same document or burst is never present in multiple splits. A locked, double-annotated gold subset and an ambiguity/challenge subset are required. Split percentages are a later experiment decision, not a validated recognition policy.
+
+### 12.5 Evaluation outputs
+
+The future evaluation report should include, per kind and side:
+
+- region detection precision/recall and geometric overlap/error;
+- visual classification confusion, precision/recall, and calibration;
+- OCR character/word error and field exact-match/semantic consistency, with language breakdown;
+- geometry/aspect error and physical-size agreement;
+- structure recognition accuracy;
+- pairing precision/recall, false-pair rate, and safe handling of ambiguous cases;
+- evidence-fusion calibration, conflict rate, abstention rate, and review workload;
+- layout invariants: no silent scaling, correct millimetre dimensions, valid pages, no unexpected overlap, and stable export pixels/dimensions.
+
+The provisional `0.90`, `0.70`, and `0.70` gates in this report must not be described as validated by the dataset until a later approved calibration analysis demonstrates that claim. A high confidence number is not a substitute for a reviewable evidence record.
+
+### 12.6 Privacy, security, and retention
+
+Real identity documents contain sensitive personal data. Collection requires documented consent/legal basis, access control, encryption at rest outside the current local-app scope, retention/deletion rules, and a licensing record. The default development dataset should prefer synthetic, de-identified, or redacted documents. Any controlled PII subset must not be uploaded by the current application, and no dataset is bundled into Git or the app without a separately approved storage and privacy plan.
+
+## 13. Approval gate
+
+**Approved in principle:** the non-AI architecture, the entity chain, evidence-fusion/OCR boundaries, confidence definitions, confidence-based pairing, and the Schema v5 migration design in this report.
+
+**Not approved for execution yet:** schema v5 code, migration code, changes to project open/save, backup/restore, image references, export, OCR, detectors, classifiers, AI dependencies, model training, and dataset collection.
+
+Implementation stops here pending explicit approval of this design.

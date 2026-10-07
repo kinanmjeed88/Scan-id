@@ -1190,8 +1190,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
               icon: const Icon(Icons.crop),
               label: const Text('مراجعة القص الذكي وحدود المستمسك'),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
               children: [
                 IconButton(
                   tooltip: 'تصغير العرض 1 مم مع الحفاظ على النسبة',

@@ -440,9 +440,9 @@ void main() {
         await tester.pumpAndSettle();
         expect((tester.getCenter(corner) - before).distance, lessThan(.01));
       }
-      await tester.ensureVisible(find.text('اقتراح الحدود'));
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('اقتراح الحدود'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
       // Let the real four-second feedback snackbar expire before tapping
       // controls underneath it. pumpAndSettle does not advance idle timers.

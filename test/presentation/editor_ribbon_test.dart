@@ -461,8 +461,17 @@ void main() {
       expect([turned.width, turned.height], [53.98, 85.6]);
 
       final revisions = images.revisions;
-      await _tap(tester, const Key('rb-auto-adjust'));
-      for (var i = 0; i < 100 && images.revisions == revisions; i++) {
+      // The indeterminate progress bar animates while the work runs, so the
+      // tap must not wait for the frame queue to settle.
+      final autoAdjust = find.byKey(const Key('rb-auto-adjust'));
+      await tester.ensureVisible(autoAdjust);
+      await tester.pumpAndSettle();
+      await tester.tap(autoAdjust);
+      await tester.pump();
+      bool working() =>
+          images.revisions == revisions ||
+          find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
+      for (var i = 0; i < 100 && working(); i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 20)),
         );

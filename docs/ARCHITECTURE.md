@@ -24,7 +24,7 @@
 
 ### قواعد ثابتة
 
-1. **مقاس غير مؤكد لا يوضع على الورق.** `Project.fromJson` يزيل الصفحة، `PageLayout.checked` يرفض، `DocumentEdits.setKind(unknown)` يسحب العنصر، و`arrangeDocuments` ينقله إلى `awaitingSize`.
+1. **مقاس غير مؤكد لا يوضع على الورق.** `Project.fromJson` يزيل الصفحة، `PageLayout.checked` يرفض، `DocumentEdits.setKind(unknown)` يسحب العنصر، و`arrangeDocuments` ينقله إلى `awaitingSize`. حالته الظاهرة `AutoLayoutStatus.sizeUnconfirmed` (غير صالح للترتيب التلقائي)؛ `autoLayoutStatus` هي المصدر الوحيد الذي يقرؤه الشريط خارج الورق وشريط الحالة. التوافق مع صيغ التخزين السابقة مثبت في `test/persistence/legacy_schema_test.dart`.
 2. **لا تصغير تلقائي.** ما لا يتسع في المساحة القابلة للطباعة يُبلَّغ عنه في `unplaced`.
 3. **المثبت عائق ثابت** في كل طرق الترتيب؛ `keepPlaced` يجعل كل الموضوع ثابتاً.
 4. **التصنيف لا يستنتج المقاس من البكسلات:** يحدد النوع (اسم الملف أولاً ثم شكل الحدود ضمن 4%)، والمقاس يأتي من الكتالوج. نسب إطارات الكاميرا الشائعة دون حدود مكتشفة ← «غير محدد».

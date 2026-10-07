@@ -251,12 +251,10 @@ void main() {
         PointerDeviceKind.touch,
       );
       expect(firstCanvas(tester).selected, {'residence'});
-      await _swipe(
-        tester,
-        _centre(tester, 'card'),
-        [const Offset(4, 0), ..._steps(Offset(10 * scale, 0))],
-        PointerDeviceKind.mouse,
-      );
+      await _swipe(tester, _centre(tester, 'card'), [
+        const Offset(4, 0),
+        ..._steps(Offset(10 * scale, 0)),
+      ], PointerDeviceKind.mouse);
       expect(firstCanvas(tester).selected, {'card', 'residence'});
       expect(itemIn(editor.saved, 'card').x, 10);
       expect(editor.saved.revision, revision, reason: 'nothing was edited');

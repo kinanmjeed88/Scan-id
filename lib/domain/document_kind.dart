@@ -36,7 +36,8 @@ class PhysicalSizeMm {
       isLandscape == landscape ? this : rotated;
 
   bool sameAs(PhysicalSizeMm other) =>
-      (width - other.width).abs() < 1e-6 && (height - other.height).abs() < 1e-6;
+      (width - other.width).abs() < 1e-6 &&
+      (height - other.height).abs() < 1e-6;
 
   Map<String, Object?> toJson() => {'width': width, 'height': height};
 
@@ -51,8 +52,7 @@ class PhysicalSizeMm {
   }
 
   @override
-  String toString() =>
-      '${_mm(width)} × ${_mm(height)} مم';
+  String toString() => '${_mm(width)} × ${_mm(height)} مم';
 }
 
 String _mm(double value) => value == value.roundToDouble()
@@ -242,7 +242,8 @@ DocumentTypeSuggestion suggestDocumentType({
     );
   }
   final ratio = math.max(width, height) / math.min(width, height);
-  if (fullFrame && _cameraFrames.any((frame) => (ratio / frame - 1).abs() < .01)) {
+  if (fullFrame &&
+      _cameraFrames.any((frame) => (ratio / frame - 1).abs() < .01)) {
     return const DocumentTypeSuggestion(
       kind: DocumentKind.unknown,
       confidence: 0,

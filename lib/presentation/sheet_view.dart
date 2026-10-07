@@ -205,9 +205,7 @@ class _SheetViewState extends State<SheetView> {
                           itemBuilder: (context, index) => Align(
                             alignment: Alignment.topCenter,
                             child: Padding(
-                              padding: const EdgeInsets.only(
-                                bottom: _pageGap,
-                              ),
+                              padding: const EdgeInsets.only(bottom: _pageGap),
                               child: _page(project, index, pageWidth),
                             ),
                           ),

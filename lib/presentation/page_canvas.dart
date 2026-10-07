@@ -45,6 +45,7 @@ class PageCanvas extends StatelessWidget {
 
   /// Called with `toggle: true` for Ctrl/Shift-clicks.
   final void Function(String id, {bool toggle})? onSelect;
+
   /// Global pointer position where a move ([resize] false) or a resize
   /// through the corner handle starts.
   final void Function(String id, Offset global, {required bool resize})?

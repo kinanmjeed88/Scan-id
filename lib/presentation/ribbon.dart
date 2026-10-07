@@ -67,84 +67,85 @@ class _RibbonState extends State<Ribbon> {
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.1,
       child: Material(
-      color: scheme.surfaceContainerLow,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: 34,
-            child: Row(
-              children: [
-                Expanded(
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    children: [
-                      for (final tab in widget.tabs)
-                        _TabHeader(
-                          key: Key('ribbon-tab-${tab.id}'),
-                          tab: tab,
-                          selected: tab.id == current.id,
-                          onTap: () {
-                            if (_collapsed) setState(() => _collapsed = false);
-                            widget.onTabSelected?.call(tab.id);
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-                ...widget.trailing,
-                IconButton(
-                  key: const Key('ribbon-collapse'),
-                  tooltip: _collapsed ? 'إظهار الشريط' : 'طي الشريط',
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  onPressed: () => setState(() => _collapsed = !_collapsed),
-                  icon: Icon(
-                    _collapsed ? Icons.expand_more : Icons.expand_less,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (!_collapsed)
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                border: Border(
-                  top: BorderSide(color: scheme.outlineVariant),
-                  bottom: BorderSide(color: scheme.outlineVariant),
-                ),
-              ),
-              child: SizedBox(
-                height: Ribbon.bodyHeight,
-                child: Scrollbar(
-                  controller: _scroll,
-                  child: ListView(
-                    key: Key('ribbon-body-${current.id}'),
-                    controller: _scroll,
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    children: [
-                      for (var i = 0; i < current.groups.length; i++) ...[
-                        if (i > 0)
-                          VerticalDivider(
-                            width: 9,
-                            indent: 6,
-                            endIndent: 6,
-                            color: scheme.outlineVariant,
+        color: scheme.surfaceContainerLow,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 34,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      children: [
+                        for (final tab in widget.tabs)
+                          _TabHeader(
+                            key: Key('ribbon-tab-${tab.id}'),
+                            tab: tab,
+                            selected: tab.id == current.id,
+                            onTap: () {
+                              if (_collapsed)
+                                setState(() => _collapsed = false);
+                              widget.onTabSelected?.call(tab.id);
+                            },
                           ),
-                        current.groups[i],
                       ],
-                    ],
+                    ),
+                  ),
+                  ...widget.trailing,
+                  IconButton(
+                    key: const Key('ribbon-collapse'),
+                    tooltip: _collapsed ? 'إظهار الشريط' : 'طي الشريط',
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    onPressed: () => setState(() => _collapsed = !_collapsed),
+                    icon: Icon(
+                      _collapsed ? Icons.expand_more : Icons.expand_less,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!_collapsed)
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surface,
+                  border: Border(
+                    top: BorderSide(color: scheme.outlineVariant),
+                    bottom: BorderSide(color: scheme.outlineVariant),
+                  ),
+                ),
+                child: SizedBox(
+                  height: Ribbon.bodyHeight,
+                  child: Scrollbar(
+                    controller: _scroll,
+                    child: ListView(
+                      key: Key('ribbon-body-${current.id}'),
+                      controller: _scroll,
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      children: [
+                        for (var i = 0; i < current.groups.length; i++) ...[
+                          if (i > 0)
+                            VerticalDivider(
+                              width: 9,
+                              indent: 6,
+                              endIndent: 6,
+                              color: scheme.outlineVariant,
+                            ),
+                          current.groups[i],
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -314,7 +315,9 @@ class _RibbonFace extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: .38);
+    final color = enabled
+        ? scheme.onSurface
+        : scheme.onSurface.withValues(alpha: .38);
     final iconColor = enabled
         ? (selected ? scheme.onPrimaryContainer : scheme.primary)
         : color;
@@ -623,11 +626,7 @@ class _Spin extends StatelessWidget {
     message: tooltip,
     child: InkWell(
       onTap: onTap,
-      child: SizedBox(
-        width: 22,
-        height: 14,
-        child: Icon(icon, size: 18),
-      ),
+      child: SizedBox(width: 22, height: 14, child: Icon(icon, size: 18)),
     ),
   );
 }

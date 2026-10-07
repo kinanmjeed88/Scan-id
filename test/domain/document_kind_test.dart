@@ -8,22 +8,31 @@ void main() {
 
     test('official and default sizes in natural orientation', () {
       PhysicalSizeMm size(DocumentKind kind) => catalog.natural(kind)!;
-      expect([
-        size(DocumentKind.unifiedNationalId).width,
-        size(DocumentKind.unifiedNationalId).height,
-      ], [85.6, 53.98]);
-      expect([
-        size(DocumentKind.residenceCard).width,
-        size(DocumentKind.residenceCard).height,
-      ], [92.4, 62.8]);
-      expect([
-        size(DocumentKind.passport).width,
-        size(DocumentKind.passport).height,
-      ], [125, 88]);
-      expect([
-        size(DocumentKind.rationCard).width,
-        size(DocumentKind.rationCard).height,
-      ], [52, 287]);
+      expect(
+        [
+          size(DocumentKind.unifiedNationalId).width,
+          size(DocumentKind.unifiedNationalId).height,
+        ],
+        [85.6, 53.98],
+      );
+      expect(
+        [
+          size(DocumentKind.residenceCard).width,
+          size(DocumentKind.residenceCard).height,
+        ],
+        [92.4, 62.8],
+      );
+      expect(
+        [size(DocumentKind.passport).width, size(DocumentKind.passport).height],
+        [125, 88],
+      );
+      expect(
+        [
+          size(DocumentKind.rationCard).width,
+          size(DocumentKind.rationCard).height,
+        ],
+        [52, 287],
+      );
       expect(catalog.natural(DocumentKind.unknown), isNull);
       expect(catalog.natural(DocumentKind.other), isNull);
     });
@@ -57,7 +66,10 @@ void main() {
         DocumentKind.rationCard.sizeNote(catalog),
         allOf(contains('افتراضي'), isNot(contains('رسمي'))),
       );
-      expect(DocumentKind.unifiedNationalId.sizeNote(catalog), contains('رسمي'));
+      expect(
+        DocumentKind.unifiedNationalId.sizeNote(catalog),
+        contains('رسمي'),
+      );
     });
 
     test('editable sizes round-trip and missing entries use defaults', () {
@@ -95,7 +107,10 @@ void main() {
     test('explicit Arabic and English filenames win', () {
       DocumentKind kind(String name) =>
           suggestDocumentType(name: name, width: 400, height: 300).kind;
-      expect(kind('البطاقة الوطنية الموحدة.jpg'), DocumentKind.unifiedNationalId);
+      expect(
+        kind('البطاقة الوطنية الموحدة.jpg'),
+        DocumentKind.unifiedNationalId,
+      );
       expect(kind('بطاقة السكن.png'), DocumentKind.residenceCard);
       expect(kind('Passport-scan.jpg'), DocumentKind.passport);
       expect(kind('البطاقة التموينية.jpg'), DocumentKind.rationCard);

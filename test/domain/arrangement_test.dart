@@ -15,8 +15,8 @@ DocumentItem _doc(
   double x = 0,
   double y = 0,
 }) {
-  final size = const DocumentSizeCatalog().natural(kind) ??
-      const PhysicalSizeMm(80, 50);
+  final size =
+      const DocumentSizeCatalog().natural(kind) ?? const PhysicalSizeMm(80, 50);
   return DocumentItem(
     id: id,
     assetId: 'asset1',
@@ -32,9 +32,10 @@ DocumentItem _doc(
 }
 
 Project _project(List<DocumentItem> items, {double margin = 5}) =>
-    projectFixture(assets: [assetFixture()], items: items).copyWith(
-      paper: PaperSettings(margins: Margins.all(margin)),
-    );
+    projectFixture(
+      assets: [assetFixture()],
+      items: items,
+    ).copyWith(paper: PaperSettings(margins: Margins.all(margin)));
 
 void main() {
   test('categories are laid out in order: ID, residence, passport, ration', () {
@@ -137,18 +138,18 @@ void main() {
     );
     expect(arrangeDocuments(_project([wide], margin: 10)).unplaced, ['wide']);
     final turned = arrangeDocuments(
-      _project([wide], margin: 10).copyWith(
-        layout: LayoutSettings(allowRotation: true),
-      ),
+      _project([
+        wide,
+      ], margin: 10).copyWith(layout: LayoutSettings(allowRotation: true)),
     );
     expect(turned.unplaced, isEmpty);
     expect(PageLayout.item(turned.result, 'wide').rotation, 90);
     expect(inspectLayout(turned.result), isEmpty);
     // A document that fits keeps its orientation even when turning is allowed.
     final card = arrangeDocuments(
-      _project([_doc('id', DocumentKind.unifiedNationalId)]).copyWith(
-        layout: LayoutSettings(allowRotation: true),
-      ),
+      _project([
+        _doc('id', DocumentKind.unifiedNationalId),
+      ]).copyWith(layout: LayoutSettings(allowRotation: true)),
     );
     expect(PageLayout.item(card.result, 'id').rotation, 0);
   });
@@ -185,7 +186,13 @@ void main() {
   });
 
   test('keepPlaced only fills free space with off-sheet documents', () {
-    final placed = _doc('placed', DocumentKind.passport, page: 0, x: 50, y: 100);
+    final placed = _doc(
+      'placed',
+      DocumentKind.passport,
+      page: 0,
+      x: 50,
+      y: 100,
+    );
     final result = arrangeDocuments(
       _project([placed, _doc('new', DocumentKind.unifiedNationalId)]),
       keepPlaced: true,
@@ -200,27 +207,18 @@ void main() {
   test('compact strategy packs and flows over pages too', () {
     final project = _project([
       for (var i = 0; i < 14; i++) _doc('c$i', DocumentKind.unifiedNationalId),
-    ]).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-    );
+    ]).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
     final result = arrangeDocuments(project);
     final r = result.result;
     expect(result.unplaced, isEmpty);
     expect(inspectLayout(r), isEmpty);
     expect(r.pageCount, greaterThanOrEqualTo(1));
-    expect(
-      r.items.every((e) => r.paper.printable.contains(e.bounds)),
-      isTrue,
-    );
+    expect(r.items.every((e) => r.paper.printable.contains(e.bounds)), isTrue);
   });
 
   test('arrangement is deterministic', () {
     final project = _project([
-      for (var i = 0; i < 6; i++)
-        _doc(
-          'd$i',
-          DocumentKind.values[1 + i % 4],
-        ),
+      for (var i = 0; i < 6; i++) _doc('d$i', DocumentKind.values[1 + i % 4]),
     ]);
     expect(
       arrangeDocuments(project).result.toJson(),

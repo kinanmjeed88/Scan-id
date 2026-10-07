@@ -34,7 +34,8 @@ class ImageAdjustments {
   final double sharpness;
   final int quarterTurns;
 
-  bool get hasColorChange => brightness != 0 || contrast != 1 || saturation != 1;
+  bool get hasColorChange =>
+      brightness != 0 || contrast != 1 || saturation != 1;
 
   /// Same values with neutral colour (geometry and sharpness kept).
   ImageAdjustments get colorNeutral =>
@@ -60,7 +61,11 @@ class ImageAdjustments {
       ...row(lr * (1 - s) + s, lg * (1 - s), lb * (1 - s)),
       ...row(lr * (1 - s), lg * (1 - s) + s, lb * (1 - s)),
       ...row(lr * (1 - s), lg * (1 - s), lb * (1 - s) + s),
-      0, 0, 0, 1, 0,
+      0,
+      0,
+      0,
+      1,
+      0,
     ];
   }
 

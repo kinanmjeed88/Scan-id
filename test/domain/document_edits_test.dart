@@ -45,8 +45,12 @@ void main() {
   });
 
   test('"unknown" takes the document off the sheet, "other" keeps it', () {
-    final placed = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport)
-        .copyWith(
+    final placed =
+        DocumentEdits.setKind(
+          _project(),
+          'doc',
+          DocumentKind.passport,
+        ).copyWith(
           items: [
             PageLayout.item(
               DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport),
@@ -69,27 +73,30 @@ void main() {
     expect([other.width, other.height], [125, 88]);
   });
 
-  test('resizing keeps the aspect ratio when locked and marks the size set', () {
-    final p = DocumentEdits.resize(_project(), 'doc', width: 100);
-    final item = PageLayout.item(p, 'doc');
-    expect(item.width, 100);
-    expect(item.height, closeTo(62.5, 1e-9));
-    expect(item.sizeConfirmed, isTrue);
-    final free = _project().copyWith(
-      items: [
-        PageLayout.item(_project(), 'doc').copyWith(keepAspectRatio: false),
-      ],
-    );
-    final stretched = PageLayout.item(
-      DocumentEdits.resize(free, 'doc', height: 70),
-      'doc',
-    );
-    expect([stretched.width, stretched.height], [80, 70]);
-    expect(
-      () => DocumentEdits.resize(_project(), 'doc', width: 5),
-      throwsA(isA<ValidationException>()),
-    );
-  });
+  test(
+    'resizing keeps the aspect ratio when locked and marks the size set',
+    () {
+      final p = DocumentEdits.resize(_project(), 'doc', width: 100);
+      final item = PageLayout.item(p, 'doc');
+      expect(item.width, 100);
+      expect(item.height, closeTo(62.5, 1e-9));
+      expect(item.sizeConfirmed, isTrue);
+      final free = _project().copyWith(
+        items: [
+          PageLayout.item(_project(), 'doc').copyWith(keepAspectRatio: false),
+        ],
+      );
+      final stretched = PageLayout.item(
+        DocumentEdits.resize(free, 'doc', height: 70),
+        'doc',
+      );
+      expect([stretched.width, stretched.height], [80, 70]);
+      expect(
+        () => DocumentEdits.resize(_project(), 'doc', width: 5),
+        throwsA(isA<ValidationException>()),
+      );
+    },
+  );
 
   test('reset restores the catalog size; rotate turns by 90°', () {
     var p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport);
@@ -98,7 +105,10 @@ void main() {
     expect(PageLayout.item(p, 'doc').width, 125);
     p = DocumentEdits.rotate(p, 'doc');
     expect(PageLayout.item(p, 'doc').rotation, 90);
-    p = DocumentEdits.rotate(DocumentEdits.rotate(DocumentEdits.rotate(p, 'doc'), 'doc'), 'doc');
+    p = DocumentEdits.rotate(
+      DocumentEdits.rotate(DocumentEdits.rotate(p, 'doc'), 'doc'),
+      'doc',
+    );
     expect(PageLayout.item(p, 'doc').rotation, 0);
   });
 
@@ -118,7 +128,11 @@ void main() {
   });
 
   test('editing the catalog resizes every document of that category', () {
-    var p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.residenceCard);
+    var p = DocumentEdits.setKind(
+      _project(),
+      'doc',
+      DocumentKind.residenceCard,
+    );
     p = DocumentEdits.applyCatalog(
       p,
       p.catalog.copyWith(residenceCard: const PhysicalSizeMm(95, 65)),
@@ -146,12 +160,12 @@ void main() {
     List<double> matrix(double r, double g, double b) => [
       for (var row = 0; row < 3; row++)
         ((m[row * 5] * r * 255 +
-                        m[row * 5 + 1] * g * 255 +
-                        m[row * 5 + 2] * b * 255 +
-                        m[row * 5 + 4]) /
-                    255)
-                .clamp(0, 1)
-                .toDouble(),
+                    m[row * 5 + 1] * g * 255 +
+                    m[row * 5 + 2] * b * 255 +
+                    m[row * 5 + 4]) /
+                255)
+            .clamp(0, 1)
+            .toDouble(),
     ];
 
     for (final rgb in const [

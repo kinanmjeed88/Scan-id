@@ -49,14 +49,16 @@ class _LayoutScreenState extends State<LayoutScreen> {
   @override
   void initState() {
     super.initState();
-    _c = LayoutEditorController(
-      project: widget.project,
-      service: widget.service,
-      pickImages: widget.pickImages,
-      adjustmentCommitDelay: widget.adjustmentCommitDelay,
-    )..onMessage = (message) {
-        if (mounted) showMessage(context, message);
-      };
+    _c =
+        LayoutEditorController(
+            project: widget.project,
+            service: widget.service,
+            pickImages: widget.pickImages,
+            adjustmentCommitDelay: widget.adjustmentCommitDelay,
+          )
+          ..onMessage = (message) {
+            if (mounted) showMessage(context, message);
+          };
     _c.addListener(_changed);
   }
 
@@ -157,7 +159,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
       final value = input['عدد النسخ']!;
       if (value != value.roundToDouble() || value < 1 || value > 200) {
         if (mounted) {
-          showMessage(context, 'عدد النسخ يجب أن يكون عدداً صحيحاً بين 1 و200.');
+          showMessage(
+            context,
+            'عدد النسخ يجب أن يكون عدداً صحيحاً بين 1 و200.',
+          );
         }
         return;
       }
@@ -234,19 +239,13 @@ class _LayoutScreenState extends State<LayoutScreen> {
       run: _c.clearSelection,
     ),
     ShortcutBinding(
-      activator: const SingleActivator(
-        LogicalKeyboardKey.equal,
-        control: true,
-      ),
+      activator: const SingleActivator(LogicalKeyboardKey.equal, control: true),
       keys: 'Ctrl + =',
       description: 'تكبير',
       run: _c.zoomIn,
     ),
     ShortcutBinding(
-      activator: const SingleActivator(
-        LogicalKeyboardKey.minus,
-        control: true,
-      ),
+      activator: const SingleActivator(LogicalKeyboardKey.minus, control: true),
       keys: 'Ctrl + -',
       description: 'تصغير',
       run: _c.zoomOut,
@@ -306,7 +305,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 icon: Icons.print_outlined,
                 label: 'طباعة وتصدير',
                 large: true,
-                tooltip: 'معاينة نهائية ثم PDF أو PNG أو JPG أو طباعة (Ctrl + P)',
+                tooltip:
+                    'معاينة نهائية ثم PDF أو PNG أو JPG أو طباعة (Ctrl + P)',
                 onPressed: busy || project.items.isEmpty ? null : _openExport,
               ),
             ],
@@ -422,7 +422,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   RibbonMenuButton<ArrangementStrategy>(
                     key: const Key('rb-strategy'),
                     icon: Icons.view_quilt_outlined,
-                    label: project.layout.strategy == ArrangementStrategy.ordered
+                    label:
+                        project.layout.strategy == ArrangementStrategy.ordered
                         ? 'حسب النوع'
                         : 'مضغوط',
                     tooltip: 'طريقة الترتيب',
@@ -613,7 +614,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     tooltip: 'تدوير المستمسك 90° إذا لم يتسع بغير ذلك',
                     onPressed: busy
                         ? null
-                        : () => c.setAllowRotation(!project.layout.allowRotation),
+                        : () =>
+                              c.setAllowRotation(!project.layout.allowRotation),
                   ),
                   RibbonButton(
                     key: const Key('rb-largest-first'),
@@ -649,7 +651,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 icon: Icons.straighten,
                 label: 'مقاسات المستمسكات',
                 large: true,
-                tooltip: 'عرض المقاسات الرسمية وتعديل مقاس بطاقة السكن والتموينية',
+                tooltip:
+                    'عرض المقاسات الرسمية وتعديل مقاس بطاقة السكن والتموينية',
                 onPressed: busy ? null : _editCatalog,
               ),
             ],
@@ -722,7 +725,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       icon: Icons.link,
                       label: 'تثبيت النسبة',
                       selected: item.keepAspectRatio,
-                      onPressed: busy || item.locked ? null : c.toggleAspectLock,
+                      onPressed: busy || item.locked
+                          ? null
+                          : c.toggleAspectLock,
                     ),
                     RibbonButton(
                       key: const Key('rb-reset-size'),
@@ -1172,7 +1177,9 @@ class _Banner extends StatelessWidget {
             Icon(
               error ? Icons.error_outline : Icons.info_outline,
               size: 18,
-              color: error ? scheme.onErrorContainer : scheme.onSecondaryContainer,
+              color: error
+                  ? scheme.onErrorContainer
+                  : scheme.onSecondaryContainer,
             ),
             const SizedBox(width: 8),
             Expanded(

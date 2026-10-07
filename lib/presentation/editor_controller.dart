@@ -237,13 +237,11 @@ class LayoutEditorController extends ChangeNotifier {
     if (value) await arrangeNow();
   }
 
-  Future<void> setStrategy(ArrangementStrategy strategy) => edit(
-    (p) => p.copyWith(layout: p.layout.copyWith(strategy: strategy)),
-  );
+  Future<void> setStrategy(ArrangementStrategy strategy) =>
+      edit((p) => p.copyWith(layout: p.layout.copyWith(strategy: strategy)));
 
-  Future<void> setAllowRotation(bool value) => edit(
-    (p) => p.copyWith(layout: p.layout.copyWith(allowRotation: value)),
-  );
+  Future<void> setAllowRotation(bool value) =>
+      edit((p) => p.copyWith(layout: p.layout.copyWith(allowRotation: value)));
 
   Future<void> setOrder(LayoutOrder order) =>
       edit((p) => p.copyWith(layout: p.layout.copyWith(order: order)));
@@ -312,9 +310,8 @@ class LayoutEditorController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Document commands
 
-  Iterable<String> get _editableIds => selectedItems
-      .where((item) => !item.locked)
-      .map((item) => item.id);
+  Iterable<String> get _editableIds =>
+      selectedItems.where((item) => !item.locked).map((item) => item.id);
 
   Future<void> setKind(DocumentKind kind) {
     final ids = _editableIds.toList();
@@ -347,7 +344,9 @@ class LayoutEditorController extends ChangeNotifier {
     final ids = _editableIds
         .where(
           (id) =>
-              project.catalog.natural(PageLayout.item(project, id).documentKind) !=
+              project.catalog.natural(
+                PageLayout.item(project, id).documentKind,
+              ) !=
               null,
         )
         .toList();
@@ -414,7 +413,9 @@ class LayoutEditorController extends ChangeNotifier {
     if (item == null || item.locked) return _refuseLocked();
     await edit((p) {
       final levels = p.items.map((e) => e.zIndex);
-      final z = forward ? levels.reduce(math.max) + 1 : levels.reduce(math.min) - 1;
+      final z = forward
+          ? levels.reduce(math.max) + 1
+          : levels.reduce(math.min) - 1;
       return p.copyWith(
         items: [
           for (final e in p.items) e.id == item.id ? e.copyWith(zIndex: z) : e,
@@ -646,9 +647,7 @@ class LayoutEditorController extends ChangeNotifier {
       );
       await session.apply(
         (p) => p.copyWith(
-          assets: [
-            for (final a in p.assets) a.id == revised.id ? revised : a,
-          ],
+          assets: [for (final a in p.assets) a.id == revised.id ? revised : a],
         ),
       );
     });
@@ -689,9 +688,7 @@ class LayoutEditorController extends ChangeNotifier {
       );
       await session.apply(
         (p) => p.copyWith(
-          assets: [
-            for (final a in p.assets) a.id == revised.id ? revised : a,
-          ],
+          assets: [for (final a in p.assets) a.id == revised.id ? revised : a],
         ),
       );
     });
@@ -765,11 +762,14 @@ class LayoutEditorController extends ChangeNotifier {
     final DocumentItem next;
     if (drag.resize) {
       final angle = old.rotation * math.pi / 180;
-      final localX = deltaMm.dx * math.cos(angle) + deltaMm.dy * math.sin(angle);
+      final localX =
+          deltaMm.dx * math.cos(angle) + deltaMm.dy * math.sin(angle);
       final localY =
           -deltaMm.dx * math.sin(angle) + deltaMm.dy * math.cos(angle);
       final width = math.max(minDocumentEdgeMm, old.width + localX).toDouble();
-      final height = math.max(minDocumentEdgeMm, old.height + localY).toDouble();
+      final height = math
+          .max(minDocumentEdgeMm, old.height + localY)
+          .toDouble();
       next = PageLayout.resize(old, width, height);
       if (next.width < minDocumentEdgeMm || next.height < minDocumentEdgeMm) {
         return;

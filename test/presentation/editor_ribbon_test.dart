@@ -63,8 +63,10 @@ void main() {
     'kind gallery applies the catalog size at once and arranges by category',
     (tester) async {
       final editor = await _Editor.pump(tester);
-      expect(editor.saved.items.firstWhere((e) => e.id == 'unknown').pageIndex,
-          isNull);
+      expect(
+        editor.saved.items.firstWhere((e) => e.id == 'unknown').pageIndex,
+        isNull,
+      );
 
       await _tap(tester, const Key('offsheet-unknown'));
       await _tap(tester, const Key('ribbon-tab-home'));
@@ -80,7 +82,10 @@ void main() {
       // National card, then residence card, then passport, each on its row.
       expect(_item(saved, 'card').y, closeTo(5, 1e-6));
       expect(residence.y, closeTo(5 + 53.98 + 5, 1e-6));
-      expect(_item(saved, 'passport').y, closeTo(5 + 53.98 + 5 + 62.8 + 5, 1e-6));
+      expect(
+        _item(saved, 'passport').y,
+        closeTo(5 + 53.98 + 5 + 62.8 + 5, 1e-6),
+      );
       // The sheet shows the edit immediately.
       expect(find.byKey(const Key('page-slot-unknown')), findsOneWidget);
       expect(find.byKey(const Key('offsheet-unknown')), findsNothing);
@@ -232,7 +237,12 @@ void main() {
         project: _project(
           items: [
             _placed('residence', 'asset3', DocumentKind.residenceCard),
-            _placed('ration', 'asset4', DocumentKind.rationCard, portrait: true),
+            _placed(
+              'ration',
+              'asset4',
+              DocumentKind.rationCard,
+              portrait: true,
+            ),
           ],
         ),
       );
@@ -241,8 +251,14 @@ void main() {
       expect(find.textContaining('ISO/IEC 7810 ID-1'), findsOneWidget);
       expect(find.textContaining('ICAO 9303 TD3'), findsOneWidget);
 
-      await tester.enterText(find.byKey(const Key('catalog-residence-w')), '90');
-      await tester.enterText(find.byKey(const Key('catalog-residence-h')), '60');
+      await tester.enterText(
+        find.byKey(const Key('catalog-residence-w')),
+        '90',
+      );
+      await tester.enterText(
+        find.byKey(const Key('catalog-residence-h')),
+        '60',
+      );
       await tester.enterText(find.byKey(const Key('catalog-ration-w')), '٥٠');
       await _tap(tester, const Key('catalog-save'));
 
@@ -266,48 +282,49 @@ void main() {
     },
   );
 
-  testWidgets('document tab: kind menu, size fields, aspect lock, standard size', (
-    tester,
-  ) async {
-    final editor = await _Editor.pump(tester);
-    await _tap(tester, const Key('page-item-card'));
-    await _tap(tester, const Key('ribbon-tab-document'));
+  testWidgets(
+    'document tab: kind menu, size fields, aspect lock, standard size',
+    (tester) async {
+      final editor = await _Editor.pump(tester);
+      await _tap(tester, const Key('page-item-card'));
+      await _tap(tester, const Key('ribbon-tab-document'));
 
-    await _choose(tester, 'rb-kind-menu', DocumentKind.passport.label);
-    var card = _item(editor.saved, 'card');
-    expect(card.documentKind, DocumentKind.passport);
-    expect([card.width, card.height], [125, 88]);
+      await _choose(tester, 'rb-kind-menu', DocumentKind.passport.label);
+      var card = _item(editor.saved, 'card');
+      expect(card.documentKind, DocumentKind.passport);
+      expect([card.width, card.height], [125, 88]);
 
-    await _enter(tester, const Key('rb-width'), '100');
-    card = _item(editor.saved, 'card');
-    expect(card.width, 100);
-    expect(card.height, closeTo(100 * 88 / 125, 1e-9));
-    // The page shows the new size right away.
-    final scale = _scale(tester);
-    expect(
-      tester.getSize(find.byKey(const Key('page-item-card'))).width,
-      closeTo(100 * scale, .01),
-    );
+      await _enter(tester, const Key('rb-width'), '100');
+      card = _item(editor.saved, 'card');
+      expect(card.width, 100);
+      expect(card.height, closeTo(100 * 88 / 125, 1e-9));
+      // The page shows the new size right away.
+      final scale = _scale(tester);
+      expect(
+        tester.getSize(find.byKey(const Key('page-item-card'))).width,
+        closeTo(100 * scale, .01),
+      );
 
-    await _tap(tester, const Key('rb-aspect-lock'));
-    expect(_item(editor.saved, 'card').keepAspectRatio, isFalse);
-    await _enter(tester, const Key('rb-height'), '50');
-    card = _item(editor.saved, 'card');
-    expect([card.width, card.height], [100, 50]);
+      await _tap(tester, const Key('rb-aspect-lock'));
+      expect(_item(editor.saved, 'card').keepAspectRatio, isFalse);
+      await _enter(tester, const Key('rb-height'), '50');
+      card = _item(editor.saved, 'card');
+      expect([card.width, card.height], [100, 50]);
 
-    await _tap(tester, const Key('rb-reset-size'));
-    card = _item(editor.saved, 'card');
-    expect([card.width, card.height], [125, 88]);
-    expect(card.keepAspectRatio, isTrue);
+      await _tap(tester, const Key('rb-reset-size'));
+      card = _item(editor.saved, 'card');
+      expect([card.width, card.height], [125, 88]);
+      expect(card.keepAspectRatio, isTrue);
 
-    await _tap(tester, const Key('rb-width-up'));
-    card = _item(editor.saved, 'card');
-    expect(card.width, 126);
-    expect(card.height, closeTo(126 * 88 / 125, 1e-9));
-    await _tap(tester, const Key('rb-width-down'));
-    expect(_item(editor.saved, 'card').width, 125);
-    expect(tester.takeException(), isNull);
-  });
+      await _tap(tester, const Key('rb-width-up'));
+      card = _item(editor.saved, 'card');
+      expect(card.width, 126);
+      expect(card.height, closeTo(126 * 88 / 125, 1e-9));
+      await _tap(tester, const Key('rb-width-down'));
+      expect(_item(editor.saved, 'card').width, 125);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('document tab: rotate, lock, stacking order and alignment', (
     tester,
@@ -347,9 +364,33 @@ void main() {
       tester,
       project: _project(
         items: [
-          _placed('a', 'asset1', DocumentKind.other, x: 5, y: 150, w: 30, h: 20),
-          _placed('b', 'asset2', DocumentKind.other, x: 40, y: 150, w: 30, h: 20),
-          _placed('c', 'asset3', DocumentKind.other, x: 150, y: 150, w: 30, h: 20),
+          _placed(
+            'a',
+            'asset1',
+            DocumentKind.other,
+            x: 5,
+            y: 150,
+            w: 30,
+            h: 20,
+          ),
+          _placed(
+            'b',
+            'asset2',
+            DocumentKind.other,
+            x: 40,
+            y: 150,
+            w: 30,
+            h: 20,
+          ),
+          _placed(
+            'c',
+            'asset3',
+            DocumentKind.other,
+            x: 150,
+            y: 150,
+            w: 30,
+            h: 20,
+          ),
         ],
       ),
     );

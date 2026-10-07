@@ -132,3 +132,4 @@ flutter test
 - [المعمارية والقرارات](docs/ARCHITECTURE.md)
 - [نتائج التحقق والاختبارات](docs/STATUS.md)
 - [التدقيق](docs/AUDIT.md)
+- [تقرير معمارية التعرّف الذكي على الدفعات والترتيب التلقائي](docs/SMART_LAYOUT_REPORT.md) — تصميم فقط، غير منفذ

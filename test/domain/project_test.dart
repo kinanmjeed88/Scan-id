@@ -259,4 +259,53 @@ void main() {
     expect(restored.assets.first.id, 'asset2');
     expect(restored.toJson(), project.toJson());
   });
+
+  test('size catalog and arrangement strategy round-trip with the project', () {
+    final project = projectFixture(assets: [assetFixture()]).copyWith(
+      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
+      catalog: const DocumentSizeCatalog().copyWith(
+        residenceCard: const PhysicalSizeMm(90, 60),
+        rationCard: const PhysicalSizeMm(50, 280),
+      ),
+    );
+    final restored = Project.fromJson(jsonDecode(jsonEncode(project.toJson())));
+    expect(restored.layout.strategy, ArrangementStrategy.compact);
+    expect(restored.catalog.residenceCard.width, 90);
+    expect(restored.catalog.residenceCard.height, 60);
+    expect(restored.catalog.rationCard.height, 280);
+    expect(restored.toJson(), project.toJson());
+  });
+
+  test('schema three opens with default sizes and the ordered strategy', () {
+    final json = projectFixture(assets: [assetFixture()]).toJson()
+      ..['schemaVersion'] = 3
+      ..remove('catalog');
+    (json['layout']! as Map<String, Object?>).remove('strategy');
+    final migrated = Project.fromJson(jsonDecode(jsonEncode(json)));
+    expect(migrated.layout.strategy, ArrangementStrategy.ordered);
+    expect(
+      migrated.catalog.residenceCard.width,
+      DocumentSizeCatalog.defaultResidenceCard.width,
+    );
+    expect(
+      migrated.catalog.rationCard.height,
+      DocumentSizeCatalog.defaultRationCard.height,
+    );
+    expect(migrated.toJson()['schemaVersion'], Project.schemaVersion);
+  });
+
+  test('impossible catalog sizes are rejected', () {
+    expect(
+      () => const DocumentSizeCatalog().copyWith(
+        residenceCard: const PhysicalSizeMm(5, 60),
+      ),
+      invalid,
+    );
+    expect(
+      () => const DocumentSizeCatalog().copyWith(
+        rationCard: const PhysicalSizeMm(52, 1000),
+      ),
+      invalid,
+    );
+  });
 }

@@ -34,6 +34,36 @@ class ImageAdjustments {
   final double sharpness;
   final int quarterTurns;
 
+  bool get hasColorChange => brightness != 0 || contrast != 1 || saturation != 1;
+
+  /// Same values with neutral colour (geometry and sharpness kept).
+  ImageAdjustments get colorNeutral =>
+      ImageAdjustments(sharpness: sharpness, quarterTurns: quarterTurns);
+
+  /// 4×5 row-major colour matrix (offsets in 0–255 units) that reproduces the
+  /// export pipeline's saturation → contrast → brightness step exactly:
+  /// `out = ((L + (c − L)·s) − ½)·k + ½ + b`, with Rec. 709 luminance L.
+  /// The preview applies it on the GPU, so colour edits are visible while a
+  /// slider is still moving.
+  List<double> get colorMatrix {
+    const lr = .2126, lg = .7152, lb = .0722;
+    final s = saturation, k = contrast;
+    final offset = 255 * (.5 - .5 * k + brightness);
+    List<double> row(double r, double g, double b) => [
+      k * r,
+      k * g,
+      k * b,
+      0,
+      offset,
+    ];
+    return [
+      ...row(lr * (1 - s) + s, lg * (1 - s), lb * (1 - s)),
+      ...row(lr * (1 - s), lg * (1 - s) + s, lb * (1 - s)),
+      ...row(lr * (1 - s), lg * (1 - s), lb * (1 - s) + s),
+      0, 0, 0, 1, 0,
+    ];
+  }
+
   ImageAdjustments copyWith({
     double? brightness,
     double? contrast,

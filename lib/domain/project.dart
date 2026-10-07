@@ -10,6 +10,14 @@ enum ExportFormat { pdf, png, jpg }
 
 enum LayoutOrder { input, area }
 
+/// How automatic arrangement fills the sheets.
+///
+/// [ordered] keeps the category order in rows (unified card, residence card,
+/// passport, ration card…), right to left, and continues on the next page.
+/// [compact] packs as many documents per page as possible (MaxRects) and
+/// flows what does not fit to the following pages.
+enum ArrangementStrategy { ordered, compact }
+
 T readEnum<T extends Enum>(List<T> values, Object? name) {
   for (final value in values) {
     if (value.name == name) {
@@ -30,6 +38,13 @@ class Margins {
   final double right;
   final double bottom;
   final double left;
+
+  /// The same margin on all four sides.
+  factory Margins.all(double value) =>
+      Margins(top: value, right: value, bottom: value, left: value);
+
+  bool get isUniform => top == right && right == bottom && bottom == left;
+
   Map<String, Object?> toJson() => {
     'top': top,
     'right': right,
@@ -60,6 +75,13 @@ class PaperSettings {
   }
   final PaperOrientation orientation;
   final Margins margins;
+
+  PaperSettings copyWith({PaperOrientation? orientation, Margins? margins}) =>
+      PaperSettings(
+        orientation: orientation ?? this.orientation,
+        margins: margins ?? this.margins,
+      );
+
   double get width => orientation == PaperOrientation.portrait ? 210 : 297;
   double get height => orientation == PaperOrientation.portrait ? 297 : 210;
   RectMm get printable => RectMm(
@@ -87,6 +109,7 @@ class LayoutSettings {
     this.verticalGap = 5,
     this.allowRotation = false,
     this.order = LayoutOrder.input,
+    this.strategy = ArrangementStrategy.ordered,
   }) {
     require(
       [horizontalGap, verticalGap].every((v) => v.isFinite && v >= 0),
@@ -97,11 +120,28 @@ class LayoutSettings {
   final double verticalGap;
   final bool allowRotation;
   final LayoutOrder order;
+  final ArrangementStrategy strategy;
+
+  LayoutSettings copyWith({
+    double? horizontalGap,
+    double? verticalGap,
+    bool? allowRotation,
+    LayoutOrder? order,
+    ArrangementStrategy? strategy,
+  }) => LayoutSettings(
+    horizontalGap: horizontalGap ?? this.horizontalGap,
+    verticalGap: verticalGap ?? this.verticalGap,
+    allowRotation: allowRotation ?? this.allowRotation,
+    order: order ?? this.order,
+    strategy: strategy ?? this.strategy,
+  );
+
   Map<String, Object?> toJson() => {
     'horizontalGap': horizontalGap,
     'verticalGap': verticalGap,
     'allowRotation': allowRotation,
     'order': order.name,
+    'strategy': strategy.name,
   };
   factory LayoutSettings.fromJson(Object? json) {
     final m = objectMap(json);
@@ -110,6 +150,9 @@ class LayoutSettings {
       verticalGap: finiteNumber(m['verticalGap'], 'verticalGap'),
       allowRotation: boolean(m['allowRotation'], 'allowRotation'),
       order: readEnum(LayoutOrder.values, m['order']),
+      strategy: m['strategy'] == null
+          ? ArrangementStrategy.ordered
+          : readEnum(ArrangementStrategy.values, m['strategy']),
     );
   }
 }
@@ -387,6 +430,7 @@ class Project {
     PaperSettings? paper,
     LayoutSettings? layout,
     ExportProfile? exportProfile,
+    this.catalog = const DocumentSizeCatalog(),
     List<ImageAsset> assets = const [],
     List<DocumentItem> items = const [],
   }) : paper = paper ?? PaperSettings(),
@@ -429,7 +473,7 @@ class Project {
       );
     }
   }
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
   final String id;
   final String name;
   final DateTime createdAt;
@@ -439,6 +483,9 @@ class Project {
   final PaperSettings paper;
   final LayoutSettings layout;
   final ExportProfile exportProfile;
+
+  /// Printed sizes per document category for this project.
+  final DocumentSizeCatalog catalog;
   final List<ImageAsset> assets;
   final List<DocumentItem> items;
 
@@ -450,6 +497,7 @@ class Project {
     PaperSettings? paper,
     LayoutSettings? layout,
     ExportProfile? exportProfile,
+    DocumentSizeCatalog? catalog,
     List<ImageAsset>? assets,
     List<DocumentItem>? items,
   }) => Project(
@@ -462,6 +510,7 @@ class Project {
     paper: paper ?? this.paper,
     layout: layout ?? this.layout,
     exportProfile: exportProfile ?? this.exportProfile,
+    catalog: catalog ?? this.catalog,
     assets: assets ?? this.assets,
     items: items ?? this.items,
   );
@@ -492,6 +541,7 @@ class Project {
     'paper': paper.toJson(),
     'layout': layout.toJson(),
     'exportProfile': exportProfile.toJson(),
+    'catalog': catalog.toJson(),
     'assets': assets.map((a) => a.toJson()).toList(),
     'items': items.map((i) => i.toJson()).toList(),
   };
@@ -501,6 +551,7 @@ class Project {
       [
         1,
         2,
+        3,
         schemaVersion,
       ].contains(integer(m['schemaVersion'], 'schemaVersion')),
       'إصدار المشروع غير مدعوم؛ لم يتم تعديل البيانات.',
@@ -520,6 +571,7 @@ class Project {
       paper: PaperSettings.fromJson(m['paper']),
       layout: LayoutSettings.fromJson(m['layout']),
       exportProfile: ExportProfile.fromJson(m['exportProfile']),
+      catalog: DocumentSizeCatalog.fromJson(m['catalog']),
       assets: objectList(m['assets']).map(ImageAsset.fromJson).toList(),
       items: objectList(m['items']).map(DocumentItem.fromJson).toList(),
     );

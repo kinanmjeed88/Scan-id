@@ -167,8 +167,9 @@ void main() {
       expect(project.items.where((e) => e.pageIndex == null), hasLength(3));
       expect(project.paper.width, 210);
       expect(project.paper.height, 297);
-      expect(project.paper.printable.width, 190);
-      expect(project.paper.printable.height, 277);
+      // New projects use 5 mm margins so a 287 mm ration card fits.
+      expect(project.paper.printable.width, 200);
+      expect(project.paper.printable.height, 287);
 
       // 4. The proposal is deterministic, never changes sizes, keeps every
       //    placed rectangle inside the printable area and reports what is left.

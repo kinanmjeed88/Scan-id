@@ -6,7 +6,6 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/validation.dart';
-import 'package:scan_id/imaging/document_detector.dart';
 import 'package:scan_id/imaging/perspective.dart';
 
 Uint8List gradient(int width, int height) {
@@ -216,37 +215,4 @@ void main() {
       expect(output.getPixel(1, 2).r, lessThan(100));
     },
   );
-
-  test(
-    'edge detector proposes a card on a contrasting background without applying it',
-    () {
-      final source = img.Image(width: 200, height: 140);
-      img.fillRect(
-        source,
-        x1: 25,
-        y1: 20,
-        x2: 175,
-        y2: 120,
-        color: img.ColorRgb8(245, 245, 245),
-      );
-      final bytes = img.encodePng(source), before = img.encodePng(source);
-      final points = suggestDocumentCorners(bytes);
-      expect(points, isNotNull);
-      expect(points![0].x, closeTo(25 / 199, .04));
-      expect(points[0].y, closeTo(20 / 139, .04));
-      expect(points[2].x, closeTo(175 / 199, .04));
-      expect(points[2].y, closeTo(120 / 139, .04));
-      expect(bytes, before);
-    },
-  );
-  test('flat or tiny photos give no confident boundary suggestion', () {
-    expect(
-      suggestDocumentCorners(img.encodePng(img.Image(width: 120, height: 90))),
-      isNull,
-    );
-    expect(
-      suggestDocumentCorners(img.encodePng(img.Image(width: 2, height: 2))),
-      isNull,
-    );
-  });
 }

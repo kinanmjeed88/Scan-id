@@ -49,7 +49,8 @@ if code:
     # push them out of the annotations; the end of the log follows.
     marks = [line for line in text.splitlines()
              if line.rstrip().endswith('[E]') or 'tests failed' in line
-             or 'All tests passed' in line or line.startswith('error')]
+             or 'All tests passed' in line
+             or line.lstrip().startswith('error')]
     if marks:
         parts.append(('summary', chunked('\n'.join(dict.fromkeys(marks)))[-1]))
     tail = chunked(text)[-(LIMIT - len(parts)):]

@@ -312,7 +312,7 @@ class _DocumentPanGestureRecognizer extends PanGestureRecognizer {
   Set<PointerDeviceKind> devices = const {};
 
   @override
-  bool isPointerAllowed(PointerDownEvent event) =>
+  bool isPointerAllowed(PointerEvent event) =>
       devices.contains(event.kind) && super.isPointerAllowed(event);
 
   @override

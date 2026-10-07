@@ -88,29 +88,30 @@ void main() {
     },
   );
 
-  testWidgets('touch: the resize handle resizes; it neither moves nor scrolls', (
-    tester,
-  ) async {
-    final editor = await EditorHarness.pump(tester, project: _twoCards());
-    await tapKey(tester, const Key('page-item-card'));
-    final scale = pageScale(tester);
-    final scrolled = _scrollOffset(tester);
+  testWidgets(
+    'touch: the resize handle resizes; it neither moves nor scrolls',
+    (tester) async {
+      final editor = await EditorHarness.pump(tester, project: _twoCards());
+      await tapKey(tester, const Key('page-item-card'));
+      final scale = pageScale(tester);
+      final scrolled = _scrollOffset(tester);
 
-    await _swipe(
-      tester,
-      tester.getCenter(find.byKey(const Key('resize-card'))),
-      _steps(Offset(0, -10 * scale)),
-      PointerDeviceKind.touch,
-    );
+      await _swipe(
+        tester,
+        tester.getCenter(find.byKey(const Key('resize-card'))),
+        _steps(Offset(0, -10 * scale)),
+        PointerDeviceKind.touch,
+      );
 
-    // The aspect ratio is locked, so the dragged height decides the width.
-    final card = itemIn(editor.saved, 'card');
-    expect(card.height, closeTo(43.98, .05));
-    expect(card.width, closeTo(43.98 * 85.6 / 53.98, .05));
-    expect(card.sizeConfirmed, isTrue);
-    expect(_scrollOffset(tester), scrolled);
-    expect(tester.takeException(), isNull);
-  });
+      // The aspect ratio is locked, so the dragged height decides the width.
+      final card = itemIn(editor.saved, 'card');
+      expect(card.height, closeTo(43.98, .05));
+      expect(card.width, closeTo(43.98 * 85.6 / 53.98, .05));
+      expect(card.sizeConfirmed, isTrue);
+      expect(_scrollOffset(tester), scrolled);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'a turned document moves in page millimetres and resizes along its edges',
@@ -282,7 +283,11 @@ void main() {
     expect(itemIn(editor.saved, 'residence').x, 112);
 
     final scrolled = _scrollOffset(tester);
-    await _touchpadSwipe(tester, _centre(tester, 'card'), const Offset(0, -150));
+    await _touchpadSwipe(
+      tester,
+      _centre(tester, 'card'),
+      const Offset(0, -150),
+    );
     expect(_scrollOffset(tester), isNot(scrolled));
     expect(editor.saved.revision, revision, reason: 'nothing was edited');
     expect(tester.takeException(), isNull);
@@ -363,7 +368,13 @@ Project _twoCards({
       x: 10,
       y: cardY,
     ).copyWith(locked: cardLocked, rotation: cardRotation),
-    placedDocument('residence', 'asset2', DocumentKind.residenceCard, x: 112, y: 30),
+    placedDocument(
+      'residence',
+      'asset2',
+      DocumentKind.residenceCard,
+      x: 112,
+      y: 30,
+    ),
   ],
 );
 

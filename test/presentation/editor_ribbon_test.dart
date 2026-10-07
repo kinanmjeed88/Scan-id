@@ -122,8 +122,19 @@ void main() {
       tester,
       project: editorProject(
         items: [
-          placedDocument('passport', 'asset2', DocumentKind.passport, x: 40, y: 5),
-          placedDocument('card', 'asset1', DocumentKind.unifiedNationalId, y: 150),
+          placedDocument(
+            'passport',
+            'asset2',
+            DocumentKind.passport,
+            x: 40,
+            y: 5,
+          ),
+          placedDocument(
+            'card',
+            'asset1',
+            DocumentKind.unifiedNationalId,
+            y: 150,
+          ),
         ],
       ),
     );
@@ -507,7 +518,10 @@ void main() {
   testWidgets('view tab and status bar: zoom, guides and page navigation', (
     tester,
   ) async {
-    final editor = await EditorHarness.pump(tester, project: editorProject(pageCount: 2));
+    final editor = await EditorHarness.pump(
+      tester,
+      project: editorProject(pageCount: 2),
+    );
     await tapKey(tester, const Key('ribbon-tab-view'));
     expect(_button(tester, 'rb-zoom-width').selected, isTrue);
 
@@ -607,8 +621,19 @@ void main() {
         tester,
         project: editorProject(
           items: [
-            placedDocument('card', 'asset1', DocumentKind.unifiedNationalId, x: 60),
-            placedDocument('passport', 'asset2', DocumentKind.passport, x: 40, y: 150),
+            placedDocument(
+              'card',
+              'asset1',
+              DocumentKind.unifiedNationalId,
+              x: 60,
+            ),
+            placedDocument(
+              'passport',
+              'asset2',
+              DocumentKind.passport,
+              x: 40,
+              y: 150,
+            ),
           ],
         ),
       );

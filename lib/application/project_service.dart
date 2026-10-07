@@ -254,9 +254,15 @@ class ProjectService {
         pageIndex: 0,
       );
       current = await projects.save(proposal.result);
-      if (proposal.unplaced.isNotEmpty) {
+      final confirmedUnplaced = proposal.unplaced
+          .map(
+            (id) => proposal.result.items.firstWhere((item) => item.id == id),
+          )
+          .where((item) => item.sizeConfirmed)
+          .length;
+      if (confirmedUnplaced > 0) {
         warnings.add(
-          'تعذر وضع ${proposal.unplaced.length} مستمسكاً في الصفحة الأولى دون تغيير مقاسه؛ بقي غير موضوع.',
+          'تعذر وضع $confirmedUnplaced مستمسك بقياس مؤكد في الصفحة الأولى دون تغيير مقاسه؛ بقي غير موضوع.',
         );
       }
     } on RevisionConflict {

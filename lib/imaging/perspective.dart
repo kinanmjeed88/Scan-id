@@ -170,15 +170,25 @@ img.Image warpPerspective(
               ) /
               neighbourAlpha;
           final amount = adjustment.sharpness;
-          red = (red + amount * (red - meanChannel((p) => p.rNormalized.toDouble())))
-              .clamp(0, 1)
-              .toDouble();
-          green = (green + amount * (green - meanChannel((p) => p.gNormalized.toDouble())))
-              .clamp(0, 1)
-              .toDouble();
-          blue = (blue + amount * (blue - meanChannel((p) => p.bNormalized.toDouble())))
-              .clamp(0, 1)
-              .toDouble();
+          red =
+              (red +
+                      amount *
+                          (red - meanChannel((p) => p.rNormalized.toDouble())))
+                  .clamp(0, 1)
+                  .toDouble();
+          green =
+              (green +
+                      amount *
+                          (green -
+                              meanChannel((p) => p.gNormalized.toDouble())))
+                  .clamp(0, 1)
+                  .toDouble();
+          blue =
+              (blue +
+                      amount *
+                          (blue - meanChannel((p) => p.bNormalized.toDouble())))
+                  .clamp(0, 1)
+                  .toDouble();
         }
       }
       final luminance = .2126 * red + .7152 * green + .0722 * blue;

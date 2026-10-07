@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
-import '../domain/packing.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../domain/image_limits.dart';

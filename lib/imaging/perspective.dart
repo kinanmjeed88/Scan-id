@@ -165,7 +165,8 @@ img.Image warpPerspective(
           double meanChannel(double Function(img.Pixel) channel) =>
               neighbours.fold<double>(
                 0,
-                (sum, pixel) => sum + channel(pixel) * pixel.aNormalized,
+                (sum, pixel) =>
+                    sum + (channel(pixel) * pixel.aNormalized).toDouble(),
               ) /
               neighbourAlpha;
           final amount = adjustment.sharpness;

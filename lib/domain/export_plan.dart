@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'document_kind.dart';
 import 'geometry.dart';
 import 'page_layout.dart';
 import 'project.dart';

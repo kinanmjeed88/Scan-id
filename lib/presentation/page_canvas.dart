@@ -213,11 +213,13 @@ class PageCanvas extends StatelessWidget {
     _EagerPanGestureRecognizer:
         GestureRecognizerFactoryWithHandlers<_EagerPanGestureRecognizer>(
           _EagerPanGestureRecognizer.new,
-          (recognizer) => recognizer
-            ..onStart = (d) => _start(id, d.globalPosition, resize: resize)
-            ..onUpdate = (d) => onDragUpdate?.call(d.globalPosition)
-            ..onEnd = (_) => onDragEnd?.call()
-            ..onCancel = () => onDragCancel?.call(),
+          (recognizer) {
+            recognizer.onStart = (d) =>
+                _start(id, d.globalPosition, resize: resize);
+            recognizer.onUpdate = (d) => onDragUpdate?.call(d.globalPosition);
+            recognizer.onEnd = (_) => onDragEnd?.call();
+            recognizer.onCancel = () => onDragCancel?.call();
+          },
         ),
   };
 

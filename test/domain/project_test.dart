@@ -54,14 +54,15 @@ void main() {
     expect(migrated.documentKind, DocumentKind.unknown);
     expect(migrated.recognitionConfidence, 0);
     expect(migrated.sizeConfirmed, isFalse);
-    expect(migrated.pageIndex, isNull, reason: 'legacy physical sizes are not assumed valid');
+    expect(
+      migrated.pageIndex,
+      isNull,
+      reason: 'legacy physical sizes are not assumed valid',
+    );
   });
 
   test('recognition confidence is validated', () {
-    expect(
-      () => itemFixture().copyWith(recognitionConfidence: 1.1),
-      invalid,
-    );
+    expect(() => itemFixture().copyWith(recognitionConfidence: 1.1), invalid);
     expect(
       () => itemFixture().copyWith(recognitionConfidence: double.nan),
       invalid,

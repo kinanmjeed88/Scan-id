@@ -44,15 +44,10 @@ void main() {
     final p = page([
       block('unconfirmed', 20, 20).copyWith(sizeConfirmed: false),
     ]);
-    expect(
-      () => PageLayout.checked(p),
-      throwsA(isA<ValidationException>()),
-    );
+    expect(() => PageLayout.checked(p), throwsA(isA<ValidationException>()));
     expect(
       PageLayout.checked(
-        p.copyWith(
-          items: [p.items.single.copyWith(unplaced: true)],
-        ),
+        p.copyWith(items: [p.items.single.copyWith(unplaced: true)]),
       ).items.single.pageIndex,
       isNull,
     );

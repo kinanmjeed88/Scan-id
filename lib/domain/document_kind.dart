@@ -37,13 +37,13 @@ extension DocumentKindDetails on DocumentKind {
   /// IRQ-AO-03001 is a 2009 specimen listing 88 × 125 mm. These values are
   /// suggestions only and must be checked against the user's actual item.
   /// No single verified outer size is asserted for the Iraqi residence card.
-  PhysicalSizeMm? publishedReferenceSize({required bool landscape}) => switch (this) {
-    DocumentKind.unifiedNationalId => landscape
-        ? const PhysicalSizeMm(86, 54)
-        : const PhysicalSizeMm(54, 86),
-    DocumentKind.passport => landscape
-        ? const PhysicalSizeMm(125, 88)
-        : const PhysicalSizeMm(88, 125),
+  PhysicalSizeMm? publishedReferenceSize({
+    required bool landscape,
+  }) => switch (this) {
+    DocumentKind.unifiedNationalId =>
+      landscape ? const PhysicalSizeMm(86, 54) : const PhysicalSizeMm(54, 86),
+    DocumentKind.passport =>
+      landscape ? const PhysicalSizeMm(125, 88) : const PhysicalSizeMm(88, 125),
     DocumentKind.unknown ||
     DocumentKind.residenceCard ||
     DocumentKind.other => null,
@@ -101,10 +101,7 @@ DocumentTypeSuggestion suggestDocumentType({
       reason: 'اسم الملف يشير إلى بطاقة السكن',
     );
   }
-  if (_containsAny(normalized, const [
-    'جواز',
-    'passport',
-  ])) {
+  if (_containsAny(normalized, const ['جواز', 'passport'])) {
     return const DocumentTypeSuggestion(
       kind: DocumentKind.passport,
       confidence: .98,
@@ -165,9 +162,8 @@ String _normalizeName(String value) => value
     .replaceAll('ى', 'ي')
     .replaceAll(RegExp(r'[\s_\-.]+'), '');
 
-bool _containsAny(String value, List<String> tokens) => tokens
-    .map(_normalizeName)
-    .any(value.contains);
+bool _containsAny(String value, List<String> tokens) =>
+    tokens.map(_normalizeName).any(value.contains);
 
 /// Conservative physical fallback used only to place unknown/variable-size
 /// documents on the first A4 preview. It is explicitly unverified and must be

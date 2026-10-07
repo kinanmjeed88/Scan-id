@@ -49,9 +49,12 @@ void assertSafe(Project p) {
 
 void main() {
   test('packing never places an unconfirmed measurement', () {
-    final unconfirmed = card('unmeasured', 80, 50, page: null).copyWith(
-      sizeConfirmed: false,
-    );
+    final unconfirmed = card(
+      'unmeasured',
+      80,
+      50,
+      page: null,
+    ).copyWith(sizeConfirmed: false);
     final proposal = proposePacking(
       page([unconfirmed]),
       includeLocked: false,

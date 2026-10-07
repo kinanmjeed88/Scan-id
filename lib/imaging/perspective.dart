@@ -79,11 +79,12 @@ img.Image warpPerspective(
   final output = img.Image(width: width, height: height, numChannels: 4);
   final adjustment = recipe.adjustments;
   int adjust(double value) =>
-      (((value - .5) * adjustment.contrast +
-                .5 +
-                adjustment.brightness)
-            .clamp(0, 1) *
-        255).round();
+      (((value - .5) * adjustment.contrast + .5 + adjustment.brightness).clamp(
+                0,
+                1,
+              ) *
+              255)
+          .round();
   for (var y = 0; y < height; y++) {
     final v = height == 1 ? .5 : y / (height - 1);
     for (var x = 0; x < width; x++) {
@@ -123,22 +124,22 @@ img.Image warpPerspective(
       }
       var red =
           (p00.rNormalized * w00 +
-                  p10.rNormalized * w10 +
-                  p01.rNormalized * w01 +
-                  p11.rNormalized * w11) /
-              divisor;
+              p10.rNormalized * w10 +
+              p01.rNormalized * w01 +
+              p11.rNormalized * w11) /
+          divisor;
       var green =
           (p00.gNormalized * w00 +
-                  p10.gNormalized * w10 +
-                  p01.gNormalized * w01 +
-                  p11.gNormalized * w11) /
-              divisor;
+              p10.gNormalized * w10 +
+              p01.gNormalized * w01 +
+              p11.gNormalized * w11) /
+          divisor;
       var blue =
           (p00.bNormalized * w00 +
-                  p10.bNormalized * w10 +
-                  p01.bNormalized * w01 +
-                  p11.bNormalized * w11) /
-              divisor;
+              p10.bNormalized * w10 +
+              p01.bNormalized * w01 +
+              p11.bNormalized * w11) /
+          divisor;
       if (adjustment.sharpness > 0 && alpha > 0) {
         // A four-neighbour unsharp mask is sampled from the immutable source,
         // so sharpening needs no second full-size raster allocation. Alpha-
@@ -164,8 +165,7 @@ img.Image warpPerspective(
           double meanChannel(double Function(img.Pixel) channel) =>
               neighbours.fold<double>(
                 0,
-                (sum, pixel) =>
-                    sum + channel(pixel) * pixel.aNormalized,
+                (sum, pixel) => sum + channel(pixel) * pixel.aNormalized,
               ) /
               neighbourAlpha;
           final amount = adjustment.sharpness;

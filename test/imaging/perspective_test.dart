@@ -170,46 +170,52 @@ void main() {
       throwsA(isA<ValidationException>()),
     );
   });
-  test('saturation can be reduced to neutral grayscale without changing geometry', () {
-    final source = img.Image(width: 4, height: 4);
-    for (var y = 0; y < source.height; y++) {
-      for (var x = 0; x < source.width; x++) {
-        source.setPixelRgb(x, y, 210, 75, 35);
+  test(
+    'saturation can be reduced to neutral grayscale without changing geometry',
+    () {
+      final source = img.Image(width: 4, height: 4);
+      for (var y = 0; y < source.height; y++) {
+        for (var x = 0; x < source.width; x++) {
+          source.setPixelRgb(x, y, 210, 75, 35);
+        }
       }
-    }
-    final output = img.decodePng(
-      renderPerspective(
-        img.encodePng(source),
-        ImageEditRecipe(
-          CropDraft.fullImage().toRecipe(4, 4).geometry,
-          ImageAdjustments(saturation: 0),
+      final output = img.decodePng(
+        renderPerspective(
+          img.encodePng(source),
+          ImageEditRecipe(
+            CropDraft.fullImage().toRecipe(4, 4).geometry,
+            ImageAdjustments(saturation: 0),
+          ),
         ),
-      ),
-    )!;
+      )!;
 
-    expect([output.width, output.height], [4, 4]);
-    final pixel = output.getPixel(2, 2);
-    expect((pixel.r - pixel.g).abs(), lessThanOrEqualTo(1));
-    expect((pixel.g - pixel.b).abs(), lessThanOrEqualTo(1));
-  });
+      expect([output.width, output.height], [4, 4]);
+      final pixel = output.getPixel(2, 2);
+      expect((pixel.r - pixel.g).abs(), lessThanOrEqualTo(1));
+      expect((pixel.g - pixel.b).abs(), lessThanOrEqualTo(1));
+    },
+  );
 
-  test('manual sharpening increases local edge contrast in the saved raster', () {
-    final source = img.Image(width: 5, height: 5);
-    img.fill(source, color: img.ColorRgb8(100, 100, 100));
-    source.setPixelRgb(2, 2, 150, 150, 150);
-    final output = img.decodePng(
-      renderPerspective(
-        img.encodePng(source),
-        ImageEditRecipe(
-          CropDraft.fullImage().toRecipe(5, 5).geometry,
-          ImageAdjustments(sharpness: 1),
+  test(
+    'manual sharpening increases local edge contrast in the saved raster',
+    () {
+      final source = img.Image(width: 5, height: 5);
+      img.fill(source, color: img.ColorRgb8(100, 100, 100));
+      source.setPixelRgb(2, 2, 150, 150, 150);
+      final output = img.decodePng(
+        renderPerspective(
+          img.encodePng(source),
+          ImageEditRecipe(
+            CropDraft.fullImage().toRecipe(5, 5).geometry,
+            ImageAdjustments(sharpness: 1),
+          ),
         ),
-      ),
-    )!;
+      )!;
 
-    expect(output.getPixel(2, 2).r, greaterThan(150));
-    expect(output.getPixel(1, 2).r, lessThan(100));
-  });
+      expect(output.getPixel(2, 2).r, greaterThan(150));
+      expect(output.getPixel(1, 2).r, lessThan(100));
+    },
+  );
 
   test(
     'edge detector proposes a card on a contrasting background without applying it',

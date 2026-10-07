@@ -131,10 +131,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
   }
 
-  Future<void> _open(
-    String id, {
-    bool startWithImagePicker = false,
-  }) async {
+  Future<void> _open(String id, {bool startWithImagePicker = false}) async {
     setState(() => _busy = true);
     Project? project;
     try {

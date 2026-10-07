@@ -40,14 +40,13 @@ class ImageAdjustments {
     double? saturation,
     double? sharpness,
     int? quarterTurns,
-  }) =>
-      ImageAdjustments(
-        brightness: brightness ?? this.brightness,
-        contrast: contrast ?? this.contrast,
-        saturation: saturation ?? this.saturation,
-        sharpness: sharpness ?? this.sharpness,
-        quarterTurns: quarterTurns ?? this.quarterTurns,
-      );
+  }) => ImageAdjustments(
+    brightness: brightness ?? this.brightness,
+    contrast: contrast ?? this.contrast,
+    saturation: saturation ?? this.saturation,
+    sharpness: sharpness ?? this.sharpness,
+    quarterTurns: quarterTurns ?? this.quarterTurns,
+  );
 
   Map<String, Object?> toJson() => {
     'brightness': brightness,

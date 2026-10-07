@@ -259,17 +259,17 @@ class _LayoutScreenState extends State<LayoutScreen> {
         width: values['العرض مم']!,
         height: values['الارتفاع مم']!,
         sizeConfirmed: input.sizeConfirmed,
-        zIndex: project.items.fold<int>(
+        zIndex:
+            project.items.fold<int>(
               0,
               (value, item) => math.max(value, item.zIndex),
             ) +
             1,
       );
-      return PageLayout.addMany(
-        project,
-        [prototype, ...PageLayout.copies(prototype, copies, newId)],
-        allowOverlap: _overlap,
-      );
+      return PageLayout.addMany(project, [
+        prototype,
+        ...PageLayout.copies(prototype, copies, newId),
+      ], allowOverlap: _overlap);
     });
     if (mounted && _session.current.items.any((e) => e.id == id)) {
       setState(
@@ -391,7 +391,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
       final currentAsset = _session.current.assets.firstWhere(
         (entry) => entry.id == asset.id,
       );
-      final geometry = currentAsset.crop ??
+      final geometry =
+          currentAsset.crop ??
           CropDraft.fullImage()
               .toRecipe(currentAsset.width, currentAsset.height)
               .geometry;
@@ -427,7 +428,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
         _session.current,
         currentAsset,
       );
-      final geometry = currentAsset.crop ??
+      final geometry =
+          currentAsset.crop ??
           CropDraft.fullImage()
               .toRecipe(currentAsset.width, currentAsset.height)
               .geometry;
@@ -451,7 +453,10 @@ class _LayoutScreenState extends State<LayoutScreen> {
         _adjustmentDraft = null;
       });
       if (_session.current.revision > revisionBefore) {
-        showMessage(context, 'حُفظ التحسين التلقائي كنسخة جديدة قابلة للتراجع.');
+        showMessage(
+          context,
+          'حُفظ التحسين التلقائي كنسخة جديدة قابلة للتراجع.',
+        );
       }
     }
   }
@@ -957,7 +962,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                         child: Text('• $warning'),
                       ),
                     if (widget.intakeWarnings.length > 4)
-                      Text('وتوجد ${widget.intakeWarnings.length - 4} تنبيهات أخرى.'),
+                      Text(
+                        'وتوجد ${widget.intakeWarnings.length - 4} تنبيهات أخرى.',
+                      ),
                     const Text(
                       'الحدود ونوع المستمسك اقتراحات محلية؛ راجعها وعدّل القياس قبل الطباعة.',
                     ),
@@ -1196,9 +1203,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 const Text('تغيير المقاس 1 مم'),
                 IconButton(
                   tooltip: 'تكبير العرض 1 مم مع الحفاظ على النسبة',
-                  onPressed: _busy || e.locked
-                      ? null
-                      : () => _resizeStep(e, 1),
+                  onPressed: _busy || e.locked ? null : () => _resizeStep(e, 1),
                   icon: const Icon(Icons.add_circle_outline),
                 ),
               ],
@@ -1258,7 +1263,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                           adjustments.copyWith(contrast: value),
                         ),
                 ),
-                Text('تشبع الألوان ${adjustments.saturation.toStringAsFixed(2)}'),
+                Text(
+                  'تشبع الألوان ${adjustments.saturation.toStringAsFixed(2)}',
+                ),
                 Slider(
                   key: Key('layout-saturation-${activeAsset.id}'),
                   value: adjustments.saturation,
@@ -1541,7 +1548,10 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
                       text = text.replaceAll('٠١٢٣٤٥٦٧٨٩'[i], '$i');
                     }
                     final value = double.tryParse(text);
-                    require(value != null && value.isFinite, 'أدخل أرقاماً صالحة.');
+                    require(
+                      value != null && value.isFinite,
+                      'أدخل أرقاماً صالحة.',
+                    );
                     values[e.key] =
                         e.value.text == widget.values[e.key]!.toStringAsFixed(2)
                         ? widget.values[e.key]!
@@ -1549,10 +1559,7 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
                   }
                   Navigator.pop(
                     context,
-                    MeasurementResult(
-                      values,
-                      sizeConfirmed: _sizeConfirmed,
-                    ),
+                    MeasurementResult(values, sizeConfirmed: _sizeConfirmed),
                   );
                 } catch (e) {
                   setState(() => _error = userError(e));

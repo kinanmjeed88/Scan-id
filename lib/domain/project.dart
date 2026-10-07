@@ -253,9 +253,14 @@ class DocumentItem {
     validId(id);
     validId(assetId);
     require(
-      [x, y, width, height, rotation, recognitionConfidence].every(
-        (v) => v.isFinite,
-      ) &&
+      [
+            x,
+            y,
+            width,
+            height,
+            rotation,
+            recognitionConfidence,
+          ].every((v) => v.isFinite) &&
           recognitionConfidence >= 0 &&
           recognitionConfidence <= 1,
       'قيم العنصر غير صالحة.',
@@ -316,8 +321,7 @@ class DocumentItem {
     locked: locked ?? this.locked,
     keepAspectRatio: keepAspectRatio ?? this.keepAspectRatio,
     documentKind: documentKind ?? this.documentKind,
-    recognitionConfidence:
-        recognitionConfidence ?? this.recognitionConfidence,
+    recognitionConfidence: recognitionConfidence ?? this.recognitionConfidence,
     sizeConfirmed: sizeConfirmed ?? this.sizeConfirmed,
   );
 

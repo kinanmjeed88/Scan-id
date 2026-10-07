@@ -49,7 +49,8 @@ class AutomaticLayoutReport {
   final int cropped;
   final int notDetected;
   final List<String> warnings;
-  int get unplaced => project.items.where((item) => item.pageIndex == null).length;
+  int get unplaced =>
+      project.items.where((item) => item.pageIndex == null).length;
 }
 
 /// A replaced source: the record is saved and the aspect warning is explicit.
@@ -172,7 +173,9 @@ class ProjectService {
           final corners = await editor.suggest(source.preview);
           if (corners == null) {
             notDetected++;
-            warnings.add('${asset.name}: لم تُكتشف حدود موثوقة؛ أبقينا الصورة كاملة.');
+            warnings.add(
+              '${asset.name}: لم تُكتشف حدود موثوقة؛ أبقينا الصورة كاملة.',
+            );
           } else {
             current = await applyCrop(
               current,
@@ -203,7 +206,8 @@ class ProjectService {
       final reference = suggestion.kind.publishedReferenceSize(
         landscape: asset.width >= asset.height,
       );
-      final size = reference ??
+      final size =
+          reference ??
           provisionalSize(width: asset.width, height: asset.height);
       final nextZ = current.items.fold<int>(
         0,

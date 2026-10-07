@@ -78,13 +78,12 @@ img.Image warpPerspective(
   }
   final output = img.Image(width: width, height: height, numChannels: 4);
   final adjustment = recipe.adjustments;
-  int adjust(num value) =>
-      (((value - .5) * adjustment.contrast + .5 + adjustment.brightness).clamp(
-                0,
-                1,
-              ) *
-              255)
-          .round();
+  int adjust(double value) =>
+      (((value - .5) * adjustment.contrast +
+                .5 +
+                adjustment.brightness)
+            .clamp(0, 1) *
+        255).round();
   for (var y = 0; y < height; y++) {
     final v = height == 1 ? .5 : y / (height - 1);
     for (var x = 0; x < width; x++) {
@@ -122,30 +121,72 @@ img.Image warpPerspective(
         w01 = (1 - tx) * ty;
         w11 = tx * ty;
       }
-      output.setPixelRgba(
-        x,
-        y,
-        adjust(
+      var red =
           (p00.rNormalized * w00 +
                   p10.rNormalized * w10 +
                   p01.rNormalized * w01 +
                   p11.rNormalized * w11) /
-              divisor,
-        ),
-        adjust(
+              divisor;
+      var green =
           (p00.gNormalized * w00 +
                   p10.gNormalized * w10 +
                   p01.gNormalized * w01 +
                   p11.gNormalized * w11) /
-              divisor,
-        ),
-        adjust(
+              divisor;
+      var blue =
           (p00.bNormalized * w00 +
                   p10.bNormalized * w10 +
                   p01.bNormalized * w01 +
                   p11.bNormalized * w11) /
-              divisor,
-        ),
+              divisor;
+      if (adjustment.sharpness > 0 && alpha > 0) {
+        // A four-neighbour unsharp mask is sampled from the immutable source,
+        // so sharpening needs no second full-size raster allocation. Alpha-
+        // weighted averages avoid dark halos along transparent PNG edges.
+        final centerX = sx.round().clamp(0, source.width - 1).toInt();
+        final centerY = sy.round().clamp(0, source.height - 1).toInt();
+        final left = source.getPixel(math.max(0, centerX - 1), centerY);
+        final right = source.getPixel(
+          math.min(source.width - 1, centerX + 1),
+          centerY,
+        );
+        final above = source.getPixel(centerX, math.max(0, centerY - 1));
+        final below = source.getPixel(
+          centerX,
+          math.min(source.height - 1, centerY + 1),
+        );
+        final neighbours = [left, right, above, below];
+        final neighbourAlpha = neighbours.fold<double>(
+          0,
+          (sum, pixel) => sum + pixel.aNormalized,
+        );
+        if (neighbourAlpha > 0) {
+          double meanChannel(double Function(img.Pixel) channel) =>
+              neighbours.fold<double>(
+                0,
+                (sum, pixel) =>
+                    sum + channel(pixel) * pixel.aNormalized,
+              ) /
+              neighbourAlpha;
+          final amount = adjustment.sharpness;
+          red = (red + amount * (red - meanChannel((p) => p.rNormalized)))
+              .clamp(0, 1)
+              .toDouble();
+          green = (green + amount * (green - meanChannel((p) => p.gNormalized)))
+              .clamp(0, 1)
+              .toDouble();
+          blue = (blue + amount * (blue - meanChannel((p) => p.bNormalized)))
+              .clamp(0, 1)
+              .toDouble();
+        }
+      }
+      final luminance = .2126 * red + .7152 * green + .0722 * blue;
+      output.setPixelRgba(
+        x,
+        y,
+        adjust(luminance + (red - luminance) * adjustment.saturation),
+        adjust(luminance + (green - luminance) * adjustment.saturation),
+        adjust(luminance + (blue - luminance) * adjustment.saturation),
         (alpha * 255).round(),
       );
     }

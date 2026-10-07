@@ -17,11 +17,13 @@ class ProjectScreen extends StatefulWidget {
     required this.project,
     required this.service,
     required this.pickImages,
+    this.startWithImagePicker = false,
     super.key,
   });
   final Project project;
   final ProjectService service;
   final PickImages pickImages;
+  final bool startWithImagePicker;
   @override
   State<ProjectScreen> createState() => _ProjectScreenState();
 }
@@ -30,21 +32,46 @@ class _ProjectScreenState extends State<ProjectScreen> {
   late Project _project = widget.project;
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    if (widget.startWithImagePicker) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_import());
+      });
+    }
+  }
+
   Future<void> _import() async {
     setState(() => _busy = true);
     try {
       final sources = await widget.pickImages();
-      if (sources.isEmpty) {
-        return;
-      }
+      if (sources.isEmpty) return;
+      final existingIds = _project.assets.map((asset) => asset.id).toSet();
       final result = await widget.service.importImages(_project, sources);
-      if (!mounted) {
-        return;
+      final importedIds = result.project.assets
+          .where((asset) => !existingIds.contains(asset.id))
+          .map((asset) => asset.id)
+          .toList();
+      var latest = result.project;
+      AutomaticLayoutReport? automatic;
+      if (importedIds.isNotEmpty) {
+        try {
+          automatic = await widget.service.arrangeImportedImages(
+            latest,
+            importedIds,
+          );
+          latest = automatic.project;
+        } catch (error) {
+          // Imports are already committed. Reload so a successful crop revision
+          // cannot be hidden by a later automatic-layout failure.
+          latest = await widget.service.projects.get(latest.id);
+          if (mounted) showMessage(context, userError(error));
+        }
       }
-      setState(() => _project = result.project);
-      if (result.failures.isEmpty) {
-        showMessage(context, 'تم استيراد وحفظ ${result.imported} صورة.');
-      } else {
+      if (!mounted) return;
+      setState(() => _project = latest);
+      if (result.failures.isNotEmpty) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
@@ -65,14 +92,19 @@ class _ProjectScreenState extends State<ProjectScreen> {
           ),
         );
       }
+      if (importedIds.isNotEmpty && mounted) {
+        final summary = automatic == null
+            ? 'استورد التطبيق الصور، لكن تعذر إنشاء اقتراح ترتيب تلقائي.'
+            : 'قص تلقائي مقترح: ${automatic.cropped} · بلا حدود موثوقة: ${automatic.notDetected} · غير موضوع: ${automatic.unplaced}';
+        await _layout(
+          intakeSummary: summary,
+          intakeWarnings: automatic?.warnings ?? const [],
+        );
+      }
     } catch (error) {
-      if (mounted) {
-        showMessage(context, userError(error));
-      }
+      if (mounted) showMessage(context, userError(error));
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -269,11 +301,18 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
-  Future<void> _layout() async {
+  Future<void> _layout({
+    String? intakeSummary,
+    List<String> intakeWarnings = const [],
+  }) async {
     final saved = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
-        builder: (_) =>
-            LayoutScreen(project: _project, service: widget.service),
+        builder: (_) => LayoutScreen(
+          project: _project,
+          service: widget.service,
+          intakeSummary: intakeSummary,
+          intakeWarnings: intakeWarnings,
+        ),
       ),
     );
     if (saved != null && mounted) setState(() => _project = saved);

@@ -19,6 +19,10 @@ class ExportPlan {
       project.items.any(includes),
       'أضف مستمسكاً إلى الورقة قبل التصدير.',
     );
+    require(
+      project.items.where(includes).every((item) => item.sizeConfirmed),
+      'يوجد مستمسك بقياس غير مؤكد ضمن صفحات التصدير؛ أدخل قياسه الحقيقي وأكّده قبل الطباعة.',
+    );
     for (final item in project.items.where(includes)) {
       require(
         project.paper.printable.contains(item.bounds),
@@ -44,6 +48,11 @@ class ExportPlan {
     if (unplaced > 0) result.add('$unplaced عناصر غير موضوعة لن تُصدّر.');
     for (final e in project.items.where(includes)) {
       final a = project.assets.firstWhere((a) => a.id == e.assetId);
+      if (e.recognitionConfidence > 0 && e.recognitionConfidence < .85) {
+        result.add(
+          '${a.name}: نوع «${e.documentKind.label}» اقتراح منخفض الثقة؛ أكّده يدوياً قبل الطباعة.',
+        );
+      }
       final dpi = math.min(a.width / e.width, a.height / e.height) * 25.4;
       if (dpi < profile.dpi) {
         result.add(

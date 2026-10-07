@@ -55,6 +55,7 @@ void main() {
             y: 30,
             width: 80,
             height: 50,
+            sizeConfirmed: true,
           ),
         ),
       );
@@ -93,6 +94,20 @@ void main() {
       expect(session.current.id, p.id);
     },
   );
+  test('an accepted crop saved by its route joins layout undo and redo history', () async {
+    final p = await repo.create(projectFixture());
+    final session = LayoutSession(p, repo);
+    final cropSaved = await repo.save(p.copyWith(name: 'قص معتمد'));
+
+    await session.adoptSaved(cropSaved);
+    expect(session.current.name, 'قص معتمد');
+    expect(session.history.canUndo, isTrue);
+    await session.undo();
+    expect(session.current.name, p.name);
+    await session.redo();
+    expect(session.current.name, 'قص معتمد');
+  });
+
   test('stale save does not advance draft or history', () async {
     final p = await repo.create(projectFixture());
     final session = LayoutSession(p, repo);

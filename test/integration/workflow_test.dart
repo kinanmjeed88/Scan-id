@@ -145,6 +145,7 @@ void main() {
         width: 85.6,
         height: 53.98,
         zIndex: 1,
+        sizeConfirmed: true,
       );
       final sheet = DocumentItem(
         id: newId(),
@@ -154,6 +155,7 @@ void main() {
         width: 100,
         height: 140,
         zIndex: 2,
+        sizeConfirmed: true,
       );
       project = await projects.save(
         PageLayout.addMany(project, [

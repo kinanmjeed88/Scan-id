@@ -1,5 +1,9 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 
+import '../domain/document_kind.dart';
+import '../domain/image_adjustments.dart';
+import '../domain/packing.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../domain/image_limits.dart';
@@ -9,7 +13,9 @@ import 'camera_capture.dart';
 import 'project_recovery.dart';
 import 'ids.dart';
 import 'image_reader.dart';
+import 'packing_service.dart';
 import '../domain/crop_draft.dart';
+import '../imaging/auto_adjustments.dart' as imaging;
 
 class ImportSource {
   const ImportSource(this.name, this.openRead, {this.cleanup});
@@ -29,6 +35,21 @@ class ImportReport {
   final Project project;
   final int imported;
   final List<ImportFailure> failures;
+}
+
+class AutomaticLayoutReport {
+  AutomaticLayoutReport({
+    required this.project,
+    required this.cropped,
+    required this.notDetected,
+    required List<String> warnings,
+  }) : warnings = List.unmodifiable(warnings);
+
+  final Project project;
+  final int cropped;
+  final int notDetected;
+  final List<String> warnings;
+  int get unplaced => project.items.where((item) => item.pageIndex == null).length;
 }
 
 /// A replaced source: the record is saved and the aspect warning is explicit.
@@ -119,7 +140,167 @@ class ProjectService {
     return ImportReport(current, imported, List.unmodifiable(failures));
   }
 
-  Future<Project> applyCrop(
+  /// Runs the local boundary proposal for newly imported images, stores a
+  /// reversible crop revision when one is found, assigns an explicitly
+  /// reviewable type/size suggestion, then packs only size-confirmed items.
+  /// Imported items remain off-sheet until the user confirms their dimensions;
+  /// existing hand-arranged, confirmed items are immutable obstacles.
+  Future<AutomaticLayoutReport> arrangeImportedImages(
+    Project project,
+    Iterable<String> assetIds,
+  ) async {
+    var current = project;
+    var cropped = 0;
+    var notDetected = 0;
+    final warnings = <String>[];
+    final newItems = <DocumentItem>[];
+    final uniqueIds = assetIds.toSet();
+
+    for (final id in uniqueIds) {
+      final assetIndex = current.assets.indexWhere((entry) => entry.id == id);
+      require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
+      if (current.items.any((item) => item.assetId == id)) continue;
+      var asset = current.assets[assetIndex];
+
+      final editor = imageEditor;
+      if (editor == null) {
+        notDetected++;
+        warnings.add('${asset.name}: كشف الحدود غير متاح في هذا البناء.');
+      } else {
+        try {
+          final source = await editor.open(asset);
+          final corners = await editor.suggest(source.preview);
+          if (corners == null) {
+            notDetected++;
+            warnings.add('${asset.name}: لم تُكتشف حدود موثوقة؛ أبقينا الصورة كاملة.');
+          } else {
+            current = await applyCrop(
+              current,
+              asset,
+              CropDraft(
+                corners: corners,
+                adjustments: asset.adjustments,
+              ).toRecipe(source.width, source.height),
+            );
+            asset = current.assets.firstWhere((entry) => entry.id == id);
+            cropped++;
+          }
+        } on RevisionConflict {
+          rethrow;
+        } catch (error) {
+          notDetected++;
+          warnings.add(
+            '${asset.name}: تعذر تطبيق اقتراح القص؛ بقي الأصل محفوظاً (${userError(error)}).',
+          );
+        }
+      }
+
+      final suggestion = suggestDocumentType(
+        name: asset.name,
+        width: asset.width,
+        height: asset.height,
+      );
+      final reference = suggestion.kind.publishedReferenceSize(
+        landscape: asset.width >= asset.height,
+      );
+      final size = reference ??
+          provisionalSize(width: asset.width, height: asset.height);
+      final nextZ = current.items.fold<int>(
+        0,
+        (value, item) => math.max(value, item.zIndex),
+      );
+      newItems.add(
+        DocumentItem(
+          id: newId(),
+          assetId: asset.id,
+          x: current.paper.margins.left,
+          y: current.paper.margins.top,
+          width: size.width,
+          height: size.height,
+          pageIndex: null,
+          zIndex: nextZ + newItems.length + 1,
+          documentKind: suggestion.kind,
+          recognitionConfidence: suggestion.confidence,
+          // A type/name/ratio guess or published reference is not confirmation
+          // that this particular document edition has the entered dimensions.
+          sizeConfirmed: false,
+        ),
+      );
+      warnings.add(
+        reference == null
+            ? '${asset.name}: الحجم المعروض مؤقت فقط؛ أدخل القياس الحقيقي وأكّده قبل وضعه على A4.'
+            : '${asset.name}: عُرض مرجع قياس خاص بإصدار منشور؛ تحقّق من مطابقة نسختك وأكّد القياس قبل وضعه على A4.',
+      );
+    }
+
+    if (newItems.isEmpty) {
+      return AutomaticLayoutReport(
+        project: current,
+        cropped: cropped,
+        notDetected: notDetected,
+        warnings: warnings,
+      );
+    }
+    current = current.copyWith(items: [...current.items, ...newItems]);
+    try {
+      final proposal = await createPackingProposal(
+        current,
+        includeLocked: false,
+        allowRotation: false,
+        onlyUnplaced: true,
+        pageIndex: 0,
+      );
+      current = await projects.save(proposal.result);
+      if (proposal.unplaced.isNotEmpty) {
+        warnings.add(
+          'تعذر وضع ${proposal.unplaced.length} مستمسكاً في الصفحة الأولى دون تغيير مقاسه؛ بقي غير موضوع.',
+        );
+      }
+    } on RevisionConflict {
+      rethrow;
+    } catch (error) {
+      // Do not lose imported references if a legacy page has an invalid fixed
+      // obstacle. Keep the new items unplaced and let the user repair the page.
+      current = await projects.save(current);
+      warnings.add(
+        'تعذر ترتيب الصفحة تلقائياً؛ حُفظت المستمسكات غير موضوعة لتعديلها يدوياً (${userError(error)}).',
+      );
+    }
+    return AutomaticLayoutReport(
+      project: current,
+      cropped: cropped,
+      notDetected: notDetected,
+      warnings: warnings,
+    );
+  }
+
+  /// Suggests a non-destructive, local auto-enhancement preset for manual
+  /// review. The returned values can still be changed independently by sliders.
+  Future<ImageAdjustments> suggestAutoAdjustments(
+    Project project,
+    ImageAsset asset,
+  ) async {
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    require(
+      project.assets.any(
+        (entry) =>
+            entry.id == asset.id &&
+            entry.originalPath == asset.originalPath &&
+            entry.workingPath == asset.workingPath,
+      ),
+      'الصورة لا تطابق حالة المشروع الحالية.',
+    );
+    final source = await editor!.open(asset);
+    return Isolate.run(
+      () => imaging.suggestAutoAdjustments(
+        source.preview,
+        quarterTurns: asset.adjustments.quarterTurns,
+      ),
+    );
+  }
+
+  Future<ImageAsset> createImageRevision(
     Project project,
     ImageAsset asset,
     ImageEditRecipe recipe,
@@ -128,14 +309,22 @@ class ProjectService {
     require(editor != null, 'خدمة معالجة الصور غير متاحة.');
     require(
       project.assets.any(
-        (a) =>
-            a.id == asset.id &&
-            a.originalPath == asset.originalPath &&
-            a.workingPath == asset.workingPath,
+        (entry) =>
+            entry.id == asset.id &&
+            entry.originalPath == asset.originalPath &&
+            entry.workingPath == asset.workingPath,
       ),
       'الصورة لا تطابق حالة المشروع الحالية.',
     );
-    final updated = await editor!.createRevision(asset, recipe);
+    return editor!.createRevision(asset, recipe);
+  }
+
+  Future<Project> applyCrop(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async {
+    final updated = await createImageRevision(project, asset, recipe);
     return projects.save(
       project.copyWith(
         assets: [

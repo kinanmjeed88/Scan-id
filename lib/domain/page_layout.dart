@@ -67,6 +67,10 @@ class PageLayout {
     for (final e in p.items) {
       if (e.pageIndex == null) continue;
       require(
+        e.sizeConfirmed,
+        'لا يمكن وضع مستمسك بقياس غير مؤكد على الورقة؛ أدخل قياسه وأكّده أولاً.',
+      );
+      require(
         p.paper.printable.contains(e.bounds),
         'العنصر خارج حدود الطباعة؛ عدّل الموضع أو المقاس.',
       );

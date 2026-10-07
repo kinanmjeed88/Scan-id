@@ -54,7 +54,8 @@ img.Image _scene(
         final f = ((d + 12) / 24).clamp(0.0, 1.0);
         c = [for (final v in c) v * (1 - .35 * f)];
       }
-      if (quad != null && _signedInside(x.toDouble(), y.toDouble(), quad) >= 0) {
+      if (quad != null &&
+          _signedInside(x.toDouble(), y.toDouble(), quad) >= 0) {
         final px = x - x0 - 30, py = y - y0 - 40;
         if (px >= 0 && px < 60 && py >= 0 && py < 70) {
           c = [110, 95, 90];
@@ -147,27 +148,26 @@ void main() {
 
   test('finds a rotated ID card with a shadow on wood grain', () {
     final truth = _rotated(330, 250, 300, 300 / 1.5858, 17);
-    final found = detectDocumentCorners(
-      _scene(_wood, truth, [225, 228, 235]),
-    );
+    final found = detectDocumentCorners(_scene(_wood, truth, [225, 228, 235]));
     expect(found, isNotNull);
     expect(_maxError(found!, truth), lessThan(.005));
   });
 
   test('finds a card photographed in perspective on a dark cloth', () {
-    final truth = [(170.0, 130.0), (470.0, 110.0), (500.0, 330.0), (150.0, 360.0)];
-    final found = detectDocumentCorners(
-      _scene(_dark, truth, [230, 215, 160]),
-    );
+    final truth = [
+      (170.0, 130.0),
+      (470.0, 110.0),
+      (500.0, 330.0),
+      (150.0, 360.0),
+    ];
+    final found = detectDocumentCorners(_scene(_dark, truth, [230, 215, 160]));
     expect(found, isNotNull);
     expect(_maxError(found!, truth), lessThan(.005));
   });
 
   test('corners are normalized, clockwise and start at the top-left', () {
     final truth = _rotated(330, 250, 300, 300 / 1.5858, 17);
-    final found = detectDocumentCorners(
-      _scene(_wood, truth, [225, 228, 235]),
-    )!;
+    final found = detectDocumentCorners(_scene(_wood, truth, [225, 228, 235]))!;
     expect(
       CropGeometry(corners: found, outputWidth: 10, outputHeight: 10).corners,
       hasLength(4),

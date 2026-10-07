@@ -164,9 +164,7 @@ class _Field {
           gyy += gy * gy;
           gxy += gx * gy;
         }
-        final det = math.sqrt(
-          (gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy,
-        );
+        final det = math.sqrt((gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy);
         final i = yc + x;
         mag[i] = math.sqrt(math.max(0.0, (gxx + gyy + det) / 2) / 3) / 4;
         final t = .5 * math.atan2(2 * gxy, gxx - gyy);
@@ -527,13 +525,20 @@ class _Detector {
         // colour on both sides and must not vote for document boundaries.
         final xa = (x + f.nx[i] * 3).round(), ya = (y + f.ny[i] * 3).round();
         final xb = (x - f.nx[i] * 3).round(), yb = (y - f.ny[i] * 3).round();
-        if (xa >= 0 && ya >= 0 && xa < w && ya < h &&
-            xb >= 0 && yb >= 0 && xb < w && yb < h) {
+        if (xa >= 0 &&
+            ya >= 0 &&
+            xa < w &&
+            ya < h &&
+            xb >= 0 &&
+            yb >= 0 &&
+            xb < w &&
+            yb < h) {
           final ia = ya * w + xa, ib = yb * w + xb;
           final c = f.rgb;
           final dr = c.r[ia] - c.r[ib], dg = c.g[ia] - c.g[ib];
           final db = c.b[ia] - c.b[ib];
-          if (math.sqrt(dr * dr + dg * dg + db * db) < math.max(12.0, 1.2 * m)) {
+          if (math.sqrt(dr * dr + dg * dg + db * db) <
+              math.max(12.0, 1.2 * m)) {
             continue;
           }
         }
@@ -781,13 +786,11 @@ class _Peak {
 
 // ------------------------------------------------------------------ helpers
 
-double _dist(_P a, _P b) => math.sqrt(
-  (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y),
-);
+double _dist(_P a, _P b) =>
+    math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
 
-double _mean(List<double> values) => values.isEmpty
-    ? 0
-    : values.reduce((a, b) => a + b) / values.length;
+double _mean(List<double> values) =>
+    values.isEmpty ? 0 : values.reduce((a, b) => a + b) / values.length;
 
 double _median(List<double> values) {
   if (values.isEmpty) {
@@ -795,7 +798,9 @@ double _median(List<double> values) {
   }
   final sorted = [...values]..sort();
   final mid = sorted.length ~/ 2;
-  return sorted.length.isOdd ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return sorted.length.isOdd
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 /// Mean per-channel standard deviation.
@@ -860,8 +865,9 @@ List<_P> _orderQuad(List<_P> q) {
   final cy = _mean([for (final p in q) p.y]);
   final sorted = [...q]
     ..sort(
-      (a, b) =>
-          math.atan2(a.y - cy, a.x - cx).compareTo(math.atan2(b.y - cy, b.x - cx)),
+      (a, b) => math
+          .atan2(a.y - cy, a.x - cx)
+          .compareTo(math.atan2(b.y - cy, b.x - cx)),
     );
   var start = 0;
   var bestDx = -2.0;
@@ -884,7 +890,8 @@ bool _validQuad(List<_P> q, int w, int h, double minArea) {
     }
     final a = q[(i + 3) % 4], b = q[i], c = q[(i + 1) % 4];
     final v1x = a.x - b.x, v1y = a.y - b.y, v2x = c.x - b.x, v2y = c.y - b.y;
-    final l = math.sqrt(v1x * v1x + v1y * v1y) * math.sqrt(v2x * v2x + v2y * v2y);
+    final l =
+        math.sqrt(v1x * v1x + v1y * v1y) * math.sqrt(v2x * v2x + v2y * v2y);
     if (l == 0) {
       return false;
     }
@@ -929,10 +936,7 @@ List<_P> _hull(List<_P> input) {
     }
     upper.add(p);
   }
-  return [
-    ...lower.take(lower.length - 1),
-    ...upper.take(upper.length - 1),
-  ];
+  return [...lower.take(lower.length - 1), ...upper.take(upper.length - 1)];
 }
 
 /// Reduces a convex polygon to the enclosing quadrilateral by repeatedly

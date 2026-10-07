@@ -225,4 +225,36 @@ void main() {
       arrangeDocuments(project).result.toJson(),
     );
   });
+
+  test('a document without a confirmed size never stays on a page', () {
+    // Saved projects already load such documents off the sheet and the layout
+    // check rejects them on a page; arranging follows the same rule, in every
+    // strategy and scope, instead of keeping a guessed size on the paper.
+    for (final strategy in ArrangementStrategy.values) {
+      for (final keepPlaced in [false, true]) {
+        final reason = '$strategy, keepPlaced: $keepPlaced';
+        final result = arrangeDocuments(
+          _project([
+            _doc(
+              'legacy',
+              DocumentKind.unknown,
+              confirmed: false,
+              page: 0,
+              x: 40,
+              y: 5,
+            ),
+            _doc('id', DocumentKind.unifiedNationalId),
+          ]),
+          strategy: strategy,
+          keepPlaced: keepPlaced,
+        );
+        final r = result.result;
+        expect(PageLayout.item(r, 'legacy').pageIndex, isNull, reason: reason);
+        expect(result.awaitingSize, ['legacy'], reason: reason);
+        expect(result.unplaced, isEmpty, reason: reason);
+        expect(PageLayout.item(r, 'id').pageIndex, 0, reason: reason);
+        expect(() => PageLayout.checked(r), returnsNormally, reason: reason);
+      }
+    }
+  });
 }

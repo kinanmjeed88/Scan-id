@@ -4,7 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/packing.dart';
+import 'package:scan_id/domain/page_layout.dart';
+import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
@@ -32,7 +33,7 @@ void main() {
   });
 
   test(
-    'imports are classified but unconfirmed sizes stay off the A4 sheet',
+    'labelled imports get catalog sizes and are arranged in category order',
     () async {
       final bytes = img.encodePng(img.Image(width: 860, height: 540));
       final created = await service.create('معاملة');
@@ -49,60 +50,78 @@ void main() {
       expect(result.project.paper.width, 210);
       expect(result.project.paper.height, 297);
       expect(result.project.items, hasLength(3));
-      expect(
-        result.project.items.every((item) => item.pageIndex == null),
-        isTrue,
-      );
-      expect(result.project.items.every((item) => !item.sizeConfirmed), isTrue);
-      final national = result.project.items.singleWhere(
-        (item) => item.documentKind == DocumentKind.unifiedNationalId,
-      );
-      final residence = result.project.items.singleWhere(
-        (item) => item.documentKind == DocumentKind.residenceCard,
-      );
-      final passport = result.project.items.singleWhere(
-        (item) => item.documentKind == DocumentKind.passport,
-      );
-
-      expect([national.width, national.height], [86, 54]);
-      expect([passport.width, passport.height], [125, 88]);
-      expect(residence.sizeConfirmed, isFalse);
-      expect(result.unplaced, 3);
-      expect(result.notDetected, 3);
+      expect(result.recognized, 3);
+      expect(result.unplaced, 0);
+      expect(result.notDetected, 3, reason: 'flat images have no boundary');
       expect(result.cropped, 0);
-      expect(result.warnings, hasLength(6));
-
-      final confirmed = result.project.copyWith(
-        items: [
-          for (final item in result.project.items)
-            item.copyWith(sizeConfirmed: true),
-        ],
-      );
-      final proposal = proposePacking(
-        confirmed,
-        includeLocked: false,
-        allowRotation: false,
-        onlyUnplaced: true,
-      );
-      expect(
-        proposal.result.items.every((item) => item.pageIndex == 0),
-        isTrue,
-      );
-      expect(
-        proposal.result.items.firstWhere((item) => item.id == national.id).x,
-        10,
-        reason: 'بعد تأكيد القياسات يبدأ الترتيب بالبطاقة الوطنية',
-      );
-      expect(
-        proposal.result.items.firstWhere((item) => item.id == national.id).y,
-        10,
-      );
+      expect(result.project.items.every((item) => item.sizeConfirmed), isTrue);
+      expect(result.project.items.every((item) => item.pageIndex == 0), isTrue);
+      expect(inspectLayout(result.project), isEmpty);
+      DocumentItem kind(DocumentKind kind) =>
+          result.project.items.singleWhere((item) => item.documentKind == kind);
+      final national = kind(DocumentKind.unifiedNationalId);
+      final residence = kind(DocumentKind.residenceCard);
+      final passport = kind(DocumentKind.passport);
+      expect([national.width, national.height], [85.6, 53.98]);
+      expect([residence.width, residence.height], [92.4, 62.8]);
+      expect([passport.width, passport.height], [125, 88]);
+      expect(national.y, 5, reason: 'the unified card opens the page');
+      expect(residence.y, greaterThan(national.y));
+      expect(passport.y, greaterThan(residence.y));
       expect(
         (await projects.get(created.id)).toJson(),
         result.project.toJson(),
       );
     },
   );
+
+  test(
+    'the boundary shape alone recognises a card and rectifies it exactly',
+    () async {
+      final source = img.Image(width: 240, height: 170);
+      img.fill(source, color: img.ColorRgb8(60, 45, 30));
+      img.fillRect(
+        source,
+        x1: 40,
+        y1: 35,
+        x2: 199,
+        y2: 135,
+        color: img.ColorRgb8(235, 235, 230),
+      );
+      final bytes = img.encodePng(source);
+      var project = await service.create('شكل');
+      project = (await service.importImages(project, [
+        ImportSource('IMG_2041.png', () => Stream.value(bytes)),
+      ])).project;
+      final report = await service.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+      final asset = report.project.assets.single;
+      final item = report.project.items.single;
+      expect(report.cropped, 1);
+      expect(item.documentKind, DocumentKind.unifiedNationalId);
+      expect(asset.width / asset.height, closeTo(85.6 / 53.98, .02));
+      expect(item.pageIndex, 0);
+      expect(item.sizeConfirmed, isTrue);
+    },
+  );
+
+  test('an unrecognised document waits off the sheet', () async {
+    final bytes = img.encodePng(img.Image(width: 400, height: 400));
+    var project = await service.create('غير معروف');
+    project = (await service.importImages(project, [
+      ImportSource('photo.png', () => Stream.value(bytes)),
+    ])).project;
+    final report = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final item = report.project.items.single;
+    expect(item.documentKind, DocumentKind.unknown);
+    expect(item.pageIndex, isNull);
+    expect(item.sizeConfirmed, isFalse);
+    expect(report.unplaced, 1);
+    expect(report.recognized, 0);
+  });
 
   test(
     'detected boundaries create a reversible crop while source bytes stay intact',
@@ -137,8 +156,14 @@ void main() {
         report.project.items.single.documentKind,
         DocumentKind.unifiedNationalId,
       );
-      expect(report.project.items.single.pageIndex, isNull);
-      expect(report.project.items.single.sizeConfirmed, isFalse);
+      expect(report.project.items.single.pageIndex, 0);
+      expect(report.project.items.single.sizeConfirmed, isTrue);
+      final asset = report.project.assets.single;
+      expect(
+        asset.width / asset.height,
+        closeTo(85.6 / 53.98, .02),
+        reason: 'the crop is rectified to the ID-1 shape',
+      );
     },
   );
 }

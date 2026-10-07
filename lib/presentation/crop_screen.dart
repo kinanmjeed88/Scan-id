@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../application/contracts.dart';
 import '../application/project_service.dart';
 import '../domain/crop_draft.dart';
+import '../domain/document_kind.dart';
 import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
 import '../domain/project.dart';
@@ -18,11 +19,16 @@ class CropScreen extends StatefulWidget {
     required this.project,
     required this.asset,
     required this.service,
+    this.documentKind = DocumentKind.unknown,
     super.key,
   });
   final Project project;
   final ImageAsset asset;
   final ProjectService service;
+
+  /// Category of the document being cut; its catalog shape is the default
+  /// aspect ratio so the rectified image matches the printed size exactly.
+  final DocumentKind documentKind;
   @override
   State<CropScreen> createState() => _CropScreenState();
 }
@@ -59,8 +65,16 @@ class _CropScreenState extends State<CropScreen> {
         return;
       }
       final crop = widget.asset.crop;
+      final shape = widget.project.catalog.sizeFor(
+        widget.documentKind,
+        landscape: source.width >= source.height,
+      );
       final initial = crop == null
-          ? CropDraft.fullImage()
+          ? CropDraft(
+              corners: CropDraft.fullImage().corners,
+              adjustments: widget.asset.adjustments,
+              aspectRatio: shape == null ? null : shape.width / shape.height,
+            )
           : CropDraft(
               corners: crop.corners,
               adjustments: widget.asset.adjustments,
@@ -81,6 +95,47 @@ class _CropScreenState extends State<CropScreen> {
         });
       }
     }
+  }
+
+  /// Whether the quadrilateral currently selected is wider than tall.
+  bool get _draftLandscape {
+    final source = _source!;
+    final c = _draft!.corners;
+    double edge(int a, int b) => math.sqrt(
+      math.pow((c[a].x - c[b].x) * source.width, 2) +
+          math.pow((c[a].y - c[b].y) * source.height, 2),
+    );
+    return edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
+  }
+
+  /// Catalog shapes turned to the orientation of the current selection.
+  List<(String, double)> _aspectPresets() {
+    final landscape = _draftLandscape;
+    return [
+      for (final kind in const [
+        DocumentKind.unifiedNationalId,
+        DocumentKind.residenceCard,
+        DocumentKind.passport,
+        DocumentKind.rationCard,
+      ])
+        () {
+          final size = widget.project.catalog
+              .natural(kind)!
+              .oriented(landscape: landscape);
+          return (kind.label, size.width / size.height);
+        }(),
+      ('A4', landscape ? 297 / 210 : 210 / 297),
+      ('مربع', 1.0),
+    ];
+  }
+
+  double? _aspectChoice() {
+    final ratio = _draft!.aspectRatio;
+    if (ratio == null) return null;
+    for (final preset in _aspectPresets()) {
+      if ((preset.$2 - ratio).abs() < 1e-6) return preset.$2;
+    }
+    return -1;
   }
 
   void _change(CropDraft next) {
@@ -605,28 +660,19 @@ class _CropScreenState extends State<CropScreen> {
             label: Text('تدوير · ${adjustments.quarterTurns * 90}°'),
           ),
           const SizedBox(height: 12),
-          const Text('نسبة الأبعاد (اختيارية؛ ليست قياساً فعلياً)'),
+          const Text('شكل المستمسك (يحدد نسبة الأبعاد بعد التصحيح)'),
           DropdownButton<double?>(
             key: const Key('crop-aspect'),
             isExpanded: true,
-            value: _draft!.aspectRatio == null
-                ? null
-                : ((_draft!.aspectRatio! - 85.6 / 53.98).abs() < 1e-6
-                      ? 85.6 / 53.98
-                      : ((_draft!.aspectRatio! - 210 / 297).abs() < 1e-6
-                            ? 210 / 297
-                            : ((_draft!.aspectRatio! - 1).abs() < 1e-6
-                                  ? 1
-                                  : -1))),
-            items: const [
-              DropdownMenuItem(value: null, child: Text('تقدير من الزوايا')),
-              DropdownMenuItem(
-                value: 85.6 / 53.98,
-                child: Text('نسبة بطاقة 85.6 : 53.98'),
+            value: _aspectChoice(),
+            items: [
+              const DropdownMenuItem(
+                value: null,
+                child: Text('تقدير من الزوايا'),
               ),
-              DropdownMenuItem(value: 210 / 297, child: Text('نسبة A4 عمودي')),
-              DropdownMenuItem(value: 1, child: Text('مربع')),
-              DropdownMenuItem(
+              for (final preset in _aspectPresets())
+                DropdownMenuItem(value: preset.$2, child: Text(preset.$1)),
+              const DropdownMenuItem(
                 value: -1,
                 enabled: false,
                 child: Text('النسبة المحفوظة'),

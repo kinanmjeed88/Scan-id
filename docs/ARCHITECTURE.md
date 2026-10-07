@@ -1,5 +1,56 @@
 # Scan ID — قرارات المعمارية وخطة التنفيذ
 
+## المعمارية الحالية — PR #4 (2026-10-07)
+
+يصف هذا القسم الشيفرة كما هي الآن، ويحل محل أي قرار أقدم أدناه يخالفه؛ البنود المستبدلة مذكورة في آخره.
+
+### خريطة المكوّنات
+
+| المسؤولية | الملفات | الواجهة العامة |
+|---|---|---|
+| كشف الحدود | `lib/imaging/document_detector.dart` | `suggestDocumentCorners(Uint8List)` يرجع أربع زوايا مطبّعة أو `null`؛ يُستدعى داخل isolate من `LocalImageEditor.suggest` |
+| القص والمنظور | `lib/domain/crop_draft.dart`، `lib/imaging/perspective.dart`، `lib/presentation/crop_screen.dart` | `CropDraft` ← `ImageEditRecipe` ← `ImageEditor.createRevision`؛ الأصل لا يُستبدل |
+| الأنواع والمقاسات | `lib/domain/document_kind.dart` | `DocumentKind` (ترتيبه هو ترتيب الورقة)، `PhysicalSizeMm`، `DocumentSizeCatalog`، `suggestDocumentType` |
+| النموذج | `lib/domain/project.dart` | `Project` (schema 4، يقرأ 1–4)، `DocumentItem` (`documentKind`، `recognitionConfidence`، `sizeConfirmed`، `pageIndex` = `null` خارج الورق) |
+| تعديلات المستمسك | `lib/domain/document_edits.dart` | `setKind`، `resize`، `resetSize`، `rotate`، `applyCatalog` — دوال نقية على `Project` |
+| الهندسة بالمليمتر | `lib/domain/geometry.dart`، `lib/domain/page_layout.dart` | `RectMm`، `PageLayout.checked/move/align/distribute`؛ المليمتر وحدة النموذج الوحيدة |
+| الترتيب | `lib/domain/arrangement.dart`، `lib/domain/packing.dart` | `arrangeDocuments` (حسب النوع أو مضغوط MaxRects عبر `proposePacking`) |
+| الاستيراد الآلي | `lib/application/project_service.dart` | `arrangeImportedImages`: لكل صورة بالتتابع: كشف ← تصنيف ← قص بنسبة مقاس النوع (نسخة محفوظة) ← عنصر؛ ثم ترتيب وحفظ واحد للعناصر |
+| جلسة التحرير | `lib/application/layout_session.dart`، `lib/presentation/editor_controller.dart` | `LayoutEditorController` مصدر حالة المحرر الوحيد: التحديد، السحب، التعديل الحي، التراجع |
+| العرض | `lib/presentation/sheet_view.dart`، `page_canvas.dart` | `PageCanvas` المكان الوحيد الذي يحوّل المليمتر إلى بكسلات (`scale` = بكسل/مم) |
+| الشريط | `lib/presentation/ribbon.dart`، `layout_screen.dart` | `RibbonGroup`/`RibbonStack`/`RibbonButton`؛ مفاتيح `rb-*` ثابتة للاختبارات |
+| التخزين | `lib/persistence/` | Sembast بمراجعات متفائلة، نقاط استرداد، نسخ `.scanid` |
+| التصدير | `lib/export/document_exporter.dart` | PDF/PNG/JPG من نفس مستطيلات المليمتر وتدوير المركز |
+
+### قواعد ثابتة
+
+1. **مقاس غير مؤكد لا يوضع على الورق.** `Project.fromJson` يزيل الصفحة، `PageLayout.checked` يرفض، `DocumentEdits.setKind(unknown)` يسحب العنصر، و`arrangeDocuments` ينقله إلى `awaitingSize`. حالته الظاهرة `AutoLayoutStatus.sizeUnconfirmed` (غير صالح للترتيب التلقائي)؛ `autoLayoutStatus` هي المصدر الوحيد الذي يقرؤه الشريط خارج الورق وشريط الحالة. التوافق مع صيغ التخزين السابقة مثبت في `test/persistence/legacy_schema_test.dart`.
+2. **لا تصغير تلقائي.** ما لا يتسع في المساحة القابلة للطباعة يُبلَّغ عنه في `unplaced`.
+3. **المثبت عائق ثابت** في كل طرق الترتيب؛ `keepPlaced` يجعل كل الموضوع ثابتاً.
+4. **التصنيف لا يستنتج المقاس من البكسلات:** يحدد النوع (اسم الملف أولاً ثم شكل الحدود ضمن 4%)، والمقاس يأتي من الكتالوج. نسب إطارات الكاميرا الشائعة دون حدود مكتشفة ← «غير محدد».
+5. **التعديل الحي:** الألوان عبر `ColorFilter` فوراً، ونسخة صورة واحدة تُكتب بعد توقف التحريك؛ تعديلات الحجم والنوع أوامر محفوظة قابلة للتراجع، والترتيب المستمر يعيد الترتيب بعدها.
+
+### نموذج الإدخال على الورقة
+
+لكل مستمسك نفس مجموعة المميِّزات (نقرة + سحب) سواء كان محدداً أم لا، وتتغير إعداداتها فقط. لذلك لا يُلغى سحب يحدد مستمسكه أثناء إعادة البناء.
+
+| الإيماءة | الفأرة | اللمس / القلم | لوحة اللمس بإصبعين |
+|---|---|---|---|
+| مستمسك محدد | يتحرك فوراً | يتحرك فوراً، لا تمرير | تمرير |
+| مستمسك غير محدد | يتحرك بعد 2px | نقرة تحدد؛ السحب يمرّر الصفحات | تمرير |
+| مستمسك مثبت | لا شيء | تمرير | تمرير |
+| الورق الفارغ | لا شيء | تمرير | تمرير |
+| مقبض الزاوية | تغيير الحجم | تغيير الحجم | — |
+| Ctrl/Shift أو «تحديد متعدد» | إضافة/إزالة دون تحريك | إضافة/إزالة دون تحريك | — |
+
+### قرارات أقدم استُبدلت
+
+- «لا استنتاج للحجم الفيزيائي… أبعاد المستمسك يدخلها المستخدم» (القرار 9 والمرحلة B) و«كل عنصر مستورد يبقى غير موضوع حتى يؤكد المستخدم» (S7): صار النوع المعروف يأخذ مقاس الكتالوج ويوضع تلقائياً؛ غير المعروف وحده ينتظر خارج الورق. المقاس ما زال لا يُستنتج من البكسلات.
+- «اقتراح packing immutable مع مراجعة/رفض» (C وS6): الترتيب يُطبَّق مباشرة كأمر واحد قابل للتراجع؛ لا معاينة اقتراح ولا خيار «تضمين المثبت» (المثبت ثابت دائماً)، والنطاق كل الصفحات.
+- «تحديد متعدد عبر chips»: Ctrl/Shift+نقرة و«تحديد متعدد» في مجموعة «التحديد».
+- مخطط الإصدار 2/3: الحالي 4 مع قراءة 1–4.
+- عزل الترتيب في isolate: `arrangeDocuments` متزامن (حد 100 صفحة).
+
 ## حالة المستودع والتدقيق (2026-10-06)
 
 - نقطة البداية: `6749dcd`، ملف `README.md` فقط، لا تطبيق أو اختبارات أو تخزين سابق.

@@ -1,6 +1,8 @@
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
+import '../domain/arrangement.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/project.dart';
@@ -12,7 +14,6 @@ import 'camera_capture.dart';
 import 'project_recovery.dart';
 import 'ids.dart';
 import 'image_reader.dart';
-import 'packing_service.dart';
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
 
@@ -41,12 +42,16 @@ class AutomaticLayoutReport {
     required this.project,
     required this.cropped,
     required this.notDetected,
+    this.recognized = 0,
     required List<String> warnings,
   }) : warnings = List.unmodifiable(warnings);
 
   final Project project;
   final int cropped;
   final int notDetected;
+
+  /// Documents whose category (and therefore size) was recognised.
+  final int recognized;
   final List<String> warnings;
   int get unplaced =>
       project.items.where((item) => item.pageIndex == null).length;
@@ -85,10 +90,31 @@ class ProjectService {
   final ProjectRepository projects;
   final AssetRepository assets;
 
+  /// New projects use 5 mm margins (so a 287 mm ration card fits an A4
+  /// height) and inherit the editable document sizes of the most recently
+  /// edited project, so a corrected residence/ration size is set only once.
   Future<Project> create(String name) async {
     final now = DateTime.now().toUtc();
+    var catalog = const DocumentSizeCatalog();
+    try {
+      final existing = await projects.list();
+      if (existing.isNotEmpty) {
+        catalog = existing
+            .reduce((a, b) => a.updatedAt.isAfter(b.updatedAt) ? a : b)
+            .catalog;
+      }
+    } on Object {
+      // A damaged list must not block creating a fresh project.
+    }
     return projects.create(
-      Project(id: newId(), name: name.trim(), createdAt: now, updatedAt: now),
+      Project(
+        id: newId(),
+        name: name.trim(),
+        createdAt: now,
+        updatedAt: now,
+        paper: PaperSettings(margins: Margins.all(5)),
+        catalog: catalog,
+      ),
     );
   }
 
@@ -140,27 +166,40 @@ class ProjectService {
     return ImportReport(current, imported, List.unmodifiable(failures));
   }
 
-  /// Runs the local boundary proposal for newly imported images, stores a
-  /// reversible crop revision when one is found, assigns an explicitly
-  /// reviewable type/size suggestion, then packs only size-confirmed items.
-  /// Imported items remain off-sheet until the user confirms their dimensions;
-  /// existing hand-arranged, confirmed items are immutable obstacles.
+  /// The automatic intake pipeline for newly imported images:
+  ///
+  /// 1. detect the document boundary and recognise the category from the
+  ///    filename or the boundary shape;
+  /// 2. crop along the boundary, rectified to the category's exact aspect
+  ///    ratio so the printed document is not stretched;
+  /// 3. give the document its catalog size (unified card, residence card,
+  ///    passport, ration card) and arrange every unlocked document over as
+  ///    many A4 pages as needed, in category order.
+  ///
+  /// Documents of an unknown category stay off the sheet until the user picks
+  /// a category from the ribbon. Every step is saved and can be undone or
+  /// corrected (crop handles, category, size) afterwards.
+  ///
+  /// With [keepPlaced] the documents already on the sheet stay where they
+  /// are and only the new ones are placed into free space.
   Future<AutomaticLayoutReport> arrangeImportedImages(
     Project project,
-    Iterable<String> assetIds,
-  ) async {
+    Iterable<String> assetIds, {
+    bool keepPlaced = false,
+  }) async {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
+    var recognized = 0;
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
-    final uniqueIds = assetIds.toSet();
 
-    for (final id in uniqueIds) {
+    for (final id in assetIds.toSet()) {
       final assetIndex = current.assets.indexWhere((entry) => entry.id == id);
       require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
       if (current.items.any((item) => item.assetId == id)) continue;
       var asset = current.assets[assetIndex];
+      DocumentTypeSuggestion? suggestion;
 
       final editor = imageEditor;
       if (editor == null) {
@@ -173,17 +212,33 @@ class ProjectService {
           if (corners == null) {
             notDetected++;
             warnings.add(
-              '${asset.name}: لم تُكتشف حدود موثوقة؛ أبقينا الصورة كاملة.',
+              '${asset.name}: لم تُكتشف حدود واضحة؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
             );
           } else {
-            current = await applyCrop(
-              current,
-              asset,
-              CropDraft(
-                corners: corners,
-                adjustments: asset.adjustments,
-              ).toRecipe(source.width, source.height),
+            final estimate = CropDraft(
+              corners: corners,
+              adjustments: asset.adjustments,
+            ).toRecipe(source.width, source.height);
+            final outputWidth = estimate.geometry.outputWidth;
+            final outputHeight = estimate.geometry.outputHeight;
+            suggestion = suggestDocumentType(
+              name: asset.name,
+              width: outputWidth,
+              height: outputHeight,
+              catalog: current.catalog,
             );
+            final size = current.catalog.sizeFor(
+              suggestion.kind,
+              landscape: outputWidth >= outputHeight,
+            );
+            final recipe = size == null
+                ? estimate
+                : CropDraft(
+                    corners: corners,
+                    adjustments: asset.adjustments,
+                    aspectRatio: size.width / size.height,
+                  ).toRecipe(source.width, source.height);
+            current = await applyCrop(current, asset, recipe);
             asset = current.assets.firstWhere((entry) => entry.id == id);
             cropped++;
           }
@@ -192,22 +247,33 @@ class ProjectService {
         } catch (error) {
           notDetected++;
           warnings.add(
-            '${asset.name}: تعذر تطبيق اقتراح القص؛ بقي الأصل محفوظاً (${userError(error)}).',
+            '${asset.name}: تعذر تطبيق القص التلقائي؛ بقي الأصل محفوظاً (${userError(error)}).',
           );
         }
       }
 
-      final suggestion = suggestDocumentType(
+      suggestion ??= suggestDocumentType(
         name: asset.name,
         width: asset.width,
         height: asset.height,
+        catalog: current.catalog,
+        fullFrame: true,
       );
-      final reference = suggestion.kind.publishedReferenceSize(
+      final kind = suggestion.kind;
+      final catalogSize = current.catalog.sizeFor(
+        kind,
         landscape: asset.width >= asset.height,
       );
       final size =
-          reference ??
+          catalogSize ??
           provisionalSize(width: asset.width, height: asset.height);
+      if (catalogSize != null) {
+        recognized++;
+      } else {
+        warnings.add(
+          '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
+        );
+      }
       final nextZ = current.items.fold<int>(
         0,
         (value, item) => math.max(value, item.zIndex),
@@ -222,17 +288,10 @@ class ProjectService {
           height: size.height,
           pageIndex: null,
           zIndex: nextZ + newItems.length + 1,
-          documentKind: suggestion.kind,
+          documentKind: kind,
           recognitionConfidence: suggestion.confidence,
-          // A type/name/ratio guess or published reference is not confirmation
-          // that this particular document edition has the entered dimensions.
-          sizeConfirmed: false,
+          sizeConfirmed: catalogSize != null,
         ),
-      );
-      warnings.add(
-        reference == null
-            ? '${asset.name}: الحجم المعروض مؤقت فقط؛ أدخل القياس الحقيقي وأكّده قبل وضعه على A4.'
-            : '${asset.name}: عُرض مرجع قياس خاص بإصدار منشور؛ تحقّق من مطابقة نسختك وأكّد القياس قبل وضعه على A4.',
       );
     }
 
@@ -241,45 +300,43 @@ class ProjectService {
         project: current,
         cropped: cropped,
         notDetected: notDetected,
+        recognized: recognized,
         warnings: warnings,
       );
     }
     current = current.copyWith(items: [...current.items, ...newItems]);
-    try {
-      final proposal = await createPackingProposal(
-        current,
-        includeLocked: false,
-        allowRotation: false,
-        onlyUnplaced: true,
-        pageIndex: 0,
-      );
-      current = await projects.save(proposal.result);
-      final confirmedUnplaced = proposal.unplaced
-          .map(
-            (id) => proposal.result.items.firstWhere((item) => item.id == id),
-          )
-          .where((item) => item.sizeConfirmed)
-          .length;
-      if (confirmedUnplaced > 0) {
-        warnings.add(
-          'تعذر وضع $confirmedUnplaced مستمسك بقياس مؤكد في الصفحة الأولى دون تغيير مقاسه؛ بقي غير موضوع.',
-        );
-      }
-    } on RevisionConflict {
-      rethrow;
-    } catch (error) {
-      // Do not lose imported references if a legacy page has an invalid fixed
-      // obstacle. Keep the new items unplaced and let the user repair the page.
-      current = await projects.save(current);
+    final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+    current = await projects.save(arrangement.result);
+    if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
-        'تعذر ترتيب الصفحة تلقائياً؛ حُفظت المستمسكات غير موضوعة لتعديلها يدوياً (${userError(error)}).',
+        '${arrangement.unplaced.length} مستمسك أكبر من المساحة القابلة للطباعة؛ صغّر الهوامش أو غيّر اتجاه الورقة.',
       );
     }
     return AutomaticLayoutReport(
       project: current,
       cropped: cropped,
       notDetected: notDetected,
+      recognized: recognized,
       warnings: warnings,
+    );
+  }
+
+  /// A colour-neutral preview of [asset] (crop, quarter turns and sharpness
+  /// applied). The editor shows it under a GPU colour matrix while sliders
+  /// move, so brightness, contrast and saturation are visible immediately;
+  /// the full-resolution revision is written once the user pauses.
+  Future<Uint8List> livePreviewBase(
+    ImageAsset asset,
+    ImageAdjustments adjustments,
+  ) {
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    final geometry =
+        asset.crop ??
+        CropDraft.fullImage().toRecipe(asset.width, asset.height).geometry;
+    return editor!.preview(
+      asset,
+      ImageEditRecipe(geometry, adjustments.colorNeutral),
     );
   }
 

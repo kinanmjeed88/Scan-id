@@ -94,8 +94,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
       }
       if (importedIds.isNotEmpty && mounted) {
         final summary = automatic == null
-            ? 'استورد التطبيق الصور، لكن تعذر إنشاء اقتراح ترتيب تلقائي.'
-            : 'قص تلقائي مقترح: ${automatic.cropped} · بلا حدود موثوقة: ${automatic.notDetected} · غير موضوع: ${automatic.unplaced}';
+            ? 'استورد التطبيق الصور، لكن تعذر الترتيب التلقائي.'
+            : 'قُصّ تلقائياً: ${automatic.cropped} · تُعرّف على النوع والمقاس: ${automatic.recognized} · بلا حدود واضحة: ${automatic.notDetected} · خارج الورق: ${automatic.unplaced}';
         await _layout(
           intakeSummary: summary,
           intakeWarnings: automatic?.warnings ?? const [],
@@ -310,6 +310,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
         builder: (_) => LayoutScreen(
           project: _project,
           service: widget.service,
+          pickImages: widget.pickImages,
           intakeSummary: intakeSummary,
           intakeWarnings: intakeWarnings,
         ),

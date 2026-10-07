@@ -251,10 +251,53 @@ void main() {
         final r = result.result;
         expect(PageLayout.item(r, 'legacy').pageIndex, isNull, reason: reason);
         expect(result.awaitingSize, ['legacy'], reason: reason);
+        expect(result.takenOffSheet, ['legacy'], reason: reason);
+        expect(
+          autoLayoutStatus(r, PageLayout.item(r, 'legacy')),
+          AutoLayoutStatus.sizeUnconfirmed,
+          reason: reason,
+        );
         expect(result.unplaced, isEmpty, reason: reason);
         expect(PageLayout.item(r, 'id').pageIndex, 0, reason: reason);
         expect(() => PageLayout.checked(r), returnsNormally, reason: reason);
       }
     }
+  });
+
+  // The editor shows this state for every document that automatic
+  // arrangement leaves out, so a document is never just "off the sheet"
+  // without a reason the user can act on.
+  test('auto layout status: size unconfirmed, too large, or eligible', () {
+    final project = _project([
+      _doc('unknown', DocumentKind.unknown, confirmed: false),
+      // 250 × 150 mm: wider than the 200 mm printable width, but fits turned.
+      _doc('wide', DocumentKind.other).copyWith(width: 250, height: 150),
+      _doc('id', DocumentKind.unifiedNationalId),
+    ]);
+    AutoLayoutStatus status(String id, {bool? allowRotation}) =>
+        autoLayoutStatus(
+          project,
+          PageLayout.item(project, id),
+          allowRotation: allowRotation,
+        );
+
+    expect(status('unknown'), AutoLayoutStatus.sizeUnconfirmed);
+    expect(
+      status('unknown', allowRotation: true),
+      AutoLayoutStatus.sizeUnconfirmed,
+    );
+    expect(status('wide'), AutoLayoutStatus.tooLarge);
+    expect(status('wide', allowRotation: true), AutoLayoutStatus.eligible);
+    expect(status('id'), AutoLayoutStatus.eligible);
+
+    // The arrangement agrees: the too-large document is reported, not
+    // scaled, and nothing was on a page to be taken off.
+    final result = arrangeDocuments(project);
+    expect(result.unplaced, ['wide']);
+    expect(result.awaitingSize, ['unknown']);
+    expect(result.takenOffSheet, isEmpty);
+    final turned = arrangeDocuments(project, allowRotation: true);
+    expect(PageLayout.item(turned.result, 'wide').pageIndex, isNotNull);
+    expect(PageLayout.item(turned.result, 'wide').width, 250);
   });
 }

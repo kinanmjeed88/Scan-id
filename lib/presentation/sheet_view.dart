@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../domain/arrangement.dart';
 import '../domain/document_kind.dart';
 import '../domain/project.dart';
 import 'editor_controller.dart';
@@ -276,12 +277,11 @@ class EditorStatusBar extends StatelessWidget {
     final c = controller;
     final project = c.project;
     final scheme = Theme.of(context).colorScheme;
-    final awaiting = project.items
-        .where((e) => e.pageIndex == null && !e.sizeConfirmed)
+    final statuses = project.items.map(c.autoLayoutOf).toList();
+    final awaiting = statuses
+        .where((s) => s == AutoLayoutStatus.sizeUnconfirmed)
         .length;
-    final tooBig = project.items
-        .where((e) => e.pageIndex == null && e.sizeConfirmed)
-        .length;
+    final tooBig = statuses.where((s) => s == AutoLayoutStatus.tooLarge).length;
     const style = TextStyle(fontSize: 12);
     final info = <Widget>[
       PopupMenuButton<int>(
@@ -458,15 +458,7 @@ class OffSheetTray extends StatelessWidget {
                                     item.documentKind.label,
                                     style: const TextStyle(fontSize: 12),
                                   ),
-                                  Text(
-                                    item.sizeConfirmed
-                                        ? 'أكبر من مساحة الطباعة'
-                                        : 'اختر النوع من «المستمسك»',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: scheme.error,
-                                    ),
-                                  ),
+                                  _OffSheetReason(c.autoLayoutOf(item)),
                                 ],
                               ),
                             ],
@@ -479,6 +471,43 @@ class OffSheetTray extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Why a document is off the sheet, from its [AutoLayoutStatus].
+class _OffSheetReason extends StatelessWidget {
+  const _OffSheetReason(this.status);
+
+  final AutoLayoutStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final (text, hint, color) = switch (status) {
+      AutoLayoutStatus.sizeUnconfirmed => (
+        'مقاس غير مؤكد · خارج الترتيب التلقائي',
+        'لا يدخل الترتيب التلقائي حتى تختار نوعه أو تكتب مقاسه من «المستمسك»',
+        scheme.error,
+      ),
+      AutoLayoutStatus.tooLarge => (
+        'أكبر من مساحة الطباعة',
+        'لا يُصغَّر تلقائياً؛ قلّل الهوامش أو غيّر اتجاه الورقة أو مقاسه',
+        scheme.error,
+      ),
+      AutoLayoutStatus.eligible => (
+        'لم يُرتَّب بعد',
+        'يضعه «ترتيب تلقائي» في أول مساحة متاحة',
+        scheme.onSurfaceVariant,
+      ),
+    };
+    return Tooltip(
+      message: hint,
+      child: Text(
+        text,
+        key: Key('offsheet-status-${status.name}'),
+        style: TextStyle(fontSize: 11, color: color),
       ),
     );
   }

@@ -10,6 +10,41 @@ const maxArrangedPages = 100;
 
 const _eps = 1e-7;
 
+/// Whether automatic arrangement may place a document and, if not, why.
+///
+/// A state of the document itself, not of where it currently is: the editor
+/// shows it for every document that automatic arrangement leaves out, so the
+/// user sees the reason instead of a document that merely sits off the sheet.
+enum AutoLayoutStatus {
+  /// Automatic arrangement places it (or keeps it, when it is fixed).
+  eligible,
+
+  /// Its printed size is not confirmed: the category is unknown or the size
+  /// was never confirmed. Automatic arrangement never places it and never
+  /// keeps it on a page. Choosing a category or setting a size in mm makes it
+  /// eligible.
+  sizeUnconfirmed,
+
+  /// Its size is confirmed but larger than the printable area of an empty
+  /// page, even when turned (where turning is allowed). Documents are never
+  /// scaled to fit.
+  tooLarge,
+}
+
+/// The [AutoLayoutStatus] of [item] in [project]; [allowRotation] defaults
+/// to the project's layout setting.
+AutoLayoutStatus autoLayoutStatus(
+  Project project,
+  DocumentItem item, {
+  bool? allowRotation,
+}) {
+  if (!item.sizeConfirmed) return AutoLayoutStatus.sizeUnconfirmed;
+  final rotate = allowRotation ?? project.layout.allowRotation;
+  return _fitting(item, project.paper.printable, rotate) == null
+      ? AutoLayoutStatus.tooLarge
+      : AutoLayoutStatus.eligible;
+}
+
 /// Outcome of [arrangeDocuments]. Sizes never change; only positions, page
 /// numbers and (when allowed) a 90° turn.
 class ArrangementResult {
@@ -18,8 +53,10 @@ class ArrangementResult {
     this.result, {
     required List<String> unplaced,
     required List<String> awaitingSize,
+    List<String> takenOffSheet = const [],
   }) : unplaced = List.unmodifiable(unplaced),
-       awaitingSize = List.unmodifiable(awaitingSize);
+       awaitingSize = List.unmodifiable(awaitingSize),
+       takenOffSheet = List.unmodifiable(takenOffSheet);
 
   final Project original;
   final Project result;
@@ -28,8 +65,13 @@ class ArrangementResult {
   /// empty page, even when turned.
   final List<String> unplaced;
 
-  /// Documents left aside because their category/size is not set yet.
+  /// Documents left aside because their category/size is not set yet
+  /// ([AutoLayoutStatus.sizeUnconfirmed]), wherever they were before.
   final List<String> awaitingSize;
+
+  /// The part of [awaitingSize] that was on a page before arranging and was
+  /// taken off the sheet, so the editor can tell the user why it moved.
+  final List<String> takenOffSheet;
 
   int get pageCount => result.pageCount;
 }
@@ -41,9 +83,11 @@ class ArrangementResult {
 /// [LayoutOrder]. Locked documents never move and act as obstacles; with
 /// [keepPlaced] every document already on a page stays where it is and only
 /// off-sheet documents are arranged. A document whose size is not confirmed
-/// is never kept on a page: like a saved project does when it is opened, it
-/// waits off the sheet ([ArrangementResult.awaitingSize]) until its category
-/// or size is chosen. Pages are added while needed (up to
+/// is not eligible for automatic arrangement ([AutoLayoutStatus]): it is
+/// never kept on a page, like a saved project does when it is opened, and is
+/// reported in [ArrangementResult.awaitingSize] (and
+/// [ArrangementResult.takenOffSheet] when it was on a page) until its
+/// category or size is chosen. Pages are added while needed (up to
 /// [maxArrangedPages]) and empty trailing pages are removed.
 ArrangementResult arrangeDocuments(
   Project project, {
@@ -76,6 +120,10 @@ ArrangementResult arrangeDocuments(
   final awaiting = [
     for (final item in source.items)
       if (!item.sizeConfirmed && item.pageIndex == null) item.id,
+  ];
+  final takenOffSheet = [
+    for (final item in project.items)
+      if (!item.sizeConfirmed && item.pageIndex != null) item.id,
   ];
   final inputOrder = {
     for (var i = 0; i < source.items.length; i++) source.items[i].id: i,
@@ -117,6 +165,7 @@ ArrangementResult arrangeDocuments(
         if (!placed.containsKey(item.id)) item.id,
     ],
     awaitingSize: awaiting,
+    takenOffSheet: takenOffSheet,
   );
 }
 

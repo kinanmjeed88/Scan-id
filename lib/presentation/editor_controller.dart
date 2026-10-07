@@ -94,6 +94,10 @@ class LayoutEditorController extends ChangeNotifier {
       if (item.pageIndex == null) item,
   ];
 
+  /// Whether automatic arrangement may place [item], and why not.
+  AutoLayoutStatus autoLayoutOf(DocumentItem item) =>
+      autoLayoutStatus(project, item);
+
   ImageAsset assetOf(DocumentItem item) =>
       project.assets.firstWhere((a) => a.id == item.assetId);
 
@@ -234,6 +238,8 @@ class LayoutEditorController extends ChangeNotifier {
     final result = outcome!;
     final parts = [
       'رُتّبت المستمسكات على ${result.pageCount} صفحة',
+      if (result.takenOffSheet.isNotEmpty)
+        '${result.takenOffSheet.length} أُبعد عن الورقة لأن مقاسه غير مؤكد',
       if (result.awaitingSize.isNotEmpty)
         '${result.awaitingSize.length} بانتظار تحديد النوع',
       if (result.unplaced.isNotEmpty)

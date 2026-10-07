@@ -124,14 +124,14 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       }
     }
     if (project != null && mounted) {
-      await _open(project.id);
+      await _open(project.id, startWithImagePicker: true);
     }
     if (mounted) {
       _refresh();
     }
   }
 
-  Future<void> _open(String id) async {
+  Future<void> _open(String id, {bool startWithImagePicker = false}) async {
     setState(() => _busy = true);
     Project? project;
     try {
@@ -172,6 +172,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           project: opened,
           service: widget.service,
           pickImages: widget.pickImages,
+          startWithImagePicker: startWithImagePicker,
         ),
       ),
     );

@@ -9,7 +9,6 @@ import '../application/project_service.dart';
 import '../domain/crop_draft.dart';
 import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
-import '../domain/image_adjustments.dart';
 import '../domain/project.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
@@ -108,6 +107,26 @@ class _CropScreenState extends State<CropScreen> {
 
   ImageEditRecipe _recipe() =>
       _draft!.toRecipe(_source!.width, _source!.height);
+
+  Future<void> _autoAdjust() async {
+    setState(() => _busy = true);
+    try {
+      final value = await widget.service.suggestAutoAdjustments(
+        widget.project,
+        widget.asset,
+      );
+      if (!mounted) return;
+      _change(_draft!.withAdjustments(value));
+      showMessage(
+        context,
+        'طُبّق اقتراح تحسين محلي قابل للتعديل؛ راجع النتيجة قبل الحفظ.',
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = userError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _suggest() async {
     setState(() => _busy = true);
@@ -563,7 +582,13 @@ class _CropScreenState extends State<CropScreen> {
           OutlinedButton.icon(
             onPressed: _busy ? null : _suggest,
             icon: const Icon(Icons.auto_fix_high),
-            label: const Text('اقتراح الحدود'),
+            label: const Text('اقتراح حدود المستمسك'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _autoAdjust,
+            icon: const Icon(Icons.auto_awesome),
+            label: const Text('تحسين تلقائي قابل للتعديل'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -571,9 +596,7 @@ class _CropScreenState extends State<CropScreen> {
                 ? null
                 : () => _change(
                     _draft!.withAdjustments(
-                      ImageAdjustments(
-                        brightness: adjustments.brightness,
-                        contrast: adjustments.contrast,
+                      adjustments.copyWith(
                         quarterTurns: (adjustments.quarterTurns + 1) % 4,
                       ),
                     ),
@@ -630,11 +653,7 @@ class _CropScreenState extends State<CropScreen> {
                 ? null
                 : (v) => setState(() {
                     _draft = _draft!.withAdjustments(
-                      ImageAdjustments(
-                        brightness: v,
-                        contrast: adjustments.contrast,
-                        quarterTurns: adjustments.quarterTurns,
-                      ),
+                      adjustments.copyWith(brightness: v),
                     );
                     _preview = null;
                     _showResult = false;
@@ -653,11 +672,45 @@ class _CropScreenState extends State<CropScreen> {
                 ? null
                 : (v) => setState(() {
                     _draft = _draft!.withAdjustments(
-                      ImageAdjustments(
-                        brightness: adjustments.brightness,
-                        contrast: v,
-                        quarterTurns: adjustments.quarterTurns,
-                      ),
+                      adjustments.copyWith(contrast: v),
+                    );
+                    _preview = null;
+                    _showResult = false;
+                    _dirty = true;
+                  }),
+            onChangeEnd: _busy ? null : (_) => _change(_draft!),
+          ),
+          Text('تشبع الألوان: ${adjustments.saturation.toStringAsFixed(2)}'),
+          Slider(
+            key: const Key('crop-saturation'),
+            value: adjustments.saturation,
+            min: 0,
+            max: 2,
+            divisions: 20,
+            onChanged: _busy
+                ? null
+                : (v) => setState(() {
+                    _draft = _draft!.withAdjustments(
+                      adjustments.copyWith(saturation: v),
+                    );
+                    _preview = null;
+                    _showResult = false;
+                    _dirty = true;
+                  }),
+            onChangeEnd: _busy ? null : (_) => _change(_draft!),
+          ),
+          Text('حدة الصورة: ${adjustments.sharpness.toStringAsFixed(2)}'),
+          Slider(
+            key: const Key('crop-sharpness'),
+            value: adjustments.sharpness,
+            min: 0,
+            max: 1,
+            divisions: 20,
+            onChanged: _busy
+                ? null
+                : (v) => setState(() {
+                    _draft = _draft!.withAdjustments(
+                      adjustments.copyWith(sharpness: v),
                     );
                     _preview = null;
                     _showResult = false;

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'document_kind.dart';
 import 'geometry.dart';
 import 'project.dart';
 import 'validation.dart';
@@ -29,6 +30,12 @@ PackingProposal proposePacking(
   require(
     pageIndex >= 0 && pageIndex < project.pageCount,
     'صفحة ترتيب غير موجودة.',
+  );
+  require(
+    project.items.every(
+      (item) => item.pageIndex != pageIndex || item.sizeConfirmed,
+    ),
+    'يوجد مستمسك على الصفحة بقياس غير مؤكد؛ أدخل قياسه وأكّده قبل إنشاء اقتراح الترتيب.',
   );
   final area = project.paper.printable;
   final gx = project.layout.horizontalGap, gy = project.layout.verticalGap;
@@ -64,19 +71,27 @@ PackingProposal proposePacking(
   final pending = project.items
       .where(
         (e) =>
+            e.sizeConfirmed &&
             (e.pageIndex == pageIndex || e.pageIndex == null) &&
             (includeLocked || !e.locked) &&
             (!onlyUnplaced || e.pageIndex == null),
       )
       .toList();
-  if (project.layout.order == LayoutOrder.area) {
-    pending.sort((a, b) {
+  final inputOrder = {
+    for (var index = 0; index < project.items.length; index++)
+      project.items[index].id: index,
+  };
+  pending.sort((a, b) {
+    final kind = a.documentKind.order.compareTo(b.documentKind.order);
+    if (kind != 0) return kind;
+    if (project.layout.order == LayoutOrder.area) {
       final size = (b.bounds.width * b.bounds.height).compareTo(
         a.bounds.width * a.bounds.height,
       );
-      return size != 0 ? size : a.id.compareTo(b.id);
-    });
-  }
+      if (size != 0) return size;
+    }
+    return inputOrder[a.id]!.compareTo(inputOrder[b.id]!);
+  });
   for (final item in pending) {
     DocumentItem? best;
     RectMm? used;

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../application/contracts.dart';
+import '../domain/document_kind.dart';
 import '../domain/project.dart';
 import 'project_screen.dart';
 
@@ -37,7 +38,7 @@ class PageCanvas extends StatelessWidget {
   String _itemLabel(DocumentItem item) {
     for (final asset in project.assets) {
       if (asset.id == item.assetId) {
-        return 'مستمسك: ${asset.name}';
+        return '${item.documentKind.label}: ${asset.name}';
       }
     }
     return 'مستمسك بلا صورة';

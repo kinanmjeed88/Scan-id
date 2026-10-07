@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
@@ -27,6 +28,46 @@ void main() {
       expect(restored.createdAt.isUtc, isTrue);
     },
   );
+
+  test('legacy items default to unknown; recognition metadata round-trips', () {
+    final current = projectFixture(
+      assets: [assetFixture()],
+      items: [
+        itemFixture().copyWith(
+          documentKind: DocumentKind.passport,
+          recognitionConfidence: .98,
+          sizeConfirmed: true,
+        ),
+      ],
+    );
+    final roundTrip = Project.fromJson(current.toJson());
+    expect(roundTrip.items.single.documentKind, DocumentKind.passport);
+    expect(roundTrip.items.single.recognitionConfidence, .98);
+    expect(roundTrip.items.single.sizeConfirmed, isTrue);
+
+    final legacy = current.toJson();
+    ((legacy['items'] as List).single as Map)
+      ..remove('documentKind')
+      ..remove('recognitionConfidence')
+      ..remove('sizeConfirmed');
+    final migrated = Project.fromJson(legacy).items.single;
+    expect(migrated.documentKind, DocumentKind.unknown);
+    expect(migrated.recognitionConfidence, 0);
+    expect(migrated.sizeConfirmed, isFalse);
+    expect(
+      migrated.pageIndex,
+      isNull,
+      reason: 'legacy physical sizes are not assumed valid',
+    );
+  });
+
+  test('recognition confidence is validated', () {
+    expect(() => itemFixture().copyWith(recognitionConfidence: 1.1), invalid);
+    expect(
+      () => itemFixture().copyWith(recognitionConfidence: double.nan),
+      invalid,
+    );
+  });
 
   test('all model collections are defensive immutable copies', () {
     final input = [assetFixture()];

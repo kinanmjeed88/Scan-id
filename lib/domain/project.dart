@@ -1,4 +1,5 @@
 import 'geometry.dart';
+import 'document_kind.dart';
 import 'image_adjustments.dart';
 import 'validation.dart';
 import 'image_limits.dart';
@@ -243,13 +244,25 @@ class DocumentItem {
     this.zIndex = 0,
     this.locked = false,
     this.keepAspectRatio = true,
+    this.documentKind = DocumentKind.unknown,
+    this.recognitionConfidence = 0,
+    this.sizeConfirmed = false,
   }) {
     final page = pageIndex;
     require(page == null || (page >= 0 && page < 100), 'رقم الصفحة غير صالح.');
     validId(id);
     validId(assetId);
     require(
-      [x, y, width, height, rotation].every((v) => v.isFinite),
+      [
+            x,
+            y,
+            width,
+            height,
+            rotation,
+            recognitionConfidence,
+          ].every((v) => v.isFinite) &&
+          recognitionConfidence >= 0 &&
+          recognitionConfidence <= 1,
       'قيم العنصر غير صالحة.',
     );
     require(
@@ -275,6 +288,9 @@ class DocumentItem {
   final int zIndex;
   final bool locked;
   final bool keepAspectRatio;
+  final DocumentKind documentKind;
+  final double recognitionConfidence;
+  final bool sizeConfirmed;
   RectMm get bounds => RectMm(x, y, width, height).rotatedBounds(rotation);
 
   DocumentItem copyWith({
@@ -289,6 +305,9 @@ class DocumentItem {
     int? zIndex,
     bool? locked,
     bool? keepAspectRatio,
+    DocumentKind? documentKind,
+    double? recognitionConfidence,
+    bool? sizeConfirmed,
   }) => DocumentItem(
     id: id ?? this.id,
     pageIndex: unplaced ? null : (pageIndex ?? this.pageIndex),
@@ -301,6 +320,9 @@ class DocumentItem {
     zIndex: zIndex ?? this.zIndex,
     locked: locked ?? this.locked,
     keepAspectRatio: keepAspectRatio ?? this.keepAspectRatio,
+    documentKind: documentKind ?? this.documentKind,
+    recognitionConfidence: recognitionConfidence ?? this.recognitionConfidence,
+    sizeConfirmed: sizeConfirmed ?? this.sizeConfirmed,
   );
 
   Map<String, Object?> toJson() => {
@@ -315,16 +337,25 @@ class DocumentItem {
     'zIndex': zIndex,
     'locked': locked,
     'keepAspectRatio': keepAspectRatio,
+    'documentKind': documentKind.name,
+    'recognitionConfidence': recognitionConfidence,
+    'sizeConfirmed': sizeConfirmed,
   };
   factory DocumentItem.fromJson(Object? json) {
     final m = objectMap(json);
+    final sizeConfirmed = m['sizeConfirmed'] == null
+        ? false
+        : boolean(m['sizeConfirmed'], 'sizeConfirmed');
+    final savedPageIndex = !m.containsKey('pageIndex')
+        ? 0
+        : m['pageIndex'] == null
+        ? null
+        : integer(m['pageIndex'], 'pageIndex');
     return DocumentItem(
       id: text(m['id'], 'id'),
-      pageIndex: !m.containsKey('pageIndex')
-          ? 0
-          : m['pageIndex'] == null
-          ? null
-          : integer(m['pageIndex'], 'pageIndex'),
+      // Legacy layouts did not record whether their physical sizes were
+      // measured. Keep their metadata, but move them off-sheet until reviewed.
+      pageIndex: sizeConfirmed ? savedPageIndex : null,
       assetId: text(m['assetId'], 'assetId'),
       x: finiteNumber(m['x'], 'x'),
       y: finiteNumber(m['y'], 'y'),
@@ -334,6 +365,13 @@ class DocumentItem {
       zIndex: integer(m['zIndex'], 'zIndex'),
       locked: boolean(m['locked'], 'locked'),
       keepAspectRatio: boolean(m['keepAspectRatio'], 'keepAspectRatio'),
+      documentKind: m['documentKind'] == null
+          ? DocumentKind.unknown
+          : readEnum(DocumentKind.values, m['documentKind']),
+      recognitionConfidence: m['recognitionConfidence'] == null
+          ? 0
+          : finiteNumber(m['recognitionConfidence'], 'recognitionConfidence'),
+      sizeConfirmed: sizeConfirmed,
     );
   }
 }

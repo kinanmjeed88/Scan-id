@@ -25,6 +25,7 @@ DocumentItem card(
   locked: locked,
   pageIndex: page,
   rotation: rotation,
+  sizeConfirmed: true,
 );
 Project page(List<DocumentItem> items) =>
     projectFixture(assets: [assetFixture()], items: items);
@@ -47,6 +48,35 @@ void assertSafe(Project p) {
 }
 
 void main() {
+  test('packing never places an unconfirmed measurement', () {
+    final unconfirmed = card(
+      'unmeasured',
+      80,
+      50,
+      page: null,
+    ).copyWith(sizeConfirmed: false);
+    final proposal = proposePacking(
+      page([unconfirmed]),
+      includeLocked: false,
+      allowRotation: false,
+      onlyUnplaced: true,
+    );
+    expect(proposal.result.items.single.pageIndex, isNull);
+    expect(proposal.unplaced, ['unmeasured']);
+
+    expect(
+      () => proposePacking(
+        page([
+          card('legacy-unconfirmed', 80, 50).copyWith(sizeConfirmed: false),
+        ]),
+        includeLocked: false,
+        allowRotation: false,
+      ),
+      throwsA(isA<ValidationException>()),
+      reason: 'لا نتعامل مع قياس قديم غير مؤكد كعائق أو مقاس حقيقي',
+    );
+  });
+
   test(
     'proposal preserves original snapshot and places unequal sizes with exact gaps',
     () {

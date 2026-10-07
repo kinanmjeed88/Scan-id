@@ -24,6 +24,25 @@ class LayoutSession {
     if (history.canRedo) await _save(() => history.next!, 1);
   }
 
+  /// Adopts a project saved by the crop editor route and adds that accepted
+  /// crop as one undoable layout-session step.
+  Future<void> adoptSaved(Project project) async {
+    require(!busy, 'جارٍ حفظ العملية السابقة.');
+    require(
+      project.id == _current.id &&
+          project.createdAt == _current.createdAt &&
+          project.revision > _current.revision,
+      'نتيجة القص لا تطابق جلسة التحرير الحالية.',
+    );
+    final stored = await repository.get(project.id);
+    require(
+      stored.revision == project.revision,
+      'تغير المشروع بعد حفظ القص؛ أعد فتح محرر A4.',
+    );
+    history.record(stored);
+    _current = stored;
+  }
+
   Future<void> _save(Project Function() operation, int direction) async {
     require(!busy, 'جارٍ حفظ العملية السابقة.');
     busy = true;

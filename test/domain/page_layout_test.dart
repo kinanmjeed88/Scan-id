@@ -21,6 +21,7 @@ DocumentItem block(
   height: height,
   rotation: rotation,
   locked: locked,
+  sizeConfirmed: true,
 );
 Project page(List<DocumentItem> items) =>
     projectFixture(assets: [assetFixture()], items: items);
@@ -39,6 +40,19 @@ void main() {
       expect(PaperSettings(orientation: PaperOrientation.landscape).width, 297);
     },
   );
+  test('an unconfirmed size cannot be placed on the paper', () {
+    final p = page([
+      block('unconfirmed', 20, 20).copyWith(sizeConfirmed: false),
+    ]);
+    expect(() => PageLayout.checked(p), throwsA(isA<ValidationException>()));
+    expect(
+      PageLayout.checked(
+        p.copyWith(items: [p.items.single.copyWith(unplaced: true)]),
+      ).items.single.pageIndex,
+      isNull,
+    );
+  });
+
   test('moves are immutable and bounds use rotated corners', () {
     final p = page([block('one', 30, 40, rotation: 45)]);
     final moved = PageLayout.move(p, 'one', 10, 20);

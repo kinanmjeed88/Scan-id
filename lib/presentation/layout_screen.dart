@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../application/ids.dart';
 import '../application/packing_service.dart';
+import '../domain/crop_draft.dart';
+import '../domain/document_kind.dart';
+import '../domain/image_adjustments.dart';
 import '../domain/packing.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
@@ -11,6 +14,7 @@ import '../domain/page_layout.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'page_canvas.dart';
+import 'crop_screen.dart';
 import 'export_screen.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
@@ -20,11 +24,15 @@ class LayoutScreen extends StatefulWidget {
     required this.project,
     required this.service,
     this.proposeLayout = createPackingProposal,
+    this.intakeSummary,
+    this.intakeWarnings = const [],
     super.key,
   });
   final Project project;
   final ProjectService service;
   final PackingProposer proposeLayout;
+  final String? intakeSummary;
+  final List<String> intakeWarnings;
   @override
   State<LayoutScreen> createState() => _LayoutScreenState();
 }
@@ -37,6 +45,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
   final _selected = <String>{};
   bool _busy = false, _pan = false, _overlap = false;
   String? _error;
+  String? _adjustmentAssetId;
+  ImageAdjustments? _adjustmentDraft;
   Project? _dragPreview;
   DocumentItem? _dragItem;
   Offset? _dragStart;
@@ -190,19 +200,33 @@ class _LayoutScreenState extends State<LayoutScreen> {
 
   Future<void> _end() async {
     final preview = _dragPreview;
+    final resizedId = _resizing ? _dragItem?.id : null;
     setState(() {
       _dragPreview = null;
       _dragItem = null;
       _dragStart = null;
+      _resizing = false;
     });
     if (preview != null) {
-      await _apply((_) => PageLayout.checked(preview, allowOverlap: _overlap));
+      await _apply((_) {
+        final candidate = resizedId == null
+            ? preview
+            : preview.copyWith(
+                items: [
+                  for (final item in preview.items)
+                    item.id == resizedId
+                        ? item.copyWith(sizeConfirmed: false, unplaced: true)
+                        : item,
+                ],
+              );
+        return PageLayout.checked(candidate, allowOverlap: _overlap);
+      });
     }
   }
 
   Future<void> _add(ImageAsset asset) async {
     final p = _session.current;
-    final values = await editMeasurements(
+    final input = await editMeasurements(
       context,
       'المقاسات الفعلية للمستمسك',
       {
@@ -215,27 +239,38 @@ class _LayoutScreenState extends State<LayoutScreen> {
       },
       notice:
           'هذه قيم مبدئية وليست قياساً مستنتجاً من الصورة. أدخل المقاس الحقيقي. النسخ الإضافية تُضاف غير موضوعة ليوزعها «اقتراح ترتيب».',
+      requireSizeConfirmation: true,
     );
-    if (values == null || !mounted) return;
+    if (input == null || !mounted) return;
+    final values = input.values;
     final copies = _count(values['عدد النسخ الإضافية']!);
     if (copies == null) return;
     final id = newId();
-    final prototype = DocumentItem(
-      id: id,
-      assetId: asset.id,
-      pageIndex: _pageNumber(values['الصفحة (0 لغير الموضوعة)']!, p.pageCount),
-      x: values['س مم']!,
-      y: values['ص مم']!,
-      width: values['العرض مم']!,
-      height: values['الارتفاع مم']!,
-      zIndex: p.items.fold<int>(0, (v, e) => math.max(v, e.zIndex)) + 1,
-    );
-    await _apply(
-      (p) => PageLayout.addMany(p, [
+    await _apply((project) {
+      final prototype = DocumentItem(
+        id: id,
+        assetId: asset.id,
+        pageIndex: _pageNumber(
+          values['الصفحة (0 لغير الموضوعة)']!,
+          project.pageCount,
+        ),
+        x: values['س مم']!,
+        y: values['ص مم']!,
+        width: values['العرض مم']!,
+        height: values['الارتفاع مم']!,
+        sizeConfirmed: input.sizeConfirmed,
+        zIndex:
+            project.items.fold<int>(
+              0,
+              (value, item) => math.max(value, item.zIndex),
+            ) +
+            1,
+      );
+      return PageLayout.addMany(project, [
         prototype,
         ...PageLayout.copies(prototype, copies, newId),
-      ], allowOverlap: _overlap),
-    );
+      ], allowOverlap: _overlap);
+    });
     if (mounted && _session.current.items.any((e) => e.id == id)) {
       setState(
         () => _selected
@@ -261,16 +296,181 @@ class _LayoutScreenState extends State<LayoutScreen> {
     return value.toInt();
   }
 
+  Future<void> _changeDocumentKind(DocumentItem item, DocumentKind kind) async {
+    if (item.locked) return;
+    final asset = _session.current.assets.firstWhere(
+      (entry) => entry.id == item.assetId,
+    );
+    final reference = kind.publishedReferenceSize(
+      landscape: item.width >= item.height,
+    );
+    final input = await editMeasurements(
+      context,
+      'أدخل القياس الحقيقي للمستمسك',
+      {
+        'العرض مم': reference?.width ?? item.width,
+        'الارتفاع مم': reference?.height ?? item.height,
+      },
+      notice: kind.measurementHint,
+      requireSizeConfirmation: true,
+      confirmSizeLabel: reference == null
+          ? 'قست النسخة الأصلية بالمسطرة وأؤكد العرض والارتفاع.'
+          : 'تحققت من قياس نسختي، وأؤكد أن المرجع المعروض ينطبق عليها.',
+    );
+    if (input == null || !mounted) return;
+    final values = input.values;
+    await _apply(
+      (project) => PageLayout.replace(
+        project,
+        item.copyWith(
+          documentKind: kind,
+          width: values['العرض مم']!,
+          height: values['الارتفاع مم']!,
+          // A user selection is explicit, not a recognition confidence score.
+          recognitionConfidence: 0,
+          sizeConfirmed: input.sizeConfirmed,
+        ),
+        allowOverlap: _overlap,
+      ),
+    );
+    if (mounted) {
+      showMessage(
+        context,
+        'حُفظ قياس «${asset.name}». استخدم اقتراح الترتيب بعد تأكيد المقاسات المطلوبة.',
+      );
+    }
+  }
+
+  Future<void> _resizeStep(DocumentItem item, double direction) => _apply((p) {
+    final nextWidth = math.max(1.0, item.width + direction).toDouble();
+    final resized = PageLayout.resize(item, nextWidth, item.height);
+    return PageLayout.replace(
+      p,
+      resized.copyWith(sizeConfirmed: false, unplaced: true),
+      allowOverlap: _overlap,
+    );
+  });
+
+  Future<void> _editCrop(ImageAsset asset) async {
+    if (_busy) return;
+    if (_nudgeId != null) {
+      await _flushNudge();
+      if (!mounted) return;
+    }
+    final saved = await Navigator.of(context).push<Project>(
+      MaterialPageRoute(
+        builder: (_) => CropScreen(
+          project: _session.current,
+          asset: asset,
+          service: widget.service,
+        ),
+      ),
+    );
+    if (saved != null && mounted) {
+      await _run(() => _session.adoptSaved(saved));
+    }
+  }
+
+  ImageAdjustments _adjustmentsFor(ImageAsset asset) =>
+      _adjustmentAssetId == asset.id && _adjustmentDraft != null
+      ? _adjustmentDraft!
+      : asset.adjustments;
+
+  void _draftAdjustments(ImageAsset asset, ImageAdjustments value) {
+    setState(() {
+      _adjustmentAssetId = asset.id;
+      _adjustmentDraft = value;
+    });
+  }
+
+  Future<void> _commitAdjustments(
+    ImageAsset asset,
+    ImageAdjustments value,
+  ) async {
+    await _run(() async {
+      final currentAsset = _session.current.assets.firstWhere(
+        (entry) => entry.id == asset.id,
+      );
+      final geometry =
+          currentAsset.crop ??
+          CropDraft.fullImage()
+              .toRecipe(currentAsset.width, currentAsset.height)
+              .geometry;
+      final revised = await widget.service.createImageRevision(
+        _session.current,
+        currentAsset,
+        ImageEditRecipe(geometry, value),
+      );
+      await _session.apply(
+        (project) => project.copyWith(
+          assets: [
+            for (final entry in project.assets)
+              entry.id == revised.id ? revised : entry,
+          ],
+        ),
+      );
+    });
+    if (mounted) {
+      setState(() {
+        _adjustmentAssetId = null;
+        _adjustmentDraft = null;
+      });
+    }
+  }
+
+  Future<void> _autoAdjustImage(ImageAsset asset) async {
+    final revisionBefore = _session.current.revision;
+    await _run(() async {
+      final currentAsset = _session.current.assets.firstWhere(
+        (entry) => entry.id == asset.id,
+      );
+      final adjustment = await widget.service.suggestAutoAdjustments(
+        _session.current,
+        currentAsset,
+      );
+      final geometry =
+          currentAsset.crop ??
+          CropDraft.fullImage()
+              .toRecipe(currentAsset.width, currentAsset.height)
+              .geometry;
+      final revised = await widget.service.createImageRevision(
+        _session.current,
+        currentAsset,
+        ImageEditRecipe(geometry, adjustment),
+      );
+      await _session.apply(
+        (project) => project.copyWith(
+          assets: [
+            for (final entry in project.assets)
+              entry.id == revised.id ? revised : entry,
+          ],
+        ),
+      );
+    });
+    if (mounted) {
+      setState(() {
+        _adjustmentAssetId = null;
+        _adjustmentDraft = null;
+      });
+      if (_session.current.revision > revisionBefore) {
+        showMessage(
+          context,
+          'حُفظ التحسين التلقائي كنسخة جديدة قابلة للتراجع.',
+        );
+      }
+    }
+  }
+
   Future<void> _addCopies(DocumentItem item) async {
-    final values = await editMeasurements(
+    final input = await editMeasurements(
       context,
       'نسخ إضافية من العنصر',
       {'عدد النسخ الإضافية': 3},
       notice:
           'لا تتغير النسخة الأصلية. تُضاف النسخ غير موضوعة، ثم يوزعها «اقتراح ترتيب» ويُبلّغ عن كل نسخة لا تتسع لها الصفحة.',
     );
-    if (values == null || !mounted) return;
-    final count = _count(values['عدد النسخ الإضافية']!);
+    if (input == null || !mounted) return;
+    final count = _count(input.values['عدد النسخ الإضافية']!);
     if (count == null || count == 0) return;
     await _apply(
       (p) => PageLayout.addMany(
@@ -288,7 +488,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 
   Future<void> _properties(DocumentItem e) async {
-    final v = await editMeasurements(
+    final input = await editMeasurements(
       context,
       'خصائص العنصر',
       {
@@ -300,23 +500,42 @@ class _LayoutScreenState extends State<LayoutScreen> {
         'الزاوية °': e.rotation,
       },
       notice: e.keepAspectRatio
-          ? 'النسبة مثبتة: تغيير أحد البعدين يضبط الآخر؛ عند تغيير كليهما يُعتمد العرض.'
-          : 'تنبيه: تغيير النسبة قد يشوّه النصوص والوجوه.',
+          ? 'النسبة مثبتة: تغيير أحد البعدين يضبط الآخر؛ عند تغيير كليهما يُعتمد العرض. القياس غير المؤكد يبقى خارج الورقة.'
+          : 'تنبيه: تغيير النسبة قد يشوّه النصوص والوجوه. القياس غير المؤكد يبقى خارج الورقة.',
+      offerSizeConfirmation: true,
     );
-    if (v == null || !mounted) return;
-    await _apply(
-      (p) => PageLayout.replace(
+    if (input == null || !mounted) return;
+    final v = input.values;
+    var sizeConfirmed = false;
+    await _apply((p) {
+      final resized = PageLayout.resize(e, v['العرض مم']!, v['الارتفاع مم']!);
+      final dimensionsChanged =
+          resized.width != e.width || resized.height != e.height;
+      sizeConfirmed =
+          input.sizeConfirmed || (e.sizeConfirmed && !dimensionsChanged);
+      final pageNumber = _pageNumber(
+        v['الصفحة (0 لغير الموضوعة)']!,
+        p.pageCount,
+      );
+      return PageLayout.replace(
         p,
-        PageLayout.resize(e, v['العرض مم']!, v['الارتفاع مم']!).copyWith(
+        resized.copyWith(
           x: v['س مم'],
           y: v['ص مم'],
           rotation: v['الزاوية °'],
-          pageIndex: _pageNumber(v['الصفحة (0 لغير الموضوعة)']!, p.pageCount),
-          unplaced: v['الصفحة (0 لغير الموضوعة)'] == 0,
+          pageIndex: sizeConfirmed ? pageNumber : null,
+          unplaced: !sizeConfirmed || pageNumber == null,
+          sizeConfirmed: sizeConfirmed,
         ),
         allowOverlap: _overlap,
-      ),
-    );
+      );
+    });
+    if (mounted && !sizeConfirmed) {
+      showMessage(
+        context,
+        'حُفظ التعديل، لكن القياس غير مؤكد؛ بقي العنصر خارج الورقة حتى تؤكد قياسه.',
+      );
+    }
   }
 
   Future<void> _duplicate(DocumentItem e) => _apply(
@@ -435,7 +654,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
 
   Future<void> _paper() async {
     final p = _project;
-    final v = await editMeasurements(context, 'الهوامش والمسافات مم', {
+    final input = await editMeasurements(context, 'الهوامش والمسافات مم', {
       'أعلى': p.paper.margins.top,
       'يمين': p.paper.margins.right,
       'أسفل': p.paper.margins.bottom,
@@ -443,7 +662,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
       'فجوة أفقية': p.layout.horizontalGap,
       'فجوة عمودية': p.layout.verticalGap,
     });
-    if (v == null || !mounted) return;
+    if (input == null || !mounted) return;
+    final v = input.values;
     await _apply(
       (p) => PageLayout.checked(
         p.copyWith(
@@ -716,11 +936,42 @@ class _LayoutScreenState extends State<LayoutScreen> {
   );
   Widget _tools() {
     final e = _active;
+    final activeAsset = e == null
+        ? null
+        : _project.assets.firstWhere((asset) => asset.id == e.assetId);
+    final adjustments = activeAsset == null
+        ? null
+        : _adjustmentsFor(activeAsset);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (widget.intakeSummary != null)
+            Card(
+              color: Theme.of(context).colorScheme.secondaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(widget.intakeSummary!),
+                    for (final warning in widget.intakeWarnings.take(4))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text('• $warning'),
+                      ),
+                    if (widget.intakeWarnings.length > 4)
+                      Text(
+                        'وتوجد ${widget.intakeWarnings.length - 4} تنبيهات أخرى.',
+                      ),
+                    const Text(
+                      'الحدود ونوع المستمسك اقتراحات محلية؛ راجعها وعدّل القياس قبل الطباعة.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
           FilledButton.icon(
             onPressed: _busy
                 ? null
@@ -871,7 +1122,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
               ))
                 FilterChip(
                   label: Text(
-                    '${_project.items.indexOf(item) + 1}${item.pageIndex == null ? ' غير موضوع' : ''}${item.locked ? ' 🔒' : ''}',
+                    '${_project.items.indexOf(item) + 1} · ${item.documentKind.label}${item.pageIndex == null ? (item.sizeConfirmed ? ' · غير موضوع' : ' · قياس غير مؤكد') : ''}${item.locked ? ' 🔒' : ''}',
                   ),
                   selected: _selected.contains(item.id),
                   onSelected: _busy
@@ -891,9 +1142,172 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 ),
             ],
           ),
-          if (e != null) ...[
+          if (e != null && activeAsset != null && adjustments != null) ...[
             Text(
               'س ${e.x.toStringAsFixed(1)} · ص ${e.y.toStringAsFixed(1)} مم\n${e.width.toStringAsFixed(1)} × ${e.height.toStringAsFixed(1)} مم · ${e.rotation.toStringAsFixed(1)}°',
+            ),
+            DropdownButton<DocumentKind>(
+              isExpanded: true,
+              value: e.documentKind,
+              items: [
+                for (final kind in DocumentKind.values)
+                  DropdownMenuItem(value: kind, child: Text(kind.label)),
+              ],
+              onChanged: _busy || e.locked
+                  ? null
+                  : (kind) {
+                      if (kind != null) {
+                        unawaited(_changeDocumentKind(e, kind));
+                      }
+                    },
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy || e.locked
+                  ? null
+                  : () => _changeDocumentKind(e, e.documentKind),
+              icon: const Icon(Icons.straighten),
+              label: const Text('تأكيد النوع وإدخال القياس'),
+            ),
+            Text(
+              e.recognitionConfidence > 0
+                  ? 'اقتراح محلي من اسم الملف/نسبة الصورة: ${e.documentKind.label} · مؤشر ${(e.recognitionConfidence * 100).round()}% — راجع النوع.'
+                  : e.documentKind == DocumentKind.unknown
+                  ? 'لم يُحدد النوع؛ اختره يدوياً قبل الطباعة.'
+                  : 'النوع اختاره المستخدم: ${e.documentKind.label}.',
+            ),
+            Text(
+              e.sizeConfirmed
+                  ? '${e.documentKind.measurementHint}\nتم تأكيد القياس لهذا المستمسك.'
+                  : '${e.documentKind.measurementHint}\nالقياس المعروض غير مؤكد؛ يبقى العنصر خارج الورقة حتى تدخل قياسك وتؤكده.',
+              style: TextStyle(
+                color: e.sizeConfirmed
+                    ? Theme.of(context).colorScheme.onSurfaceVariant
+                    : Theme.of(context).colorScheme.error,
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _editCrop(activeAsset),
+              icon: const Icon(Icons.crop),
+              label: const Text('مراجعة القص الذكي وحدود المستمسك'),
+            ),
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 4,
+              children: [
+                IconButton(
+                  tooltip: 'تصغير العرض 1 مم مع الحفاظ على النسبة',
+                  onPressed: _busy || e.locked
+                      ? null
+                      : () => _resizeStep(e, -1),
+                  icon: const Icon(Icons.remove_circle_outline),
+                ),
+                const Text('تغيير المقاس 1 مم'),
+                IconButton(
+                  tooltip: 'تكبير العرض 1 مم مع الحفاظ على النسبة',
+                  onPressed: _busy || e.locked ? null : () => _resizeStep(e, 1),
+                  icon: const Icon(Icons.add_circle_outline),
+                ),
+              ],
+            ),
+            ExpansionTile(
+              key: Key('image-adjustments-${activeAsset.id}'),
+              title: const Text('تحسين الصورة: لون وتباين وحدّة'),
+              subtitle: const Text('تلقائي قابل للتعديل يدوياً'),
+              children: [
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => _autoAdjustImage(activeAsset),
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('اقتراح تحسين تلقائي'),
+                  ),
+                ),
+                Text('الإضاءة ${adjustments.brightness.toStringAsFixed(2)}'),
+                Slider(
+                  key: Key('layout-brightness-${activeAsset.id}'),
+                  value: adjustments.brightness,
+                  min: -.5,
+                  max: .5,
+                  divisions: 20,
+                  onChanged: _busy
+                      ? null
+                      : (value) => _draftAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(brightness: value),
+                        ),
+                  onChangeEnd: _busy
+                      ? null
+                      : (value) => _commitAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(brightness: value),
+                        ),
+                ),
+                Text('التباين ${adjustments.contrast.toStringAsFixed(2)}'),
+                Slider(
+                  key: Key('layout-contrast-${activeAsset.id}'),
+                  value: adjustments.contrast,
+                  min: .25,
+                  max: 3,
+                  divisions: 55,
+                  onChanged: _busy
+                      ? null
+                      : (value) => _draftAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(contrast: value),
+                        ),
+                  onChangeEnd: _busy
+                      ? null
+                      : (value) => _commitAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(contrast: value),
+                        ),
+                ),
+                Text(
+                  'تشبع الألوان ${adjustments.saturation.toStringAsFixed(2)}',
+                ),
+                Slider(
+                  key: Key('layout-saturation-${activeAsset.id}'),
+                  value: adjustments.saturation,
+                  min: 0,
+                  max: 2,
+                  divisions: 20,
+                  onChanged: _busy
+                      ? null
+                      : (value) => _draftAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(saturation: value),
+                        ),
+                  onChangeEnd: _busy
+                      ? null
+                      : (value) => _commitAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(saturation: value),
+                        ),
+                ),
+                Text('حدة الصورة ${adjustments.sharpness.toStringAsFixed(2)}'),
+                Slider(
+                  key: Key('layout-sharpness-${activeAsset.id}'),
+                  value: adjustments.sharpness,
+                  min: 0,
+                  max: 1,
+                  divisions: 20,
+                  onChanged: _busy
+                      ? null
+                      : (value) => _draftAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(sharpness: value),
+                        ),
+                  onChangeEnd: _busy
+                      ? null
+                      : (value) => _commitAdjustments(
+                          activeAsset,
+                          adjustments.copyWith(sharpness: value),
+                        ),
+                ),
+              ],
             ),
             CheckboxListTile(
               title: const Text('تثبيت العنصر'),
@@ -1015,21 +1429,51 @@ class _LayoutScreenState extends State<LayoutScreen> {
   }
 }
 
-Future<Map<String, double>?> editMeasurements(
+class MeasurementResult {
+  MeasurementResult(Map<String, double> values, {required this.sizeConfirmed})
+    : values = Map.unmodifiable(values);
+
+  final Map<String, double> values;
+  final bool sizeConfirmed;
+}
+
+Future<MeasurementResult?> editMeasurements(
   BuildContext context,
   String title,
   Map<String, double> values, {
   String? notice,
-}) => showDialog<Map<String, double>>(
+  bool offerSizeConfirmation = false,
+  bool requireSizeConfirmation = false,
+  String? confirmSizeLabel,
+}) => showDialog<MeasurementResult>(
   context: context,
-  builder: (_) => _MeasurementsDialog(title, values, notice),
+  builder: (_) => _MeasurementsDialog(
+    title: title,
+    values: values,
+    notice: notice,
+    offerSizeConfirmation: offerSizeConfirmation || requireSizeConfirmation,
+    requireSizeConfirmation: requireSizeConfirmation,
+    confirmSizeLabel: confirmSizeLabel,
+  ),
 );
 
 class _MeasurementsDialog extends StatefulWidget {
-  const _MeasurementsDialog(this.title, this.values, this.notice);
+  const _MeasurementsDialog({
+    required this.title,
+    required this.values,
+    required this.notice,
+    required this.offerSizeConfirmation,
+    required this.requireSizeConfirmation,
+    required this.confirmSizeLabel,
+  });
+
   final String title;
   final Map<String, double> values;
   final String? notice;
+  final bool offerSizeConfirmation;
+  final bool requireSizeConfirmation;
+  final String? confirmSizeLabel;
+
   @override
   State<_MeasurementsDialog> createState() => _MeasurementsDialogState();
 }
@@ -1040,6 +1484,8 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
       e.key: TextEditingController(text: e.value.toStringAsFixed(2)),
   };
   String? _error;
+  bool _sizeConfirmed = false;
+
   @override
   void dispose() {
     for (final c in _fields.values) {
@@ -1068,6 +1514,17 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
                 ),
                 decoration: InputDecoration(labelText: e.key),
               ),
+            if (widget.offerSizeConfirmation)
+              CheckboxListTile(
+                key: const Key('confirm-size-measurement'),
+                contentPadding: EdgeInsets.zero,
+                value: _sizeConfirmed,
+                onChanged: (value) => setState(() => _sizeConfirmed = value!),
+                title: Text(
+                  widget.confirmSizeLabel ??
+                      'قست النسخة الأصلية بالمسطرة وأؤكد العرض والارتفاع المدخلين.',
+                ),
+              ),
             if (_error != null) Text(_error!),
           ],
         ),
@@ -1079,29 +1536,37 @@ class _MeasurementsDialogState extends State<_MeasurementsDialog> {
         child: const Text('إلغاء'),
       ),
       FilledButton(
-        onPressed: () {
-          try {
-            final values = <String, double>{};
-            for (final e in _fields.entries) {
-              var text = e.value.text
-                  .trim()
-                  .replaceAll('٫', '.')
-                  .replaceAll(',', '.');
-              for (var i = 0; i < 10; i++) {
-                text = text.replaceAll('٠١٢٣٤٥٦٧٨٩'[i], '$i');
-              }
-              final v = double.tryParse(text);
-              require(v != null && v.isFinite, 'أدخل أرقاماً صالحة.');
-              values[e.key] =
-                  e.value.text == widget.values[e.key]!.toStringAsFixed(2)
-                  ? widget.values[e.key]!
-                  : v!;
-            }
-            Navigator.pop(context, values);
-          } catch (e) {
-            setState(() => _error = userError(e));
-          }
-        },
+        onPressed: widget.requireSizeConfirmation && !_sizeConfirmed
+            ? null
+            : () {
+                try {
+                  final values = <String, double>{};
+                  for (final e in _fields.entries) {
+                    var text = e.value.text
+                        .trim()
+                        .replaceAll('٫', '.')
+                        .replaceAll(',', '.');
+                    for (var i = 0; i < 10; i++) {
+                      text = text.replaceAll('٠١٢٣٤٥٦٧٨٩'[i], '$i');
+                    }
+                    final value = double.tryParse(text);
+                    require(
+                      value != null && value.isFinite,
+                      'أدخل أرقاماً صالحة.',
+                    );
+                    values[e.key] =
+                        e.value.text == widget.values[e.key]!.toStringAsFixed(2)
+                        ? widget.values[e.key]!
+                        : value!;
+                  }
+                  Navigator.pop(
+                    context,
+                    MeasurementResult(values, sizeConfirmed: _sizeConfirmed),
+                  );
+                } catch (e) {
+                  setState(() => _error = userError(e));
+                }
+              },
         child: const Text('حفظ المقاسات'),
       ),
     ],

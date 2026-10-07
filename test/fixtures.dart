@@ -36,4 +36,5 @@ DocumentItem itemFixture({String id = 'item1', String assetId = 'asset1'}) =>
       height: 53.98,
       rotation: 90,
       locked: true,
+      sizeConfirmed: true,
     );

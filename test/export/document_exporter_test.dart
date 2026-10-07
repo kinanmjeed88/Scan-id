@@ -39,6 +39,7 @@ void main() {
           y: 30,
           width: 50,
           height: 30,
+          sizeConfirmed: true,
         ),
         DocumentItem(
           id: 'b',
@@ -49,6 +50,7 @@ void main() {
           height: 30,
           rotation: 90,
           pageIndex: 1,
+          sizeConfirmed: true,
         ),
       ],
     );
@@ -73,6 +75,16 @@ void main() {
       final plan = ExportPlan(project, ExportProfile());
       expect(plan.warnings, hasLength(2));
       expect([plan.pixelWidth, plan.pixelHeight], [2480, 3508]);
+      expect(
+        () => ExportPlan(
+          project.copyWith(
+            items: [project.items.first.copyWith(sizeConfirmed: false)],
+          ),
+          ExportProfile(),
+        ),
+        throwsA(isA<ValidationException>()),
+        reason: 'لا يجوز طباعة قياس غير مؤكد',
+      );
       expect(
         () => ExportPlan(project.copyWith(items: []), ExportProfile()),
         throwsA(isA<ValidationException>()),

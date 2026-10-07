@@ -137,6 +137,8 @@ void main() {
       final assetJson = assetFixture().toJson()..remove('adjustments');
       expect(ImageAsset.fromJson(assetJson).adjustments.brightness, 0);
       expect(ImageAsset.fromJson(assetJson).adjustments.contrast, 1);
+      expect(ImageAsset.fromJson(assetJson).adjustments.saturation, 1);
+      expect(ImageAsset.fromJson(assetJson).adjustments.sharpness, 0);
       final created = await projects.create(migrated);
       expect(
         (await projects.get(created.id)).toJson()['schemaVersion'],

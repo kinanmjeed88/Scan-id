@@ -54,6 +54,7 @@ void main() {
             height: 45,
             rotation: 90,
             pageIndex: 1,
+            sizeConfirmed: true,
           ),
         ],
         exportProfile: ExportProfile(format: ExportFormat.png, dpi: 600),

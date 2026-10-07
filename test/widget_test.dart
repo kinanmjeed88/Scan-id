@@ -121,6 +121,7 @@ void main() {
               y: 50,
               width: 60,
               height: 40,
+              sizeConfirmed: true,
             ),
           ],
         ),
@@ -188,6 +189,7 @@ void main() {
               y: 30,
               width: 60,
               height: 40,
+              sizeConfirmed: true,
             ),
           ],
         ),
@@ -213,6 +215,19 @@ void main() {
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(repository.values[p.id]!.items.single.x, 30);
+      final beforePan = repository.values[p.id]!.toJson();
+      await tester.tap(find.byKey(const Key('workspace-pan')));
+      await tester.pumpAndSettle();
+      final start = tester.getCenter(item);
+      await tester.timedDragFrom(
+        start,
+        const Offset(80, 50),
+        const Duration(milliseconds: 400),
+      );
+      await tester.pumpAndSettle();
+      expect(repository.values[p.id]!.toJson(), beforePan);
+      await tester.tap(find.byKey(const Key('workspace-pan')));
+      await tester.pumpAndSettle();
       await tester.timedDrag(
         find.byKey(const Key('resize-one')),
         const Offset(70, 45),
@@ -225,17 +240,8 @@ void main() {
             repository.values[p.id]!.items.single.height,
         closeTo(1.5, 1e-9),
       );
-      final before = repository.values[p.id]!.toJson();
-      await tester.tap(find.byKey(const Key('workspace-pan')));
-      await tester.pumpAndSettle();
-      final start = tester.getCenter(item);
-      await tester.timedDragFrom(
-        start,
-        const Offset(80, 50),
-        const Duration(milliseconds: 400),
-      );
-      await tester.pumpAndSettle();
-      expect(repository.values[p.id]!.toJson(), before);
+      expect(repository.values[p.id]!.items.single.sizeConfirmed, isFalse);
+      expect(repository.values[p.id]!.items.single.pageIndex, isNull);
       expect(tester.takeException(), isNull);
     },
   );
@@ -434,9 +440,9 @@ void main() {
         await tester.pumpAndSettle();
         expect((tester.getCenter(corner) - before).distance, lessThan(.01));
       }
-      await tester.ensureVisible(find.text('اقتراح الحدود'));
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('اقتراح الحدود'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
       // Let the real four-second feedback snackbar expire before tapping
       // controls underneath it. pumpAndSettle does not advance idle timers.

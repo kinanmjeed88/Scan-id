@@ -661,6 +661,8 @@ class DocumentRecord {
     required this.provenance,
     this.recognition,
     this.overrides = const [],
+    this.pairedDocumentId,
+    this.pairingConfidence,
   }) {
     validId(id);
     validId(sourceImageId);
@@ -672,6 +674,18 @@ class DocumentRecord {
       sides.map((s) => s.id).toSet().length == sides.length,
       'أوجه المستند مكررة.',
     );
+    if (pairedDocumentId != null) {
+      validId(pairedDocumentId!);
+      require(pairedDocumentId != id, 'المستند لا يمكن أن يقترن بنفسه.');
+    }
+    if (pairingConfidence != null) {
+      require(
+        pairingConfidence!.isFinite &&
+            pairingConfidence! >= 0 &&
+            pairingConfidence! <= 1,
+        'ثقة الاقتران يجب أن تكون بين 0 و1.',
+      );
+    }
   }
   final String id;
   final String sourceImageId;
@@ -681,6 +695,42 @@ class DocumentRecord {
   final Provenance provenance;
   final List<UserOverride> overrides;
 
+  /// Additive v5 field: the partner record of a front/back relationship.
+  /// With [pairing] == [PairingState.paired] it is the CONFIRMED partner;
+  /// with [PairingState.ambiguous] it is the PROPOSED partner awaiting
+  /// review. Always reciprocal (enforced by the Project invariants). Absent
+  /// for single documents and for records written before pairing existed.
+  final String? pairedDocumentId;
+
+  /// Additive v5 field: measured pairing confidence (0..1), produced by the
+  /// pairing engine together with [pairedDocumentId]. Never invented.
+  final double? pairingConfidence;
+
+  DocumentRecord copyWith({
+    List<DocumentSide>? sides,
+    RecognitionResult? recognition,
+    PairingState? pairing,
+    Provenance? provenance,
+    List<UserOverride>? overrides,
+    String? pairedDocumentId,
+    double? pairingConfidence,
+    bool clearPairing = false,
+  }) => DocumentRecord(
+    id: id,
+    sourceImageId: sourceImageId,
+    sides: sides ?? this.sides,
+    recognition: recognition ?? this.recognition,
+    pairing: pairing ?? this.pairing,
+    provenance: provenance ?? this.provenance,
+    overrides: overrides ?? this.overrides,
+    pairedDocumentId: clearPairing
+        ? null
+        : (pairedDocumentId ?? this.pairedDocumentId),
+    pairingConfidence: clearPairing
+        ? null
+        : (pairingConfidence ?? this.pairingConfidence),
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'sourceImageId': sourceImageId,
@@ -689,6 +739,10 @@ class DocumentRecord {
     'pairing': pairing.name,
     'provenance': provenance.toJson(),
     'overrides': overrides.map((o) => o.toJson()).toList(),
+    // Additive pairing fields: omitted when absent so pre-pairing v5 records
+    // round-trip byte-identically.
+    if (pairedDocumentId != null) 'pairedDocumentId': pairedDocumentId,
+    if (pairingConfidence != null) 'pairingConfidence': pairingConfidence,
   };
   factory DocumentRecord.fromJson(Object? json) {
     final m = objectMap(json);
@@ -704,6 +758,12 @@ class DocumentRecord {
       overrides: m['overrides'] == null
           ? const []
           : objectList(m['overrides']).map(UserOverride.fromJson).toList(),
+      pairedDocumentId: m['pairedDocumentId'] == null
+          ? null
+          : text(m['pairedDocumentId'], 'pairedDocumentId'),
+      pairingConfidence: m['pairingConfidence'] == null
+          ? null
+          : finiteNumber(m['pairingConfidence'], 'pairingConfidence'),
     );
   }
 }

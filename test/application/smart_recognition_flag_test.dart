@@ -1,16 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/smart_recognition_flag.dart';
 
-/// The Smart Recognition gate is scaffolding only in Phase 1B and must start
-/// OFF, so today's import path is byte-for-byte unchanged while the new
-/// pipeline is introduced (GATE 0 / section H).
+/// Smart Recognition ships ENABLED: the import intake routes through the
+/// recognition pipeline. The flag stays an app-level switch (never part of
+/// the schema) so the legacy byte-for-byte path remains one constant away.
 void main() {
-  test('Smart Recognition feature flag starts OFF by default', () {
-    expect(smartRecognitionEnabled, isFalse);
+  test('Smart Recognition feature flag is ON in this build', () {
+    expect(smartRecognitionEnabled, isTrue);
   });
 
-  test('allows() stays false while the feature is off, whatever the gate', () {
+  test('allows() still honours the per-call gate', () {
     expect(smartRecognitionAllows(false), isFalse);
-    expect(smartRecognitionAllows(true), isFalse);
+    expect(smartRecognitionAllows(true), isTrue);
   });
 }

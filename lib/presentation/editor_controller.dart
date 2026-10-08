@@ -5,6 +5,7 @@ import 'dart:ui' show Offset;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../application/cancellation.dart';
 import '../application/ids.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
@@ -15,6 +16,9 @@ import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
+import '../domain/recognition.dart';
+import '../domain/recognition_overrides.dart' as rec;
+import '../domain/recognition_routing.dart' as routing;
 import '../domain/validation.dart';
 
 /// How the sheet view chooses its scale.
@@ -336,7 +340,9 @@ class LayoutEditorController extends ChangeNotifier {
     return edit((p) {
       var next = p;
       for (final id in ids) {
-        next = DocumentEdits.setKind(next, id, kind);
+        // Records the divergence as an explicit recognition-level override
+        // when the item is linked to a recognition record (ADR-004).
+        next = rec.setKindWithOverride(next, id, kind);
       }
       return next;
     });
@@ -347,6 +353,85 @@ class LayoutEditorController extends ChangeNotifier {
       _say('العناصر المحددة مثبتة؛ ألغِ التثبيت أولاً.');
     }
   }
+
+  // ---------------------------------------------------------------------
+  // Smart Recognition: review queue, overrides, pairing, progress
+
+  /// Live progress line of a running smart intake, or null.
+  String? recognitionProgress;
+  CancellationToken? _intakeToken;
+
+  bool get canCancelIntake =>
+      _intakeToken != null && !_intakeToken!.isCancelled;
+
+  /// Requests cooperative cancellation of the running intake. Completed
+  /// images stay; the rest are skipped at the next safe checkpoint.
+  void cancelIntake() {
+    final token = _intakeToken;
+    if (token == null || token.isCancelled) return;
+    token.cancel();
+    recognitionProgress = 'جارٍ الإلغاء بعد الصورة الحالية…';
+    _notify();
+  }
+
+  /// Recognition records awaiting user review, derived from evidence and
+  /// overrides — never stored separately.
+  List<DocumentRecord> get reviewQueue => rec.recordsNeedingReview(project);
+
+  List<String> reviewReasonsFor(DocumentRecord record) =>
+      routing.reviewReasons(record);
+
+  DocumentKind effectiveKindOf(DocumentRecord record) =>
+      rec.effectiveKind(record);
+
+  SideKind effectiveSideOf(DocumentRecord record) =>
+      rec.effectiveSide(record, record.sides.first);
+
+  DocumentRecord? recordOf(String documentId) =>
+      project.documents.where((d) => d.id == documentId).firstOrNull;
+
+  /// The first layout item realizing [record], if it still exists.
+  DocumentItem? itemForRecord(DocumentRecord record) =>
+      project.items.where((i) => i.documentId == record.id).firstOrNull;
+
+  Future<void> confirmRecognition(String documentId) =>
+      edit((p) => rec.confirmRecognition(p, documentId), layout: false);
+
+  /// Confirms every queued record in one undoable step.
+  Future<void> confirmAllRecognition() => edit((p) {
+    var next = p;
+    for (final record in rec.recordsNeedingReview(p)) {
+      next = rec.confirmRecognition(next, record.id);
+    }
+    return next;
+  }, layout: false);
+
+  /// Corrects the recognized kind of a record through its layout items, so
+  /// the catalog size applies and the override is recorded.
+  Future<void> overrideRecordKind(String documentId, DocumentKind kind) =>
+      edit((p) {
+        var next = p;
+        for (final item in p.items) {
+          if (item.documentId == documentId && !item.locked) {
+            next = rec.setKindWithOverride(next, item.id, kind);
+          }
+        }
+        return next;
+      });
+
+  Future<void> setRecordSide(String documentId, SideKind side) =>
+      edit((p) => rec.setSideOverride(p, documentId, side), layout: false);
+
+  /// Accepts the proposed front/back partner of [documentId].
+  Future<void> acceptPairProposal(String documentId) => edit((p) {
+    final record = p.documents.where((d) => d.id == documentId).firstOrNull;
+    final partnerId = record?.pairedDocumentId;
+    if (record == null || partnerId == null) return p;
+    return rec.acceptPair(p, documentId, partnerId);
+  }, layout: false);
+
+  Future<void> rejectPairProposal(String documentId) =>
+      edit((p) => rec.rejectPair(p, documentId), layout: false);
 
   Future<void> resizeActive({double? width, double? height}) async {
     final item = active;
@@ -507,39 +592,54 @@ class LayoutEditorController extends ChangeNotifier {
     if (sources.isEmpty) return;
     AutomaticLayoutReport? report;
     var failures = 0;
-    await run(() async {
-      final existing = session.current.assets.map((a) => a.id).toSet();
-      final imported = await service.importImages(session.current, sources);
-      failures = imported.failures.length;
-      final ids = [
-        for (final asset in imported.project.assets)
-          if (!existing.contains(asset.id)) asset.id,
-      ];
-      var latest = imported.project;
-      if (ids.isNotEmpty) {
-        try {
-          report = await service.arrangeImportedImages(
-            latest,
-            ids,
-            keepPlaced: !autoFlow,
-          );
-          latest = report!.project;
-        } catch (_) {
-          latest = await service.projects.get(latest.id);
-          rethrow;
-        } finally {
-          if (latest.revision > session.current.revision) {
-            await session.adoptSaved(latest);
+    final token = CancellationToken();
+    _intakeToken = token;
+    try {
+      await run(() async {
+        final existing = session.current.assets.map((a) => a.id).toSet();
+        final imported = await service.importImages(session.current, sources);
+        failures = imported.failures.length;
+        final ids = [
+          for (final asset in imported.project.assets)
+            if (!existing.contains(asset.id)) asset.id,
+        ];
+        var latest = imported.project;
+        if (ids.isNotEmpty) {
+          try {
+            report = await service.arrangeImportedImages(
+              latest,
+              ids,
+              keepPlaced: !autoFlow,
+              cancellation: token,
+              onProgress: (progress) {
+                recognitionProgress =
+                    '${progress.stage}: ${progress.completed}/${progress.total}';
+                _notify();
+              },
+            );
+            latest = report!.project;
+          } catch (_) {
+            latest = await service.projects.get(latest.id);
+            rethrow;
+          } finally {
+            if (latest.revision > session.current.revision) {
+              await session.adoptSaved(latest);
+            }
           }
+        } else if (latest.revision > session.current.revision) {
+          await session.adoptSaved(latest);
         }
-      } else if (latest.revision > session.current.revision) {
-        await session.adoptSaved(latest);
-      }
-    });
+      });
+    } finally {
+      _intakeToken = null;
+      recognitionProgress = null;
+      _notify();
+    }
     final r = report;
     if (r != null) {
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
+        '${r.needsReview > 0 ? ' · للمراجعة ${r.needsReview}' : ''}'
         '${failures > 0 ? ' · تعذر استيراد $failures' : ''}',
       );
     }

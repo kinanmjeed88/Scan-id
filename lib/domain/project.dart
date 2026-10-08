@@ -559,6 +559,20 @@ class Project {
         validProcessedPath(id, side.processedAsset.workingPath);
         validProcessedPath(id, side.processedAsset.thumbnailPath);
       }
+      // Pairing links must resolve and be reciprocal, so a stored pair can
+      // never point at a removed or unrelated record.
+      final partnerId = record.pairedDocumentId;
+      if (partnerId != null) {
+        final partner = documents.firstWhere(
+          (d) => d.id == partnerId,
+          orElse: () =>
+              throw const ValidationException('مستند يشير إلى قرين مفقود.'),
+        );
+        require(
+          partner.pairedDocumentId == record.id,
+          'اقتران المستندين غير متبادل.',
+        );
+      }
     }
   }
   static const schemaVersion = 5;

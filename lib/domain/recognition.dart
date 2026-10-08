@@ -40,9 +40,9 @@ class Confidence {
       value.isFinite && value >= 0 && value <= 1,
       'قيمة الثقة يجب أن تكون بين 0 و1.',
     );
-    if (reason != null) validNote(reason);
-    if (producer != null) validNote(producer);
-    if (version != null) validNote(version);
+    if (reason != null) validNote(reason!);
+    if (producer != null) validNote(producer!);
+    if (version != null) validNote(version!);
   }
   final double value;
   final String? reason;
@@ -128,7 +128,7 @@ class RecognitionEvidence {
       'score الدليل يجب أن يكون بين 0 و1.',
     );
     validNote(kind);
-    if (reason != null) validNote(reason);
+    if (reason != null) validNote(reason!);
   }
   final EvidenceSource source;
   final String kind;

@@ -291,9 +291,9 @@ class DocumentItem {
     require(page == null || (page >= 0 && page < 100), 'رقم الصفحة غير صالح.');
     validId(id);
     validId(assetId);
-    if (documentId != null) validId(documentId);
-    if (sideId != null) validId(sideId);
-    if (groupId != null) validId(groupId);
+    if (documentId != null) validId(documentId!);
+    if (sideId != null) validId(sideId!);
+    if (groupId != null) validId(groupId!);
     require(
       [
             x,
@@ -858,7 +858,7 @@ DocumentRecord _synthesizeRecord(
       importedFrom: LegacyImport(
         schema: sourceSchema,
         field: 'recognitionConfidence',
-        migrationVersion: '$schemaVersion',
+        migrationVersion: '${Project.schemaVersion}',
       ),
     ),
     overrides: const [],

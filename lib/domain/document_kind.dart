@@ -155,7 +155,7 @@ class PresetSnapshot {
           heightMm <= 10000,
       'أبعاد اللقطة المسبقة غير صالحة.',
     );
-    if (variantId != null) validId(variantId);
+    if (variantId != null) validId(variantId!);
   }
   final String? variantId;
   final double widthMm;

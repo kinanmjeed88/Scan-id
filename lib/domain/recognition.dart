@@ -665,7 +665,7 @@ class DocumentRecord {
     validId(id);
     validId(sourceImageId);
     require(
-      sides.length >= 1 && sides.length <= 2,
+      sides.isNotEmpty && sides.length <= 2,
       'المستند يجب أن يحتوي وجهاً واحداً أو وجهين.',
     );
     require(

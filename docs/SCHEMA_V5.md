@@ -1,8 +1,11 @@
 # Scan ID — Schema v5 Domain & Persistence Design (Phase 1A)
 
 - **Date:** 2026-10-08
-- **Status:** DESIGN / CONTRACT ONLY. No production code, schema, dependency,
-  migration, feature-flag code, or test changes in Phase 1A.
+- **Status:** DESIGN / CONTRACT. **Gate 1 Design Lock applied** (§8): the four
+  remaining points — source-of-truth boundary, legacy-confidence semantics,
+  processed-asset lifecycle, and v5 bounds + snapshot — are resolved here and in
+  [`docs/MIGRATION_V5.md`](MIGRATION_V5.md). No production code, schema,
+  dependency, migration, feature-flag code, or test changes.
 - **Baseline:** `14a3ee7b46ad6b1c0a5bdb912765e232dfb3ec33` (+ Phase 0 docs).
 - **Governs:** ADR-001…ADR-011 (`docs/adr/`). Companion migration design:
   [`docs/MIGRATION_V5.md`](MIGRATION_V5.md).
@@ -146,8 +149,13 @@ system/migration. **Edit:** user-editable. **BC:** backward-compatible behavior
 | `sideId` | String? | opt | `null` | which side of the instance this item shows | n/a | no | R |
 | `presetSnapshot` | `{variantId, widthMm, heightMm, status}`? | opt | `null` | frozen preset at processing time | manual size on the item | via override | R→U |
 | `groupId` | String? | opt | `null` | keep-together membership | ungrouped | no | D |
-| `reviewState` | enum? (`awaitingReview, ready, dismissed`) | opt | `null` | review queue state | derived from confidences | yes | D/U |
 
+> **`reviewState` is DERIVED, not persisted** (Gate 1 resolution): it is computed
+> from recognition status/confidence, `sizeConfirmed`, and override presence —
+> the same rule `export_plan.dart` already uses for its low-confidence warning.
+> No stored review field; no review UI in this phase. The persisted `DocumentItem`
+> v5 fields are therefore exactly `documentId, sideId, presetSnapshot, groupId`.
+>
 > **No duplication:** position/size/rotation/lock/page/inclusion stay **only** on
 > `DocumentItem` (they already are the user's layout decisions). Recognition-level
 > overrides go to `UserOverride` (§4.8), never re-copied here.
@@ -214,15 +222,18 @@ scalar’s migration meaning is defined in `MIGRATION_V5.md §4`.
 |---|---|---|---|---|
 | `documentKind` | enum | req | winning candidate (may be `unknown`) | R |
 | `status` | enum `recognized\|unknown\|uncertain` | req | outcome | D |
-| `confidences` | `ConfidenceSet` | req | the five(+final) scores | R |
+| `confidences` | `ConfidenceSet` | req | the five fusion scores (incl. `final`) | R |
 | `evidence` | `List<Evidence>` | req | per-source scores + reasons (no text) | R |
 | `preset` | `PresetSelection` | req | chosen variant / `awaitingSize` | R |
 | `pipelineVersion` | String | req | recognition pipeline version | R |
 | `modelVersions` | `{detector, ocr?, classifier}` | req | producer versions | R |
 | `validated` | bool | req (`false`) | Tier-B calibration status (provisional until calibrated) | S |
 
-`ConfidenceSet` = `{detection, geometry, ocr, classification, preset, final}`,
-each a `Confidence`:
+`ConfidenceSet` = `{detection, geometry, ocr, classification, final}` — the
+**five fusion dimensions** defined in `AUDIT.md` §F (detection 0.2 / geometry
+0.3 / classification 0.5 combine into `final`; `classification` is the weighted
+geometric mean over *available* sources — unavailable sources are omitted, never
+zero). Each is a `Confidence`:
 
 | `Confidence` field | Type | Req | Meaning |
 |---|---|---|---|
@@ -234,8 +245,10 @@ each a `Confidence`:
 `Evidence` = `{source (visual\|ocr\|geometry\|structure\|aspect), kind, score,
 reason}`. **No OCR text and no personal field values are ever stored.**
 
-`PresetSelection` = `{variantId, confidence}` **or** `{awaitingSize:true,
-candidates:[variantId]}`.
+`PresetSelection` = `{variantId, presetConfidence?}` **or** `{awaitingSize:true,
+candidates:[variantId]}`. `presetConfidence` is the confidence in the *preset
+choice* (AUDIT §G/§H) and is deliberately **separate** from the five fusion
+dimensions above; it is absent unless a preset stage actually scored it.
 
 ### 4.8 `UserOverride` (new; separate from recognition — ADR-004)
 
@@ -372,6 +385,120 @@ When the flag is **OFF**, the import path is byte-for-byte the current behavior
    “recognition applied”). ✔
 10. No production code changed in Phase 1A. ✔
 
-**Open items deferred to Gate 1 (design refinement, not blocking this contract):**
-exact enum string spellings; whether `reviewState` is persisted or derived;
-bounding `documents`/`groups` counts under `maxProjectItems`.
+**Open items deferred to Gate 1 — now RESOLVED in §8:** exact enum string
+spellings (deferred to implementation; names shown are canonical intent);
+whether `reviewState` is persisted or derived (**derived**, §4.2); bounding
+`documents`/`groups` counts (**reuse `maxProjectItems`**, §8.4).
+
+---
+
+## 8. Gate 1 Design Lock
+
+The four points Gate 1 requires before any Phase 1B implementation. Points 2
+(legacy-confidence semantics) and the snapshot half of point 4 live in
+[`docs/MIGRATION_V5.md`](MIGRATION_V5.md) §4 and §9; points 1, 3 and the bounds
+half of 4 are locked here.
+
+### 8.1 Source-of-truth boundary (point 1)
+
+Each concept has **exactly one authoritative owner**; every other appearance is a
+**derived representation** with a defined sync direction and conflict rule. No
+field is written by two independent actors.
+
+| Entity | Authoritative for | Mutated by |
+|---|---|---|
+| `DocumentRecord` | recognition result, evidence, versions, provenance, processed-asset references, pairing | recognition pipeline / migration only (never by a layout or user edit) |
+| `DocumentItem` | layout/editor truth: `x,y,width,height,rotation,zIndex,locked,pageIndex,keepAspectRatio`, effective `documentKind`, effective `recognitionConfidence`, `sizeConfirmed` | the deterministic engine + the user (editor) |
+| `PresetSnapshot` | the frozen preset decision an item was sized from (`variantId,widthMm,heightMm,status`) | write-once at processing/migration; never rewritten by a catalog edit |
+| `UserOverride` | explicit recognition-level user decisions (type, preset variant, corners, side, pairing, dismissal) | the user (override layer) |
+| `ProcessedDocumentAsset` | the derived image + its persisted reference (lifecycle in §8.3) | the processing pipeline (immutable once written) |
+
+**Per-concept owner / derived / sync / conflict:**
+
+| Concept | Authoritative | Derived | Sync | Conflict |
+|---|---|---|---|---|
+| document type | evidence: `DocumentRecord.recognition.documentKind`; effective: `DocumentItem.documentKind` | — | recognition seeds the effective value when a record is linked | effective wins for display/order/export; evidence preserved; a user change is a `UserOverride` (explicit, not silent) |
+| dimensions | `DocumentItem.width/height` (placed mm) | `DocumentItem.presetSnapshot` (frozen) | none live; snapshot write-once | catalog change never resizes; snapshot proves the frozen decision |
+| preset | `DocumentSizeCatalog` (size definitions) + `DocumentRecord.preset` (choice) | `DocumentItem.presetSnapshot`; `catalog.effectiveVariants()` | choice → snapshot at processing | catalog edits never retro-edit snapshots/selections |
+| side identity | `DocumentSide.id` + `side` (in the record) | `DocumentItem.sideId` (reference) | reference only | ids stable ⇒ reference always resolves |
+| processed asset | `DocumentSide.processedAsset` (in the record) | `DocumentItem.assetId` → source `ImageAsset` | none | item references source; side references derived; no duplication |
+| recognition result | `DocumentRecord.recognition` (immutable evidence) | `DocumentItem.recognitionConfidence` (effective scalar shown) | recognition seeds effective | evidence never mutated; divergence ⇒ `UserOverride` |
+
+**References & mutation side:**
+- `DocumentItem.documentId → DocumentRecord.id`; `DocumentItem.sideId → DocumentSide.id` (within that record); `DocumentItem.groupId → LayoutGroup.id`. The **record/group owns membership**; the item holds only the reference.
+- `DocumentRecord.sourceImageId → ImageAsset.id`; `DocumentRecord.overrides → UserOverride`. The record owns its overrides.
+- `LayoutGroup.itemIds → DocumentItem.id[]` (group owns the list).
+- Mutating a reference means editing the **owner** (record/group), then the item's id is set to match — never two owners.
+
+**Precedence (computed, never stored as copies):** `UserOverride` ▸ validated
+confirmation ▸ high-confidence recognition ▸ lower-confidence recognition ▸
+`unknown`. The underlying `recognition` is never erased (ADR-004).
+
+**ADR-004 reconciliation (flagged, not a rewrite):** ADR-004 enumerates the
+override layer as covering "type, preset variant, corners, side, pairing,
+inclusion, size, rotation, page and position." `size/rotation/page/position` are
+**placement** and are owned by `DocumentItem` + the deterministic engine
+(ADR-002, AUDIT §H); the `UserOverride` layer covers **recognition decisions**
+only (type, preset variant, corners, side, pairing, inclusion, dismissal). The
+two lists are reconciled by ADR-002's placement authority; a one-line ADR-004
+clarification is recommended (deferred, not blocking).
+
+### 8.2 (reserved — see MIGRATION_V5 §4 for legacy-confidence semantics)
+
+### 8.3 Processed-document-asset lifecycle (point 3) — **HYBRID**
+
+- **Authoritative part:** the persisted `ProcessedAssetRef` (identity, corners,
+  transform, output size, effective DPI, version, working/thumbnail paths). This
+  is what the schema guarantees and what references resolve against.
+- **Cache part:** the derived image **file** — a deterministic function of the
+  immutable source + recorded geometry/version, therefore **regenerable in
+  principle**. Source stays immutable (ADR-003).
+- **v5 policy:** the file **is** persisted, backed up, restore-remapped, and
+  required for pixel operations; **no regeneration runtime exists in this
+  phase**, so a missing file fails safe rather than being silently rebuilt.
+
+Lifecycle:
+
+```
+create    → processing writes a distinct processed/<procId>/ (never overwrites;
+            multiple detections/sides never collide)
+reference → DocumentSide.processedAsset persists the ref; refs resolve on load
+backup    → .scanid walks the whole project folder, so processed files are
+            included; the ref travels in the project JSON manifest
+restore   → files extracted; processed refs remapped to the new project id
+            (a missing processed file still opens)
+missing   → project OPENS (metadata intact); pixel-needing ops (export/processing)
+            fail safe with a typed reason; regeneration is a later phase
+regenerate→ (later phase) from immutable source + stored geometry/version
+GC        → never removes a ref that any DocumentSide references; only proven-
+            unreferenced processed files are collectable; project deletion
+            removes its whole folder
+```
+
+Answers (deterministic): **included in backup** yes · **functions without it**
+opens yes / pixel ops no · **regenerable** yes in principle (not in this phase) ·
+**missing** fail-safe open · **GC** never while referenced · **deletion**
+orphan-able only when provably unreferenced · **export requires it** the current
+export path does **not** (it uses the asset working image exactly as v4).
+
+### 8.4 V5 bounds (point 4) — reuse existing limits, invent none
+
+`image_limits.dart` already bounds a project at `maxProjectAssets = 200`,
+`maxProjectItems = 500` (plus 20 MiB / 16 MP per image). Every new count is
+realized through items, so the existing item bound already caps it — **no new
+arbitrary limit is introduced.**
+
+| Bound | Value | Basis |
+|---|---|---|
+| max `DocumentRecord`s / project | `≤ items.length` and `≤ maxProjectItems` (500) | each record is realized through ≥1 item |
+| max `LayoutGroup`s / project | `≤ items.length` and `≤ maxProjectItems` (500) | each group holds ≥1 item |
+| max sides per `DocumentInstance` | **2** (front + back) | ADR-008 (1–2 sides); enforced by record validation |
+| legacy synthesized records | `≤` items carrying a recognition signal `≤ items.length ≤ 500` | derived from the item bound |
+| max project size interaction | unchanged: 200 assets / 500 items / per-image budgets | new entities add no independent count |
+
+**Exceeding any bound** ⇒ deterministic `ValidationException` on load/construct;
+the project refuses to load rather than truncating; the original bytes are
+untouched (matches existing `maxProjectAssets`/`maxProjectItems` behavior).
+**Collisions** (duplicate record/group ids, or a synthesized id colliding with an
+existing one) ⇒ deterministic `ValidationException`; never a silent overwrite
+(structurally impossible in the ≤4 path, since no records exist pre-v5).

@@ -1,8 +1,9 @@
 # Scan ID — Schema v5 Migration, Backup & Lifecycle Design (Phase 1A)
 
 - **Date:** 2026-10-08
-- **Status:** DESIGN ONLY. No migration code, no tests, no production changes in
-  Phase 1A.
+- **Status:** DESIGN ONLY. **Gate 1 Design Lock applied** (§4 legacy-confidence
+  semantics, §9 snapshot mechanism). No migration code, no tests, no production
+  changes.
 - **Governs:** ADR-010 (explicit migration), ADR-011 (schemaVersion = 5),
   [`docs/SCHEMA_V5.md`](SCHEMA_V5.md).
 - **Evidence basis:** `lib/persistence/local_project_repository.dart` (sembast,
@@ -23,7 +24,7 @@
 | v3b `90de23c` | `ImageAsset.captureId` | `v3b_90de23c` |
 | v3c `64d146e` | `DocumentItem.documentKind, recognitionConfidence, sizeConfirmed` | `v3c_64d146e` |
 | v4 (current) | `Project.catalog` (`DocumentSizeCatalog`); `layout.strategy`; semantic: `sizeConfirmed=false ⇒ pageIndex forced null` (off-sheet) | `lib/domain/project.dart` |
-| **v5 (this design)** | `Project.documents, layoutGroups, catalog.variants`; `DocumentItem.documentId, sideId, presetSnapshot, groupId, reviewState` | SCHEMA_V5.md |
+| **v5 (this design)** | `Project.documents, layoutGroups, catalog.variants`; `DocumentItem.documentId, sideId, presetSnapshot, groupId` (`reviewState` is derived, not stored) | SCHEMA_V5.md |
 
 All five stored formats share `schemaVersion` integers `{1,2,3,3,3}`; the
 lettered v3 variants are distinguished by field presence, not by the integer
@@ -85,9 +86,33 @@ transforms, original/working/thumb, paper/layout/export, catalog).
 
 ## 4. `recognitionConfidence` migration meaning (the single scalar → v5)
 
-The v3c/v4 inline triple (`documentKind`, `recognitionConfidence`,
-`sizeConfirmed`) is the only recognition state that exists pre-v5. On upgrade,
-for each `DocumentItem` with **no** `documentId`:
+**Locked semantics (Gate 1, point 2).** The legacy scalar is the *only*
+recognition state that exists pre-v5 (v3c/v4 inline triple `documentKind`,
+`recognitionConfidence`, `sizeConfirmed`). Legacy Scan-id performed **no** modern
+detection/geometry/OCR analysis, so the scalar may populate **only** the
+confidence it actually represents, and the migrated record must identify itself
+as legacy-imported.
+
+Exact per-source-version interpretation of `recognitionConfidence`:
+
+| Source | `recognitionConfidence` present? | Migrated to |
+|---|---|---|
+| v1, v2, v3a, v3b | absent (field did not exist) | n/a — no signal, no record synthesized |
+| v3c, v4 | a double `0..1` from `suggestDocumentType` | `confidences.classification` **and** `confidences.final`, each `{value, reason:"legacy scalar (pre-v5)", producer:"suggestDocumentType", version:"legacy"}` |
+
+- **`detection`, `geometry`, `ocr` confidences ⇒ ABSENT (null).** Legacy had no
+  detector/geometry-scorer/OCR. They are **never fabricated as numeric zero** —
+  an unavailable dimension is omitted from `ConfidenceSet`, per the AUDIT §F
+  convention ("unavailable sources excluded, never zero").
+- **`presetConfidence` ⇒ ABSENT** unless a preset stage actually scored it
+  (legacy did not; the preset is resolved by kind, not scored).
+- **Legacy-import provenance (required):** the synthesized record sets
+  `provenance.importedFrom = {schema:<sourceVersion>, field:"recognitionConfidence",
+  migrationVersion:"5"}` and `evidence: []`. This marks it as legacy-imported so
+  it can never be mistaken for modern multi-source analysis.
+- `validated = false` (never Tier-B calibrated).
+
+On upgrade, for each `DocumentItem` with **no** `documentId`:
 
 - **Has a recognition signal** (`documentKind != unknown` **or**
   `recognitionConfidence > 0`): synthesize a deterministic `DocumentRecord`
@@ -103,10 +128,11 @@ for each `DocumentItem` with **no** `documentId`:
     `status = recognized iff documentKind != unknown`,
     `confidences.classification = {value: recognitionConfidence, reason:
     "legacy scalar (pre-v5)", producer:"suggestDocumentType", version:"legacy"}`,
-    `confidences.final = ` same value; **detection/geometry/ocr/preset omitted**
-    (unavailable ⇒ excluded, never zero), `validated=false`.
+    `confidences.final = ` same value; **`detection`/`geometry`/`ocr` absent**
+    (unavailable ⇒ excluded, never zero); `presetConfidence` absent;
+    `importedFrom` set as above; `validated=false`.
   - `preset`: if `documentKind` has a built-in size ⇒
-    `{variantId:"builtin-<kind>", confidence: omitted}` else `awaitingSize`.
+    `{variantId:"builtin-<kind>", presetConfidence: absent}` else `awaitingSize`.
   - link `item.documentId/sideId`; set `item.presetSnapshot =
     {variantId:"builtin-<kind>"|null, widthMm:item.width, heightMm:item.height,
     status:<catalog status>}` (freezes the current size).
@@ -201,6 +227,46 @@ preservation set and, where relevant, “image files never rewritten”.
 10. Deterministic, idempotent, non-destructive, failure-safe migration contract
     stated (§2). ✔
 
-**Risks carried to Gate 1:** synthesized `DocumentRecord` growth for large legacy
-projects (bounded by `maxProjectItems`); the exact pre-upgrade-snapshot storage
-key; enum string spellings; bounding `documents`/`layoutGroups` counts.
+**Risks carried to Gate 1 — now RESOLVED:** synthesized-record growth (bounded by
+`maxProjectItems`, SCHEMA_V5 §8.4); pre-upgrade-snapshot key (§9 below); enum
+spellings (canonical intent fixed; exact strings at implementation); bounding
+`documents`/`layoutGroups` (reuse `maxProjectItems`).
+
+---
+
+## 9. Pre-upgrade snapshot mechanism (Gate 1, point 4)
+
+- **Storage key/name:** `migration-snapshots/<projectId>.json` at the app storage
+  root — a **separate namespace** from `checkpoints/`, so `RecoveryCheckpoints`
+  `.read()`/`recover()` are unaffected and a snapshot is never mistaken for a
+  committed recovery point. Written **before** the first v5 commit of a record
+  whose stored `schemaVersion < Project.schemaVersion`.
+- **Version metadata / content:** `{version:1, schemaVersion:<oldInt>,
+  project:<raw old JSON, byte-faithful>}`. `version:1` is the snapshot-envelope
+  version (independent of the project `schemaVersion` it carries).
+- **Collision handling:** **write-if-absent.** If a snapshot already exists for
+  the id, it is left untouched (the earliest pre-upgrade bytes win); the upgrade
+  still proceeds. Atomic via temp file (`migration-snapshots/<id>-<rand>.tmp`) +
+  rename, so a crash never leaves a half-written snapshot under the final name.
+- **Deterministic behavior:** the snapshot is the *exact* prior record; the
+  migration transform itself carries no timestamps/randomness (§2.4). The only
+  nondeterminism is the temp-file suffix, which never affects the final name or
+  content.
+- **Failure-safe / recovery after interrupted migration:** the snapshot is
+  written **inside** the save, before the atomic `put`. If the snapshot write
+  **fails**, the migration write is **aborted** and the ≤4 record stays intact
+  (no upgrade without a rollback point). If a fault occurs **after** the commit,
+  the ≤4 bytes are restorable from the snapshot (rollback), independent of the
+  normal `recover()` flow.
+- **Cleanup after successful migration:** the snapshot is **retained** after a
+  successful v5 write (it is the only rollback source to ≤4). Retention/expiry
+  policy is a later design; v5 does not auto-delete it, and it is outside the
+  `StorageMaintenance` orphan walk (root-level, not under `projects/`), so GC
+  never removes it.
+
+**Migration invariants (restated, ADR-010/011):** deterministic · idempotent
+(v5→v5 is a no-op; synthesis gated on `documentId == null` and
+`schemaVersion < 5`) · non-destructive (open never mutates; upgrade only on
+explicit save, after the snapshot) · failure-safe (abort leaves the original
+intact) · atomic from the app's point of view (single sembast transaction:
+optimistic `revision` check ⇒ `put`).

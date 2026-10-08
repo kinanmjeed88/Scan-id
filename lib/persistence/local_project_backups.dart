@@ -179,7 +179,8 @@ Future<Project> _readBackup(String input, String root, String id) async {
       final name = text(record['path'], 'path');
       _backupPath(name, original.id);
       require(
-        name.startsWith('projects/${original.id}/assets/') &&
+        (name.startsWith('projects/${original.id}/assets/') ||
+                name.startsWith('projects/${original.id}/processed/')) &&
             names.add(name) &&
             foldedNames.add(name.toLowerCase()),
         'مسار مكرر أو خارج ملكية المشروع.',
@@ -212,6 +213,34 @@ Future<Project> _readBackup(String input, String root, String id) async {
           'originalPath': _remap(a.originalPath, original.id, id),
           'workingPath': _remap(a.workingPath, original.id, id),
           'thumbnailPath': _remap(a.thumbnailPath, original.id, id),
+        },
+    ];
+    // v5: remap the processed-asset paths inside documents the same way, so a
+    // restored project's processed references resolve to the new project folder
+    // (a missing processed file still opens; only pixel ops fail safe).
+    json['documents'] = [
+      for (final d in original.documents)
+        {
+          ...d.toJson(),
+          'sides': [
+            for (final s in d.sides)
+              {
+                ...s.toJson(),
+                'processedAsset': {
+                  ...s.processedAsset.toJson(),
+                  'workingPath': _remap(
+                    s.processedAsset.workingPath,
+                    original.id,
+                    id,
+                  ),
+                  'thumbnailPath': _remap(
+                    s.processedAsset.thumbnailPath,
+                    original.id,
+                    id,
+                  ),
+                },
+              },
+          ],
         },
     ];
     final restored = Project.fromJson(json);
@@ -264,8 +293,9 @@ Future<Project> _readBackup(String input, String root, String id) async {
 void _backupPath(String name, String projectId) {
   validAssetPath(name);
   require(
-    name.startsWith('projects/$projectId/assets/'),
-    'ملف خارج نطاق صور المشروع.',
+    name.startsWith('projects/$projectId/assets/') ||
+        name.startsWith('projects/$projectId/processed/'),
+    'ملف خارج نطاق المشروع.',
   );
   require(
     name

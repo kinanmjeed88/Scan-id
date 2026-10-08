@@ -40,6 +40,17 @@ bool boolean(Object? value, String field) {
   return value;
 }
 
+/// Reads an enum by its stable `name`, rejecting unknown values instead of
+/// silently defaulting. Shared by the project and recognition deserializers.
+T readEnum<T extends Enum>(List<T> values, Object? name) {
+  for (final value in values) {
+    if (value.name == name) {
+      return value;
+    }
+  }
+  throw const ValidationException('خيار غير معروف في بيانات المشروع.');
+}
+
 Map<String, Object?> objectMap(Object? value) {
   if (value is! Map<Object?, Object?> ||
       value.keys.any((key) => key is! String)) {

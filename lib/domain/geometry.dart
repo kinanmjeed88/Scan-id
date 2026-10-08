@@ -40,6 +40,22 @@ class RectMm {
   double get right => x + width;
   double get bottom => y + height;
 
+  Map<String, Object?> toJson() => {
+    'x': x,
+    'y': y,
+    'width': width,
+    'height': height,
+  };
+  factory RectMm.fromJson(Object? json) {
+    final m = objectMap(json);
+    return RectMm(
+      finiteNumber(m['x'], 'x'),
+      finiteNumber(m['y'], 'y'),
+      finiteNumber(m['width'], 'width'),
+      finiteNumber(m['height'], 'height'),
+    );
+  }
+
   bool contains(RectMm other, {double tolerance = 0.000001}) =>
       other.x >= x - tolerance &&
       other.y >= y - tolerance &&

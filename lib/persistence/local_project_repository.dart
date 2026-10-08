@@ -115,6 +115,11 @@ class LocalProjectRepository implements ProjectRepository {
         old.id == project.id && old.createdAt == project.createdAt,
         'لا يجوز تغيير هوية المشروع أو تاريخ إنشائه.',
       );
+      // Failure-safe pre-upgrade snapshot: capture the raw legacy bytes before
+      // the first v5 rewrite. If this write fails, the transaction aborts and
+      // the ≤4 record is left intact (the upgrade never happens without a
+      // rollback point). See docs/MIGRATION_V5.md §2 and DESIGN_LOCK.md §4.
+      await _snapshotPreUpgrade(project.id, previous);
       final now = DateTime.now().toUtc();
       final saved = project.copyWith(
         revision: old.revision + 1,
@@ -125,6 +130,46 @@ class LocalProjectRepository implements ProjectRepository {
     });
     await checkpoints.save(saved);
     return saved;
+  }
+
+  /// Writes the raw pre-upgrade record to `migration-snapshots/<id>.json`,
+  /// write-if-absent, only when the stored record is legacy (`schemaVersion` <
+  /// [Project.schemaVersion]). Atomic via temp + rename; a failure propagates so
+  /// the caller's migration write is aborted. Isolated from `checkpoints/`, so
+  /// `RecoveryCheckpoints.read()`/`recover()` are unaffected.
+  Future<void> _snapshotPreUpgrade(
+    String projectId,
+    Map<String, Object?> previous,
+  ) async {
+    final version = previous['schemaVersion'];
+    if (version is! int || version >= Project.schemaVersion) {
+      return;
+    }
+    final target = await files.checkedPath(
+      'migration-snapshots/$projectId.json',
+    );
+    if (await File(target).exists()) {
+      return;
+    }
+    final temporary = File(
+      await files.checkedPath('migration-snapshots/$projectId-${newId()}.tmp'),
+    );
+    try {
+      await temporary.parent.create(recursive: true);
+      await temporary.writeAsString(
+        jsonEncode({
+          'version': 1,
+          'schemaVersion': version,
+          'project': previous,
+        }),
+        flush: true,
+      );
+      await temporary.rename(target);
+    } finally {
+      if (await temporary.exists()) {
+        await temporary.delete();
+      }
+    }
   }
 
   @override

@@ -145,7 +145,9 @@ class LocalProjectRepository implements ProjectRepository {
     if (version is! int || version >= Project.schemaVersion) {
       return;
     }
-    final target = await files.checkedPath('migration-snapshots/$projectId.json');
+    final target = await files.checkedPath(
+      'migration-snapshots/$projectId.json',
+    );
     if (await File(target).exists()) {
       return;
     }

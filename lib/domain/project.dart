@@ -518,10 +518,7 @@ class Project {
       'المشروع يتجاوز حدود المستندات أو المجموعات.',
     );
     final documentIds = documents.map((d) => d.id).toSet();
-    require(
-      documentIds.length == documents.length,
-      'معرّفات مستندات مكررة.',
-    );
+    require(documentIds.length == documents.length, 'معرّفات مستندات مكررة.');
     final groupIds = layoutGroups.map((g) => g.id).toSet();
     require(groupIds.length == layoutGroups.length, 'معرّفات مجموعات مكررة.');
     final itemIds = items.map((i) => i.id).toSet();
@@ -530,9 +527,8 @@ class Project {
       if (item.documentId != null) {
         final record = documents.firstWhere(
           (d) => d.id == item.documentId,
-          orElse: () => throw const ValidationException(
-            'عنصر يشير إلى مستند مفقود.',
-          ),
+          orElse: () =>
+              throw const ValidationException('عنصر يشير إلى مستند مفقود.'),
         );
         if (item.sideId != null) {
           require(
@@ -542,7 +538,10 @@ class Project {
         }
       }
       if (item.groupId != null) {
-        require(groupIds.contains(item.groupId), 'عنصر يشير إلى مجموعة مفقودة.');
+        require(
+          groupIds.contains(item.groupId),
+          'عنصر يشير إلى مجموعة مفقودة.',
+        );
       }
     }
     for (final group in layoutGroups) {
@@ -652,13 +651,7 @@ class Project {
     final m = objectMap(json);
     final version = integer(m['schemaVersion'], 'schemaVersion');
     require(
-      [
-        1,
-        2,
-        3,
-        4,
-        schemaVersion,
-      ].contains(version),
+      [1, 2, 3, 4, schemaVersion].contains(version),
       'إصدار المشروع غير مدعوم؛ لم يتم تعديل البيانات.',
     );
     final created = DateTime.tryParse(text(m['createdAt'], 'createdAt'));
@@ -724,7 +717,8 @@ class Project {
 /// re-running is a no-op and the result is deterministic. The raw old record is
 /// never mutated here; the pre-upgrade snapshot and atomic write live in the
 /// repository.
-({List<DocumentRecord> documents, List<DocumentItem> items}) synthesizeLegacyRecords({
+({List<DocumentRecord> documents, List<DocumentItem> items})
+synthesizeLegacyRecords({
   required List<ImageAsset> assets,
   required List<DocumentItem> items,
   required DocumentSizeCatalog catalog,

@@ -33,14 +33,8 @@ void main() {
     sizeConfirmed: true,
   );
 
-  DocumentItem manualItem({String id = 'note'}) => DocumentItem(
-    id: id,
-    assetId: 'a1',
-    x: 30,
-    y: 40,
-    width: 60,
-    height: 40,
-  );
+  DocumentItem manualItem({String id = 'note'}) =>
+      DocumentItem(id: id, assetId: 'a1', x: 30, y: 40, width: 60, height: 40);
 
   // Build a real legacy record: take a valid v5 project's JSON, force the old
   // schemaVersion, and strip the v5-only collections so the reader must migrate.
@@ -112,7 +106,10 @@ void main() {
       final migrated = Project.fromJson(
         legacyJson(
           schema: 4,
-          items: [signalItem(id: 'card'), signalItem(id: 'pass')],
+          items: [
+            signalItem(id: 'card'),
+            signalItem(id: 'pass'),
+          ],
         ),
       );
       expect(migrated.documents, hasLength(2));

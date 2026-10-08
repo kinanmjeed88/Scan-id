@@ -30,12 +30,7 @@ enum GroupArrangement { stacked, sideBySide }
 /// never invented. An unavailable source is represented by the ABSENCE of a
 /// [Confidence], never by a zero.
 class Confidence {
-  Confidence({
-    required this.value,
-    this.reason,
-    this.producer,
-    this.version,
-  }) {
+  Confidence({required this.value, this.reason, this.producer, this.version}) {
     require(
       value.isFinite && value >= 0 && value <= 1,
       'قيمة الثقة يجب أن تكون بين 0 و1.',
@@ -203,7 +198,9 @@ class PresetSelection {
       awaitingSize: awaiting,
       candidates: m['candidates'] == null
           ? const []
-          : objectList(m['candidates']).map((v) => text(v, 'candidate')).toList(),
+          : objectList(
+              m['candidates'],
+            ).map((v) => text(v, 'candidate')).toList(),
     );
   }
 }
@@ -260,7 +257,9 @@ class RecognitionResult {
       preset: PresetSelection.fromJson(m['preset']),
       evidence: m['evidence'] == null
           ? const []
-          : objectList(m['evidence']).map(RecognitionEvidence.fromJson).toList(),
+          : objectList(
+              m['evidence'],
+            ).map(RecognitionEvidence.fromJson).toList(),
       pipelineVersion: m['pipelineVersion'] == null
           ? null
           : text(m['pipelineVersion'], 'pipelineVersion'),
@@ -356,7 +355,10 @@ class ProcessedAssetRef {
       'مسارات الأصل المعالج يجب أن تكون مستقلة.',
     );
     require(withinImageBudget(width, height), 'أبعاد الأصل المعالج غير صالحة.');
-    require(orientation >= 0 && orientation <= 3, 'اتجاه الأصل المعالج غير صالح.');
+    require(
+      orientation >= 0 && orientation <= 3,
+      'اتجاه الأصل المعالج غير صالح.',
+    );
     if (processingVersion != null) validNote(processingVersion!);
     // Optional crop/deskew outputs (SCHEMA_V5 §4.5 / ADR-008). Absent means the
     // processed asset carried no crop geometry — never a fabricated rectangle.
@@ -559,8 +561,13 @@ class Provenance {
       sourceImageId: text(m['sourceImageId'], 'sourceImageId'),
       detectionIds: m['detectionIds'] == null
           ? const []
-          : objectList(m['detectionIds']).map((v) => text(v, 'detectionId')).toList(),
-      processedAssetVersion: text(m['processedAssetVersion'], 'processedAssetVersion'),
+          : objectList(
+              m['detectionIds'],
+            ).map((v) => text(v, 'detectionId')).toList(),
+      processedAssetVersion: text(
+        m['processedAssetVersion'],
+        'processedAssetVersion',
+      ),
       pipelineVersion: text(m['pipelineVersion'], 'pipelineVersion'),
       modelVersions: versions,
       presetVariantId: m['presetVariantId'] == null
@@ -568,10 +575,14 @@ class Provenance {
           : text(m['presetVariantId'], 'presetVariantId'),
       overrideFields: m['overrideFields'] == null
           ? const []
-          : objectList(m['overrideFields']).map((v) => text(v, 'field')).toList(),
+          : objectList(
+              m['overrideFields'],
+            ).map((v) => text(v, 'field')).toList(),
       layoutItemIds: m['layoutItemIds'] == null
           ? const []
-          : objectList(m['layoutItemIds']).map((v) => text(v, 'itemId')).toList(),
+          : objectList(
+              m['layoutItemIds'],
+            ).map((v) => text(v, 'itemId')).toList(),
       importedFrom: m['importedFrom'] == null
           ? null
           : LegacyImport.fromJson(m['importedFrom']),
@@ -758,5 +769,7 @@ void validProcessedPath(String projectId, String path) {
 
 /// Shared short-string check for producer/version/field/reason values: bounded,
 /// no NUL, never empty when required.
-void validNote(String value) =>
-    require(value.length <= 200 && !value.contains('\u0000'), 'قيمة نصية غير صالحة.');
+void validNote(String value) => require(
+  value.length <= 200 && !value.contains('\u0000'),
+  'قيمة نصية غير صالحة.',
+);

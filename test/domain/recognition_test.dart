@@ -58,7 +58,9 @@ void main() {
       final set = ConfidenceSet(finalConfidence: Confidence(value: 1));
       expect(set.toJson().keys, contains('final'));
       expect(set.toJson().keys, isNot(contains('finalConfidence')));
-      final restored = ConfidenceSet.fromJson({'final': {'value': 1.0}});
+      final restored = ConfidenceSet.fromJson({
+        'final': {'value': 1.0},
+      });
       expect(restored.finalConfidence?.value, 1);
     });
   });

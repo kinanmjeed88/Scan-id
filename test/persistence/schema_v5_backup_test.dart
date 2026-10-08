@@ -196,8 +196,7 @@ void main() {
           sizeConfirmed: true,
         ),
       ],
-    ).toJson()
-      ..['schemaVersion'] = 4;
+    ).toJson()..['schemaVersion'] = 4;
     final file = await _craftLegacyBackup(root, legacy);
 
     final restored = await backups.restore(file);

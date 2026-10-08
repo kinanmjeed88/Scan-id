@@ -186,9 +186,10 @@ String builtinVariantId(DocumentKind kind) => 'builtin-${kind.name}';
 
 /// Only standardised categories are official; the paper cards are estimated.
 PresetStatus presetStatusFor(DocumentKind kind) => switch (kind) {
-  DocumentKind.unifiedNationalId || DocumentKind.passport => PresetStatus.standard,
-  DocumentKind.residenceCard || DocumentKind.rationCard =>
-    PresetStatus.estimated,
+  DocumentKind.unifiedNationalId ||
+  DocumentKind.passport => PresetStatus.standard,
+  DocumentKind.residenceCard ||
+  DocumentKind.rationCard => PresetStatus.estimated,
   DocumentKind.unknown || DocumentKind.other => PresetStatus.unknown,
 };
 
@@ -260,7 +261,11 @@ class DocumentSizeCatalog {
     }
 
     return [
-      ?builtin(DocumentKind.unifiedNationalId, 'البطاقة الوطنية الموحدة', 'Unified National ID'),
+      ?builtin(
+        DocumentKind.unifiedNationalId,
+        'البطاقة الوطنية الموحدة',
+        'Unified National ID',
+      ),
       ?builtin(DocumentKind.passport, 'جواز السفر', 'Passport'),
       ?builtin(DocumentKind.residenceCard, 'بطاقة السكن', 'Residence Card'),
       ?builtin(DocumentKind.rationCard, 'البطاقة التموينية', 'Ration Card'),

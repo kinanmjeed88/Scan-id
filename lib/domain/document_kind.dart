@@ -76,6 +76,122 @@ PhysicalSizeMm validDocumentSize(PhysicalSizeMm size) {
   return size;
 }
 
+/// How trustworthy a preset's physical size is. Only [standard] sizes are ever
+/// described as official; [estimated] sizes are editable defaults and must
+/// never be falsely labelled as official.
+enum PresetStatus { standard, measured, estimated, user, unknown }
+
+/// A named physical-size preset. Built-in variants are DERIVED from the catalog
+/// (their sizes come from [DocumentSizeCatalog.natural]); only user-defined
+/// variants are stored. Sizes therefore have a single source of truth.
+class PresetVariant {
+  const PresetVariant({
+    required this.id,
+    required this.typeId,
+    required this.labelAr,
+    required this.labelEn,
+    required this.widthMm,
+    required this.heightMm,
+    required this.status,
+    this.enabled = true,
+    this.isDefaultForType = false,
+  });
+  final String id;
+  final String typeId;
+  final String labelAr;
+  final String labelEn;
+  final double widthMm;
+  final double heightMm;
+  final PresetStatus status;
+  final bool enabled;
+  final bool isDefaultForType;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'typeId': typeId,
+    'labelAr': labelAr,
+    'labelEn': labelEn,
+    'widthMm': widthMm,
+    'heightMm': heightMm,
+    'status': status.name,
+    'enabled': enabled,
+    'isDefaultForType': isDefaultForType,
+  };
+  factory PresetVariant.fromJson(Object? json) {
+    final m = objectMap(json);
+    return PresetVariant(
+      id: text(m['id'], 'id'),
+      typeId: text(m['typeId'], 'typeId'),
+      labelAr: text(m['labelAr'], 'labelAr'),
+      labelEn: text(m['labelEn'], 'labelEn'),
+      widthMm: finiteNumber(m['widthMm'], 'widthMm'),
+      heightMm: finiteNumber(m['heightMm'], 'heightMm'),
+      status: readEnum(PresetStatus.values, m['status']),
+      enabled: m['enabled'] == null ? true : boolean(m['enabled'], 'enabled'),
+      isDefaultForType: m['isDefaultForType'] == null
+          ? false
+          : boolean(m['isDefaultForType'], 'isDefaultForType'),
+    );
+  }
+}
+
+/// The frozen preset decision a layout item was sized from. Write-once; a later
+/// catalog change never rewrites it, which is how a silent catalog-driven
+/// resize is prevented. Dimensions are the item's own (already validated)
+/// millimetre size, not re-asserted against the catalog bounds.
+class PresetSnapshot {
+  PresetSnapshot({
+    required this.variantId,
+    required this.widthMm,
+    required this.heightMm,
+    required this.status,
+  }) {
+    require(
+      widthMm.isFinite &&
+          heightMm.isFinite &&
+          widthMm > 0 &&
+          heightMm > 0 &&
+          widthMm <= 10000 &&
+          heightMm <= 10000,
+      'أبعاد اللقطة المسبقة غير صالحة.',
+    );
+    if (variantId != null) validId(variantId);
+  }
+  final String? variantId;
+  final double widthMm;
+  final double heightMm;
+  final PresetStatus status;
+
+  Map<String, Object?> toJson() => {
+    'variantId': variantId,
+    'widthMm': widthMm,
+    'heightMm': heightMm,
+    'status': status.name,
+  };
+  factory PresetSnapshot.fromJson(Object? json) {
+    final m = objectMap(json);
+    return PresetSnapshot(
+      variantId: m['variantId'] == null
+          ? null
+          : text(m['variantId'], 'variantId'),
+      widthMm: finiteNumber(m['widthMm'], 'widthMm'),
+      heightMm: finiteNumber(m['heightMm'], 'heightMm'),
+      status: readEnum(PresetStatus.values, m['status']),
+    );
+  }
+}
+
+/// Stable id for a category's built-in preset variant.
+String builtinVariantId(DocumentKind kind) => 'builtin-${kind.name}';
+
+/// Only standardised categories are official; the paper cards are estimated.
+PresetStatus presetStatusFor(DocumentKind kind) => switch (kind) {
+  DocumentKind.unifiedNationalId || DocumentKind.passport => PresetStatus.standard,
+  DocumentKind.residenceCard || DocumentKind.rationCard =>
+    PresetStatus.estimated,
+  DocumentKind.unknown || DocumentKind.other => PresetStatus.unknown,
+};
+
 /// Printed sizes per document category.
 ///
 /// The unified national card (ISO/IEC 7810 ID-1) and the passport data page
@@ -86,6 +202,7 @@ class DocumentSizeCatalog {
   const DocumentSizeCatalog({
     this.residenceCard = defaultResidenceCard,
     this.rationCard = defaultRationCard,
+    this.customVariants = const [],
   });
 
   /// ISO/IEC 7810 ID-1.
@@ -103,6 +220,10 @@ class DocumentSizeCatalog {
   final PhysicalSizeMm residenceCard;
   final PhysicalSizeMm rationCard;
 
+  /// User-defined presets only. Built-in variants are derived (see
+  /// [effectiveVariants]) so a size is never stored twice.
+  final List<PresetVariant> customVariants;
+
   /// Size in the document's natural orientation, or null when the category
   /// has no defined size.
   PhysicalSizeMm? natural(DocumentKind kind) => switch (kind) {
@@ -117,17 +238,50 @@ class DocumentSizeCatalog {
   PhysicalSizeMm? sizeFor(DocumentKind kind, {required bool landscape}) =>
       natural(kind)?.oriented(landscape: landscape);
 
+  /// The built-in variants (sizes taken from this catalog, so they always match
+  /// the current per-category sizes) followed by any user-defined variants.
+  List<PresetVariant> effectiveVariants() {
+    PresetVariant? builtin(DocumentKind kind, String ar, String en) {
+      final size = natural(kind);
+      if (size == null) {
+        return null;
+      }
+      return PresetVariant(
+        id: builtinVariantId(kind),
+        typeId: kind.name,
+        labelAr: ar,
+        labelEn: en,
+        widthMm: size.width,
+        heightMm: size.height,
+        status: presetStatusFor(kind),
+        enabled: true,
+        isDefaultForType: true,
+      );
+    }
+
+    return [
+      ?builtin(DocumentKind.unifiedNationalId, 'البطاقة الوطنية الموحدة', 'Unified National ID'),
+      ?builtin(DocumentKind.passport, 'جواز السفر', 'Passport'),
+      ?builtin(DocumentKind.residenceCard, 'بطاقة السكن', 'Residence Card'),
+      ?builtin(DocumentKind.rationCard, 'البطاقة التموينية', 'Ration Card'),
+      ...customVariants,
+    ];
+  }
+
   DocumentSizeCatalog copyWith({
     PhysicalSizeMm? residenceCard,
     PhysicalSizeMm? rationCard,
+    List<PresetVariant>? customVariants,
   }) => DocumentSizeCatalog(
     residenceCard: validDocumentSize(residenceCard ?? this.residenceCard),
     rationCard: validDocumentSize(rationCard ?? this.rationCard),
+    customVariants: customVariants ?? this.customVariants,
   );
 
   Map<String, Object?> toJson() => {
     'residenceCard': residenceCard.toJson(),
     'rationCard': rationCard.toJson(),
+    'variants': customVariants.map((v) => v.toJson()).toList(),
   };
 
   /// Missing entries fall back to the defaults so older projects open.
@@ -143,6 +297,9 @@ class DocumentSizeCatalog {
       rationCard: map['rationCard'] == null
           ? defaultRationCard
           : PhysicalSizeMm.fromJson(map['rationCard']),
+      customVariants: map['variants'] == null
+          ? const []
+          : objectList(map['variants']).map(PresetVariant.fromJson).toList(),
     );
   }
 }

@@ -11,6 +11,7 @@ import '../domain/project.dart';
 import 'crop_screen.dart';
 import 'editor_controller.dart';
 import 'export_screen.dart';
+import 'review_screen.dart';
 import 'ribbon.dart';
 import 'shared.dart';
 import 'sheet_view.dart';
@@ -401,6 +402,22 @@ class _LayoutScreenState extends State<LayoutScreen> {
               ),
             ],
           ),
+          if (c.reviewQueue.isNotEmpty)
+            RibbonGroup(
+              label: 'التعرف الذكي',
+              children: [
+                RibbonButton(
+                  key: const Key('rb-review'),
+                  icon: Icons.fact_check_outlined,
+                  label: 'مراجعة (${c.reviewQueue.length})',
+                  large: true,
+                  tooltip:
+                      'التعرف الذكي (تجريبي): مراجعة المستمسكات التي لم '
+                      'يتأكد نوعها أو وجهها أو اقترانها',
+                  onPressed: busy ? null : () => showReviewQueue(context, c),
+                ),
+              ],
+            ),
           RibbonGroup(
             label: 'نوع المستمسك',
             children: [
@@ -1118,6 +1135,33 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 height: 3,
                 child: c.busy ? const LinearProgressIndicator() : null,
               ),
+              if (c.recognitionProgress != null)
+                Material(
+                  key: const Key('recognition-progress'),
+                  color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'التعرف الذكي (تجريبي) — ${c.recognitionProgress!}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        TextButton(
+                          key: const Key('cancel-intake'),
+                          onPressed: c.canCancelIntake ? c.cancelIntake : null,
+                          child: const Text('إيقاف'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               if (c.error != null)
                 _Banner(
                   key: const Key('editor-error'),

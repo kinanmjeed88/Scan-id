@@ -8,14 +8,20 @@ import '../domain/image_adjustments.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../domain/image_limits.dart';
+import 'cancellation.dart';
 import 'contracts.dart';
 import 'project_backups.dart';
 import 'camera_capture.dart';
 import 'project_recovery.dart';
 import 'ids.dart';
 import 'image_reader.dart';
+import 'recognition_pipeline.dart';
+import 'recognition_worker.dart';
+import 'smart_recognition.dart';
+import 'smart_recognition_flag.dart';
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
+import '../imaging/document_segmenter.dart';
 
 class ImportSource {
   const ImportSource(this.name, this.openRead, {this.cleanup});
@@ -43,6 +49,8 @@ class AutomaticLayoutReport {
     required this.cropped,
     required this.notDetected,
     this.recognized = 0,
+    this.needsReview = 0,
+    this.multiDocumentImages = 0,
     required List<String> warnings,
   }) : warnings = List.unmodifiable(warnings);
 
@@ -52,6 +60,12 @@ class AutomaticLayoutReport {
 
   /// Documents whose category (and therefore size) was recognised.
   final int recognized;
+
+  /// Recognition records routed to the review queue (Smart Recognition).
+  final int needsReview;
+
+  /// Source images that were segmented into several documents.
+  final int multiDocumentImages;
   final List<String> warnings;
   int get unplaced =>
       project.items.where((item) => item.pageIndex == null).length;
@@ -81,6 +95,7 @@ class ProjectService {
     this.camera,
     this.recovery,
     this.maintenance,
+    this.segmenter,
   });
   final ProjectBackups? backups;
   final CameraCapture? camera;
@@ -89,6 +104,10 @@ class ProjectService {
   final StorageMaintenance? maintenance;
   final ProjectRepository projects;
   final AssetRepository assets;
+
+  /// Test seam for the multi-document segmentation stage; null means the
+  /// real classical segmenter (off the UI isolate).
+  final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
 
   /// New projects use 5 mm margins (so a 287 mm ration card fits an A4
   /// height) and inherit the editable document sizes of the most recently
@@ -186,7 +205,27 @@ class ProjectService {
     Project project,
     Iterable<String> assetIds, {
     bool keepPlaced = false,
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
   }) async {
+    // Smart Recognition intake: segmentation, geometry scoring, hybrid
+    // classification, records and review routing. Turning the app-level
+    // flag off restores the legacy path below byte-for-byte.
+    final smartEditor = imageEditor;
+    if (smartRecognitionEnabled && smartEditor != null) {
+      return SmartIntake(
+        projects: projects,
+        assets: assets,
+        editor: smartEditor,
+        segment: segmenter ?? defaultSegment,
+      ).run(
+        project,
+        assetIds,
+        keepPlaced: keepPlaced,
+        cancellation: cancellation,
+        onProgress: onProgress,
+      );
+    }
     var current = project;
     var cropped = 0;
     var notDetected = 0;

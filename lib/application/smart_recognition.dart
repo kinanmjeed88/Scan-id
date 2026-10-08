@@ -368,7 +368,7 @@ class SmartIntake {
             detection.classification.confidences.finalConfidence?.value ?? 0,
         sizeConfirmed: catalogSize != null,
         documentId: record?.id,
-        sideId: record == null ? null : record.sides.single.id,
+        sideId: record?.sides.single.id,
         presetSnapshot: record == null
             ? null
             : PresetSnapshot(

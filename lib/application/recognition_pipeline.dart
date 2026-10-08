@@ -250,11 +250,12 @@ class RecognitionPipeline {
       );
     }
 
-    final boundaryDetected = usableCorners != null && assessment != null;
+    final quadAspect = usableCorners == null ? null : assessment?.aspect;
+    final boundaryDetected = quadAspect != null;
     final int width;
     final int height;
-    if (boundaryDetected) {
-      final aspect = assessment!.aspect!;
+    if (quadAspect != null) {
+      final aspect = quadAspect;
       // Only the proportion matters for shape classification; the quad is in
       // pixel space so its aspect is the crop's proportion.
       width = aspect >= 1 ? (aspect * 1000).round() : 1000;

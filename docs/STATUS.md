@@ -30,8 +30,10 @@
 
 ### أدلة CI لهذا الفرع
 
-تُستكمل بعد اكتمال تشغيلات GitHub Actions على هذا الفرع (انظر التقرير
-النهائي المرفق مع الـ PR).
+| SHA | المحتوى | النتيجة الفعلية |
+|---|---|---|
+| `b96935f` | التنفيذ كاملاً (وسم `[format]`) | فشل `flutter analyze` بمشكلتين فقط (`unnecessary_non_null_assertion` و`prefer_null_aware_operators`)؛ بوت التنسيق دفع `866ec76` |
+| `2afb41f` | إصلاح المشكلتين | **نجاح كامل** ([37853389593](https://github.com/kinanmjeed88/Scan-id/actions/runs/37853389593)): تنسيق نظيف (144 ملفاً، 0 تغيير)، `flutter analyze --fatal-infos` نظيف، **374 اختباراً ناجحاً** (كانت 275 عند الأساس `ac62c56`)، تدقيق التصدير المستقل ناجح، APK إصدار 57.8MB، وبناء Windows Release مع رفع الأداتين (`scan-id-android-apk`، `scan-id-windows`) |
 
 ---
 

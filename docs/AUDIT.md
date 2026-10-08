@@ -1,113 +1,463 @@
-# تدقيق الحالة قبل التعديل — Scan ID
+# Scan ID — Phase 0 Architecture Audit & Contract
 
-**التاريخ:** 2026-10-06 · **الفرع:** `arena/52df725b-scan-id` · **الأساس:** `b5b10a4`
+- **Date:** 2026-10-08
+- **Branch:** `arena/028443f4-scan-id`
+- **Baseline HEAD:** `14a3ee7b46ad6b1c0a5bdb912765e232dfb3ec33`
+- **Scope of this document:** architecture audit + architectural contract for the
+  Smart Recognition + deterministic A4 layout work. **Documentation only.**
+  Companion decisions: [`docs/adr/`](adr/README.md). Prior (historical) audit:
+  [`docs/AUDIT_HISTORY.md`](AUDIT_HISTORY.md).
 
-هذا الملف سجل تدقيق مبني على قراءة الشيفرة والاختبارات وإعدادات المنصات، لا على تقارير سابقة.
-كل بند أدناه يشير إلى الملف الذي يثبته.
+> **Verification disclaimer.** This audit is produced by **static reading** of the
+> source, `pubspec.*`, platform manifests and `docs/*` at the baseline HEAD. **No**
+> `dart format`, `flutter analyze`, `flutter test`, or Android/Windows build was
+> executed in the authoring environment (no local Flutter/Dart/.NET SDK). Every
+> statement about *current* behavior is an observation from source and must be
+> re-confirmed by CI before any change. Numbers attributed to past CI runs are
+> quoted from `docs/STATUS.md` and are **historical claims, not results produced
+> here.** Per the reporting contract, anything not executed is reported as
+> **NOT VERIFIED**.
 
-## 1. خط الأساس
+---
 
-| البند | الحالة الفعلية |
-|---|---|
-| فرع العمل | `arena/52df725b-scan-id` من `b5b10a4`، وشجرة العمل نظيفة قبل التعديل |
-| شجرة `b5b10a4` | مطابقة بايتياً لـ`8a0f8c6` (نفس SHA للشجرة `47fdcaec`)، وهو آخر SHA اجتاز بوابة المنصتين كاملة في [37478902988](https://github.com/kinanmjeed88/Scan-id/actions/runs/37478902988) |
-| بوابة CI | `dart format` + `flutter analyze --fatal-infos` + `flutter test` على Linux وWindows + اختبارات معزولة عن الشبكة + بناء APK + فحص خصوصية APK + بناء Windows + تدقيق PDFium + اختبار بدء EXE + محاكي Android |
-| SDK محلي | **غير متوفر** في هذا المضيف (لا `flutter` ولا `dart`)، والوصول إلى `storage.googleapis.com`/`pub.dev` محجوب؛ التحقق الوحيد الممكن هو GitHub Actions، وقد شُغّل فعلياً على هذا الفرع (تشغيل `37481199547`) |
-| عدد الاختبارات المعلنة | 123 اختباراً في 21 ملف اختبار |
+## A. Repository baseline
 
-## 2. ما هو منفَّذ فعلاً (مثبت بالشيفرة)
-
-- **المشاريع:** إنشاء، تسمية، فت، إعادة تسمية، حذف بيانات؛ تخزين Sembast مع مراجعات متفائلة (`lib/persistence/local_project_repository.dart`).
-- **الاستيراد:** JPEG/PNG فقط، حد 20 MiB و16 MP، نسخة أصل مطابقة بايتياً + نسخة عمل PNG مصححة EXIF + مصغرة، والثقيل داخل isolate (`lib/persistence/local_asset_repository.dart`, `lib/imaging/`).
-- **القص:** أربع زوايا، اقتراح حدود heuristic، تصحيح منظور، دوران 90°، سطوع/تباين، نسبة أبعاد اختيارية، معاينة إلزامية قبل الاعتماد، تراجع/إعادة داخل الجلسة، وصفة محفوظة، عدم استبدال الأصل (`lib/presentation/crop_screen.dart`, `lib/imaging/perspective.dart`).
-- **محرر A4:** نموذج بالمليمتر، عمودي/أفقي، هوامش وفجوات، أدلة بصرية، تكبير/تحريك، سحب/تحجيم/تدوير، قفل، محاذاة وتوزيع، تحديد متعدد عبر chips، تراجع/إعادة محفوظان (`lib/domain/page_layout.dart`, `lib/presentation/layout_screen.dart`).
-- **الترتيب:** اقتراح حتمي MaxRects مع الفجوات والعناصر المثبتة وتقرير «غير موضوعة»، مع مراجعة/رفض قبل الاعتماد (`lib/domain/packing.dart`).
-- **التصدير والطباعة:** PDF بمقاسات A4 بالنقاط، PNG/JPG عند 300/600 DPI، نطاق صفحات، تحذيرات جودة، طباعة نظامية (`lib/export/document_exporter.dart`, `lib/application/output_service.dart`).
-- **النسخ الاحتياطي:** صيغة `.scanid` متدفقة مع بصمات SHA256 ورفض المسارات الخطرة وحدود حجم، والاستعادة كمشروع جديد (`lib/persistence/local_project_backups.dart`).
-- **الأمان:** لا إذن INTERNET، `allowBackup=false`، قواعد استخراج بيانات، تحقق مسارات ورفض روابط رمزية، بلا تحليلات شبكية (`android/app/src/main/AndroidManifest.xml`, `lib/persistence/safe_files.dart`).
-
-## 3. الفجوات المؤكدة (سبب كل بند من الشيفرة)
-
-| # | الفجوة | الدليل | الأثر |
-|---|---|---|---|
-| G1 | **لا دعم لوحة مفاتيح إطلاقاً**: لا يوجد أي `Shortcuts`/`Actions`/`LogicalKeyboardKey` في `lib/` | `grep -rn "Shortcuts\|LogicalKeyboardKey" lib/` بلا نتيجة | يخالف «دعم لوحة المفاتيح والماوس واللمس بحسب المنصة»؛ لا تراجع/حذف/تحريك دقيق على Windows |
-| G2 | **حذف المشروع يترك ملفات التطبيق** | `local_project_repository.dart:141` «Intentional metadata-only deletion» | يخالف «حذف آمن ومتسق … لتجنب الملفات اليتيمة»؛ مساحة تنمو بلا حد |
-| G3 | **لا جامع للملفات اليتيمة** (مجلدات `staging/` بعد انقطاع، ومجلدات صور لمشاريع محذوفة) | لا يوجد أي رمز لفحص/حذف خارج سياق العملية الواحدة | تراكم ملفات غير مرتبطة بلا وسيلة تنظيف |
-| G4 | **لا إعادة ترتيب للصور في المكتبة** | `project_screen.dart` يعرض `assets` بترتيب الاستيراد فقط | يخالف «إظهار معاينات الصور ومعلوماتها وترتيبها» |
-| G5 | **لا استبدال لصورة** | لا مسار في `ProjectService`/`AssetRepository` لاستبدال محتوى صورة قائمة | يخالف «إمكانية حذفها أو استبدالها وفق قواعد واضحة» |
-| G6 | **لا دعم «عدد النسخ» في التخطيط** | `PageLayout`/`layout_screen` يحتويان «تكرار العنصر» نسخة واحدة فقط | يخالف «دعم عدد النسخ والأبعاد والاتجاهات المطلوبة» في الترتيب الذكي |
-| G7 | **إمكانية وصول ناقصة**: عناصر الورقة بلا `Semantics` | `page_canvas.dart` لا يحتوي أي `Semantics` (الموجود الوحيد في شاشة القص) | قارئات الشاشة لا تعلن شيئاً عن عناصر الصفحة |
-| G8 | **لا اختبار تكامل لدورة العمل الكاملة** | لا ملف اختبار يجمع الاستيراد→القص→التخطيط→الترتيب→التصدير→النسخ/الاستعادة | يخالف متطلب اختبارات التكامل ودورة العمل الكاملة |
-| G9 | **لا فحص دوري للتخزين في الواجهة** (لا حجم ولا عدد ملفات/يتيمة) | لا رمز يقرأ حجم مساحة المشروع | المستخدم لا يرى استهلاك التخزين قبل الحذف |
-
-## 4. نقاط قوة يجب الحفاظ عليها
-
-- فصل المجال عن Flutter مثبت بفحص آلي (`tool/check_source.py`).
-- كل الثقل الحسابي في isolates، وحدود ذاكرة معلنة (`image_limits.dart`).
-- صيغة تخزين بإصدارات ورفض الإصدارات المجهولة دون مسح القاعدة.
-- اختبارات مستقلة للتصدير بـPyMuPDF/Pillow داخل CI (`tool/verify_exports.py`).
-
-## 5. خطة العمل المرحلية
-
-1. **S1 — دورة حياة التخزين:** حذف آمن لملفات المشروع عند الحذف + جامع للملفات اليتيمة + تقليم `staging` + اختبارات حقيقية على مجلدات مؤقتة (G2, G3, G9).
-2. **S2 — إدارة الصور:** إعادة ترتيب الصور، استبدال صورة مع الحفاظ على معرّفها ومواضعها، وترتيب يُحفظ (G4, G5).
-3. **S3 — التخطيط:** عدد النسخ في الإضافة/الترتيب الذكي (G6).
-4. **S4 — التفاعل وإمكانية الوصول:** اختصارات لوحة مفاتيح (تراجع/إعادة/تحريك/حذف/تكبير) + `Semantics` لعناصر الورقة + أحجام لمس (G1, G7).
-5. **S5 — اختبار التكامل:** دورة كاملة على مستودعات حقيقية في مجلدات مؤقتة، مع تحقق من مقاسات A4 في PDF والنسخ الاحتياطي/الاستعادة (G8).
-6. **S6 — التوثيق والتقرير:** تحديث `README.md` و`docs/STATUS.md` بكل نتيجة مرتبطة بـSHA.
-
-القاعدة المتبعة: لا تُدمج تغييرات جديدة قبل نجاح بوابة CI للمرحلة، وكل مرحلة تُرفع منفصلة.
-
-## 6. تحقق ما بعد التنفيذ: ما أثبته أول تشغيل حقيقي
-
-لم يصل التشغيل إلى خطوة الاختبارات في أي محاولة سابقة لهذه المرحلة (كان يتوقف قبلها)، فأول تشغيل كامل (`8e7d69b`) أسقط **إحدى عشرة حالة فشل**، كلها من تغييرات المرحلة لا من خط الأساس `b5b10a4` (المثبت نجاحه في `37478902988` وبشجرة مطابقة `47fdcaec`):
-
-| الحالة | السبب الجذري | الإصلاح |
+| Item | Observed value | Source |
 |---|---|---|
-| تجاوز 13px على هاتف 390px | زر نصي داخل صف إجراءات `AppBar` | `AdaptableAction` (نص ≥600px، أيقونة + تلميح تحته) |
-| فشل اختبارات التجاوب الثلاثة | `physicalSize` بلا `devicePixelRatio` فصار المنفذ 400×300 | ضبط النسبة في الاختبارات الثلاثة + إضافة 320×640 |
-| أربعة اختبارات صيانة | `Directory.setLastModified` غير موجود، و`exists()` يقارن `Future` بنوع | تقادم بأحدث ملف + `await` |
-| رمي متزامن من `moveAsset` | تحقق قبل أول `await` في دالة تُرجع `Future` | الدوال الأربع صارت `async` |
-| اعتماد القص | الخدمة في الاختبار بلا `ImageEditor` | توصيل `LocalImageEditor` |
-| المسار الكامل عند الحذف | خدمة مبنية على مستودع أُغلق ثم أُعيد فتحه | `wireService()` يعيد الربط بعد كل إعادة فتح |
-| الاستبدال التالف | اشتراط اختفاء مجلد `staging` نفسه | التأكيد على خلوّه من المخلفات |
-| توقّع اليتامى | تجزئة غير التي ينص عليها الكود | مشروع غير معروف = وحدة واحدة |
-| فشل التحليل/التنسيق | `Point2` غير قابل لـ`const`، واستيراد ناقص، واختبارات داخل جسم صنف | إصلاحات مباشرة دون كتم أي فحص |
+| Repository | `kinanmjeed88/Scan-id` | git remote |
+| Branch | `arena/028443f4-scan-id` | git |
+| HEAD | `14a3ee7b46ad6b1c0a5bdb912765e232dfb3ec33` (merge of PR #5) | git |
+| Working tree | **clean** (before Phase 0 docs) | `git status` |
+| Flutter constraint | `flutter: '>=3.35.7'` (CI pins **3.35.7 stable**) | `pubspec.yaml`, `.github/workflows/verify.yml` |
+| Dart SDK constraint | `>=3.9.0 <4.0.0` | `pubspec.yaml` |
+| Persistence | **sembast 3.7.2** (no Isar, no codegen) | `pubspec.yaml`, `lib/persistence/*` |
+| Direct deps | flutter, flutter_localizations, file_selector 1.0.3, image 4.5.4, path 1.9.1, path_provider 2.1.5, sembast 3.7.2, pdf 3.12.0, printing 5.14.3, crypto 3.0.7 | `pubspec.yaml` |
+| Dev deps | flutter_test, flutter_lints 5.0.0 | `pubspec.yaml` |
+| `schemaVersion` | **4**; `Project.fromJson` accepts `{1,2,3,4}` | `lib/domain/project.dart` |
+| Legacy fixtures | v1, v2, v3a, v3b, v3c (all `schemaVersion=3` variants except v1/v2) | `test/legacy_schemas/`, `test/persistence/legacy_schema_test.dart` |
 
-الدرس المسجَّل: «بناء ناجح» لا يعني أن الاختبارات نُفّذت؛ يجب قراءة خطوة الاختبارات نفسها، وهي التي كشفت هذه العيوب.
+**Test inventory (observed from source):** 31 `*_test.dart` files across
+`application` (6), `domain` (9), `export` (1), `imaging` (6), `integration` (1),
+`persistence` (5), `presentation` (3), `widget_test.dart` (1), plus
+`legacy_schemas` fixtures. A source grep counts ~201 `test(...)`/`group(...)`
+declarations; presentation/widget suites use `testWidgets(...)` and are not in
+that count. **Historical CI claims (from `docs/STATUS.md`, not run here):** e.g.
+160 Linux tests green at `eb6da90`; earlier figures 237/230/145 at other SHAs.
+The exact current pass/fail count is **NOT VERIFIED** locally and must come from
+a CI run on the implementation branch.
 
-## 7. تدقيق PR #4 (`arena/bc17c7f3-scan-id`، 2026-10-07)
+---
 
-مراجعة كاملة للفرع مقابل `searchidf` (`64d146e`): الملفات المعدّلة، الاستيرادات، تغييرات الواجهات، المحذوفات، والإيماءات. أدلة كل بند في CI مذكورة في STATUS.
+## B. Current architecture
 
-### عيوب كُشفت وأُصلحت
+**domain/** — pure models + deterministic logic, no Flutter/image/db imports
+(enforced by `tool/check_source.py`). `project.dart` (`Project`, `ImageAsset`,
+`DocumentItem`, `PaperSettings`, `LayoutSettings`, `ExportProfile`, `Margins`);
+`document_kind.dart` (`DocumentKind`, `PhysicalSizeMm`, `DocumentSizeCatalog`,
+`suggestDocumentType`, `DocumentTypeSuggestion`, `provisionalSize`);
+`arrangement.dart` (`arrangeDocuments`, `ArrangementResult`, `AutoLayoutStatus`,
+`autoLayoutStatus`); `packing.dart` (`proposePacking`, MaxRects);
+`page_layout.dart` (`PageLayout`, `PageViewport`, `inspectLayout`,
+`PageAlignment`); `geometry.dart` (`Point2`, `RectMm`, `CropGeometry`,
+mm/point conversions); `crop_draft.dart` (`CropDraft`, `ImageEditRecipe`);
+`document_edits.dart` (`DocumentEdits`); `edit_history.dart` (`EditHistory`,
+session undo/redo); `validation.dart` (`require`, typed readers, `validId`,
+`validName`, `validAssetPath`, reserved-Windows-name guard); `image_limits.dart`
+(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`, `export_naming.dart`,
+`image_adjustments.dart`.
 
-| # | العيب | كيف كُشف | الإصلاح |
-|---|---|---|---|
-| R1 | **سحب الفأرة لمستمسك غير محدد لا يحرّكه ويترك المحرر «في منتصف سحب»** فتُتجاهل كل الأوامر حتى سحب آخر. بدء السحب يحدد المستمسك، وإعادة البناء كانت تبدّل `GestureDetector` بـ`RawGestureDetector` فيُتلف المميِّز أثناء الإيماءة. خلل أدخله هذا الفرع؛ الأساس كان يستخدم نوع ودجة واحداً | اختبار `mouse: any unlocked document drags at once…` فشل في `4a28ff3` (x بقي 10 بدل 20) | مميِّز سحب واحد دائم لكل مستمسك (`_DocumentPanGestureRecognizer`) تتغير إعداداته مع التحديد؛ الاختبار يتحقق الآن أن الأسهم تعمل بعد السحب |
-| R2 | سحب أفقي بالإصبع على مستمسك غير محدد يحرّكه بدل أن يتجاهله | اختبار السحب الجانبي باللمس | المستمسك غير المحدد يُسحب بالفأرة فقط |
-| R3 | سحب لوحة اللمس بإصبعين يحرّك المستمسكات | اختبار لوحة اللمس (x صار 21.18 بدل 10) | لوحة اللمس مستبعدة من أجهزة السحب؛ تمرّر الصفحات فقط |
-| R4 | فقدان التحديد المتعدد باللمس (كان عبر chips في الأساس) | مقارنة مع الأساس | زر «تحديد متعدد» في مجموعة «التحديد» |
-| R5 | `arrangeDocuments` كان يُبقي مستمسكاً موضوعاً بمقاس غير مؤكد على الورقة كعائق، والترتيب المضغوط يرمي خطأً. الحالة غير قابلة للوصول من التطبيق (الاستيراد خارج الورق، `fromJson` يزيل الصفحة، `setKind` يسحب العنصر، `checked` يرفض) لكنها تخالف القاعدة | قراءة الشيفرة | ينقل إلى `awaitingSize` في الطريقتين؛ اختبار يغطي الطريقتين و`keepPlaced` |
-| R6 | المستند المستبعد من الترتيب التلقائي لم يكن له حالة ظاهرة، فقط وجوده خارج الورق. والنسخة المؤكدة التي لم تجد مكاناً كانت تُعدّ «لا يتسع للورقة» مع أنها تتسع | قرار المراجعة + قراءة `EditorStatusBar` | `AutoLayoutStatus` واحدة تقرأها الشريط خارج الورق وشريط الحالة ورسالة الترتيب (`takenOffSheet`)؛ اختبارا `arrangement_test` و`off_sheet_tray_test` |
+**imaging/** — no Widgets. `document_detector.dart`
+(`suggestDocumentCorners`/`detectDocumentCorners`: classical, deterministic,
+single quad or `null`); `perspective.dart` (`PerspectiveMap` 8-param homography,
+`warpPerspective`, `renderPerspective`); `prepare_image.dart`
+(`decodeForProcessing`, `prepareImage`, `normalizeChannels`); `image_header.dart`
+(`inspectImageHeader`), `safe_png.dart`, `auto_adjustments.dart`.
 
-### اختبارات الأساس المحذوفة ومقابلها
+**application/** — `project_service.dart` (`ProjectService`: `create`, `rename`,
+`importImages`, `arrangeImportedImages` (auto-intake: open→suggest→classify→
+crop-to-catalog-aspect→create item→arrange→save), `applyCrop`,
+`replaceImage`, `moveAsset`, `removeAsset`, `deleteProject`, orphan/staging
+maintenance, `suggestAutoAdjustments`); `contracts.dart` (ports + result types);
+`image_reader.dart` (`readBoundedImage`); `camera_capture.dart`,
+`native_camera.dart`, `native_documents.dart`; `output_service.dart`;
+`layout_session.dart`; `backup_transfer.dart`; `project_backups.dart`;
+`project_recovery.dart`; `ids.dart`.
 
-- `automatic_layout` «unconfirmed sizes stay off sheet»، و`document_kind` ×3، وبيانات isolate الترتيب في `layout_session`: استُبدلت بسلوك الكتالوج الجديد واختبارات `document_kind_test` و`arrangement_test`؛ عزل الترتيب في isolate حُذف مع الميزة.
-- `perspective` ×2: استبدلها `document_detector_test`.
-- `widget_test`: السحب/التحجيم/التراجع/وضع مساحة العمل، تراجع الاتجاه، Delete، الأسهم وShift وCtrl+Z، رفض اقتراح الترتيب، نافذة نطاق الترتيب. المقابل في `editor_ribbon_test` و`canvas_input_test`؛ رفض الاقتراح ونافذة النطاق حُذفا مع الميزتين.
+**persistence/** — sembast store `projects`; `local_project_repository.dart`
+(optimistic `revision`, `RecoveryCheckpoints`, explicit `recover`, never
+delete/recreate on corruption); `local_asset_repository.dart`
+(`importImage`/`replaceImage` in `Isolate.run`, staging→publish, immutable
+original); `local_image_editor.dart` (`open`/`suggest`/`preview`/`createRevision`
+in isolates); `local_project_backups.dart` (`.scanid`: magic + length-prefixed
+manifest ≤16 MiB + payloads, SHA256 per file, zip-slip/size guards, restore as
+new project); `local_project_recovery.dart`; `local_storage_maintenance.dart`;
+`recovery_checkpoints.dart`; `safe_files.dart` (symlink/`..`/root confinement).
 
-### تغييرات سلوك مقصودة عن الأساس
+**export/** — `document_exporter.dart`: PDF = vector A4 page + embedded working
+images positioned in mm (`pw.Positioned`/`pw.Transform.rotate`), **no text**;
+PNG/JPG raster at 300/600 DPI (`renderPage`), JPEG DPI metadata patched; memory
+budgets (40 MP embedded, 96 MiB encoded); runs in isolate. Print via `printing`
+(`output_service.dart`). Share: Android `ExportFileProvider` (scoped to
+`scan-exports/`, not exported), Windows reveal-in-folder.
 
-- الترتيب يُطبَّق مباشرة ويُتراجع عنه، بدل معاينة الاقتراح ورفضه؛ لا خيار «تضمين المثبت»، والنطاق كل الصفحات.
-- نافذة القياس استُبدلت بالكتالوج وحقلي العرض/الارتفاع في الشريط.
-- حُذف `PageCanvas.pageKey` وتحريك مساحة العمل وisolate الترتيب.
-- المستمسك غير المحدد يُسحب بالفأرة فقط؛ على اللمس يُحدَّد أولاً.
-- schema 4: الإصدارات الأقدم من التطبيق لا تفتح مشاريع هذا الإصدار وترفضها برسالة. الاتجاه المعاكس (الجديد يفتح القديم) مثبت لكل الصيغ الخمس في `legacy_schema_test`.
+**presentation/** — `app.dart`, `project_screen.dart`, `crop_screen.dart`
+(mandatory preview, rejectable proposal, session undo), `layout_screen.dart` +
+`ribbon.dart` (Word-like ribbon, ±1 mm tools, type picker, catalog dialog,
+auto-enhance), `editor_controller.dart` (`LayoutEditorController`, single editor
+state), `page_canvas.dart` (only mm→px site; `_DocumentPanGestureRecognizer`),
+`sheet_view.dart`, `export_screen.dart`, `shortcuts.dart`, `shared.dart`.
 
-### ملاحظات غير مصلحة
+**Android/** — `android/app/src/main/AndroidManifest.xml`: **no INTERNET**,
+`allowBackup=false`, `fullBackupContent=false`, `dataExtractionRules` set;
+system camera via `ACTION_IMAGE_CAPTURE` + `CaptureFileProvider` (no CAMERA
+permission); `ExportFileProvider`. `debug`/`profile` manifests add INTERNET
+(Flutter template; not in release). Native glue in `MainActivity.kt`.
 
-- `_dragOrigin` في `sheet_view` لا يُصفَّر عند إلغاء القرص؛ السحب التالي يعيد ضبطه فلا أثر ظاهر.
-- «إضافة صفحة» لا تمرّر إليها (موثق في STATUS).
-- مستندات الصيغ السابقة لـ `64d146e` تُفتح خارج الورقة، ويُفقد رقم الصفحة الأصلي عند الحفظ: موروث من الأساس، ولم يُغيَّر لأن القرار يمنع تغيير التخزين دون خطة ترحيل (SMART_LAYOUT_REPORT F10).
-- `takenOffSheet` دفاعي: لا يصل التطبيق حالياً إلى مستند موضوع بمقاس غير مؤكد (R5)، لكن المسار مختبر إذا وصلت إليه نسخة مستقبلية.
+**Windows/** — CMake runner; PDFium pinned (chromium/8086, SHA256 verified at
+build); storage under LocalAppData; save via system picker; reveal-folder share.
+
+**Contracts / ports** (`lib/application/contracts.dart`) — `ProjectRepository`,
+`AssetRepository`, `ImageEditor`, `StorageMaintenance`; result/config types
+`ReplacementFiles`, `EditorSource`, `OrphanFiles`, `ShareTarget`, `ImportSource`
+(in `project_service.dart`); exceptions `StorageException`, `RevisionConflict`.
+
+---
+
+## C. Existing reusable components (MUST reuse, not duplicate)
+
+| Component | File | Role in recognition work |
+|---|---|---|
+| `DocumentSizeCatalog` | `domain/document_kind.dart` | the canonical, persisted, editable preset registry (National ID 85.6×53.98 ISO ID-1; Passport 125×88 TD3; Residence 92.4×62.8 *editable default*; Ration 52×287 *editable default*) |
+| `suggestDocumentType` / `DocumentTypeSuggestion` | `domain/document_kind.dart` | seed classifier producing `{kind, confidence, reason}`; extend with OCR/geometry evidence, never replace |
+| `suggestDocumentCorners` / `detectDocumentCorners` | `imaging/document_detector.dart` | classical detection foundation; extend to multi-document + confidence |
+| `CropGeometry` / `RectMm` / `Point2` | `domain/geometry.dart` | canonical geometry + convex/ordered validation |
+| `PerspectiveMap` / `warpPerspective` | `imaging/perspective.dart` | projective correction + processing (reused for `ProcessedDocumentAsset`) |
+| `decodeForProcessing` / `prepareImage` / `normalizeChannels` | `imaging/prepare_image.dart` | decode/normalize/thumbnail; the PREPROCESS stage |
+| `ImageAsset` original/working/thumb model | `domain/project.dart`, `persistence/*` | immutable source + derived working/thumbnail pattern (SourceImage) |
+| `LocalImageEditor` | `persistence/local_image_editor.dart` | isolate offload for open/suggest/preview/revision |
+| `arrangeDocuments` + `AutoLayoutStatus` | `domain/arrangement.dart` | deterministic A4 engine + visible statuses (extend with keep-together + `unplaced`) |
+| `proposePacking` | `domain/packing.dart` | deterministic MaxRects (reused by compact strategy) |
+| Existing A4 editor + `PageLayout` + `DocumentEdits` | `presentation/*`, `domain/page_layout.dart`, `domain/document_edits.dart` | the one and only editor; recognition results enter here |
+| Existing undo (`EditHistory`, session) | `domain/edit_history.dart` | undo/redo for editor + recognition commands |
+| Existing export (PDF/PNG/JPG/print/share) | `export/*`, `application/output_service.dart` | recognized items are ordinary items; export unchanged |
+| Backup/restore (`.scanid`) + recovery + maintenance | `persistence/*` | must round-trip new state; excludes models/OCR text |
+| Persistence ports + validation + limits + offline posture | `application/contracts.dart`, `domain/validation.dart`, `domain/image_limits.dart`, manifests | invariants and safety backbone reused as-is |
+
+---
+
+## D. Missing architecture (actual gaps to build)
+
+1. **Multi-document detection & segmentation** — detector returns one quad; no
+   per-candidate id/`detectionConfidence`/visibility/quality; no overlap
+   resolution.
+2. **Geometry confidence** — no `geometryConfidence` from named, measurable
+   factors; no scored geometry stage (only binary `CropGeometry` validation).
+3. **Orientation stage** — no explicit orientation proposal (only quarter-turn
+   adjustments chosen by the user).
+4. **`ProcessedDocumentAsset`** — a crop rewrites the *same* asset's working
+   image; no first-class per-detection derived asset with transform/DPI/version.
+5. **`DocumentInstance` / `DocumentSide`** — no logical-document or front/back
+   model; no `UncertainPairing`.
+6. **OCR** — none (`OCRAnalyzer` behind an interface, evidence-only).
+7. **Evidence fusion + five confidence dimensions** — `DocumentItem` carries a
+   single `recognitionConfidence`; no `detection/geometry/ocr/classification/
+   final` separation, no R1–R4 rules, no bands.
+8. **Preset resolver / variants / snapshots** — catalog has one size per type; no
+   `PresetVariant`, no `DocumentPresetResolver`, no per-item preset snapshot.
+9. **Provenance chain** — no `sourceImageId→detectionId→documentInstanceId→side→
+   model/recognition versions` record.
+10. **User-override separation** — overrides are in-place edits that zero the
+    confidence (anti-pattern; see ADR-004); no separate override layer.
+11. **Review queue / detail UI** and «تجريبي» badge; **feature flag** (none
+    exists; lite auto-intake is currently always-on default).
+12. **Worker abstraction / cancellation** — one-shot `Isolate.run`; no bounded
+    concurrency, streaming progress, cooperative cancellation, or session reuse.
+13. **Re-run reconciliation** — no IoU-based matching / "recognition changed"
+    flagging / override preservation on re-run.
+14. **Keep-together layout groups** — engine has no group constraint.
+15. **Explicit schema migration to v5** — implicit parsing only (ADR-010/011).
+16. **Evaluation / benchmark infrastructure** and **CI import guard**.
+
+---
+
+## E. Explicit non-goals (never recreate in Scan-id)
+
+Scan-id does **not** contain, and must **never** gain, any of the following
+unrelated diagnostic systems (confirmed absent at baseline; see the source-scope
+finding accepted earlier):
+
+- `PdfContentProbe` / any PDF content probe.
+- `CanonicalLayout` (as an external diagnostic construct).
+- A DOCX exporter (no `python-docx`, no `word/document.xml`, no `w:r`).
+- A vector-PDF **text** renderer (PDF export embeds images only; there is no
+  drawn text, no advance-width/baseline/ascent/descent geometry).
+- The "14-failure report" and its diagnostic harness.
+- `F-A` / `debugPhaseTiming` / `R4-DIAG` / font-registration diagnostics, or any
+  runtime font-loading path (the app deliberately avoids `GoogleFonts`/runtime
+  fonts).
+
+These contexts must not be recreated, ported, or inferred here. `akrym1582/
+ExcelRenderer` is an unrelated third-party repository and is **not** a source for
+Scan-id.
+
+---
+
+## F. Concept mapping (spec → current → extension → new? → persistence impact)
+
+Prevents accidental duplication of existing models.
+
+| Spec concept | Current implementation | Required extension | New entity? | Persistence impact (schema v5) |
+|---|---|---|---|---|
+| SourceImage | `ImageAsset` (immutable original + working + thumb) | none (reuse) | no | existing |
+| DetectedDocument | — | new: id, sourceImageId, polygon, bbox, `detectionConfidence`, quality/visibility, producer+version | **yes** | new collection/field (v5) |
+| DocumentInstance | — | new: 1–2 sides, pairing state | **yes** | new (v5) |
+| DocumentSide | — | new: front/back/unknown | **yes** | new (v5) |
+| ProcessedDocumentAsset | derived `working` under `edits/<id>` | elevate to first-class per-detection asset: corners, transform, output size, effective DPI, version; regenerable | **yes** | new ref (v5) |
+| DocumentLayoutItem | `DocumentItem` (mm x/y/w/h, rotation, page, lock, `documentKind`, `recognitionConfidence`, `sizeConfirmed`) | add preset snapshot, provenance, override ref, group id | extend | additive fields (v5) |
+| DocumentType | `DocumentKind` + `suggestDocumentType` | extend evidence (OCR/geometry), keep filename+aspect seeds | extend | existing + evidence (v5) |
+| Preset | `DocumentSizeCatalog` (one size/type) | add `PresetVariant` + resolver + per-item snapshot | **yes** (variants) | additive (v5) |
+| RecognitionEvidence | `DocumentTypeSuggestion.reason` (string) | structured evidence: per-source scores + reasons, versions | **yes** | new (v5); **no OCR text/field values** |
+| Confidence | `DocumentItem.recognitionConfidence` (single) | five dimensions + fusion + R1–R4 + bands | **yes** | additive (v5) |
+| UserOverride | in-place edits zeroing confidence | separate override layer; effective = override else AI | **yes** | new (v5) |
+| ReviewItem | — (statuses via `AutoLayoutStatus`) | review queue model ordered by urgency | **yes** (UI/domain) | derived; minimal persisted state |
+| LayoutGroup | — | generic keep-together group in engine | **yes** | group id on items (v5) |
+| Provenance | `ImageAsset.transforms` log | full chain + versions + confidences + override flags | **yes** | new (v5) |
+
+**Target confidence model (design target; provisional, NOT empirically validated):**
+five separate scores — `detectionConfidence`, `geometryConfidence`,
+`ocrConfidence`, `classificationConfidence`, `finalConfidence`.
+`classificationConfidence` = weighted geometric mean over **available** sources
+(visual 0.4 / OCR 0.3 / structure 0.3; unavailable sources excluded, never
+zero). `finalConfidence` = weighted geometric mean of detection 0.2 / geometry
+0.3 / classification 0.5. Hard rules: **R1** auto-eligibility needs ≥2
+independent sources, ≥1 non-OCR; **R2** any component below its floor (prov.
+0.5) caps to review; **R3** top-class conflict caps to review ("conflict");
+**R4** winning `classificationConfidence` below prov. 0.60 ⇒ `Unknown`.
+Bands (provisional): `finalConfidence ≥ 0.90` auto-candidate; `0.70–<0.90`
+review; `< 0.70` unresolved/manual. Default automation mode = `reviewAll`;
+`autoAcceptHighConfidence` ships disabled. These numbers are unvalidated
+hyperparameters until a real-dataset calibration exists.
+
+---
+
+## G. Data-flow (target pipeline)
+
+Legend: **[E]** existing · **[X]** extension required · **[N]** new stage.
+
+```
+IMPORT            [E] ProjectService.importImages / AssetRepository.importImage
+ → VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget
+ → PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels
+ → DETECT         [X] suggestDocumentCorners → multi-candidate + detectionConfidence
+ → SEGMENT        [N] independent units; deterministic overlap resolution (IoU/area/confidence/validity)
+ → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed GeometryInvalid
+ → PERSPECTIVE    [E] PerspectiveMap / warpPerspective → ProcessedDocumentAsset
+ → ORIENTATION    [N] geometry + structure proposal (asset-only; layout rotation separate)
+ → OCR            [N] OCRAnalyzer (evidence-only; label anchors/structure; no field values)
+ → CLASSIFICATION [X] DocumentClassifier over geometry+structure+aspect+OCR (+ optional visual)
+ → EVIDENCE FUSION[N] fusion per §F (five confidences, R1–R4)
+ → CONFIDENCE     [N] finalConfidence + band + reasons
+ → DOCUMENT TYPE  [X] DocumentKind (+ Unknown on insufficient evidence)
+ → PRESET         [N] DocumentPresetResolver → variant / presetConfidence / awaitingSize shortlist
+ → FRONT/BACK     [N] pairing → DocumentInstance/DocumentSide / UncertainPairing
+ → USER REVIEW    [N] review queue + override layer (authoritative; AI never overwrites)
+ → LAYOUT ITEM    [X] DocumentLayoutItem (mm size from preset; provenance; override; group id)
+ → A4 AUTO LAYOUT [E] arrangeDocuments / proposePacking (sole coordinate authority; + keep-together [X])
+ → EXISTING EDITOR[E] LayoutEditorController / PageCanvas / ribbon (correct AI results here)
+ → EXPORT         [E] DocumentExporter (PDF/PNG/JPG/print/share) — unchanged
+```
+
+Every stage degrades gracefully: a failure is recorded with a typed reason and
+the pipeline continues where it can; no stage silently destroys the source or an
+existing workflow.
+
+---
+
+## H. AI vs deterministic boundary (invariant)
+
+**AI / recognition may PROPOSE:** detection (where, how many), corners, geometry
+estimate + `geometryConfidence`, orientation, OCR evidence (anchors/structure),
+classification candidates + per-source evidence, preset candidates +
+`presetConfidence`, and the five confidence values with reasons.
+
+**Deterministic systems DECIDE:** geometry validity (convex/ordered/non-degenerate
+via `CropGeometry`; impossible geometry is rejected, never repaired), physical
+dimensions **after confirmation** (from the catalog/preset or an explicit user
+size — never inferred from pixels), and all A4 placement (page, x, y, rotation,
+packing, collision avoidance, page count) via `arrangeDocuments`/`proposePacking`,
+and export coordinates via `DocumentExporter`.
+
+This boundary is an **invariant**: AI output is evidence + a confirmed physical
+size; it is never a coordinate. Violations are architectural defects.
+
+---
+
+## I. Failure / fallback contract
+
+| Stage failure | Fallback (no source or workflow destroyed) |
+|---|---|
+| Detector failure | existing smart-crop proposal, else manual crop |
+| Segmentation failure | single-document path / manual review |
+| Geometry failure | `GeometryInvalid` → manual crop/review (never auto-repair) |
+| Perspective failure | retain source; manual workflow |
+| OCR failure | continue with visual/geometry/structure evidence |
+| Classifier failure / insufficient evidence | `Unknown` → manual type selection |
+| Preset uncertainty | `awaitingSize` + candidate shortlist → user selects |
+| Low confidence (< 0.70, or any R1–R3 cap) | review queue (never silently accepted) |
+| AI unavailable (flag off / no model / worker down) | existing fully-manual workflow |
+
+Optional stages (OCR) degrade evidence but never abort the pipeline. One failed
+document never affects others in its image; one failed image never affects the
+batch; zero documents is a valid success.
+
+---
+
+## J. Performance / memory contract (risks only; no invented numbers)
+
+Known cost centers to be bounded and later measured by the benchmark harness
+(Phase 7) and Tier B device runs:
+
+- **Full-resolution decode** — detection must decode at reduced size (existing
+  detector uses ~480/1200 px rasters); full resolution is read only to warp the
+  needed region per document. At most one full-res bitmap per worker.
+- **600 DPI output** — an A4 page at 600 DPI is ~4961×7016; a single RGB page
+  buffer is on the order of ~100 MiB before codec/source (existing export already
+  budgets 40 MP embedded / 96 MiB encoded and rasters one page at a time).
+- **Multiple documents per source** — N derived assets per image multiply warp
+  and encode cost; must be bounded and streamed, not batched in memory.
+- **OCR memory** — model session + per-image tensors; session created once per
+  worker and reused; buffers released deterministically.
+- **Model loading** — cold-start cost and RAM; measured per candidate; no runtime
+  download.
+- **Isolate transfer** — large buffers cross by transfer/file hand-off, not
+  repeated copying.
+- **Concurrency** — one image at a time on Android, up to two on Windows
+  (initial), bounded queue; batches above the chunk limit are queued with
+  progress, never rejected.
+
+**Actual RAM/latency/size budgets are established by CI/benchmark evidence and
+Tier B device runs; none are asserted here.** The Tier A criterion is "no growth
+with batch size": live image buffers and native handles return to baseline after
+every image and after cancellation, asserted via resource accounting (not RSS on
+shared runners).
+
+---
+
+## K. OCR / model evaluation plan (no model added yet)
+
+No OCR/ML dependency is introduced in Phase 0. Before any model becomes a
+production dependency it must pass an ADR + evaluation evidence. Compare **at
+least** PaddleOCR **PP-OCRv5 Arabic Mobile** recognition and a suitable
+detection companion, plus **at least one** viable alternative/runtime where
+meaningful, on **synthetic or redacted** samples only (no real identity
+documents in the repo/CI).
+
+Evaluation dimensions: Arabic recognition accuracy (CER/WER + evidence-level
+accuracy), model size, runtime (ONNX/other), Android support, Windows support,
+CPU-only operation, RAM, offline packaging, license (prefer permissive; verify
+PaddleOCR Apache-2.0 and the Arabic model's actual availability/form), Flutter
+integration complexity (native FFI vs pure Dart), and cold-start/loading cost.
+Also evaluate the CV/inference runtime (native FFI bindings vs pure Dart) with
+the same lens.
+
+**Gate:** model + runtime choice requires owner approval (Phase 5) after the ADR
+and evaluation report. No model becomes a production dependency before ADR
+approval and evaluation evidence.
+
+---
+
+## L. Test strategy (future layers; no results invented)
+
+- **Domain:** invariants (`require` paths), confidence/fusion property tests
+  (monotonicity, caps, missing-source handling, determinism), pairing +
+  `UncertainPairing`, preset resolution + variants + snapshots, deterministic
+  layout (incl. keep-together, ration-card 52×287 case, locked items).
+- **Imaging:** multi-document detection, corner refinement + `geometryConfidence`,
+  perspective round-trip (≤ 0.5 source px on vectors), orientation.
+- **Application:** state machine, progress, cancellation (**via test hooks, not
+  timing**), failure isolation, reconciliation/idempotency (re-run keeps
+  overrides; no duplicate logical documents; sources untouched).
+- **Persistence:** v1/v2/v3a/v3b/v3c/v4 → v5, v5→v5 unchanged, malformed,
+  unsupported-future (typed reject), interrupted-migration rollback, pre-upgrade
+  snapshot, backup/restore round-trip.
+- **UI:** review, override, manual fallback, RTL, keyboard/mouse/touch, and
+  accessibility parity with the existing editor.
+- **Integration:** Android and Windows real builds in CI; existing workflow test
+  extended.
+- **Benchmark:** memory trend, per-document time at 1/5/10/20 images + chunk
+  limit, model init, cancellation, concurrency; resource-accounting assertions.
+
+All **pre-existing tests must stay green** (regression). No assertion may be
+weakened; no test moved to make the build pass; no sleeps/`pumpAndSettle` hacks.
+
+---
+
+## M. CI / verification contract
+
+A phase is not complete unless CI provides actual evidence for: `dart format`
+(clean), `flutter analyze --fatal-infos` (zero errors/warnings), `flutter test`
+(all green incl. pre-existing), Android build (+ APK privacy/permission audit:
+no INTERNET), Windows build (+ startup), independent export verification
+(PyMuPDF/Pillow), migration tests, the full regression suite, and (once present)
+the recognition import guard and benchmark resource assertions.
+
+If a check cannot be executed in a given environment, the report must state
+**NOT VERIFIED** with the reason. Successful validation is never inferred from
+static source inspection.
+
+---
+
+## N. Import / generated-code audit rule
+
+Before and after every implementation phase:
+1. inspect **all changed imports**;
+2. inspect **generated-code dependencies** if any are introduced;
+3. inspect **adjacent files** that consume changed APIs;
+4. run **full** `flutter analyze`, not only file-local checks;
+5. run the **full relevant test suite**;
+6. **build** supported targets (Android + Windows).
+
+This rule exists to prevent the class of missing-import / missing-generated-
+extension failures seen in unrelated projects. (Scan-id currently has no code
+generation; if any is ever introduced, its generated files' imports are audited
+explicitly.)
+
+---
+
+## O. Phase gates
+
+| Gate | Name | Must be satisfied before |
+|---|---|---|
+| Gate 0 | Audit + ADRs complete (this document) | any implementation |
+| Gate 1 | Domain/schema design approved | migration implementation |
+| Gate 2 | Geometry vertical slice validated (detect→segment→refine→perspective→orientation→minimal hand-off) | OCR work |
+| Gate 3 | Preset/pairing/layout-group behavior validated (determinism, ration-card, unknown-size) | review/override UI |
+| Gate 4 | Review/override/reconciliation validated | OCR runtime integration |
+| Gate 5 | OCR runtime selected by evidence (+ ADR + owner approval) | classifier fusion |
+| Gate 6 | Classifier/evidence fusion validated (property tests, R1–R4, bands) | benchmark/eval |
+| Gate 7 | Benchmark/evaluation evidence (synthetic; resource accounting) | release |
+| Gate 8 | Release/regression/privacy gate; feature-flag default-on only with owner approval | shipping recognition on by default |
+
+A later gate must **not** be implemented merely because an earlier gate is
+incomplete. Recognition stays behind an off-by-default feature flag until Gate 8
+owner approval.
+
+---
+
+## P. Defects found (carried forward; see `docs/AUDIT_HISTORY.md`)
+
+No new production defects are introduced by Phase 0 (documentation only). The
+known defects/lessons from the prior audit remain the regression baseline and are
+preserved in `docs/AUDIT_HISTORY.md` (baseline gaps G1–G9; PR #4 defects R1–R6;
+S1–S7 lessons). Two are directly relevant to this work and are restated as
+forward obligations, not fixed here:
+
+- **Override/confidence conflation** (ADR-004): `DocumentEdits.setKind` sets
+  `recognitionConfidence: 0`; Phase 4 must separate the override layer.
+- **Implicit migration** (ADR-010/011): `Project.fromJson` parses 1–4 with
+  defaults; Phase 1 must add the explicit, snapshot-protected v4→v5 migration.
+
+---
+
+*End of Phase 0 audit. Implementation begins only after Gate 0 owner approval;
+the next gate (Gate 1) governs the domain/schema design and the v5 migration.*

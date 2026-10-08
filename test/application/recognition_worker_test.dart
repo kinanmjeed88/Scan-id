@@ -59,32 +59,32 @@ void main() {
       return n * 10;
     }, token: token);
     expect(outcomes[0].value, 10, reason: 'already running — kept');
-    expect(
-      outcomes[1].failure?.category,
-      RecognitionErrorCategory.cancelled,
-    );
-    expect(
-      outcomes[2].failure?.category,
-      RecognitionErrorCategory.cancelled,
-    );
+    expect(outcomes[1].failure?.category, RecognitionErrorCategory.cancelled);
+    expect(outcomes[2].failure?.category, RecognitionErrorCategory.cancelled);
   });
 
-  test('a task throwing OperationCancelled maps to the cancelled category',
-      () async {
-    const worker = RecognitionBatchWorker();
-    final outcomes = await worker.run<int, int>([1], (n) async {
-      throw const OperationCancelled();
-    });
-    expect(outcomes.single.failure!.category,
-        RecognitionErrorCategory.cancelled);
-  });
+  test(
+    'a task throwing OperationCancelled maps to the cancelled category',
+    () async {
+      const worker = RecognitionBatchWorker();
+      final outcomes = await worker.run<int, int>([1], (n) async {
+        throw const OperationCancelled();
+      });
+      expect(
+        outcomes.single.failure!.category,
+        RecognitionErrorCategory.cancelled,
+      );
+    },
+  );
 
-  test('empty input completes immediately with one progress report',
-      () async {
+  test('empty input completes immediately with one progress report', () async {
     const worker = RecognitionBatchWorker();
     final reports = <BatchProgress>[];
-    final outcomes =
-        await worker.run<int, int>([], (n) async => n, onProgress: reports.add);
+    final outcomes = await worker.run<int, int>(
+      [],
+      (n) async => n,
+      onProgress: reports.add,
+    );
     expect(outcomes, isEmpty);
     expect(reports, hasLength(1));
     expect(reports.single.completed, 0);

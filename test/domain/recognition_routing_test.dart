@@ -145,7 +145,10 @@ void main() {
       expect(automationMode, AutomationMode.reviewAll);
       final record = _record(finalValue: .95);
       expect(recordNeedsReview(record), isTrue);
-      expect(reviewReasons(record), contains('مؤهل تلقائياً — بانتظار التأكيد'));
+      expect(
+        reviewReasons(record),
+        contains('مؤهل تلقائياً — بانتظار التأكيد'),
+      );
     });
 
     test('a confirmed record leaves the queue', () {

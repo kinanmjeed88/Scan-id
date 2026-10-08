@@ -135,9 +135,7 @@ class RecognitionBatchWorker {
 
     report();
     final lanes = concurrency < 1 ? 1 : concurrency;
-    await Future.wait([
-      for (var lane0 = 0; lane0 < lanes; lane0++) lane(),
-    ]);
+    await Future.wait([for (var lane0 = 0; lane0 < lanes; lane0++) lane()]);
     return [for (final outcome in outcomes) outcome!];
   }
 }

@@ -140,8 +140,10 @@ QuadAssessment assessQuad(
       .clamp(0.0, 1.0);
   // 3. Covered area (full marks from 15% of the frame upwards).
   final areaScore = (areaFraction / .15).clamp(0.0, 1.0);
-  final confidence = (.5 * angleScore + .3 * edgeScore + .2 * areaScore)
-      .clamp(0.0, 1.0);
+  final confidence = (.5 * angleScore + .3 * edgeScore + .2 * areaScore).clamp(
+    0.0,
+    1.0,
+  );
   return QuadAssessment.accepted(
     geometryConfidence: confidence,
     aspect: aspect,

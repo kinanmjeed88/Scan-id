@@ -181,15 +181,21 @@ void main() {
     final docs = report.project.documents;
     expect(docs, hasLength(2));
     for (final record in docs) {
-      expect(record.pairing, PairingState.ambiguous,
-          reason: 'no identifier evidence → never auto-paired');
+      expect(
+        record.pairing,
+        PairingState.ambiguous,
+        reason: 'no identifier evidence → never auto-paired',
+      );
       expect(record.pairingConfidence, isNotNull);
       expect(record.pairingConfidence, lessThan(.9));
     }
     expect(docs[0].pairedDocumentId, docs[1].id);
     expect(docs[1].pairedDocumentId, docs[0].id);
-    expect(report.project.layoutGroups, isEmpty,
-        reason: 'grouping only after the user accepts the pair');
+    expect(
+      report.project.layoutGroups,
+      isEmpty,
+      reason: 'grouping only after the user accepts the pair',
+    );
 
     // Accepting the proposal pairs and groups; rejecting dissolves it.
     final accepted = acceptPair(report.project, docs[0].id, docs[1].id);
@@ -211,16 +217,17 @@ void main() {
       ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
     ])).project;
     final token = CancellationToken()..cancel();
-    final report = await s.arrangeImportedImages(
-      project,
-      [project.assets.single.id],
-      cancellation: token,
-    );
+    final report = await s.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ], cancellation: token);
     expect(report.project.items, isEmpty);
     expect(report.project.documents, isEmpty);
     expect(report.warnings, isNotEmpty);
-    expect(report.project.revision, project.revision,
-        reason: 'nothing was saved after the cancel');
+    expect(
+      report.project.revision,
+      project.revision,
+      reason: 'nothing was saved after the cancel',
+    );
   });
 
   test('progress is reported per analyzed image', () async {

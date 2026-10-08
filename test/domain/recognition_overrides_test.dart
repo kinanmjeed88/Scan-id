@@ -97,10 +97,7 @@ void main() {
       final overridden = record.copyWith(
         overrides: [UserOverride(side: SideKind.back)],
       );
-      expect(
-        effectiveSide(overridden, overridden.sides.single),
-        SideKind.back,
-      );
+      expect(effectiveSide(overridden, overridden.sides.single), SideKind.back);
     });
   });
 
@@ -118,10 +115,7 @@ void main() {
       expect(record.overrides, hasLength(1));
       expect(record.overrides.single.documentKind, DocumentKind.passport);
       // The stored recognition evidence is untouched.
-      expect(
-        record.recognition!.documentKind,
-        DocumentKind.unifiedNationalId,
-      );
+      expect(record.recognition!.documentKind, DocumentKind.unifiedNationalId);
     });
 
     test('re-selecting the effective kind appends nothing', () {
@@ -150,10 +144,7 @@ void main() {
         ],
       );
       final next = setKindWithOverride(base, 'item-x', DocumentKind.passport);
-      expect(
-        next.items.single.documentKind,
-        DocumentKind.passport,
-      );
+      expect(next.items.single.documentKind, DocumentKind.passport);
       expect(next.documents, isEmpty);
     });
   });

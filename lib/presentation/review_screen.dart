@@ -61,8 +61,7 @@ class _ReviewDialog extends StatelessWidget {
                 shrinkWrap: true,
                 itemCount: queue.length,
                 separatorBuilder: (context, index) => const Divider(height: 16),
-                itemBuilder: (context, index) =>
-                    _entry(context, queue[index]),
+                itemBuilder: (context, index) => _entry(context, queue[index]),
               ),
       ),
       actions: [
@@ -92,8 +91,7 @@ class _ReviewDialog extends StatelessWidget {
         : c.project.assets.where((a) => a.id == item.assetId).firstOrNull;
     final kind = c.effectiveKindOf(record);
     final side = c.effectiveSideOf(record);
-    final confidence =
-        record.recognition?.confidences.finalConfidence?.value;
+    final confidence = record.recognition?.confidences.finalConfidence?.value;
     final reasons = c.reviewReasonsFor(record);
     final pairProposed =
         record.pairedDocumentId != null &&
@@ -128,8 +126,7 @@ class _ReviewDialog extends StatelessWidget {
                   Chip(
                     label: Text(reason),
                     visualDensity: VisualDensity.compact,
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
               ],
             ),
@@ -147,10 +144,7 @@ class _ReviewDialog extends StatelessWidget {
                 hint: Text(kind.label),
                 items: [
                   for (final choice in reviewKindChoices)
-                    DropdownMenuItem(
-                      value: choice,
-                      child: Text(choice.label),
-                    ),
+                    DropdownMenuItem(value: choice, child: Text(choice.label)),
                 ],
                 onChanged: busy || item == null
                     ? null
@@ -196,9 +190,7 @@ class _ReviewDialog extends StatelessWidget {
               ],
               FilledButton.tonal(
                 key: Key('review-confirm-${record.id}'),
-                onPressed: busy
-                    ? null
-                    : () => c.confirmRecognition(record.id),
+                onPressed: busy ? null : () => c.confirmRecognition(record.id),
                 child: const Text('تأكيد'),
               ),
               if (item != null)

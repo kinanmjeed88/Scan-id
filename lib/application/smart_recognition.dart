@@ -38,11 +38,18 @@ import 'recognition_worker.dart';
 
 /// Full-resolution perspective warp for a segmented document, off the UI
 /// isolate. Reads from the already-bounded original bytes.
-Future<Uint8List> defaultWarp(Uint8List originalBytes, ImageEditRecipe recipe) =>
-    Isolate.run(() => renderPerspective(originalBytes, recipe));
+Future<Uint8List> defaultWarp(
+  Uint8List originalBytes,
+  ImageEditRecipe recipe,
+) => Isolate.run(() => renderPerspective(originalBytes, recipe));
 
 class _Analyzed {
-  const _Analyzed(this.asset, this.analysis, this.sourceWidth, this.sourceHeight);
+  const _Analyzed(
+    this.asset,
+    this.analysis,
+    this.sourceWidth,
+    this.sourceHeight,
+  );
   final ImageAsset asset;
   final ImageAnalysis analysis;
   final int sourceWidth;
@@ -67,7 +74,10 @@ class SmartIntake {
   final Future<SegmentationResult> Function(Uint8List previewBytes) segment;
   final OcrEngine ocr;
   final RecognitionBatchWorker worker;
-  final Future<Uint8List> Function(Uint8List originalBytes, ImageEditRecipe recipe)
+  final Future<Uint8List> Function(
+    Uint8List originalBytes,
+    ImageEditRecipe recipe,
+  )
   warp;
   final RecognitionThresholds thresholds;
 
@@ -320,8 +330,7 @@ class SmartIntake {
     }
     final itemId = newId();
     final hasEvidence =
-        detection.classification.evidence.isNotEmpty ||
-        detection.hasUsableQuad;
+        detection.classification.evidence.isNotEmpty || detection.hasUsableQuad;
     final record = hasEvidence
         ? _buildRecord(
             current,
@@ -356,12 +365,7 @@ class SmartIntake {
         zIndex: _nextZ(current, newItems),
         documentKind: kind,
         recognitionConfidence:
-            detection
-                .classification
-                .confidences
-                .finalConfidence
-                ?.value ??
-            0,
+            detection.classification.confidences.finalConfidence?.value ?? 0,
         sizeConfirmed: catalogSize != null,
         documentId: record?.id,
         sideId: record == null ? null : record.sides.single.id,
@@ -466,11 +470,7 @@ class SmartIntake {
             zIndex: _nextZ(current, newItems),
             documentKind: kind,
             recognitionConfidence:
-                detection
-                    .classification
-                    .confidences
-                    .finalConfidence
-                    ?.value ??
+                detection.classification.confidences.finalConfidence?.value ??
                 0,
             sizeConfirmed: catalogSize != null,
             documentId: record.id,

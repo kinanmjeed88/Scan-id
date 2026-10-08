@@ -27,8 +27,11 @@ void main() {
     ]);
     expect(proposals, hasLength(1));
     final proposal = proposals.single;
-    expect(proposal.resolution, PairingState.ambiguous,
-        reason: 'no identifier evidence → capped below auto-accept');
+    expect(
+      proposal.resolution,
+      PairingState.ambiguous,
+      reason: 'no identifier evidence → capped below auto-accept',
+    );
     expect(proposal.confidence, lessThanOrEqualTo(identifierFreePairingCap));
     expect(proposal.confidence, greaterThanOrEqualTo(.7));
   });
@@ -94,10 +97,7 @@ void main() {
     ]);
     expect(
       [for (final p in again) '${p.firstDocumentId}+${p.secondDocumentId}'],
-      [
-        for (final p in proposals)
-          '${p.firstDocumentId}+${p.secondDocumentId}',
-      ],
+      [for (final p in proposals) '${p.firstDocumentId}+${p.secondDocumentId}'],
     );
   });
 

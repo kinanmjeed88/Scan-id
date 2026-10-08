@@ -39,7 +39,10 @@ void main() {
       ),
     );
     expect(outcome.kind, DocumentKind.unifiedNationalId);
-    expect(outcome.evidence.map((e) => e.kind), isNot(contains('filename-label')));
+    expect(
+      outcome.evidence.map((e) => e.kind),
+      isNot(contains('filename-label')),
+    );
   });
 
   test('no evidence at all stays unknown with empty evidence', () {
@@ -73,7 +76,10 @@ void main() {
     );
     for (final evidence in outcome.evidence) {
       expect(evidence.reason, isNot(contains('البطاقه')));
-      expect(evidence.kind, isIn(['filename-label', 'aspect-match', 'ocr-keyword']));
+      expect(
+        evidence.kind,
+        isIn(['filename-label', 'aspect-match', 'ocr-keyword']),
+      );
     }
     expect(outcome.confidences.ocr?.value, .8);
   });

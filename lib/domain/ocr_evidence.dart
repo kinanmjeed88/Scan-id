@@ -94,7 +94,12 @@ const _ocrAnchors = {
     'nationalcard',
     'nationalid',
   ],
-  DocumentKind.passport: ['جوازسفر', 'جمهوريهالعراق', 'passport', 'republicofiraq'],
+  DocumentKind.passport: [
+    'جوازسفر',
+    'جمهوريهالعراق',
+    'passport',
+    'republicofiraq',
+  ],
   DocumentKind.residenceCard: ['بطاقهالسكن', 'بطاقهسكن', 'residencecard'],
   DocumentKind.rationCard: ['البطاقهالتموينيه', 'بطاقهتموينيه', 'rationcard'],
 };
@@ -126,6 +131,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   }
   final kinds = best.keys.toList()..sort((a, b) => a.index.compareTo(b.index));
   return List.unmodifiable([
-    for (final kind in kinds) OcrKeywordEvidence(kind: kind, score: best[kind]!),
+    for (final kind in kinds)
+      OcrKeywordEvidence(kind: kind, score: best[kind]!),
   ]);
 }

@@ -71,8 +71,7 @@ class DetectionAnalysis {
   final ClassificationOutcome classification;
   final OrientationEstimate orientation;
 
-  bool get hasUsableQuad =>
-      corners != null && (geometry?.acceptable ?? false);
+  bool get hasUsableQuad => corners != null && (geometry?.acceptable ?? false);
 }
 
 /// The complete analysis of one source image.

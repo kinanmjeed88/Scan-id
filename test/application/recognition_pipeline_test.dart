@@ -73,23 +73,28 @@ void main() {
       DocumentKind.unifiedNationalId,
       reason: '0.8×1599 by 0.8×999 ≈ the ID-1 shape',
     );
-    expect(detection.detectionConfidence, isNull,
-        reason: 'the single detector has no calibrated score');
+    expect(
+      detection.detectionConfidence,
+      isNull,
+      reason: 'the single detector has no calibrated score',
+    );
   });
 
-  test('segmentation failure degrades to the single path with an issue',
-      () async {
-    final pipeline = RecognitionPipeline(
-      suggestSingle: (bytes) async => _quad(),
-      segment: (bytes) async => throw StateError('segmenter crashed'),
-    );
-    final analysis = await pipeline.analyze(_input());
-    expect(
-      analysis.issues.map((i) => i.category),
-      contains(RecognitionErrorCategory.segmentationFailure),
-    );
-    expect(analysis.detections.single.hasUsableQuad, isTrue);
-  });
+  test(
+    'segmentation failure degrades to the single path with an issue',
+    () async {
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async => _quad(),
+        segment: (bytes) async => throw StateError('segmenter crashed'),
+      );
+      final analysis = await pipeline.analyze(_input());
+      expect(
+        analysis.issues.map((i) => i.category),
+        contains(RecognitionErrorCategory.segmentationFailure),
+      );
+      expect(analysis.detections.single.hasUsableQuad, isTrue);
+    },
+  );
 
   test('detector failure falls back to full frame with an issue', () async {
     final pipeline = RecognitionPipeline(
@@ -106,71 +111,75 @@ void main() {
     expect(detection.corners, isNull);
   });
 
-  test('a geometrically rejected quad becomes full frame with an issue',
-      () async {
-    final crossed = [
-      Point2(.1, .1),
-      Point2(.9, .9),
-      Point2(.9, .1),
-      Point2(.1, .9),
-    ];
-    final pipeline = RecognitionPipeline(
-      suggestSingle: (bytes) async => crossed,
-      segment: _noMulti,
-    );
-    final analysis = await pipeline.analyze(_input());
-    expect(
-      analysis.issues.map((i) => i.category),
-      contains(RecognitionErrorCategory.geometryFailure),
-    );
-    expect(analysis.detections.single.hasUsableQuad, isFalse);
-  });
+  test(
+    'a geometrically rejected quad becomes full frame with an issue',
+    () async {
+      final crossed = [
+        Point2(.1, .1),
+        Point2(.9, .9),
+        Point2(.9, .1),
+        Point2(.1, .9),
+      ];
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async => crossed,
+        segment: _noMulti,
+      );
+      final analysis = await pipeline.analyze(_input());
+      expect(
+        analysis.issues.map((i) => i.category),
+        contains(RecognitionErrorCategory.geometryFailure),
+      );
+      expect(analysis.detections.single.hasUsableQuad, isFalse);
+    },
+  );
 
-  test('multi path analyzes each candidate with stable detection ids',
-      () async {
-    final top = [
-      Point2(.1, .05),
-      Point2(.9, .05),
-      Point2(.9, .45),
-      Point2(.1, .45),
-    ];
-    final bottom = [
-      Point2(.1, .55),
-      Point2(.9, .55),
-      Point2(.9, .95),
-      Point2(.1, .95),
-    ];
-    final pipeline = RecognitionPipeline(
-      suggestSingle: (bytes) async => fail('single path must not run'),
-      segment: (bytes) async => SegmentationResult(
-        multi: true,
-        candidates: [
-          SegmentCandidate(
-            region: const [.1, .05, .9, .45],
-            corners: top,
-            detectionConfidence: .8,
-            reason: 'component-support',
-          ),
-          SegmentCandidate(
-            region: const [.1, .55, .9, .95],
-            corners: bottom,
-            detectionConfidence: .7,
-            reason: 'component-support',
-          ),
-        ],
-      ),
-    );
-    final analysis = await pipeline.analyze(_input(name: 'cards.png'));
-    expect(analysis.multi, isTrue);
-    expect(analysis.detections, hasLength(2));
-    expect(analysis.detections[0].detectionId, 'asset1-d0');
-    expect(analysis.detections[1].detectionId, 'asset1-d1');
-    expect(analysis.detections[0].detectionConfidence, .8);
-    expect(
-      analysis.detections[0].classification.confidences.detection?.value,
-      .8,
-    );
-  });
+  test(
+    'multi path analyzes each candidate with stable detection ids',
+    () async {
+      final top = [
+        Point2(.1, .05),
+        Point2(.9, .05),
+        Point2(.9, .45),
+        Point2(.1, .45),
+      ];
+      final bottom = [
+        Point2(.1, .55),
+        Point2(.9, .55),
+        Point2(.9, .95),
+        Point2(.1, .95),
+      ];
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async => fail('single path must not run'),
+        segment: (bytes) async => SegmentationResult(
+          multi: true,
+          candidates: [
+            SegmentCandidate(
+              region: const [.1, .05, .9, .45],
+              corners: top,
+              detectionConfidence: .8,
+              reason: 'component-support',
+            ),
+            SegmentCandidate(
+              region: const [.1, .55, .9, .95],
+              corners: bottom,
+              detectionConfidence: .7,
+              reason: 'component-support',
+            ),
+          ],
+        ),
+      );
+      final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+      expect(analysis.multi, isTrue);
+      expect(analysis.detections, hasLength(2));
+      expect(analysis.detections[0].detectionId, 'asset1-d0');
+      expect(analysis.detections[1].detectionId, 'asset1-d1');
+      expect(analysis.detections[0].detectionConfidence, .8);
+      expect(
+        analysis.detections[0].classification.confidences.detection?.value,
+        .8,
+      );
+    },
+  );
 
   test('a cornerless candidate is an explicit issue, not a guess', () async {
     final pipeline = RecognitionPipeline(
@@ -202,12 +211,14 @@ void main() {
       contains(RecognitionErrorCategory.detectionFailure),
     );
     expect(analysis.detections, hasLength(1));
-    expect(analysis.multi, isFalse,
-        reason: 'one usable quad is not a multi-document image');
+    expect(
+      analysis.multi,
+      isFalse,
+      reason: 'one usable quad is not a multi-document image',
+    );
   });
 
-  test('OCR keywords become evidence; the engine version is visible',
-      () async {
+  test('OCR keywords become evidence; the engine version is visible', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),
       segment: _noMulti,
@@ -215,10 +226,7 @@ void main() {
     );
     final analysis = await pipeline.analyze(_input(name: 'IMG_1.png'));
     final classification = analysis.detections.single.classification;
-    expect(
-      classification.evidence.map((e) => e.kind),
-      contains('ocr-keyword'),
-    );
+    expect(classification.evidence.map((e) => e.kind), contains('ocr-keyword'));
     expect(classification.confidences.ocr?.value, .85);
   });
 
@@ -239,14 +247,16 @@ void main() {
     );
   });
 
-  test('the shipped default OCR engine reports honest unavailability',
-      () async {
-    const engine = UnavailableOcrEngine();
-    final result = await engine.recognize(_bytes);
-    expect(result.isAvailable, isFalse);
-    expect(result.unavailableReason, 'no-offline-engine-packaged');
-    expect(ocrKeywordEvidence(result), isEmpty);
-  });
+  test(
+    'the shipped default OCR engine reports honest unavailability',
+    () async {
+      const engine = UnavailableOcrEngine();
+      final result = await engine.recognize(_bytes);
+      expect(result.isAvailable, isFalse);
+      expect(result.unavailableReason, 'no-offline-engine-packaged');
+      expect(ocrKeywordEvidence(result), isEmpty);
+    },
+  );
 
   test('cancellation stops analysis with OperationCancelled', () async {
     final token = CancellationToken()..cancel();

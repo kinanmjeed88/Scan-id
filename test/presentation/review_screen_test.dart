@@ -8,41 +8,40 @@ import 'package:scan_id/domain/recognition_overrides.dart';
 import 'editor_harness.dart';
 import '../fixtures.dart';
 
-DocumentRecord _record(
-  String stem,
-  String assetId, {
-  String? pairedWith,
-}) => DocumentRecord(
-  id: 'rec-$stem',
-  sourceImageId: assetId,
-  sides: [
-    DocumentSide(
-      id: 'side-$stem',
-      side: SideKind.unknown,
-      processedAsset: ProcessedAssetRef(
-        workingPath: 'projects/project1/assets/$assetId/working.png',
-        thumbnailPath: 'projects/project1/assets/$assetId/thumb.jpg',
-        width: 856,
-        height: 540,
+DocumentRecord _record(String stem, String assetId, {String? pairedWith}) =>
+    DocumentRecord(
+      id: 'rec-$stem',
+      sourceImageId: assetId,
+      sides: [
+        DocumentSide(
+          id: 'side-$stem',
+          side: SideKind.unknown,
+          processedAsset: ProcessedAssetRef(
+            workingPath: 'projects/project1/assets/$assetId/working.png',
+            thumbnailPath: 'projects/project1/assets/$assetId/thumb.jpg',
+            width: 856,
+            height: 540,
+          ),
+        ),
+      ],
+      recognition: RecognitionResult(
+        documentKind: DocumentKind.unifiedNationalId,
+        status: RecognitionStatus.recognized,
+        confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
+        preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
       ),
-    ),
-  ],
-  recognition: RecognitionResult(
-    documentKind: DocumentKind.unifiedNationalId,
-    status: RecognitionStatus.recognized,
-    confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
-    preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
-  ),
-  pairing: pairedWith == null ? PairingState.single : PairingState.ambiguous,
-  pairedDocumentId: pairedWith,
-  pairingConfidence: pairedWith == null ? null : .85,
-  provenance: Provenance(
-    sourceImageId: assetId,
-    detectionIds: ['$assetId-d0'],
-    processedAssetVersion: 'smart-1',
-    pipelineVersion: 'smart-1',
-  ),
-);
+      pairing: pairedWith == null
+          ? PairingState.single
+          : PairingState.ambiguous,
+      pairedDocumentId: pairedWith,
+      pairingConfidence: pairedWith == null ? null : .85,
+      provenance: Provenance(
+        sourceImageId: assetId,
+        detectionIds: ['$assetId-d0'],
+        processedAssetVersion: 'smart-1',
+        pipelineVersion: 'smart-1',
+      ),
+    );
 
 DocumentItem _linkedItem(String stem, String assetId, {double y = 5}) =>
     DocumentItem(
@@ -65,11 +64,11 @@ Project _reviewProject() => Project(
   createdAt: DateTime.utc(2026, 10, 7),
   updatedAt: DateTime.utc(2026, 10, 7),
   paper: PaperSettings(margins: Margins.all(5)),
-  assets: [assetFixture(id: 'asset1'), assetFixture(id: 'asset2')],
-  items: [
-    _linkedItem('front', 'asset1'),
-    _linkedItem('back', 'asset2', y: 70),
+  assets: [
+    assetFixture(id: 'asset1'),
+    assetFixture(id: 'asset2'),
   ],
+  items: [_linkedItem('front', 'asset1'), _linkedItem('back', 'asset2', y: 70)],
   documents: [
     _record('front', 'asset1', pairedWith: 'rec-back'),
     _record('back', 'asset2', pairedWith: 'rec-front'),

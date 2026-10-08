@@ -25,7 +25,10 @@ abstract interface class OcrEngine {
   /// Recognizes text on a processed document image. Must never throw for
   /// ordinary recognition failure — it reports an unavailable/empty result;
   /// only [OperationCancelled] propagates.
-  Future<OcrTextResult> recognize(Uint8List imageBytes, {CancellationToken? token});
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  });
 }
 
 /// The shipped default: OCR is not available on this build. Deterministic,

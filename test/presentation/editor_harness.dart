@@ -33,7 +33,7 @@ class EditorHarness {
     Project? project,
     ImageEditor? imageEditor,
     Future<List<ImportSource>> Function()? pickImages,
-    ProjectRepository? repository,
+    MemoryProjects? repository,
     AssetRepository? assetRepository,
     Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
   }) async {

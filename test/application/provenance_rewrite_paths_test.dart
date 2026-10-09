@@ -137,9 +137,7 @@ void main() {
       expect(updated.transforms.last, startsWith('replaced:'));
       // The source is still an original and still byte-identical.
       expect(
-        replaced.project.assets
-            .firstWhere((a) => a.id == sourceId)
-            .derivedFrom,
+        replaced.project.assets.firstWhere((a) => a.id == sourceId).derivedFrom,
         isNull,
       );
     });

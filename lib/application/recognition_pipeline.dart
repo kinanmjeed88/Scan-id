@@ -515,10 +515,7 @@ String? rejectedRegionsMessage(List<RejectedRegion> rejected) {
 /// The short form: how many regions were refused and by which measured
 /// categories, in one clause. For surfaces that already carry the per-image
 /// warnings and only need the tally to be unmissable.
-String? rejectedRegionsHeadline(
-  int count,
-  Map<RegionRejection, int> byReason,
-) {
+String? rejectedRegionsHeadline(int count, Map<RegionRejection, int> byReason) {
   if (count <= 0) return null;
   final breakdown = _rejectionBreakdown(byReason);
   return 'استُبعدت $count منطقة لا يمكن أن تكون مستمسكاً'
@@ -537,10 +534,7 @@ String? rejectedRegionsHeadline(
 /// the user needs to know how many and what kind, not each one separately.
 /// Returns null when nothing was refused, so callers can append it
 /// unconditionally.
-String? rejectedRegionsSummary(
-  int count,
-  Map<RegionRejection, int> byReason,
-) {
+String? rejectedRegionsSummary(int count, Map<RegionRejection, int> byReason) {
   final headline = rejectedRegionsHeadline(count, byReason);
   if (headline == null) return null;
   return '$headline؛ لم تُضف إلى المشروع. $rejectedRegionsRecoveryHint.';

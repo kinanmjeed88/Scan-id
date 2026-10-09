@@ -92,11 +92,12 @@ RejectedRegion _refused(
 /// A segmenter that refuses exactly [refused] and finds no document region.
 Future<SegmentationResult> Function(Uint8List) stubSegmenter(
   List<RejectedRegion> rejected,
-) => (bytes) async => SegmentationResult(
-  candidates: const [],
-  multi: false,
-  rejected: List.unmodifiable(rejected),
-);
+) =>
+    (bytes) async => SegmentationResult(
+      candidates: const [],
+      multi: false,
+      rejected: List.unmodifiable(rejected),
+    );
 
 void main() {
   late Directory root;
@@ -140,13 +141,19 @@ void main() {
 
   group('the report carries the measured tally', () {
     test('one entry per reason, summing to the refusal count', () async {
-      final report = await arrange(service(
-        segmenter: stubSegmenter([
-          _refused(RegionRejection.frameArtifact),
-          _refused(RegionRejection.implausibleAspect),
-          _refused(RegionRejection.implausibleAspect, region: [.5, .1, .6, .9]),
-        ]),
-      ), [('صورة.png', _blankDesk)]);
+      final report = await arrange(
+        service(
+          segmenter: stubSegmenter([
+            _refused(RegionRejection.frameArtifact),
+            _refused(RegionRejection.implausibleAspect),
+            _refused(
+              RegionRejection.implausibleAspect,
+              region: [.5, .1, .6, .9],
+            ),
+          ]),
+        ),
+        [('صورة.png', _blankDesk)],
+      );
 
       expect(report.rejectedRegions, 3);
       expect(report.rejectedByReason, {
@@ -185,14 +192,12 @@ void main() {
     });
 
     test('the tally aggregates across a batch of photos', () async {
-      final report = await arrange(service(
-        segmenter: stubSegmenter([
-          _refused(RegionRejection.unusableCrop),
-        ]),
-      ), [
-        ('الأولى.png', _blankDesk),
-        ('الثانية.png', _blankDesk),
-      ]);
+      final report = await arrange(
+        service(
+          segmenter: stubSegmenter([_refused(RegionRejection.unusableCrop)]),
+        ),
+        [('الأولى.png', _blankDesk), ('الثانية.png', _blankDesk)],
+      );
 
       expect(report.rejectedRegions, 2);
       expect(report.rejectedByReason, {RegionRejection.unusableCrop: 2});
@@ -250,13 +255,19 @@ void main() {
 
   group('the Arabic feedback', () {
     test('names the count, the categories and the way back', () async {
-      final report = await arrange(service(
-        segmenter: stubSegmenter([
-          _refused(RegionRejection.frameArtifact),
-          _refused(RegionRejection.implausibleAspect),
-          _refused(RegionRejection.implausibleAspect, region: [.5, .1, .6, .9]),
-        ]),
-      ), [('صورة.png', _blankDesk)]);
+      final report = await arrange(
+        service(
+          segmenter: stubSegmenter([
+            _refused(RegionRejection.frameArtifact),
+            _refused(RegionRejection.implausibleAspect),
+            _refused(
+              RegionRejection.implausibleAspect,
+              region: [.5, .1, .6, .9],
+            ),
+          ]),
+        ),
+        [('صورة.png', _blankDesk)],
+      );
 
       final summary = report.rejectedSummary!;
       expect(summary, contains('3'));
@@ -279,15 +290,18 @@ void main() {
     });
 
     test('aggregates: one warning per photo, never one per region', () async {
-      final report = await arrange(service(
-        segmenter: stubSegmenter([
-          for (var i = 0; i < 5; i++)
-            _refused(
-              RegionRejection.implausibleAspect,
-              region: [.1 + i * .05, .1, .14 + i * .05, .9],
-            ),
-        ]),
-      ), [('صورة.png', _blankDesk)]);
+      final report = await arrange(
+        service(
+          segmenter: stubSegmenter([
+            for (var i = 0; i < 5; i++)
+              _refused(
+                RegionRejection.implausibleAspect,
+                region: [.1 + i * .05, .1, .14 + i * .05, .9],
+              ),
+          ]),
+        ),
+        [('صورة.png', _blankDesk)],
+      );
 
       expect(report.rejectedRegions, 5);
       final aggregated = report.warnings
@@ -302,9 +316,12 @@ void main() {
     });
 
     test('the headline is the short form for a crowded banner', () async {
-      final report = await arrange(service(
-        segmenter: stubSegmenter([_refused(RegionRejection.frameArtifact)]),
-      ), [('صورة.png', _blankDesk)]);
+      final report = await arrange(
+        service(
+          segmenter: stubSegmenter([_refused(RegionRejection.frameArtifact)]),
+        ),
+        [('صورة.png', _blankDesk)],
+      );
 
       final headline = report.rejectedHeadline!;
       expect(headline, contains('1'));

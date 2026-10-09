@@ -82,9 +82,8 @@ img.Image _withIdCard(void Function(img.Image) draw) {
 
 /// A crisp shadow band at the ration card's own proportion: 181 x 1000 px,
 /// 5.52:1, no frame contact. This is the residual risk given pixels.
-Uint8List get _shadowBand => _png(
-  _withIdCard((image) => _rect(image, 900, 300, 1080, 1299, _shadow)),
-);
+Uint8List get _shadowBand =>
+    _png(_withIdCard((image) => _rect(image, 900, 300, 1080, 1299, _shadow)));
 
 /// A GENUINE ration card of the same drawn proportion, with printed content.
 Uint8List get _rationCard => _png(
@@ -130,9 +129,9 @@ class _Decision {
 
   DocumentItem? get narrowest {
     if (project.items.isEmpty) return null;
-    return [...project.items].reduce(
-      (a, b) => _aspect(a) >= _aspect(b) ? a : b,
-    );
+    return [
+      ...project.items,
+    ].reduce((a, b) => _aspect(a) >= _aspect(b) ? a : b);
   }
 
   bool get everyRecordReviewed => project.documents.every(recordNeedsReview);
@@ -311,9 +310,7 @@ void main() {
       // Measured: the merged pair is aspect 11.25 with no frame contact, so it
       // is refused for its proportion, and the refusal is reported.
       expect(report.rejectedRegions, 1);
-      expect(report.rejectedByReason, {
-        RegionRejection.implausibleAspect: 1,
-      });
+      expect(report.rejectedByReason, {RegionRejection.implausibleAspect: 1});
       expect(report.rejectedSummary, isNotNull);
       expect(
         report.warnings.any((w) => w.contains('تجاهل التقسيم')),

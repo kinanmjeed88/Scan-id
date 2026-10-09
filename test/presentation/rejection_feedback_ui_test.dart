@@ -76,11 +76,12 @@ RejectedRegion _refused(RegionRejection rejection) => RejectedRegion(
 
 Future<SegmentationResult> Function(Uint8List) _stub(
   List<RejectedRegion> rejected,
-) => (bytes) async => SegmentationResult(
-  candidates: const [],
-  multi: false,
-  rejected: List.unmodifiable(rejected),
-);
+) =>
+    (bytes) async => SegmentationResult(
+      candidates: const [],
+      multi: false,
+      rejected: List.unmodifiable(rejected),
+    );
 
 void main() {
   group('the editor\'s own commands report refusals', () {
@@ -131,12 +132,15 @@ void main() {
     }
 
     test('importing names the count, categories and way back', () async {
-      final said = await runImport(service(
-        segmenter: _stub([
-          _refused(RegionRejection.frameArtifact),
-          _refused(RegionRejection.implausibleAspect),
-        ]),
-      ), _blankDesk);
+      final said = await runImport(
+        service(
+          segmenter: _stub([
+            _refused(RegionRejection.frameArtifact),
+            _refused(RegionRejection.implausibleAspect),
+          ]),
+        ),
+        _blankDesk,
+      );
 
       expect(said, hasLength(1), reason: '$said');
       final message = said.single;

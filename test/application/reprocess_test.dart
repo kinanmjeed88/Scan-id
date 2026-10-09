@@ -347,7 +347,9 @@ void main() {
       // The failure is actionable and isolated: the project is untouched.
       expect(report!.warnings, isNotEmpty);
       expect(report.notDetected, 1);
-      expect((await projects.get(first.id)).toJson(), first.toJson());
+      // `metadata` is read instead of `get`, because `get` validates that every
+      // asset file exists and the original was deliberately removed here.
+      expect((await projects.metadata(first.id)).toJson(), first.toJson());
     },
   );
 

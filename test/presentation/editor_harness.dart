@@ -33,6 +33,8 @@ class EditorHarness {
     Project? project,
     ImageEditor? imageEditor,
     Future<List<ImportSource>> Function()? pickImages,
+    String? intakeSummary,
+    List<String> intakeWarnings = const [],
   }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
@@ -52,6 +54,8 @@ class EditorHarness {
           service: service,
           pickImages: pickImages ?? () async => <ImportSource>[],
           adjustmentCommitDelay: const Duration(milliseconds: 200),
+          intakeSummary: intakeSummary,
+          intakeWarnings: intakeWarnings,
         ),
       ),
     );

@@ -469,6 +469,37 @@ String regionRejectionLabel(RegionRejection rejection) => switch (rejection) {
   RegionRejection.candidateCap => 'تجاوزت حدّ المناطق في صورة واحدة',
 };
 
+/// Per-reason tally of [rejected], in [RegionRejection] declaration order.
+///
+/// The batch report and the per-image warning are built from this SAME tally so
+/// the two surfaces can never disagree about what was refused or why.
+Map<RegionRejection, int> rejectionTally(List<RejectedRegion> rejected) {
+  final counts = <RegionRejection, int>{};
+  for (final region in rejected) {
+    counts[region.rejection] = (counts[region.rejection] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/// The `2 شريط ضيق، 1 حافة الإطار` breakdown shared by both diagnostics.
+///
+/// Only reasons actually measured are named, in a stable order, so the text is
+/// reproducible and never invents a category the pipeline did not decide.
+String _rejectionBreakdown(Map<RegionRejection, int> byReason) {
+  final parts = <String>[
+    for (final reason in RegionRejection.values)
+      if ((byReason[reason] ?? 0) > 0)
+        '${byReason[reason]} ${regionRejectionLabel(reason)}',
+  ];
+  return parts.join('، ');
+}
+
+/// What every rejection diagnostic promises: refusing a region costs the user
+/// nothing irrecoverable, because the original is untouched (ADR-003) and any
+/// part of it stays croppable by hand.
+const rejectedRegionsRecoveryHint =
+    'الصورة الأصلية محفوظة كما هي، ويمكن قصّ أي جزء منها يدوياً من المكتبة';
+
 /// ONE concise diagnostic for every region a photo had refused.
 ///
 /// Deliberately a single message with per-reason counts: a noisy threshold can
@@ -476,17 +507,41 @@ String regionRejectionLabel(RegionRejection rejection) => switch (rejection) {
 /// messages that actually need the user. Returns null when nothing was refused.
 String? rejectedRegionsMessage(List<RejectedRegion> rejected) {
   if (rejected.isEmpty) return null;
-  final counts = <RegionRejection, int>{};
-  for (final region in rejected) {
-    counts[region.rejection] = (counts[region.rejection] ?? 0) + 1;
-  }
-  final parts = <String>[];
-  for (final reason in RegionRejection.values) {
-    final count = counts[reason];
-    if (count == null) continue;
-    parts.add('$count ${regionRejectionLabel(reason)}');
-  }
+  final breakdown = _rejectionBreakdown(rejectionTally(rejected));
   return 'تجاهل التقسيم ${rejected.length} منطقة لا يمكن أن تكون مستمسكاً '
-      '(${parts.join('، ')})؛ لم تُضف إلى المشروع. الصورة الأصلية محفوظة كما '
-      'هي، ويمكن قصّ أي جزء منها يدوياً من المكتبة.';
+      '($breakdown)؛ لم تُضف إلى المشروع. $rejectedRegionsRecoveryHint.';
+}
+
+/// The short form: how many regions were refused and by which measured
+/// categories, in one clause. For surfaces that already carry the per-image
+/// warnings and only need the tally to be unmissable.
+String? rejectedRegionsHeadline(
+  int count,
+  Map<RegionRejection, int> byReason,
+) {
+  if (count <= 0) return null;
+  final breakdown = _rejectionBreakdown(byReason);
+  return 'استُبعدت $count منطقة لا يمكن أن تكون مستمسكاً'
+      '${breakdown.isEmpty ? '' : ' ($breakdown)'}';
+}
+
+/// ONE concise batch-level summary of every region this batch refused.
+///
+/// This is the surface the status-line entry points have: the editor imports
+/// and reprocesses through a single message, so without it the refusals a
+/// per-image warning already explains would be invisible there — the same
+/// feedback must not depend on which door the user came through.
+///
+/// Count first, then the measured categories, then the recovery promise. It
+/// aggregates deliberately: one photo can refuse a dozen noise components, and
+/// the user needs to know how many and what kind, not each one separately.
+/// Returns null when nothing was refused, so callers can append it
+/// unconditionally.
+String? rejectedRegionsSummary(
+  int count,
+  Map<RegionRejection, int> byReason,
+) {
+  final headline = rejectedRegionsHeadline(count, byReason);
+  if (headline == null) return null;
+  return '$headline؛ لم تُضف إلى المشروع. $rejectedRegionsRecoveryHint.';
 }

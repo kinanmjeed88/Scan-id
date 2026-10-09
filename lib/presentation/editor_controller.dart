@@ -648,10 +648,16 @@ class LayoutEditorController extends ChangeNotifier {
     if (failure != null) _say(userError(failure));
     final r = outcome?.layout;
     if (r != null) {
+      // Refused regions are named here, with the categories the gates actually
+      // measured. Importing from inside the editor shows no intake banner, so
+      // without this the refusals would be invisible at this entry point while
+      // the very same import from the project screen reports them.
+      final refused = r.rejectedSummary;
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
         '${r.needsReview > 0 ? ' · للمراجعة ${r.needsReview}' : ''}'
-        '${failures > 0 ? ' · تعذر استيراد $failures' : ''}',
+        '${failures > 0 ? ' · تعذر استيراد $failures' : ''}'
+        '${refused == null ? '' : '\n$refused'}',
       );
     }
   }
@@ -688,7 +694,8 @@ class LayoutEditorController extends ChangeNotifier {
     }
     _say(
       'أُعيد التعرف: حدّث ${r.needsReview} · بلا حدود ${r.notDetected}'
-      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}',
+      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}'
+      '${r.rejectedSummary == null ? '' : '\n${r.rejectedSummary}'}',
     );
   }
 

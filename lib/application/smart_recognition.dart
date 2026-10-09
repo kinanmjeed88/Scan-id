@@ -143,7 +143,7 @@ class SmartIntake {
     var recognized = 0;
     var needsReview = 0;
     var multiImages = 0;
-    var rejectedRegions = 0;
+    final refusedRegions = <RejectedRegion>[];
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
     final newDocuments = <DocumentRecord>[];
@@ -215,7 +215,7 @@ class SmartIntake {
           onMulti: () => imageMulti++,
           // Refusals describe the ANALYSIS, which already happened, so they are
           // reported even if this image later fails.
-          onRejected: (count) => rejectedRegions += count,
+          onRejected: refusedRegions.addAll,
           cancellation: cancellation,
         );
         newItems.addAll(imageItems);
@@ -264,7 +264,8 @@ class SmartIntake {
         recognized: recognized,
         needsReview: needsReview,
         multiDocumentImages: multiImages,
-        rejectedRegions: rejectedRegions,
+        rejectedRegions: refusedRegions.length,
+        rejectedByReason: rejectionTally(refusedRegions),
         warnings: warnings,
       );
     }
@@ -292,7 +293,8 @@ class SmartIntake {
       recognized: recognized,
       needsReview: needsReview,
       multiDocumentImages: multiImages,
-      rejectedRegions: rejectedRegions,
+      rejectedRegions: refusedRegions.length,
+      rejectedByReason: rejectionTally(refusedRegions),
       warnings: warnings,
     );
   }
@@ -400,7 +402,7 @@ class SmartIntake {
     var notDetected = 0;
     var needsReview = 0;
     var multiImages = 0;
-    var rejectedRegions = 0;
+    final refusedRegions = <RejectedRegion>[];
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
     final newDocuments = <DocumentRecord>[];
@@ -467,7 +469,7 @@ class SmartIntake {
           warnings: warnings,
           onCropped: () => imageCropped++,
           onNotDetected: () => imageNotDetected++,
-          onRejected: (count) => rejectedRegions += count,
+          onRejected: refusedRegions.addAll,
           cancellation: cancellation,
         );
         newItems.addAll(imageItems);
@@ -513,7 +515,8 @@ class SmartIntake {
         recognized: recognized,
         needsReview: needsReview,
         multiDocumentImages: multiImages,
-        rejectedRegions: rejectedRegions,
+        rejectedRegions: refusedRegions.length,
+        rejectedByReason: rejectionTally(refusedRegions),
         warnings: warnings,
       );
     }
@@ -550,7 +553,8 @@ class SmartIntake {
       recognized: recognized,
       needsReview: needsReview,
       multiDocumentImages: multiImages,
-      rejectedRegions: rejectedRegions,
+      rejectedRegions: refusedRegions.length,
+      rejectedByReason: rejectionTally(refusedRegions),
       warnings: warnings,
     );
   }
@@ -671,7 +675,7 @@ class SmartIntake {
     required List<String> warnings,
     required void Function() onCropped,
     required void Function() onNotDetected,
-    required void Function(int count) onRejected,
+    required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
   }) async {
     final sourceAsset = analyzed.asset;
@@ -683,7 +687,7 @@ class SmartIntake {
     final refused = rejectedRegionsMessage(analyzed.analysis.rejectedRegions);
     if (refused != null) {
       warnings.add('${sourceAsset.name}: $refused');
-      onRejected(analyzed.analysis.rejectedRegions.length);
+      onRejected(analyzed.analysis.rejectedRegions);
     }
     // Existing records of THIS source, keyed by the deterministic detection
     // id. The segmenter is deterministic, so re-analysing the same original
@@ -1029,7 +1033,7 @@ class SmartIntake {
     required void Function() onCropped,
     required void Function() onNotDetected,
     required void Function() onMulti,
-    required void Function(int count) onRejected,
+    required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
   }) async {
     var asset = analyzed.asset;
@@ -1046,7 +1050,7 @@ class SmartIntake {
     final refused = rejectedRegionsMessage(analysis.rejectedRegions);
     if (refused != null) {
       warnings.add('${analyzed.asset.name}: $refused');
-      onRejected(analysis.rejectedRegions.length);
+      onRejected(analysis.rejectedRegions);
     }
 
     if (analysis.needsMultiIntake) {

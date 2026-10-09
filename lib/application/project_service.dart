@@ -30,6 +30,14 @@ class ImportSource {
   final Stream<List<int>> Function() openRead;
 }
 
+/// Stage label of the copy phase of an intake, reported through
+/// [BatchProgress.stage] so both intake entry points read the same.
+const String importStageLabel = 'استيراد الصور';
+
+/// Reported for every source that was never opened because the user cancelled.
+const String importCancelledMessage =
+    'لم تُستورد هذه الصورة: أُلغيت العملية بطلب منك.';
+
 class ImportFailure {
   const ImportFailure(this.name, this.message);
   final String name;
@@ -140,17 +148,81 @@ class ProjectService {
   Future<Project> rename(Project project, String name) async =>
       projects.save(project.copyWith(name: name.trim()));
 
+  /// Re-runs recognition over source images that are ALREADY in the project.
+  ///
+  /// This is a retry, not an import: no source image is added and no original
+  /// file is written. Documents this source already produced keep their ids,
+  /// their layout items and their placement; only their derived image and
+  /// evidence are regenerated. Documents the user confirmed are left alone.
+  ///
+  /// Returns null when Smart Recognition is off or no image editor is
+  /// available, so callers can say so instead of pretending nothing happened.
+  /// A recognition refresh, never an arrangement: a document already on the
+  /// sheet keeps its page, position, size, rotation and grouping whatever the
+  /// automatic-flow setting is. See [SmartIntake.reprocess].
+  Future<AutomaticLayoutReport?> reprocessImages(
+    Project project,
+    Iterable<String> assetIds, {
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
+    final smartEditor = imageEditor;
+    if (!smartRecognitionEnabled || smartEditor == null) return null;
+    return SmartIntake(
+      projects: projects,
+      assets: assets,
+      editor: smartEditor,
+      segment: segmenter ?? defaultSegment,
+    ).reprocess(
+      project,
+      assetIds,
+      cancellation: cancellation,
+      onProgress: onProgress,
+    );
+  }
+
   /// Each successfully imported image is committed before processing the next.
   /// A batch may partially succeed; report precisely rather than losing work.
+  ///
+  /// [onProgress] reports REAL work: one step per source, emitted after that
+  /// source is committed (or has failed). Nothing sleeps or pads the count.
+  ///
+  /// [cancellation] is cooperative and takes effect BETWEEN safe saves: the
+  /// images already imported stay committed, the remaining sources are never
+  /// opened, and their picker cache is released — so persistence is never
+  /// left half-written and no image buffer leaks (ADR-009).
   Future<ImportReport> importImages(
     Project project,
-    List<ImportSource> sources,
-  ) async {
+    List<ImportSource> sources, {
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
     var current = project;
     var imported = 0;
     final failures = <ImportFailure>[];
+
+    void report(int completed) => onProgress?.call(
+      BatchProgress(
+        total: sources.length,
+        completed: completed,
+        stage: importStageLabel,
+      ),
+    );
+
+    report(0);
     for (var index = 0; index < sources.length; index++) {
       final source = sources[index];
+      if (cancellation?.isCancelled ?? false) {
+        // Stop before opening another file: every committed image stays
+        // committed and the rest are reported as not imported.
+        await _cleanupSource(source);
+        failures.add(ImportFailure(source.name, importCancelledMessage));
+        for (final skipped in sources.skip(index + 1)) {
+          await _cleanupSource(skipped);
+          failures.add(ImportFailure(skipped.name, importCancelledMessage));
+        }
+        break;
+      }
       try {
         require(
           current.assets.length < maxProjectAssets,
@@ -180,6 +252,7 @@ class ProjectService {
         failures.add(ImportFailure(source.name, userError(error)));
       } finally {
         await _cleanupSource(source);
+        report(index + 1);
       }
     }
     return ImportReport(current, imported, List.unmodifiable(failures));

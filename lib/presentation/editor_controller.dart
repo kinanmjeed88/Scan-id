@@ -5,7 +5,6 @@ import 'dart:ui' show Offset;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../application/cancellation.dart';
 import '../application/ids.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
@@ -20,6 +19,7 @@ import '../domain/recognition.dart';
 import '../domain/recognition_overrides.dart' as rec;
 import '../domain/recognition_routing.dart' as routing;
 import '../domain/validation.dart';
+import 'intake.dart';
 
 /// How the sheet view chooses its scale.
 enum ZoomMode { custom, pageWidth, wholePage }
@@ -359,17 +359,19 @@ class LayoutEditorController extends ChangeNotifier {
 
   /// Live progress line of a running smart intake, or null.
   String? recognitionProgress;
-  CancellationToken? _intakeToken;
 
-  bool get canCancelIntake =>
-      _intakeToken != null && !_intakeToken!.isCancelled;
+  /// The running intake, shared with the project screen so both entry points
+  /// expose the same progress and cancellation behaviour.
+  IntakeRunner? _intake;
+
+  bool get canCancelIntake => _intake != null && !_intake!.isCancelling;
 
   /// Requests cooperative cancellation of the running intake. Completed
   /// images stay; the rest are skipped at the next safe checkpoint.
   void cancelIntake() {
-    final token = _intakeToken;
-    if (token == null || token.isCancelled) return;
-    token.cancel();
+    final intake = _intake;
+    if (intake == null || intake.isCancelling) return;
+    intake.cancel();
     recognitionProgress = 'جارٍ الإلغاء بعد الصورة الحالية…';
     _notify();
   }
@@ -590,52 +592,42 @@ class LayoutEditorController extends ChangeNotifier {
       return;
     }
     if (sources.isEmpty) return;
-    AutomaticLayoutReport? report;
-    var failures = 0;
-    final token = CancellationToken();
-    _intakeToken = token;
+    // The shared runner: the editor and the project screen therefore expose
+    // the same real progress, cooperative cancellation and committed final
+    // state.
+    final runner = IntakeRunner(
+      service: service,
+      project: session.current,
+      keepPlaced: !autoFlow,
+    );
+    _intake = runner;
+    IntakeRun? outcome;
+    final bool ok;
     try {
-      await run(() async {
-        final existing = session.current.assets.map((a) => a.id).toSet();
-        final imported = await service.importImages(session.current, sources);
-        failures = imported.failures.length;
-        final ids = [
-          for (final asset in imported.project.assets)
-            if (!existing.contains(asset.id)) asset.id,
-        ];
-        var latest = imported.project;
-        if (ids.isNotEmpty) {
-          try {
-            report = await service.arrangeImportedImages(
-              latest,
-              ids,
-              keepPlaced: !autoFlow,
-              cancellation: token,
-              onProgress: (progress) {
-                recognitionProgress =
-                    '${progress.stage}: ${progress.completed}/${progress.total}';
-                _notify();
-              },
-            );
-            latest = report!.project;
-          } catch (_) {
-            latest = await service.projects.get(latest.id);
-            rethrow;
-          } finally {
-            if (latest.revision > session.current.revision) {
-              await session.adoptSaved(latest);
-            }
-          }
-        } else if (latest.revision > session.current.revision) {
+      ok = await run(() async {
+        outcome = await runner.run(
+          sources,
+          onProgress: (progress) {
+            recognitionProgress =
+                '${progress.stage}: ${progress.completed}/${progress.total}';
+            _notify();
+          },
+        );
+        final latest = outcome!.project;
+        if (latest.revision > session.current.revision) {
           await session.adoptSaved(latest);
         }
       });
     } finally {
-      _intakeToken = null;
+      _intake = null;
       recognitionProgress = null;
       _notify();
     }
-    final r = report;
+    if (!ok) return;
+    final failures = outcome?.failures.length ?? 0;
+    final failure = outcome?.error;
+    if (failure != null) _say(userError(failure));
+    final r = outcome?.layout;
     if (r != null) {
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
@@ -643,6 +635,42 @@ class LayoutEditorController extends ChangeNotifier {
         '${failures > 0 ? ' · تعذر استيراد $failures' : ''}',
       );
     }
+  }
+
+  /// Re-runs recognition over the given source images.
+  ///
+  /// A retry, not an import: the sources stay where they are, documents keep
+  /// their ids and placement, and documents the user confirmed are left alone.
+  /// Like every other command it goes through [session], so it is one undoable
+  /// step.
+  ///
+  /// The layout is deliberately NOT re-arranged here, and this does not depend
+  /// on [autoFlow]: reprocessing refreshes recognition, while arranging the
+  /// sheet is the user's own explicit command. A document already on the sheet
+  /// keeps its page, position, size and rotation in both flow modes.
+  Future<void> reprocessImages(List<String> assetIds) async {
+    if (assetIds.isEmpty) return;
+    AutomaticLayoutReport? report;
+    final ok = await run(() async {
+      final before = session.current;
+      report = await service.reprocessImages(before, assetIds);
+      final latest = report?.project ?? before;
+      // Adopting the saved result records it as ONE undoable step, so the
+      // whole re-run is undone at once and never piecemeal.
+      if (latest.revision > session.current.revision) {
+        await session.adoptSaved(latest);
+      }
+    });
+    if (!ok) return;
+    final r = report;
+    if (r == null) {
+      _say('التعرف الذكي غير مفعّل في هذا البناء.');
+      return;
+    }
+    _say(
+      'أُعيد التعرف: حدّث ${r.needsReview} · بلا حدود ${r.notDetected}'
+      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}',
+    );
   }
 
   /// Adopts a crop saved by the crop editor and re-applies the catalog size

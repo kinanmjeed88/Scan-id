@@ -1,16 +1,24 @@
 /// Offline OCR engine contract (ADR-007: OCR is evidence, never the sole
 /// classifier; ADR-005: strictly offline).
 ///
-/// No OCR engine ships in this build. The evaluated candidate (PaddleOCR
-/// PP-OCRv5 Arabic mobile, `arabic_PP-OCRv5_mobile_rec`) requires a native
-/// inference runtime per platform (Android ABI builds + Windows x64), model
-/// packaging of tens of megabytes, and a licensing/performance review on
-/// both targets — none of which can be verified safely in this phase (see
-/// docs/RECOGNITION.md §6). Rather than compromise the Windows target or
-/// bundle an unverified native dependency, the production pipeline runs
-/// against this abstraction with [UnavailableOcrEngine]: OCR unavailability
-/// is an explicit, non-fatal state and classification continues from the
-/// remaining evidence sources.
+/// **No OCR engine ships in this build. Do not describe this app as having
+/// OCR.**
+///
+/// The full option evaluation — ML Kit, Tesseract 5, PaddleOCR PP-OCRv5
+/// Arabic, ONNX Runtime, Windows.Media.Ocr — with licences, model sizes and
+/// what must be measured before any engine is adopted, is recorded in
+/// `docs/OCR_EVALUATION.md` (summary in `docs/RECOGNITION.md` §6). The
+/// leading candidate, PaddleOCR PP-OCRv5 Arabic mobile
+/// (`arabic_PP-OCRv5_mobile_rec`), needs a native inference runtime per
+/// platform (Android ABIs + Windows x64), ~12 MiB of bundled ONNX weights and
+/// an on-device benchmark that does not exist yet: no Arabic accuracy figure
+/// is published for it, and there is no representative Iraqi document set in
+/// this repository to measure one against.
+///
+/// Rather than compromise the Windows target or bundle an unverified native
+/// dependency, the production pipeline runs against this abstraction with
+/// [UnavailableOcrEngine]: OCR unavailability is an explicit, non-fatal state
+/// and classification continues from the remaining evidence sources.
 library;
 
 import 'dart:typed_data';

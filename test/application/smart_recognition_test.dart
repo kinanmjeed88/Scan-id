@@ -49,6 +49,40 @@ Future<SegmentationResult> _twoCards(Uint8List bytes) async =>
       ],
     );
 
+/// Two MEASURED regions, but only the top one resolves into a trustworthy
+/// quadrilateral — the reported silent-loss case (AUDIT §G SEGMENT).
+///
+/// The bottom region carries its measured bounds and no corners: the intake
+/// must preserve it, never drop it and never guess a rectangle for it.
+Future<SegmentationResult> _cardPlusUnresolved(Uint8List bytes) async =>
+    SegmentationResult(
+      multi: true,
+      candidates: [
+        SegmentCandidate(
+          region: const [.1, .1, .9, .6],
+          corners: _topQuad(),
+          detectionConfidence: .8,
+          reason: 'component-support',
+        ),
+        const SegmentCandidate(
+          // Width .6, height .38 of a 1000×1000 source → a 600×380 crop.
+          region: [.2, .62, .8, 1],
+          reason: 'no-trustworthy-quad',
+        ),
+      ],
+    );
+
+/// Two measured regions, neither with a trustworthy quadrilateral.
+Future<SegmentationResult> _twoUnresolved(
+  Uint8List bytes,
+) async => const SegmentationResult(
+  multi: true,
+  candidates: [
+    SegmentCandidate(region: [.1, .1, .9, .45], reason: 'no-trustworthy-quad'),
+    SegmentCandidate(region: [.1, .55, .9, .95], reason: 'region-too-small'),
+  ],
+);
+
 Uint8List _photo() {
   final source = img.Image(width: 1000, height: 1000);
   img.fill(source, color: img.ColorRgb8(50, 60, 75));
@@ -144,6 +178,109 @@ void main() {
     // The result equals what was saved (single final save).
     expect((await projects.get(result.id)).toJson(), result.toJson());
   });
+
+  test('a photo with an unresolvable region keeps BOTH documents', () async {
+    final s = service(segmenter: _cardPlusUnresolved);
+    var project = await s.create('مستندان أحدهما بلا حدود');
+    final bytes = _photo();
+    project = (await s.importImages(project, [
+      ImportSource('صورة.png', () => Stream.value(bytes)),
+    ])).project;
+    final sourceId = project.assets.single.id;
+    final originalPath = project.assets.single.originalPath;
+
+    final report = await s.arrangeImportedImages(project, [sourceId]);
+    final result = report.project;
+
+    // No document is lost: both measured regions became documents.
+    expect(result.items, hasLength(2));
+    expect(result.documents, hasLength(2));
+    expect(result.assets, hasLength(3), reason: 'original + two derived');
+
+    // The original source image is untouched (ADR-003) and — critically —
+    // was NOT cropped to the one quad that was found, which would have made
+    // the second region unrecoverable.
+    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+    final source = result.assets.firstWhere((a) => a.id == sourceId);
+    expect(source.crop, isNull);
+    expect(result.items.any((i) => i.assetId == sourceId), isFalse);
+
+    // No duplicate items and no duplicate asset references.
+    expect(result.items.map((i) => i.id).toSet(), hasLength(2));
+    expect(result.items.map((i) => i.assetId).toSet(), hasLength(2));
+    expect(result.documents.map((d) => d.id).toSet(), hasLength(2));
+
+    // The unresolved region is preserved as an un-warped crop of the
+    // measured bounds: nothing was invented for it.
+    final unresolvedRecord = result.documents.firstWhere(
+      (d) => d.sides.single.detection!.polygon == null,
+    );
+    final unresolvedItem = result.items.firstWhere(
+      (i) => i.documentId == unresolvedRecord.id,
+    );
+    final unresolvedAsset = result.assets.firstWhere(
+      (a) => a.id == unresolvedItem.assetId,
+    );
+    expect(unresolvedAsset.width, closeTo(600, 2));
+    expect(unresolvedAsset.height, closeTo(380, 2));
+    // An unrectified crop never claims a confirmed catalog size.
+    expect(unresolvedItem.sizeConfirmed, isFalse);
+
+    // The resolved region is still a properly rectified document.
+    final resolvedRecord = result.documents.firstWhere(
+      (d) => d.sides.single.detection!.polygon != null,
+    );
+    final resolvedItem = result.items.firstWhere(
+      (i) => i.documentId == resolvedRecord.id,
+    );
+    expect(resolvedItem.documentKind, DocumentKind.unifiedNationalId);
+    expect(resolvedItem.sizeConfirmed, isTrue);
+
+    // The user is told what happened and how to finish the job.
+    expect(
+      report.warnings.join('\n'),
+      contains('يدوياً'),
+      reason: 'an unresolved region must be reported, never silent',
+    );
+    expect(report.notDetected, 1);
+
+    // Placement remains the deterministic engine's job (ADR-002).
+    expect((await projects.get(result.id)).toJson(), result.toJson());
+  });
+
+  test(
+    'a multi-region photo with no trustworthy quad still keeps every region',
+    () async {
+      final s = service(segmenter: _twoUnresolved);
+      var project = await s.create('بلا حدود');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final originalPath = project.assets.single.originalPath;
+
+      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final result = report.project;
+
+      expect(result.items, hasLength(2));
+      expect(result.documents, hasLength(2));
+      expect(
+        result.documents.every(
+          (d) => d.sides.single.detection!.polygon == null,
+        ),
+        isTrue,
+        reason: 'no rectangle is fabricated for an unresolved region',
+      );
+      // Nothing was warped, so nothing is counted as cropped.
+      expect(report.cropped, 0);
+      expect(report.notDetected, 2);
+      expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+      final source = result.assets.firstWhere((a) => a.id == sourceId);
+      expect(source.crop, isNull);
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
 
   test('recognized records enter the review queue until confirmed', () async {
     final s = service();

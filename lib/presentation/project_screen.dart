@@ -10,6 +10,7 @@ import '../domain/project.dart';
 import 'app.dart';
 import 'shared.dart';
 import 'crop_screen.dart';
+import 'intake.dart';
 import 'layout_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
@@ -46,31 +47,24 @@ class _ProjectScreenState extends State<ProjectScreen> {
     setState(() => _busy = true);
     try {
       final sources = await widget.pickImages();
-      if (sources.isEmpty) return;
-      final existingIds = _project.assets.map((asset) => asset.id).toSet();
-      final result = await widget.service.importImages(_project, sources);
-      final importedIds = result.project.assets
-          .where((asset) => !existingIds.contains(asset.id))
-          .map((asset) => asset.id)
-          .toList();
-      var latest = result.project;
-      AutomaticLayoutReport? automatic;
-      if (importedIds.isNotEmpty) {
-        try {
-          automatic = await widget.service.arrangeImportedImages(
-            latest,
-            importedIds,
-          );
-          latest = automatic.project;
-        } catch (error) {
-          // Imports are already committed. Reload so a successful crop revision
-          // cannot be hidden by a later automatic-layout failure.
-          latest = await widget.service.projects.get(latest.id);
-          if (mounted) showMessage(context, userError(error));
-        }
-      }
-      if (!mounted) return;
+      if (sources.isEmpty || !mounted) return;
+      // The shared runner gives the project screen the same real progress,
+      // cooperative cancellation and committed final state as the editor.
+      final run = await runIntakeWithProgress(
+        context,
+        service: widget.service,
+        project: _project,
+        sources: sources,
+      );
+      if (!mounted || run == null) return;
+      final result = run.import;
+      final latest = run.project;
+      final automatic = run.layout;
       setState(() => _project = latest);
+      final failure = run.error;
+      if (failure != null && mounted) {
+        showMessage(context, userError(failure));
+      }
       if (result.failures.isNotEmpty) {
         await showDialog<void>(
           context: context,
@@ -92,7 +86,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
           ),
         );
       }
-      if (importedIds.isNotEmpty && mounted) {
+      if (result.imported > 0 && mounted) {
         final summary = automatic == null
             ? 'استورد التطبيق الصور، لكن تعذر الترتيب التلقائي.'
             : 'قُصّ تلقائياً: ${automatic.cropped} · تُعرّف على النوع والمقاس: ${automatic.recognized} · بلا حدود واضحة: ${automatic.notDetected} · خارج الورق: ${automatic.unplaced}';

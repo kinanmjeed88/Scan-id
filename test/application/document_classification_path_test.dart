@@ -381,6 +381,16 @@ void main() {
       segmenter: segmenter,
     );
 
+    /// Imports one photo under [name] and arranges it.
+    ///
+    /// [name] MUST be neutral: `suggestDocumentType` gives an explicit filename
+    /// label priority over the boundary shape and returns immediately on a
+    /// match, and the label applies to EVERY region of the photo, not just the
+    /// one it describes. Naming a two-document photo 'تموينية' therefore made
+    /// both regions ration cards — and forced the national card's crop to the
+    /// ration card's 52:287 ratio, squashing it. These tests are about geometry
+    /// and orientation, so the filename must not be evidence in them. (That the
+    /// label does win is asserted in `test/domain/document_kind_test.dart`.)
     Future<AutomaticLayoutReport> run(
       ProjectService s,
       String name,
@@ -403,7 +413,7 @@ void main() {
     test('a resolved ration card is recognized and sized 52 × 287', () async {
       final report = await run(
         service(_rationAndCard(rationResolved: true)),
-        'تموينية',
+        'صورة',
         const [rationRect, cardRect],
       );
 
@@ -494,16 +504,24 @@ void main() {
             ],
           ),
         ),
-        'تموينية بالعرض',
+        'صورة بالعرض',
         const [
           [80, 400, 908, 550],
           cardRect,
         ],
       );
 
+      expect(report.project.items, hasLength(2));
+      // Each region is classified from its OWN geometry. With a neutral
+      // filename nothing here can collapse both regions into one kind, which is
+      // what a filename label silently does.
       final ration = itemOfKind(report, DocumentKind.rationCard);
       expect(ration.sizeConfirmed, isTrue);
       expect([ration.width, ration.height], [287, 52]);
+      // The national card beside it is unaffected by the ration card's turn.
+      final card = itemOfKind(report, DocumentKind.unifiedNationalId);
+      expect(card.sizeConfirmed, isTrue);
+      expect([card.width, card.height], [85.6, 53.98]);
       // Still the same catalog entry, just turned.
       final naturalRation = report.project.catalog.natural(
         DocumentKind.rationCard,

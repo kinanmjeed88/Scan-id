@@ -45,15 +45,44 @@ def chunked(value):
 
 parts = []
 if code:
-    # Every failed test and the final tally first, so a long log can never
-    # push them out of the annotations; the end of the log follows.
-    marks = [line for line in text.splitlines()
-             if line.rstrip().endswith('[E]') or 'tests failed' in line
-             or 'All tests passed' in line
-             or line.lstrip().startswith('error')]
-    if marks:
-        parts.append(('summary', chunked('\n'.join(dict.fromkeys(marks)))[-1]))
-    tail = chunked(text)[-(LIMIT - len(parts)):]
+    # Every failed test WITH its reason and the final tally first, so a long log
+    # can never push them out of the annotations; the end of the log follows.
+    # The reporter indents the failure detail (Expected / Actual / Which, then a
+    # blank line and the stack) under the test name. Collecting only the name
+    # lines says WHICH test failed but never WHY, and the log blob store is
+    # unreachable for API-only clients -- so the indented block is collected
+    # too, up to the blank line that ends it.
+    lines = text.splitlines()
+    marks = []
+    seen = set()
+    for index, line in enumerate(lines):
+        stripped = line.rstrip()
+        if stripped.endswith('[E]'):
+            # The reporter names each failure twice (inline and in the closing
+            # summary); keep the first, which is the one carrying the detail.
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            marks.append(line)
+            for detail in lines[index + 1:index + 41]:
+                if detail[:1] not in (' ', '\t') or not detail.strip():
+                    break
+                marks.append(detail)
+        elif ('tests failed' in line or 'All tests passed' in line
+              or line.lstrip().startswith('error')):
+            # The closing tally is printed once but matched again in the
+            # summary; keep one copy of each such line.
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            marks.append(line)
+    summary = chunked('\n'.join(marks))
+    # The reasons for a failure outrank the tail of the log: keep as much of the
+    # summary as the annotation budget allows and spend only the remainder on
+    # the tail, always leaving room for at least one tail chunk.
+    keep = min(len(summary), LIMIT - 1)
+    parts += [('summary', chunk) for chunk in summary[:keep]]
+    tail = chunked(text)[-(LIMIT - keep):]
 else:
     tail = chunked(text[-1800:])
 parts += [(str(index), chunk) for index, chunk in enumerate(tail, start=1)]

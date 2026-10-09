@@ -162,15 +162,37 @@ DocumentRecord _record({
   ),
 );
 
-Project _project(List<ImageAsset> assets, List<DocumentRecord> documents) =>
-    Project(
-      id: 'p1',
-      name: 'مشروع',
-      createdAt: DateTime.utc(2026, 10, 6),
-      updatedAt: DateTime.utc(2026, 10, 6),
-      assets: assets,
-      documents: documents,
-    );
+/// A project holding [assets] and [documents].
+///
+/// `Project` requires `documents.length <= items.length` — every record is
+/// realized through a layout item — and every item reference must resolve, so
+/// one off-sheet item per record is built here. These tests are about
+/// provenance, not placement, so the items carry no meaningful geometry.
+Project _project(List<ImageAsset> assets, List<DocumentRecord> documents) {
+  final items = <DocumentItem>[
+    for (var index = 0; index < documents.length; index++)
+      DocumentItem(
+        id: 'item$index',
+        assetId: documents[index].sourceImageId,
+        x: 0,
+        y: 0,
+        width: 60,
+        height: 40,
+        pageIndex: null,
+        documentId: documents[index].id,
+        sideId: documents[index].sides.single.id,
+      ),
+  ];
+  return Project(
+    id: 'p1',
+    name: 'مشروع',
+    createdAt: DateTime.utc(2026, 10, 6),
+    updatedAt: DateTime.utc(2026, 10, 6),
+    assets: assets,
+    documents: documents,
+    items: items,
+  );
+}
 
 void main() {
   late Directory root;
@@ -501,8 +523,9 @@ void main() {
       final project = _project(
         [_asset('src1', 'p1'), _asset('src2', 'p1'), crop],
         [
-          // The record says src1; the asset says src2. A recorded value is left
-          // alone: overwriting it with an inference is how provenance gets lost.
+          // The record says src1; the asset says src2. A recorded value is
+          // left alone: overwriting it with an inference is how provenance
+          // gets lost.
           _record(
             id: 'doc1',
             sourceImageId: 'src1',

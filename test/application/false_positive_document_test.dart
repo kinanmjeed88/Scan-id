@@ -124,8 +124,9 @@ void main() {
     'a narrow dark strip beside two cards creates no third document',
     () async {
       final photo = _twoCards();
-      // A solid dark strip, 57 px wide and 721 px tall (measured aspect 12.46 at
-      // working scale against a bound of 8.0, 68 px short side in the preview).
+      // A solid dark strip, 57 px wide and 721 px tall (measured aspect
+      // 12.46 at working scale against a bound of 8.0, 68 px short side in
+      // the preview).
       _rect(photo, 40, 700, 96, 1420, _dark);
       final s = service();
       final bytes = _png(photo);
@@ -251,7 +252,13 @@ void main() {
     // handles the photo: exactly one document, and the fragment is refused.
     expect(result.documents, hasLength(1));
     expect(result.items, hasLength(1));
-    expect(result.assets, hasLength(2));
+    // ONE asset, not two: the single-document path refines the source into a
+    // new revision of ITSELF (`createRevision` keeps the asset id), and the
+    // original file is never rewritten (ADR-003). The refused fragment created
+    // no derived asset at all — which is the whole point of refusing it.
+    expect(result.assets, hasLength(1));
+    expect(result.assets.single.id, sourceId);
+    expect(result.assets.single.derivedFrom, isNull);
     expect(report.rejectedRegions, 1);
     expect(report.multiDocumentImages, 0);
   });

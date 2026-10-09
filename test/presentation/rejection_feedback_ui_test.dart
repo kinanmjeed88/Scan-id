@@ -302,13 +302,10 @@ void main() {
       } catch (error) {
         thrown = error;
       }
-      expect(
-        thrown,
-        isNull,
-        reason:
-            'failed at $stage: $thrown rect='
-            '${tester.widgetList(button).isEmpty ? 'gone' : tester.getRect(button)}',
-      );
+      final rect = tester.widgetList(button).isEmpty
+          ? 'gone'
+          : '${tester.getRect(button)}';
+      expect(thrown, isNull, reason: 'failed at $stage: $thrown rect=$rect');
 
       final snack = find.byType(SnackBar);
       expect(snack, findsOneWidget);
@@ -325,36 +322,6 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       expect(find.byType(SnackBar), findsNothing);
-      expect(tester.takeException(), isNull, reason: 'see the actual value');
-    });
-
-      await EditorHarness.pump(tester);
-      final button = find.byKey(const Key('rb-reprocess'));
-      expect(button, findsOneWidget);
-      await tester.ensureVisible(button);
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.tap(button);
-      // The command itself is a chain of microtasks, which the first pump
-      // drains; the rest let the SnackBar's entrance run to completion.
-      for (var frame = 0; frame < 6; frame++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-
-      final snack = find.byType(SnackBar);
-      expect(snack, findsOneWidget);
-      expect(
-        find.text('التعرف الذكي غير مفعّل في هذا البناء.'),
-        findsOneWidget,
-      );
-
-      // Cancels the duration timer instead of waiting it out.
-      ScaffoldMessenger.of(tester.element(snack)).clearSnackBars();
-      for (var frame = 0; frame < 4; frame++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(find.byType(SnackBar), findsNothing);
-      // Last, so it names anything the frames above recorded in the failure
-      // detail rather than only in a log this sandbox cannot read.
       expect(tester.takeException(), isNull, reason: 'see the actual value');
     });
   });

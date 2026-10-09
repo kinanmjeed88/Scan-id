@@ -20,28 +20,29 @@ List<Point2> _topQuad() => [
   Point2(.1, .6045),
 ];
 
-Future<SegmentationResult> _twoCards(Uint8List bytes) async => SegmentationResult(
-  multi: true,
-  candidates: [
-    SegmentCandidate(
-      region: const [.1, .1, .9, .6],
-      corners: _topQuad(),
-      detectionConfidence: .8,
-      reason: 'component-support',
-    ),
-    SegmentCandidate(
-      region: const [.2, .62, .8, 1],
-      corners: [
-        Point2(.2, .62),
-        Point2(.8, .62),
-        Point2(.8, .9983),
-        Point2(.2, .9983),
+Future<SegmentationResult> _twoCards(Uint8List bytes) async =>
+    SegmentationResult(
+      multi: true,
+      candidates: [
+        SegmentCandidate(
+          region: const [.1, .1, .9, .6],
+          corners: _topQuad(),
+          detectionConfidence: .8,
+          reason: 'component-support',
+        ),
+        SegmentCandidate(
+          region: const [.2, .62, .8, 1],
+          corners: [
+            Point2(.2, .62),
+            Point2(.8, .62),
+            Point2(.8, .9983),
+            Point2(.2, .9983),
+          ],
+          detectionConfidence: .75,
+          reason: 'component-support',
+        ),
       ],
-      detectionConfidence: .75,
-      reason: 'component-support',
-    ),
-  ],
-);
+    );
 
 Uint8List _photo() {
   final source = img.Image(width: 1000, height: 1000);
@@ -127,7 +128,9 @@ void main() {
 
       final victim = derived.first;
       await (await assets.resolve(victim.workingPath)).delete();
-      await (await assets.resolve(victim.thumbnailPath)).writeAsString('broken');
+      await (await assets.resolve(
+        victim.thumbnailPath,
+      )).writeAsString('broken');
 
       // Reload from storage: the damage is on disk, not in the record.
       final reloaded = await projects.get(created.id);
@@ -142,41 +145,52 @@ void main() {
       expect(fixed.workingPath, isNot(victim.workingPath));
       // The derived image is readable again...
       expect(
-        img.decodePng(await (await assets.resolve(fixed.workingPath)).readAsBytes()),
+        img.decodePng(
+          await (await assets.resolve(fixed.workingPath)).readAsBytes(),
+        ),
         isNotNull,
       );
       // ...and the source photo is byte-identical to what was imported.
       expect(
-        await (await assets.resolve(sourceOf(repaired).originalPath)).readAsBytes(),
+        await (await assets.resolve(
+          sourceOf(repaired).originalPath,
+        )).readAsBytes(),
         bytes,
       );
       // Layout and recognition truth are untouched by a file rebuild.
-      expect(repaired.items.map((i) => i.id).toList(),
-          created.items.map((i) => i.id).toList());
+      expect(
+        repaired.items.map((i) => i.id).toList(),
+        created.items.map((i) => i.id).toList(),
+      );
       expect(repaired.documents, hasLength(2));
       expect((await projects.get(created.id)).toJson(), repaired.toJson());
     },
   );
 
-  test('a corrupt derived working copy is replaced, not silently kept', () async {
-    final created = await projectWithDerived();
-    final derived = derivedOf(created);
-    final victim = derived.last;
-    await (await assets.resolve(victim.workingPath)).writeAsString(
-      'not a png at all',
-    );
+  test(
+    'a corrupt derived working copy is replaced, not silently kept',
+    () async {
+      final created = await projectWithDerived();
+      final derived = derivedOf(created);
+      final victim = derived.last;
+      await (await assets.resolve(
+        victim.workingPath,
+      )).writeAsString('not a png at all');
 
-    final repaired = await LocalProjectRecovery(
-      projects,
-      editor,
-    ).rebuildDerived(await projects.metadata(created.id));
-    final fixed = repaired.assets.firstWhere((a) => a.id == victim.id);
-    expect(fixed.workingPath, isNot(victim.workingPath));
-    expect(
-      img.decodePng(await (await assets.resolve(fixed.workingPath)).readAsBytes()),
-      isNotNull,
-    );
-  });
+      final repaired = await LocalProjectRecovery(
+        projects,
+        editor,
+      ).rebuildDerived(await projects.metadata(created.id));
+      final fixed = repaired.assets.firstWhere((a) => a.id == victim.id);
+      expect(fixed.workingPath, isNot(victim.workingPath));
+      expect(
+        img.decodePng(
+          await (await assets.resolve(fixed.workingPath)).readAsBytes(),
+        ),
+        isNotNull,
+      );
+    },
+  );
 
   test(
     'a missing derived original aborts recovery without changing metadata',
@@ -246,10 +260,14 @@ void main() {
     );
     // Every rebuild writes NEW revision files and never overwrites an earlier
     // one, so paths differ — but the project means the same thing.
-    expect(second.items.map((i) => i.id).toList(),
-        first.items.map((i) => i.id).toList());
-    expect(second.documents.map((d) => d.id).toList(),
-        first.documents.map((d) => d.id).toList());
+    expect(
+      second.items.map((i) => i.id).toList(),
+      first.items.map((i) => i.id).toList(),
+    );
+    expect(
+      second.documents.map((d) => d.id).toList(),
+      first.documents.map((d) => d.id).toList(),
+    );
     expect(second.assets, hasLength(3));
     for (final asset in second.assets) {
       expect(

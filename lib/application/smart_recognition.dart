@@ -652,10 +652,7 @@ class SmartIntake {
     if (item.locked) return item;
     final kind = detection.classification.kind;
     final catalogSize = trustworthy
-        ? current.catalog.sizeFor(
-            kind,
-            landscape: asset.width >= asset.height,
-          )
+        ? current.catalog.sizeFor(kind, landscape: asset.width >= asset.height)
         : null;
     if (catalogSize == null) return item;
     return item.copyWith(
@@ -741,9 +738,7 @@ class SmartIntake {
     // Refresh what follows from recognition on the linked layout item, while
     // leaving its position, page and grouping exactly as the user left them.
     for (final itemId in existing.provenance.layoutItemIds) {
-      final item = current.items
-          .where((item) => item.id == itemId)
-          .firstOrNull;
+      final item = current.items.where((item) => item.id == itemId).firstOrNull;
       if (item == null) continue;
       replacementItems[itemId] = _refreshItem(
         current,

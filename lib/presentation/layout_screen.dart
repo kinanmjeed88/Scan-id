@@ -305,9 +305,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     'والأدلة دون إضافة صور جديدة ودون تغيير تأكيداتك',
                 onPressed: busy || project.assets.isEmpty
                     ? null
-                    : () => c.reprocessImages(
-                        [for (final asset in project.assets) asset.id],
-                      ),
+                    : () => c.reprocessImages([
+                        for (final asset in project.assets) asset.id,
+                      ]),
               ),
             ],
           ),

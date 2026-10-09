@@ -163,7 +163,8 @@ void main() {
     final itemIds = first.items.map((i) => i.id).toList();
     final recordIds = first.documents.map((d) => d.id).toList();
     final workingPaths = [
-      for (final d in first.documents) d.sides.single.processedAsset.workingPath,
+      for (final d in first.documents)
+        d.sides.single.processedAsset.workingPath,
     ];
 
     final report = await s.reprocessImages(first, [sourceId]);
@@ -179,11 +180,14 @@ void main() {
     // The derived images were regenerated in place (new revision files, same
     // asset ids) and the source photo was never rewritten.
     final refreshed = [
-      for (final d in result.documents) d.sides.single.processedAsset.workingPath,
+      for (final d in result.documents)
+        d.sides.single.processedAsset.workingPath,
     ];
     expect(refreshed, isNot(workingPaths));
-    expect(result.assets.map((a) => a.id).toList(),
-        first.assets.map((a) => a.id).toList());
+    expect(
+      result.assets.map((a) => a.id).toList(),
+      first.assets.map((a) => a.id).toList(),
+    );
     final source = result.assets.firstWhere((a) => a.id == sourceId);
     expect(
       await (await assets.resolve(source.originalPath)).readAsBytes(),
@@ -193,48 +197,52 @@ void main() {
     expect((await projects.get(result.id)).toJson(), result.toJson());
   });
 
-  test('reprocessing resolves a previously unresolved region in place', () async {
-    final bytes = _photo();
-    var project = await service(segmenter: _oneUnresolved).create('منطقة بلا حدود');
-    project = (await service().importImages(project, [
-      ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final first = (await service(segmenter: _oneUnresolved)
-            .arrangeImportedImages(project, [sourceId]))
-        .project;
-    expect(first.documents, hasLength(2));
+  test(
+    'reprocessing resolves a previously unresolved region in place',
+    () async {
+      final bytes = _photo();
+      var project = await service(
+        segmenter: _oneUnresolved,
+      ).create('منطقة بلا حدود');
+      project = (await service().importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final first = (await service(
+        segmenter: _oneUnresolved,
+      ).arrangeImportedImages(project, [sourceId])).project;
+      expect(first.documents, hasLength(2));
 
-    final unresolvedRecord = first.documents.firstWhere(
-      (d) => d.sides.single.detection!.polygon == null,
-    );
-    final unresolvedItem = first.items.firstWhere(
-      (i) => i.documentId == unresolvedRecord.id,
-    );
-    expect(unresolvedItem.sizeConfirmed, isFalse);
+      final unresolvedRecord = first.documents.firstWhere(
+        (d) => d.sides.single.detection!.polygon == null,
+      );
+      final unresolvedItem = first.items.firstWhere(
+        (i) => i.documentId == unresolvedRecord.id,
+      );
+      expect(unresolvedItem.sizeConfirmed, isFalse);
 
-    // A better analysis now finds the boundary it missed.
-    final result = (await service(segmenter: _bothResolved).reprocessImages(
-      first,
-      [sourceId],
-    ))!.project;
+      // A better analysis now finds the boundary it missed.
+      final result = (await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(first, [sourceId]))!.project;
 
-    // The SAME document was updated — a new one was not created beside it.
-    expect(result.documents, hasLength(2));
-    expect(result.items, hasLength(2));
-    expect(result.assets, hasLength(3));
-    expect(result.documents.map((d) => d.id), contains(unresolvedRecord.id));
-    final fixed = result.documents.firstWhere(
-      (d) => d.id == unresolvedRecord.id,
-    );
-    expect(fixed.sides.single.detection!.polygon, isNotNull);
-    final fixedItem = result.items.firstWhere(
-      (i) => i.documentId == fixed.id,
-    );
-    expect(fixedItem.sizeConfirmed, isTrue);
-    expect(fixedItem.id, unresolvedItem.id);
-    expect((await projects.get(result.id)).toJson(), result.toJson());
-  });
+      // The SAME document was updated — a new one was not created beside it.
+      expect(result.documents, hasLength(2));
+      expect(result.items, hasLength(2));
+      expect(result.assets, hasLength(3));
+      expect(result.documents.map((d) => d.id), contains(unresolvedRecord.id));
+      final fixed = result.documents.firstWhere(
+        (d) => d.id == unresolvedRecord.id,
+      );
+      expect(fixed.sides.single.detection!.polygon, isNotNull);
+      final fixedItem = result.items.firstWhere(
+        (i) => i.documentId == fixed.id,
+      );
+      expect(fixedItem.sizeConfirmed, isTrue);
+      expect(fixedItem.id, unresolvedItem.id);
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
 
   test('a region with no existing document is added, never merged', () async {
     final bytes = _photo();
@@ -247,10 +255,9 @@ void main() {
     final first = (await s.arrangeImportedImages(project, [sourceId])).project;
     expect(first.documents, hasLength(2));
 
-    final result = (await service(segmenter: _threeResolved).reprocessImages(
-      first,
-      [sourceId],
-    ))!.project;
+    final result = (await service(
+      segmenter: _threeResolved,
+    ).reprocessImages(first, [sourceId]))!.project;
 
     // The two known documents were refreshed and the new one was appended.
     expect(result.documents, hasLength(3));
@@ -267,68 +274,83 @@ void main() {
     expect((await projects.get(result.id)).toJson(), result.toJson());
   });
 
-  test('a user-confirmed document is left exactly as the user left it', () async {
-    final bytes = _photo();
-    final s = service(segmenter: _bothResolved);
-    var project = await s.create('تأكيد المستخدم');
-    project = (await s.importImages(project, [
-      ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final first = (await s.arrangeImportedImages(project, [sourceId])).project;
+  test(
+    'a user-confirmed document is left exactly as the user left it',
+    () async {
+      final bytes = _photo();
+      final s = service(segmenter: _bothResolved);
+      var project = await s.create('تأكيد المستخدم');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
 
-    // The user confirms one document and overrides the other's kind.
-    final confirmed = first.documents.first;
-    final lastRecord = first.documents.last;
-    final lastItem = first.items.firstWhere(
-      (i) => i.documentId == lastRecord.id,
-    );
-    final withOverride = setKindWithOverride(
-      confirmRecognition(first, confirmed.id),
-      lastItem.id,
-      DocumentKind.passport,
-    );
-    final committed = await projects.save(withOverride);
+      // The user confirms one document and overrides the other's kind.
+      final confirmed = first.documents.first;
+      final lastRecord = first.documents.last;
+      final lastItem = first.items.firstWhere(
+        (i) => i.documentId == lastRecord.id,
+      );
+      final withOverride = setKindWithOverride(
+        confirmRecognition(first, confirmed.id),
+        lastItem.id,
+        DocumentKind.passport,
+      );
+      final committed = await projects.save(withOverride);
 
-    final report = await s.reprocessImages(committed, [sourceId]);
-    final result = report!.project;
+      final report = await s.reprocessImages(committed, [sourceId]);
+      final result = report!.project;
 
-    // Both records still carry the user's decisions (ADR-004).
-    final keptConfirmed = result.documents.firstWhere((d) => d.id == confirmed.id);
-    final keptOverride = result.documents.firstWhere(
-      (d) => d.id == lastRecord.id,
-    );
-    expect(keptConfirmed.overrides, isNotEmpty);
-    expect(keptOverride.overrides, isNotEmpty);
-    expect(keptOverride.recognition!.documentKind, DocumentKind.unifiedNationalId);
-    expect(
-      report.warnings.join('\n'),
-      contains('تُرِك'),
-      reason: 'the user is told why a document was skipped',
-    );
-    expect((await projects.get(result.id)).toJson(), result.toJson());
-  });
+      // Both records still carry the user's decisions (ADR-004).
+      final keptConfirmed = result.documents.firstWhere(
+        (d) => d.id == confirmed.id,
+      );
+      final keptOverride = result.documents.firstWhere(
+        (d) => d.id == lastRecord.id,
+      );
+      expect(keptConfirmed.overrides, isNotEmpty);
+      expect(keptOverride.overrides, isNotEmpty);
+      expect(
+        keptOverride.recognition!.documentKind,
+        DocumentKind.unifiedNationalId,
+      );
+      expect(
+        report.warnings.join('\n'),
+        contains('تُرِك'),
+        reason: 'the user is told why a document was skipped',
+      );
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
 
-  test('a missing original is reported and never corrupts the project', () async {
-    final bytes = _photo();
-    final s = service(segmenter: _bothResolved);
-    var project = await s.create('أصل مفقود');
-    project = (await s.importImages(project, [
-      ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final first = (await s.arrangeImportedImages(project, [sourceId])).project;
+  test(
+    'a missing original is reported and never corrupts the project',
+    () async {
+      final bytes = _photo();
+      final s = service(segmenter: _bothResolved);
+      var project = await s.create('أصل مفقود');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
 
-    await (await assets.resolve(
-      first.assets.singleWhere((a) => a.id == sourceId).originalPath,
-    )).delete();
+      await (await assets.resolve(
+        first.assets.singleWhere((a) => a.id == sourceId).originalPath,
+      )).delete();
 
-    final report = await s.reprocessImages(first, [sourceId]);
-    // The failure is actionable and isolated: the project is untouched.
-    expect(report!.warnings, isNotEmpty);
-    expect(report.notDetected, 1);
-    expect((await projects.get(first.id)).toJson(), first.toJson());
-  });
+      final report = await s.reprocessImages(first, [sourceId]);
+      // The failure is actionable and isolated: the project is untouched.
+      expect(report!.warnings, isNotEmpty);
+      expect(report.notDetected, 1);
+      expect((await projects.get(first.id)).toJson(), first.toJson());
+    },
+  );
 
   test('reprocess reports real per-image progress', () async {
     final bytes = _photo();
@@ -364,14 +386,14 @@ void main() {
     final first = (await s.arrangeImportedImages(project, [sourceId])).project;
 
     final token = CancellationToken()..cancel();
-    final report = await s.reprocessImages(
-      first,
-      [sourceId],
-      cancellation: token,
-    );
+    final report = await s.reprocessImages(first, [
+      sourceId,
+    ], cancellation: token);
     expect(report!.project.revision, first.revision);
-    expect(report.project.documents.map((d) => d.id).toList(),
-        first.documents.map((d) => d.id).toList());
+    expect(
+      report.project.documents.map((d) => d.id).toList(),
+      first.documents.map((d) => d.id).toList(),
+    );
     expect(report.warnings.join('\n'), contains('أُلغيت'));
     expect((await projects.get(first.id)).toJson(), first.toJson());
   });

@@ -527,6 +527,15 @@ treated as ambiguous: preserved, routed to review under
 common shadow case) cannot claim a catalog size at all, because `sizeConfirmed`
 requires a trustworthy boundary.
 
+> **Corrected by R.2.** The two numbers in that paragraph came from different
+> measurement bases — 5.62 is the *work-frame box* aspect and 5.49 the *preview
+> region* aspect — so they did not compare the band with the card. Measured on
+> one harness, the band is lower than the genuine card on every aspect basis and
+> higher on fill. The conclusion (indistinguishable, preserved, reviewed) is
+> unchanged and now stronger: there is no bound that refuses the artifact
+> first. See [R.2](#r2-the-ration-proportion-residual-risk-re-measured) and
+> [ADR-012](adr/ADR-012.md).
+
 **Q.5 Diagnostic inventory.** What was lost downstream, and where it now goes:
 
 | diagnostic | before | now |
@@ -539,6 +548,121 @@ requires a trustworthy boundary.
 | unresolved boundary | off-sheet with `sizeConfirmed: false`, indistinguishable from a document that merely lacks a category | `hasUnresolvedBoundary` → `OffSheetTray` badge + its own review reason |
 | `DetectionAnalysis.orientation` | computed, consumed by nobody, and fed a normalized long/short ratio so it was constant per kind | input corrected (`cropHeldAspect`); still unconsumed — every branch is `confident: false`, so applying it would need a real signal (OCR or content), which does not ship |
 | derived-asset origin | inferred from record paths only | `ImageAsset.derivedFrom`, recorded at creation, preserved across revisions and replacements, backfilled only where records prove it, broken chains reported |
+
+## R. Reliability audit, second pass (2026-10-09) — refusal feedback, residual risk
+
+Added after the ADR-012 implementation was verified on CI. §Q above and the
+Phase 0 baseline are unchanged except for the correction note on Q.4. Decision
+record: [ADR-012](adr/ADR-012.md). This pass found one real defect (R.1),
+corrected one recorded measurement (R.2), and verified one invariant that had no
+test (R.4). No threshold, preset or routing rule was changed.
+
+**R.1 Refusal feedback never reached the editor's own import door (§G SEGMENT,
+§I failure contract).** `SegmentationResult.rejected` →
+`ImageAnalysis.rejectedRegions` → `rejectedRegionsMessage` produced exactly one
+aggregated Arabic warning per photo, and that warning was carried into
+`AutomaticLayoutReport.warnings` — but the report's own refusal count
+(`rejectedRegions`) was read by *nothing* in `lib/presentation/`. Tracing every
+entry point:
+
+| entry point | path | refusals before | refusals now |
+|---|---|---|---|
+| project screen → `startWithImagePicker` | `_import` → `IntakeRunner.run` → banner `warnings.take(3)` | listed, but a 4th warning pushed the aggregate out of the banner entirely | banner shows `intakeSummaryText`, whose second line is `rejectedHeadline` |
+| project screen → file drop / share target | same `IntakeRunner` | same loss | same fix |
+| A4 editor → `Key('rb-import')` | `LayoutEditorController.importImages` → `_say` | **nothing at all** — only cropped / recognised / not-detected counts | `_say` line 2 is `rejectedSummary` |
+| A4 editor → `Key('rb-reprocess')` | `LayoutEditorController.reprocessImages` → `_say` | **nothing at all** | same summary from the reprocess report |
+| review queue | `reviewReasonsFor` | unaffected | unaffected |
+
+Two details of the existing surfaces shaped the fix. `_say` shows a `SnackBar`,
+so a second call replaces the first — the refusal therefore had to be merged
+into the *same* message, not added after it. And the banner renders
+`warnings.take(3)` plus a `وتوجد N تنبيهات أخرى.` tail, so a busy batch could
+drop the aggregate while still claiming to have shown everything; the headline
+gets its own line of the summary instead, and `intakeSummaryText` is a pure
+function so both are testable without a widget tree.
+
+The categories the message names are the four the gates actually decide —
+`frameArtifact`, `implausibleAspect`, `unusableCrop`, `candidateCap` — joined
+with `، ` in `RegionRejection.values` order, each named **once** whatever the
+count. A reason nobody decided is absent from the tally: `AutomaticLayoutReport`
+asserts `rejectedByReason.values.fold(0, +) == rejectedRegions` at construction,
+so the count and the breakdown can never tell the user two different stories.
+Nothing was invented: no per-region list, no coordinates, no confidence the
+pipeline did not compute, and no word implying text was read (there is no OCR
+engine — see §K and RECOGNITION §6).
+
+**R.2 The ration-proportion residual risk, re-measured.** Q.4's two numbers came
+from different bases. One harness, one fixture construction (1200 × 1600 photo,
+uniform desk, an ID card in the upper half, a 1000 × 181 region in the lower
+half — 5.5249 as drawn against 287 / 52 = 5.5192 catalogued), preview 900 ×
+1200, Otsu 114.4:
+
+| basis | crisp shadow band | genuine printed ration card |
+|---|---|---|
+| work-frame box aspect — what the 8.0 bound reads | **5.6000** | **5.6250** |
+| preview region aspect | **5.4785** | **5.4997** |
+| derived crop aspect (158 × 866 / 158 × 869) | 5.4810 | 5.5000 |
+| fill | **1.000** | **0.986** |
+| frame border sides | 0 | 0 |
+| area fraction | 0.0922 | 0.0913 |
+
+Both are accepted, and the band is the *less* extreme of the two on every aspect
+basis — so an aspect bound placed between them refuses the genuine card first,
+which is why 8.0 stays where it is (1.46× above the catalogued extreme, 33 %
+below the narrowest measured artifact). On fill the band is the *more* extreme
+(1.000 vs 0.986), so a `fill >= .99 ⇒ artifact` rule separates them by 1.4 % and
+loses blank paper, printed pages and washed-out or faded genuine cards, which
+also measure fill 1.000. Population overlap is total on the remaining signals:
+border sides 0 – 1 for both, crop short side 158 px for both. There is no
+threshold in this data.
+
+The measured cost of the shipped geometry-only gates is recorded too, because it
+is real and it is not zero: two narrow cards laid edge to edge with **no** desk
+between them form one connected component of aspect 11.25 (sides 0), which
+`implausibleAspect` refuses, so that photo takes the single-document path and
+yields one document instead of two. The same three documents with a visible gap
+yield all three. The refusal is reported with its category, the original is
+untouched, and either card can be cropped by hand from the library — which is
+the conservative behaviour the constraint asked to preserve, not a silent loss.
+`test/application/ration_proportion_test.dart` pins both directions plus a
+positive control, and asserts the indistinguishability as equality of decisions
+rather than as a threshold.
+
+**R.3 There is no routing headroom to exploit (§H invariant).**
+`const automationMode` is `AutomationMode.reviewAll`, and `reviewReasons(record)`
+is non-empty for every record carrying a recognition block unless the user
+resolved it (`مؤهل تلقائياً — بانتظار التأكيد`, `ثقة متوسطة`, `ثقة منخفضة`,
+`بلا ثقة نهائية`, `حدود غير محسومة — يحتاج القص إلى مراجعة`,
+`بانتظار تحديد المقاس`). A genuine ration card and the shadow band therefore
+already enter the same review queue for the same stated reason, through
+`review_screen.dart` via `reviewReasonsFor`. Routing is what *bounds* the
+residual risk in R.2; it cannot also be tuned to reduce it. Suppressing review
+for narrow regions would be the only lever left, and it moves risk the wrong way.
+
+**R.4 Provenance verified across every rewrite path (ADR-003, §H invariant).**
+The four places that build a replacement `ImageAsset` were audited —
+`ProjectService.replaceImage`, `LocalProjectRecovery.rebuildDerived`,
+`LocalProjectBackups.create` / `restore`, and the derived-asset creation in
+`_applyMultiDocument` / `_appendNewDocument`. All four already carried
+`derivedFrom`, so **no production code changed**: no regression was reproduced,
+and the constraint for this task was to change code only on a concrete
+regression or an unhandled path. What was missing was tests, and
+`test/application/provenance_rewrite_paths_test.dart` now covers the paths
+`derived_provenance_test.dart` did not: replacement keeps `derivedFrom` while
+the paths really move (`transforms.last` starts `replaced:`); `rebuildDerived`
+revises **every** asset and keeps it for each, with the source never becoming
+derived and asset ids stable; backup → restore keeps it under a new project id
+with the same asset ids, because the relationship is id-based and only paths are
+remapped; and — the classification consequence — an asset whose recorded origin
+still exists but whose document record never got committed is **not** re-analysed
+as a source (`_sourceAssetIds` excludes it), while an ambiguous record-less
+asset with no `derivedFrom` stays a source and
+`reconcileDerivedProvenance` reports no change rather than guessing.
+
+**R.5 Still not verified.** No physical-device testing was done; no real Iraqi
+document photograph took part in any measurement; no OCR engine ships; the
+residual risk in R.2 is established on synthetic fixtures and is bounded by
+mandatory review and immutable originals, not eliminated.
 
 ---
 

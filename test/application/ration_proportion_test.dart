@@ -297,7 +297,7 @@ void main() {
       // traceable back to the photo it came from).
       for (final asset in band.project.assets) {
         if (asset.id == source.id) continue;
-        expect(asset.derivedFrom, source.id, reason: '${asset.name}');
+        expect(asset.derivedFrom, source.id, reason: asset.name);
       }
     });
   });

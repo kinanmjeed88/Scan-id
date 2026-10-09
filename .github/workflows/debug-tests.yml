@@ -1,0 +1,19 @@
+name: Debug failing tests
+on:
+  workflow_dispatch:
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+      - name: Resolve dependencies
+        run: bash tool/bootstrap.sh
+      - name: Run only the failing files
+        run: |
+          python tool/ci_gate.py debug flutter test --reporter expanded \
+            test/application/reprocess_test.dart \
+            test/persistence/derived_asset_recovery_test.dart

@@ -1,20 +1,3 @@
-import 'dart:io';
-import 'dart:typed_data';
-
-import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
-import 'package:scan_id/application/project_service.dart';
-import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/project.dart';
-import 'package:scan_id/domain/quad_assessment.dart';
-import 'package:scan_id/domain/recognition.dart';
-import 'package:scan_id/domain/recognition_routing.dart';
-import 'package:scan_id/imaging/document_segmenter.dart';
-import 'package:scan_id/persistence/local_asset_repository.dart';
-import 'package:scan_id/persistence/local_image_editor.dart';
-import 'package:scan_id/persistence/local_project_repository.dart';
-
 /// The document-kind classification path, kept SEPARATE from the question of
 /// whether a region is a usable document candidate.
 ///
@@ -37,6 +20,24 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 /// `test/imaging/document_segmenter_gate_test.dart` and
 /// `test/application/false_positive_document_test.dart`.
 library;
+
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/quad_assessment.dart';
+import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
+import 'package:scan_id/imaging/document_segmenter.dart';
+import 'package:scan_id/persistence/local_asset_repository.dart';
+import 'package:scan_id/persistence/local_image_editor.dart';
+import 'package:scan_id/persistence/local_project_repository.dart';
+
 
 final _paper = img.ColorRgb8(240, 238, 232);
 

@@ -1,23 +1,3 @@
-import 'dart:io';
-import 'dart:typed_data';
-
-import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
-import 'package:scan_id/application/contracts.dart';
-import 'package:scan_id/application/project_service.dart';
-import 'package:scan_id/domain/crop_draft.dart';
-import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/image_adjustments.dart';
-import 'package:scan_id/domain/project.dart';
-import 'package:scan_id/domain/recognition.dart';
-import 'package:scan_id/domain/validation.dart';
-import 'package:scan_id/imaging/document_segmenter.dart';
-import 'package:scan_id/persistence/local_asset_repository.dart';
-import 'package:scan_id/persistence/local_image_editor.dart';
-import 'package:scan_id/persistence/local_project_repository.dart';
-import 'package:scan_id/persistence/local_storage_maintenance.dart';
-
 /// Source-versus-derived classification, and partial failure.
 ///
 /// The defect: derived assets were classified as derived SOLELY by scanning
@@ -42,6 +22,27 @@ import 'package:scan_id/persistence/local_storage_maintenance.dart';
 ///   ambiguous assets untouched;
 /// - originals stay byte-for-byte immutable throughout.
 library;
+
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:scan_id/application/contracts.dart';
+import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/image_adjustments.dart';
+import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/validation.dart';
+import 'package:scan_id/imaging/document_segmenter.dart';
+import 'package:scan_id/persistence/local_asset_repository.dart';
+import 'package:scan_id/persistence/local_image_editor.dart';
+import 'package:scan_id/persistence/local_project_repository.dart';
+import 'package:scan_id/persistence/local_storage_maintenance.dart';
+
 
 final _paper = img.ColorRgb8(240, 238, 232);
 

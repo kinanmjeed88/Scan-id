@@ -1,7 +1,3 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
-import 'package:scan_id/imaging/document_segmenter.dart';
-
 /// Candidate-quality gates on measured foreground regions.
 ///
 /// Every geometry asserted here was measured on these exact fixtures through a
@@ -28,6 +24,11 @@ import 'package:scan_id/imaging/document_segmenter.dart';
 /// strip, because both are uniform, so no separating threshold exists. Such a
 /// filter is therefore deliberately not used here.
 library;
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:scan_id/imaging/document_segmenter.dart';
+
 
 final _paper = img.ColorRgb8(240, 238, 230);
 final _paper2 = img.ColorRgb8(232, 230, 222);

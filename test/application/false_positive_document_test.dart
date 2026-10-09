@@ -1,18 +1,3 @@
-import 'dart:io';
-import 'dart:math' as math;
-import 'dart:typed_data';
-
-import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
-import 'package:scan_id/application/project_service.dart';
-import 'package:scan_id/application/recognition_pipeline.dart';
-import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/recognition_routing.dart';
-import 'package:scan_id/imaging/document_segmenter.dart';
-import 'package:scan_id/persistence/local_asset_repository.dart';
-import 'package:scan_id/persistence/local_image_editor.dart';
-import 'package:scan_id/persistence/local_project_repository.dart';
-
 /// False-positive documents: the reported defect, tested through the
 /// PRODUCTION pipeline.
 ///
@@ -28,6 +13,22 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 /// [defaultSegment]) so the tests stay deterministic; one test below exercises
 /// the real isolate seam too.
 library;
+
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/recognition_pipeline.dart';
+import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
+import 'package:scan_id/imaging/document_segmenter.dart';
+import 'package:scan_id/persistence/local_asset_repository.dart';
+import 'package:scan_id/persistence/local_image_editor.dart';
+import 'package:scan_id/persistence/local_project_repository.dart';
+
 
 final _paper = img.ColorRgb8(240, 238, 230);
 final _paper2 = img.ColorRgb8(232, 230, 222);

@@ -218,79 +218,23 @@ void main() {
     );
   });
 
-  test(
-    'an unresolved region is kept and reportable, never dropped',
-    () async {
-      final pipeline = RecognitionPipeline(
-        suggestSingle: (bytes) async => _quad(),
-        segment: (bytes) async => SegmentationResult(
-          multi: true,
-          candidates: [
-            const SegmentCandidate(
-              region: [.1, .1, .5, .5],
-              reason: 'no-trustworthy-quad',
-            ),
-            SegmentCandidate(
-              region: const [.1, .55, .9, .95],
-              corners: [
-                Point2(.1, .55),
-                Point2(.9, .55),
-                Point2(.9, .95),
-                Point2(.1, .95),
-              ],
-              detectionConfidence: .7,
-              reason: 'component-support',
-            ),
-          ],
-        ),
-      );
-      final analysis = await pipeline.analyze(_input(name: 'cards.png'));
-      expect(
-        analysis.issues.map((i) => i.category),
-        contains(RecognitionErrorCategory.detectionFailure),
-      );
-      // The measured region SURVIVES with its bounds so it can be recovered:
-      // dropping it is how a photo of several documents loses one.
-      expect(analysis.unresolvedRegions, hasLength(1));
-      final unresolved = analysis.unresolvedRegions.single;
-      expect(unresolved.region, [.1, .1, .5, .5]);
-      expect(unresolved.corners, isNull, reason: 'no rectangle is invented');
-      expect(unresolved.boundary, DetectionBoundary.undetected);
-      expect(unresolved.needsManualBoundary, isTrue);
-      // Deterministic region order is preserved across both channels.
-      expect(analysis.allRegions.map((d) => d.regionIndex).toList(), [0, 1]);
-      expect(analysis.regionCount, 2);
-      // A multi-region source must never take the single-document path: that
-      // path would crop the SOURCE asset to one quad (ADR-003).
-      expect(analysis.needsMultiIntake, isTrue);
-    },
-  );
-
-  test('a geometrically rejected quad keeps its region for manual recovery', () async {
-    final crossed = [
-      Point2(.1, .1),
-      Point2(.9, .9),
-      Point2(.9, .1),
-      Point2(.1, .9),
-    ];
+  test('an unresolved region is kept and reportable, never dropped', () async {
     final pipeline = RecognitionPipeline(
-      suggestSingle: (bytes) async => crossed,
+      suggestSingle: (bytes) async => _quad(),
       segment: (bytes) async => SegmentationResult(
         multi: true,
         candidates: [
-          SegmentCandidate(
-            region: const [.1, .1, .9, .9],
-            corners: crossed,
-            detectionConfidence: .6,
-            reason: 'component-support',
+          const SegmentCandidate(
+            region: [.1, .1, .5, .5],
+            reason: 'no-trustworthy-quad',
           ),
           SegmentCandidate(
-            region: const [.05, .05, .5, .4],
+            region: const [.1, .55, .9, .95],
             corners: [
-              Point2(.05, .05),
-              Point2(.5, .05),
-              Point2(.5, .4),
-              Point2(.05, .4),
+              Point2(.1, .55),
+              Point2(.9, .55),
+              Point2(.9, .95),
+              Point2(.1, .95),
             ],
             detectionConfidence: .7,
             reason: 'component-support',
@@ -301,18 +245,74 @@ void main() {
     final analysis = await pipeline.analyze(_input(name: 'cards.png'));
     expect(
       analysis.issues.map((i) => i.category),
-      contains(RecognitionErrorCategory.geometryFailure),
+      contains(RecognitionErrorCategory.detectionFailure),
     );
-    final rejected = analysis.detections.firstWhere(
-      (d) => d.boundary == DetectionBoundary.rejected,
-    );
-    expect(rejected.corners, isNull);
-    expect(rejected.region, [.1, .1, .9, .9], reason: 'bounds are kept');
-    expect(rejected.needsManualBoundary, isTrue);
-    // Both regions are still present, so neither is silently lost.
+    // The measured region SURVIVES with its bounds so it can be recovered:
+    // dropping it is how a photo of several documents loses one.
+    expect(analysis.unresolvedRegions, hasLength(1));
+    final unresolved = analysis.unresolvedRegions.single;
+    expect(unresolved.region, [.1, .1, .5, .5]);
+    expect(unresolved.corners, isNull, reason: 'no rectangle is invented');
+    expect(unresolved.boundary, DetectionBoundary.undetected);
+    expect(unresolved.needsManualBoundary, isTrue);
+    // Deterministic region order is preserved across both channels.
+    expect(analysis.allRegions.map((d) => d.regionIndex).toList(), [0, 1]);
     expect(analysis.regionCount, 2);
+    // A multi-region source must never take the single-document path: that
+    // path would crop the SOURCE asset to one quad (ADR-003).
     expect(analysis.needsMultiIntake, isTrue);
   });
+
+  test(
+    'a geometrically rejected quad keeps its region for manual recovery',
+    () async {
+      final crossed = [
+        Point2(.1, .1),
+        Point2(.9, .9),
+        Point2(.9, .1),
+        Point2(.1, .9),
+      ];
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async => crossed,
+        segment: (bytes) async => SegmentationResult(
+          multi: true,
+          candidates: [
+            SegmentCandidate(
+              region: const [.1, .1, .9, .9],
+              corners: crossed,
+              detectionConfidence: .6,
+              reason: 'component-support',
+            ),
+            SegmentCandidate(
+              region: const [.05, .05, .5, .4],
+              corners: [
+                Point2(.05, .05),
+                Point2(.5, .05),
+                Point2(.5, .4),
+                Point2(.05, .4),
+              ],
+              detectionConfidence: .7,
+              reason: 'component-support',
+            ),
+          ],
+        ),
+      );
+      final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+      expect(
+        analysis.issues.map((i) => i.category),
+        contains(RecognitionErrorCategory.geometryFailure),
+      );
+      final rejected = analysis.detections.firstWhere(
+        (d) => d.boundary == DetectionBoundary.rejected,
+      );
+      expect(rejected.corners, isNull);
+      expect(rejected.region, [.1, .1, .9, .9], reason: 'bounds are kept');
+      expect(rejected.needsManualBoundary, isTrue);
+      // Both regions are still present, so neither is silently lost.
+      expect(analysis.regionCount, 2);
+      expect(analysis.needsMultiIntake, isTrue);
+    },
+  );
 
   test('OCR keywords become evidence; the engine version is visible', () async {
     final pipeline = RecognitionPipeline(

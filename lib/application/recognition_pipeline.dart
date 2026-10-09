@@ -140,10 +140,9 @@ class ImageAnalysis {
 
   /// Every region of this image (resolved first, then unresolved), in the
   /// deterministic region order the segmenter produced them in.
-  List<DetectionAnalysis> get allRegions => [
-    ...detections,
-    ...unresolvedRegions,
-  ]..sort((a, b) => a.regionIndex.compareTo(b.regionIndex));
+  List<DetectionAnalysis> get allRegions =>
+      [...detections, ...unresolvedRegions]
+        ..sort((a, b) => a.regionIndex.compareTo(b.regionIndex));
 
   /// How many document-like regions this image holds, resolved or not.
   int get regionCount => detections.length + unresolvedRegions.length;

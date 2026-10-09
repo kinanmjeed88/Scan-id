@@ -17,9 +17,8 @@ void main() {
   late LocalAssetRepository assets;
   late ProjectService service;
 
-  Uint8List bytes() => Uint8List.fromList(
-    img.encodePng(img.Image(width: 120, height: 90)),
-  );
+  Uint8List bytes() =>
+      Uint8List.fromList(img.encodePng(img.Image(width: 120, height: 90)));
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('scan_intake_');
@@ -52,66 +51,72 @@ void main() {
       ),
   ];
 
-  test('import progress counts real committed work, one step per source', () async {
-    final project = await service.create('تقدم');
-    final seen = <int>[];
-    final report = await service.importImages(
-      project,
-      sources(3),
-      onProgress: (BatchProgress progress) {
-        expect(progress.total, 3);
-        expect(progress.stage, importStageLabel);
-        seen.add(progress.completed);
-      },
-    );
-    expect(report.imported, 3);
-    // One emission before the first source and one after each finished
-    // source: the count always reflects committed work, never a timer.
-    expect(seen, [0, 1, 2, 3]);
-  });
+  test(
+    'import progress counts real committed work, one step per source',
+    () async {
+      final project = await service.create('تقدم');
+      final seen = <int>[];
+      final report = await service.importImages(
+        project,
+        sources(3),
+        onProgress: (BatchProgress progress) {
+          expect(progress.total, 3);
+          expect(progress.stage, importStageLabel);
+          seen.add(progress.completed);
+        },
+      );
+      expect(report.imported, 3);
+      // One emission before the first source and one after each finished
+      // source: the count always reflects committed work, never a timer.
+      expect(seen, [0, 1, 2, 3]);
+    },
+  );
 
-  test('cancellation keeps committed images and never opens the rest', () async {
-    final project = await service.create('إلغاء');
-    final token = CancellationToken();
-    final opened = <int>[];
-    var released = 0;
-    final picked = <ImportSource>[
-      for (var i = 0; i < 4; i++)
-        ImportSource(
-          'صورة$i.png',
-          () {
-            opened.add(i);
-            return Stream<List<int>>.value(bytes());
-          },
-          cleanup: () async {
-            released++;
-          },
-        ),
-    ];
-    final report = await service.importImages(
-      project,
-      picked,
-      cancellation: token,
-      onProgress: (progress) {
-        // Cancel as soon as the first image has been committed: the stop is
-        // cooperative and takes effect before the next source is opened.
-        if (progress.completed == 1) token.cancel();
-      },
-    );
-    expect(opened, [0], reason: 'sources after the cancel are never opened');
-    expect(report.imported, 1);
-    expect(report.failures, hasLength(3));
-    for (final failure in report.failures) {
-      expect(failure.message, contains('أُلغيت'));
-    }
-    // No leaked picker cache: every source that was not imported is released.
-    expect(released, 4);
-    // Persistence is consistent: exactly one committed asset, reloadable.
-    final saved = await projects.get(project.id);
-    expect(saved.assets, hasLength(1));
-    expect(saved.toJson(), report.project.toJson());
-    expect(saved.assets.single.name, 'صورة0.png');
-  });
+  test(
+    'cancellation keeps committed images and never opens the rest',
+    () async {
+      final project = await service.create('إلغاء');
+      final token = CancellationToken();
+      final opened = <int>[];
+      var released = 0;
+      final picked = <ImportSource>[
+        for (var i = 0; i < 4; i++)
+          ImportSource(
+            'صورة$i.png',
+            () {
+              opened.add(i);
+              return Stream<List<int>>.value(bytes());
+            },
+            cleanup: () async {
+              released++;
+            },
+          ),
+      ];
+      final report = await service.importImages(
+        project,
+        picked,
+        cancellation: token,
+        onProgress: (progress) {
+          // Cancel as soon as the first image has been committed: the stop is
+          // cooperative and takes effect before the next source is opened.
+          if (progress.completed == 1) token.cancel();
+        },
+      );
+      expect(opened, [0], reason: 'sources after the cancel are never opened');
+      expect(report.imported, 1);
+      expect(report.failures, hasLength(3));
+      for (final failure in report.failures) {
+        expect(failure.message, contains('أُلغيت'));
+      }
+      // No leaked picker cache: every source that was not imported is released.
+      expect(released, 4);
+      // Persistence is consistent: exactly one committed asset, reloadable.
+      final saved = await projects.get(project.id);
+      expect(saved.assets, hasLength(1));
+      expect(saved.toJson(), report.project.toJson());
+      expect(saved.assets.single.name, 'صورة0.png');
+    },
+  );
 
   test('cancelling before the first source imports nothing', () async {
     final project = await service.create('إلغاء مبكر');
@@ -137,19 +142,22 @@ void main() {
     expect((await projects.get(project.id)).assets, isEmpty);
   });
 
-  test('a partial failure keeps the good images and reports the bad one', () async {
-    final project = await service.create('فشل جزئي');
-    final report = await service.importImages(
-      project,
-      sources(3, broken: [1]),
-    );
-    expect(report.imported, 2);
-    expect(report.failures, hasLength(1));
-    expect(report.failures.single.name, 'صورة1.png');
-    final saved = await projects.get(project.id);
-    expect(saved.assets, hasLength(2));
-    expect(saved.toJson(), report.project.toJson());
-  });
+  test(
+    'a partial failure keeps the good images and reports the bad one',
+    () async {
+      final project = await service.create('فشل جزئي');
+      final report = await service.importImages(
+        project,
+        sources(3, broken: [1]),
+      );
+      expect(report.imported, 2);
+      expect(report.failures, hasLength(1));
+      expect(report.failures.single.name, 'صورة1.png');
+      final saved = await projects.get(project.id);
+      expect(saved.assets, hasLength(2));
+      expect(saved.toJson(), report.project.toJson());
+    },
+  );
 
   // ---------------------------------------------------------------------
   // The shared runner used by BOTH entry points
@@ -157,14 +165,10 @@ void main() {
   test('the shared runner imports and arranges with real progress', () async {
     final project = await service.create('مُشغّل');
     final seen = <String>[];
-    final run = await IntakeRunner(
-      service: service,
-      project: project,
-    ).run(
+    final run = await IntakeRunner(service: service, project: project).run(
       sources(2),
-      onProgress: (progress) => seen.add(
-        '${progress.stage}/${progress.completed}/${progress.total}',
-      ),
+      onProgress: (progress) =>
+          seen.add('${progress.stage}/${progress.completed}/${progress.total}'),
     );
     expect(run.import.imported, 2);
     expect(run.error, isNull);

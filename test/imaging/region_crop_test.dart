@@ -39,19 +39,22 @@ void main() {
     expect(decoded.height, 80);
   });
 
-  test('hostile, inverted or missing bounds are clamped, never out of range', () {
-    final bytes = Uint8List.fromList(img.encodePng(_source()));
-    for (final region in <List<double>>[
-      const [9.0, -4.0, -1.0, 12.0],
-      const [.8, .8, .2, .2],
-      const [double.nan, 0.0, 1.0, 1.0],
-      const [0.0, 0.0],
-    ]) {
-      final decoded = img.decodePng(cropRegionBytes(bytes, region))!;
-      expect(decoded.width, greaterThan(0), reason: '$region');
-      expect(decoded.height, greaterThan(0), reason: '$region');
-      expect(decoded.width, lessThanOrEqualTo(100), reason: '$region');
-      expect(decoded.height, lessThanOrEqualTo(80), reason: '$region');
-    }
-  });
+  test(
+    'hostile, inverted or missing bounds are clamped, never out of range',
+    () {
+      final bytes = Uint8List.fromList(img.encodePng(_source()));
+      for (final region in <List<double>>[
+        const [9.0, -4.0, -1.0, 12.0],
+        const [.8, .8, .2, .2],
+        const [double.nan, 0.0, 1.0, 1.0],
+        const [0.0, 0.0],
+      ]) {
+        final decoded = img.decodePng(cropRegionBytes(bytes, region))!;
+        expect(decoded.width, greaterThan(0), reason: '$region');
+        expect(decoded.height, greaterThan(0), reason: '$region');
+        expect(decoded.width, lessThanOrEqualTo(100), reason: '$region');
+        expect(decoded.height, lessThanOrEqualTo(80), reason: '$region');
+      }
+    },
+  );
 }

@@ -94,10 +94,7 @@ class SmartIntake {
 
   /// Keeps an unresolved region as a plain crop of the original, so a region
   /// without a trustworthy quadrilateral is preserved instead of dropped.
-  final Future<Uint8List> Function(
-    Uint8List originalBytes,
-    List<double> region,
-  )
+  final Future<Uint8List> Function(Uint8List originalBytes, List<double> region)
   cropRegion;
   final RecognitionThresholds thresholds;
 

@@ -31,7 +31,12 @@ import '../domain/project.dart';
 
 /// The outcome of one intake run.
 class IntakeRun {
-  const IntakeRun({required this.project, required this.import, this.layout, this.error});
+  const IntakeRun({
+    required this.project,
+    required this.import,
+    this.layout,
+    this.error,
+  });
 
   /// The last committed project state — never a half-applied one.
   final Project project;

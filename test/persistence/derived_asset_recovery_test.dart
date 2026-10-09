@@ -134,7 +134,9 @@ void main() {
       )).writeAsString('broken');
 
       // Reload from storage: the damage is on disk, not in the record.
-      final reloaded = await projects.get(created.id);
+      // `metadata` is used rather than `get`, because `get` validates that
+      // every asset file is present — which is exactly what is being broken.
+      final reloaded = await projects.metadata(created.id);
       expect(reloaded.toJson(), created.toJson());
 
       final repaired = await LocalProjectRecovery(

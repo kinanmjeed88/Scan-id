@@ -9,6 +9,7 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
@@ -32,17 +33,21 @@ class EditorHarness {
     Project? project,
     ImageEditor? imageEditor,
     Future<List<ImportSource>> Function()? pickImages,
+    ProjectRepository? repository,
+    AssetRepository? assetRepository,
+    Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
   }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final repository = MemoryProjects();
-    final created = await repository.create(project ?? editorProject());
+    final store = repository ?? MemoryProjects();
+    final created = await store.create(project ?? editorProject());
     final service = ProjectService(
-      repository,
-      NoAssets(),
+      store,
+      assetRepository ?? NoAssets(),
       imageEditor: imageEditor,
+      segmenter: segmenter,
     );
     await tester.pumpWidget(
       AppShell(
@@ -55,7 +60,7 @@ class EditorHarness {
       ),
     );
     await tester.pumpAndSettle();
-    return EditorHarness(repository, created.id);
+    return EditorHarness(store, created.id);
   }
 }
 

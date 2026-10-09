@@ -642,17 +642,18 @@ class LayoutEditorController extends ChangeNotifier {
   /// A retry, not an import: the sources stay where they are, documents keep
   /// their ids and placement, and documents the user confirmed are left alone.
   /// Like every other command it goes through [session], so it is one undoable
-  /// step and the sheet is re-laid out afterwards.
+  /// step.
+  ///
+  /// The layout is deliberately NOT re-arranged here, and this does not depend
+  /// on [autoFlow]: reprocessing refreshes recognition, while arranging the
+  /// sheet is the user's own explicit command. A document already on the sheet
+  /// keeps its page, position, size and rotation in both flow modes.
   Future<void> reprocessImages(List<String> assetIds) async {
     if (assetIds.isEmpty) return;
     AutomaticLayoutReport? report;
     final ok = await run(() async {
       final before = session.current;
-      report = await service.reprocessImages(
-        before,
-        assetIds,
-        keepPlaced: !autoFlow,
-      );
+      report = await service.reprocessImages(before, assetIds);
       final latest = report?.project ?? before;
       // Adopting the saved result records it as ONE undoable step, so the
       // whole re-run is undone at once and never piecemeal.

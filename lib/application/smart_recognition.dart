@@ -335,12 +335,21 @@ class SmartIntake {
   /// - a missing or unreadable original/derived file is reported per image and
   ///   never aborts the batch.
   ///
-  /// Placement is still decided solely by `arrangeDocuments` (ADR-002), with
-  /// [keepPlaced] preserving what the user already positioned.
+  /// Only AUTHORITATIVE SOURCE photos are re-analysed (see [_sourceAssetIds]):
+  /// a per-region derived crop is a product of its source, not an independent
+  /// photograph, and re-analysing it would re-detect the document inside the
+  /// crop and append a duplicate of it.
+  ///
+  /// Layout: reprocessing is a recognition refresh, not an arrangement. A
+  /// document already on the sheet is never moved, resized or re-paginated,
+  /// and this does not depend on the automatic-flow setting. Placement of a
+  /// genuinely new document is still decided solely by `arrangeDocuments`
+  /// (ADR-002), called with `keepPlaced: true` so that only off-sheet
+  /// documents are placed and everything already positioned acts as an
+  /// obstacle.
   Future<AutomaticLayoutReport> reprocess(
     Project project,
     Iterable<String> assetIds, {
-    bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
   }) async {
@@ -357,7 +366,7 @@ class SmartIntake {
 
     final analysis = await _analyzeImages(
       current,
-      assetIds,
+      _sourceAssetIds(current, assetIds),
       cancellation: cancellation,
       onProgress: onProgress,
     );
@@ -433,7 +442,11 @@ class SmartIntake {
         ...newDocuments,
       ],
     );
-    final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+    // Only documents that are not on the sheet yet are arranged, by the one
+    // existing engine. Everything the user already placed is an obstacle and
+    // never a movable item, so reprocessing can place a newly found document
+    // without ever rearranging the sheet — in either automatic-flow mode.
+    final arrangement = arrangeDocuments(current, keepPlaced: true);
     current = await projects.save(arrangement.result);
     if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
@@ -450,6 +463,43 @@ class SmartIntake {
       multiDocumentImages: multiImages,
       warnings: warnings,
     );
+  }
+
+  /// The requested ids that reprocessing may treat as AUTHORITATIVE SOURCE
+  /// photos, in request order and without duplicates.
+  ///
+  /// A derived asset is one a document points at as its PROCESSED image while
+  /// naming a DIFFERENT asset as its source photo — the per-region crop of a
+  /// multi-document source. Reprocessing such a crop as though it were an
+  /// original photograph runs the segmenter inside an already-rectified card,
+  /// finds the document again, and appends a second record for the same
+  /// physical document: one photo of two cards becomes four documents.
+  ///
+  /// Matching is by identity, never by dimensions, aspect ratio or approximate
+  /// geometry. An imported photo that produced no document yet is still a
+  /// source — retrying it is the whole point of reprocessing.
+  List<String> _sourceAssetIds(Project project, Iterable<String> requested) {
+    final derived = <String>{};
+    for (final record in project.documents) {
+      for (final side in record.sides) {
+        final processed = side.processedAsset;
+        for (final asset in project.assets) {
+          if (asset.id == record.sourceImageId) continue;
+          if (asset.workingPath == processed.workingPath ||
+              asset.thumbnailPath == processed.thumbnailPath) {
+            derived.add(asset.id);
+          }
+        }
+      }
+    }
+    final ids = <String>[];
+    final seen = <String>{};
+    for (final id in requested) {
+      if (derived.contains(id)) continue;
+      if (!seen.add(id)) continue;
+      ids.add(id);
+    }
+    return ids;
   }
 
   /// Reconciles one re-analysed source image with its existing documents.
@@ -645,28 +695,54 @@ class SmartIntake {
   ///
   /// Placement, page, rotation, grouping and locks are never touched, and a
   /// locked item is left alone entirely — so a retry can improve a document's
-  /// size without disturbing a layout the user arranged by hand.
+  /// evidence without disturbing a layout the user arranged by hand.
+  ///
+  /// Once an item sits on a page, its width and height are LAYOUT properties:
+  /// they are the printed footprint the sheet was arranged around. Changing
+  /// them here could resize a placed document into its neighbour or off the
+  /// paper, so on a placed item only the recognition metadata (kind and
+  /// confidence) is refreshed and a differing catalog size is reported through
+  /// [onPlacedSizeKept] for the user to review instead of applied silently.
+  /// An item that is not on a sheet yet has no footprint to disturb, so its
+  /// size is free to follow the recognition.
   DocumentItem _refreshItem(
     Project current,
     DocumentItem item,
     ImageAsset asset,
     DetectionAnalysis detection, {
     required bool trustworthy,
+    required void Function(String message) onPlacedSizeKept,
   }) {
     if (item.locked) return item;
     final kind = detection.classification.kind;
     final catalogSize = trustworthy
         ? current.catalog.sizeFor(kind, landscape: asset.width >= asset.height)
         : null;
+    final confidence =
+        detection.classification.confidences.finalConfidence?.value ??
+        item.recognitionConfidence;
+    if (item.pageIndex != null) {
+      if (catalogSize != null &&
+          (item.width != catalogSize.width ||
+              item.height != catalogSize.height)) {
+        onPlacedSizeKept(
+          '${asset.name}: تغيّر الحجم المتعرّف عليه؛ '
+          'بقي المستند بموضعه وحجمه الحالي لتفادي إفساد ترتيب الورقة. '
+          'راجعه من تبويب «المستمسك».',
+        );
+      }
+      return item.copyWith(
+        documentKind: kind,
+        recognitionConfidence: confidence,
+      );
+    }
     if (catalogSize == null) return item;
     return item.copyWith(
       width: catalogSize.width,
       height: catalogSize.height,
       documentKind: kind,
       sizeConfirmed: true,
-      recognitionConfidence:
-          detection.classification.confidences.finalConfidence?.value ??
-          item.recognitionConfidence,
+      recognitionConfidence: confidence,
     );
   }
 
@@ -750,6 +826,7 @@ class SmartIntake {
         regenerated,
         detection,
         trustworthy: output.trustworthy,
+        onPlacedSizeKept: warnings.add,
       );
     }
     replacementRecords[existing.id] = _rebuildRecord(

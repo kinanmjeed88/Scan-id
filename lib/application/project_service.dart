@@ -157,10 +157,12 @@ class ProjectService {
   ///
   /// Returns null when Smart Recognition is off or no image editor is
   /// available, so callers can say so instead of pretending nothing happened.
+  /// A recognition refresh, never an arrangement: a document already on the
+  /// sheet keeps its page, position, size, rotation and grouping whatever the
+  /// automatic-flow setting is. See [SmartIntake.reprocess].
   Future<AutomaticLayoutReport?> reprocessImages(
     Project project,
     Iterable<String> assetIds, {
-    bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
   }) async {
@@ -174,7 +176,6 @@ class ProjectService {
     ).reprocess(
       project,
       assetIds,
-      keepPlaced: keepPlaced,
       cancellation: cancellation,
       onProgress: onProgress,
     );

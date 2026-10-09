@@ -348,6 +348,7 @@ class SmartIntake {
     var cropped = 0;
     var notDetected = 0;
     var needsReview = 0;
+    var multiImages = 0;
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
     final newDocuments = <DocumentRecord>[];
@@ -386,6 +387,9 @@ class SmartIntake {
           onNotDetected: () => notDetected++,
           cancellation: cancellation,
         );
+        // Reported honestly: a re-analysed photo can still hold several
+        // documents, and the report must not claim otherwise.
+        if (analyzed.analysis.needsMultiIntake) multiImages++;
       } on RevisionConflict {
         rethrow;
       } on OperationCancelled {
@@ -414,7 +418,7 @@ class SmartIntake {
         notDetected: notDetected,
         recognized: recognized,
         needsReview: needsReview,
-        multiDocumentImages: 0,
+        multiDocumentImages: multiImages,
         warnings: warnings,
       );
     }
@@ -443,7 +447,7 @@ class SmartIntake {
       notDetected: notDetected,
       recognized: recognized,
       needsReview: needsReview,
-      multiDocumentImages: 0,
+      multiDocumentImages: multiImages,
       warnings: warnings,
     );
   }

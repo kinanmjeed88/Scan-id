@@ -175,6 +175,8 @@ void main() {
     expect(result.assets, hasLength(3));
     expect(result.items.map((i) => i.id).toList(), itemIds);
     expect(result.documents.map((d) => d.id).toList(), recordIds);
+    // The report keeps saying the photo holds several documents.
+    expect(report.multiDocumentImages, 1);
 
     // The derived images were regenerated in place (new revision files, same
     // asset ids) and the source photo was never rewritten.
@@ -302,6 +304,7 @@ void main() {
 
       final report = await s.reprocessImages(committed, [sourceId]);
       final result = report!.project;
+      expect(report.multiDocumentImages, 1);
 
       // Both records still carry the user's decisions (ADR-004).
       final keptConfirmed = result.documents.firstWhere(

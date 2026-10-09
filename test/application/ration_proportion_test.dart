@@ -136,17 +136,25 @@ class _Decision {
 
   bool get everyRecordReviewed => project.documents.every(recordNeedsReview);
 
+  /// The narrow item's decisions: its kind, and its size only when the catalog
+  /// confirmed it. A confirmed size is exact; a provisional one comes from the
+  /// crop and differs by fractions of a millimetre between two fixtures without
+  /// any decision having changed, so comparing it would fail this test for
+  /// noise. The confirmed pair is sorted for the same reason: which way round a
+  /// 287 mm card is placed is a layout outcome — measured on CI as 287x52 for
+  /// one of these two fixtures and 52x287 for the other — not a recognition
+  /// decision.
+  String get described {
+    final item = narrowest;
+    if (item == null) return 'none';
+    final kind = item.documentKind.name;
+    if (!item.sizeConfirmed) return '$kind unconfirmed';
+    final dims = [item.width, item.height]..sort();
+    return '$kind confirmed ${dims.first}x${dims.last}';
+  }
+
   @override
   String toString() {
-    final item = narrowest;
-    // Sizes are rounded to whole millimetres on purpose: the comparison under
-    // test is what the pipeline DECIDED (kind, confirmation, review), and a
-    // sub-pixel difference in a rectified crop is not a decision.
-    final described = item == null
-        ? 'none'
-        : '${item.documentKind.name} confirmed=${item.sizeConfirmed} '
-              'size=${item.width.round()}x${item.height.round()} '
-              'aspect=${_aspect(item).toStringAsFixed(2)}';
     return 'documents=${project.documents.length} '
         'items=${project.items.length} '
         'rejected=${report.rejectedRegions} '

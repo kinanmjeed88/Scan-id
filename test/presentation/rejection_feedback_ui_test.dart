@@ -281,6 +281,13 @@ void main() {
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
+
+      // The SnackBar schedules its own dismissal, so the fake clock has to run
+      // past it: leaving it pending fails the test at teardown even though
+      // everything above passed.
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
     });
   });
 }

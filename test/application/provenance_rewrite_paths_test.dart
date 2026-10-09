@@ -215,110 +215,90 @@ void main() {
       // The failure this guards: a partial run left a derived crop whose
       // document record never got committed. Classification must not then read
       // it as an imported photograph and analyse it as one.
-      final source = ImageAsset(
-        id: 'src1',
-        name: 'الأصل.png',
-        originalPath: 'projects/project1/assets/src1/original.png',
-        workingPath: 'projects/project1/assets/src1/working.png',
-        thumbnailPath: 'projects/project1/assets/src1/thumb.jpg',
-        width: 1200,
-        height: 1600,
-      );
-      final crop = ImageAsset(
-        id: 'crop1',
-        name: 'قصاصة.png',
-        originalPath: 'projects/project1/assets/crop1/original.png',
-        workingPath: 'projects/project1/assets/crop1/working.png',
-        thumbnailPath: 'projects/project1/assets/crop1/thumb.jpg',
-        width: 600,
-        height: 400,
-      ).asDerivedOf(source.id);
-      final project = await projects.create(
-        Project(
-          id: 'project1',
-          name: 'بلا سجلات',
-          createdAt: DateTime.utc(2026, 10, 9),
-          updatedAt: DateTime.utc(2026, 10, 9),
-          assets: [source, crop],
-          items: [
-            DocumentItem(
-              id: 'item1',
-              assetId: crop.id,
-              x: 5,
-              y: 5,
-              width: 85.6,
-              height: 53.98,
-              pageIndex: null,
-            ),
-          ],
-        ),
-      );
-      expect(project.documents, isEmpty, reason: 'no record explains the crop');
+      //
+      // Built from a real import because the repository refuses to create a
+      // project whose asset files do not exist (`SafeFiles.existingFile`), and
+      // resolving those files is not what is under test here. Layout
+      // preservation across a successful reprocess is covered by
+      // test/application/derived_provenance_test.dart.
+      final (s, project, sourceId) = await arranged();
+      final crop = derivedOf(project, sourceId).first;
+      expect(crop.derivedFrom, sourceId);
 
+      // Drop the records and the items they placed, as a partial commit would,
+      // leaving the crop with nothing in the project that explains it.
+      final orphaned = await projects.save(
+        project.copyWith(documents: const [], items: const []),
+      );
+      expect(
+        orphaned.documents,
+        isEmpty,
+        reason: 'no record explains the crop',
+      );
+
+      final report = await s.reprocessImages(orphaned, [crop.id]);
+
+      expect(report, isNotNull);
+      final after = report!.project;
+      // The crop was NOT analysed as a source: nothing was created for it, and
+      // the asset was preserved rather than deleted or guessed away.
+      expect(
+        after.assets.map((a) => a.id).toList(),
+        orphaned.assets.map((a) => a.id).toList(),
+      );
+      expect(after.documents, isEmpty);
+      expect(after.items, isEmpty);
+      expect(
+        after.assets.firstWhere((a) => a.id == crop.id).derivedFrom,
+        sourceId,
+        reason: 'a recorded origin is not lost by a failed reprocess',
+      );
+    });
+
+    test('an ambiguous asset with no relationship stays a source', () async {
+      // The other direction must not be over-corrected: an imported photo that
+      // produced no document yet is a source, and retrying it is the whole
+      // point of reprocessing. Nothing may mark it derived on a guess.
       final s = ProjectService(
         projects,
         assets,
         imageEditor: editor,
         segmenter: (bytes) async => segmentDocumentBytes(bytes),
       );
-      final report = await s.reprocessImages(project, [crop.id]);
+      final bytes = _twoCardPhoto;
+      var project = await s.create('مستوردة لم تُرتّب');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final photo = project.assets.single;
+      expect(photo.derivedFrom, isNull);
+      expect(project.documents, isEmpty, reason: 'imported, never arranged');
 
-      expect(report, isNotNull);
-      final after = report!.project;
-      // The crop was NOT analysed as a source: nothing new was created for it,
-      // and the ambiguous asset was preserved rather than deleted or guessed
-      // away.
-      expect(after.assets.map((a) => a.id).toList(), ['src1', 'crop1']);
-      expect(after.documents, isEmpty);
-      expect(after.items.map((i) => i.id).toList(), ['item1']);
-      expect(
-        after.assets.firstWhere((a) => a.id == crop.id).derivedFrom,
-        source.id,
-      );
-      // The layout item the crop backs is untouched: refusing to reprocess a
-      // derived asset must not cost the user its place on the sheet.
-      expect(after.items.single.pageIndex, isNull);
-      expect(after.items.single.width, 85.6);
-    });
-
-    test('an ambiguous asset with no relationship stays a source', () async {
-      // The other direction must not be over-corrected: an imported photo that
-      // produced no document yet is a source, and retrying it is the point of
-      // reprocessing. Nothing may mark it derived on a guess.
-      final photo = ImageAsset(
-        id: 'photo1',
-        name: 'صورة.png',
-        originalPath: 'projects/project2/assets/photo1/original.png',
-        workingPath: 'projects/project2/assets/photo1/working.png',
-        thumbnailPath: 'projects/project2/assets/photo1/thumb.jpg',
-        width: 1200,
-        height: 1600,
-      );
-      final project = await projects.create(
-        Project(
-          id: 'project2',
-          name: 'صورة وحيدة',
-          createdAt: DateTime.utc(2026, 10, 9),
-          updatedAt: DateTime.utc(2026, 10, 9),
-          assets: [photo],
-          items: [
-            DocumentItem(
-              id: 'item1',
-              assetId: photo.id,
-              x: 5,
-              y: 5,
-              width: 85.6,
-              height: 53.98,
-              pageIndex: null,
-            ),
-          ],
-        ),
-      );
+      // Nothing to backfill and nothing broken: an asset no record names and no
+      // origin is recorded for is simply a source.
       final reconciled = reconcileDerivedProvenance(project);
       expect(reconciled.backfilled, isEmpty);
       expect(reconciled.brokenChains, isEmpty);
       expect(reconciled.changed, isFalse);
       expect(reconciled.project.assets.single.derivedFrom, isNull);
+
+      // And it is retried rather than skipped: reprocessing produced documents
+      // out of it, which is what a source is for.
+      final report = await s.reprocessImages(project, [photo.id]);
+      expect(report, isNotNull);
+      final after = report!.project;
+      expect(after.documents, isNotEmpty);
+      // The photo is still a source afterwards; only the NEW crops carry an
+      // origin, and they carry the photo's id — recorded, never inferred.
+      expect(
+        after.assets.firstWhere((a) => a.id == photo.id).derivedFrom,
+        isNull,
+      );
+      for (final asset in after.assets) {
+        if (asset.id == photo.id) continue;
+        expect(asset.derivedFrom, photo.id, reason: asset.name);
+      }
+      expect(reconcileDerivedProvenance(after).changed, isFalse);
     });
   });
 }

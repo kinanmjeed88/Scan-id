@@ -164,19 +164,21 @@ void main() {
       await tester.pump();
       await tester.tap(button);
 
-      // Pumping is BOUNDED here, never pumpAndSettle: reprocessing does real
-      // file IO and the editor keeps scheduling frames while it runs, so
-      // waiting for a fully settled tree can spin until the 10-minute
-      // timeout. Pump frames until the command has committed, then stop.
+      // Reprocessing does real file IO. That IO does not complete while the
+      // widget tester pumps frames on its fake-async clock, and pumpAndSettle
+      // therefore spins until its 10-minute timeout, so the wait for the
+      // committed revision runs in a REAL async zone instead. It is capped at
+      // a couple of seconds so that a failure surfaces at once.
       final startRevision = project.revision;
-      for (var frame = 0; frame < 300; frame++) {
-        await tester.pump(const Duration(milliseconds: 50));
-        if (store.values[project.id]!.revision > startRevision) break;
-      }
-      // A few more frames so any post-commit rebuild is flushed.
-      for (var frame = 0; frame < 20; frame++) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
+      await tester.runAsync(() async {
+        for (var attempt = 0; attempt < 100; attempt++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          if (store.values[project.id]!.revision > startRevision) return;
+        }
+      });
+      // Flush the rebuild the command triggered.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(tester.takeException(), isNull);
       expect(
         store.values[project.id]!.revision,

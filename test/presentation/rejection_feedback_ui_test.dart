@@ -280,6 +280,26 @@ void main() {
       // already passed, which reaches the log only as "see exception logs
       // above" — unreadable through the annotation channel CI has. Bounded
       // pumps make neither possible.
+      // TEMPORARY DIAGNOSTIC — remove once the cause is known. Whatever the
+      // framework reports against this test, including anything it raises after
+      // the body has finished, is captured here and republished as a failure
+      // detail, because the exception block the reporter prints ABOVE the
+      // failure marker is not part of the annotation channel CI exposes.
+      final captured = <String>[];
+      final previousHandler = FlutterError.onError;
+      FlutterError.onError = (FlutterErrorDetails details) {
+        captured.add('${details.exception}');
+        previousHandler?.call(details);
+      };
+      addTearDown(() {
+        FlutterError.onError = previousHandler;
+        expect(
+          captured,
+          isEmpty,
+          reason: 'captured ${captured.length}: $captured',
+        );
+      });
+
       await EditorHarness.pump(tester);
       final button = find.byKey(const Key('rb-reprocess'));
       expect(button, findsOneWidget);

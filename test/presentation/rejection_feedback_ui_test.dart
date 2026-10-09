@@ -280,14 +280,26 @@ void main() {
         find.text('التعرف الذكي غير مفعّل في هذا البناء.'),
         findsOneWidget,
       );
-      expect(tester.takeException(), isNull);
 
-      // The SnackBar schedules its own dismissal, so the fake clock has to run
-      // past it: leaving it pending fails the test at teardown even though
-      // everything above passed.
-      await tester.pump(const Duration(seconds: 10));
+      // `showMessage` gives every SnackBar a six-second duration, so it owns a
+      // timer that outlives the test body; dismissing it through the messenger
+      // cancels that timer instead of leaving it for the binding to report at
+      // teardown.
+      ScaffoldMessenger.of(
+        tester.element(find.byType(SnackBar)),
+      ).hideCurrentSnackBar();
       await tester.pumpAndSettle();
       expect(find.byType(SnackBar), findsNothing);
+      // Run the clock on, so that nothing scheduled by the dismissal is left
+      // behind either.
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+
+      // Last, so it catches anything the frames above recorded. A recorded
+      // exception fails a widget test after the body has run, which reads as
+      // "see exception logs above" — naming it here puts the reason in the
+      // failure detail instead of only in a log.
+      expect(tester.takeException(), isNull, reason: 'see the actual value');
     });
   });
 }

@@ -446,7 +446,10 @@ void main() {
           isNotEmpty,
           reason: 'ADR-004: the decision stays',
         );
-        expect(kept.recognition!.documentKind, DocumentKind.passport);
+        // The override still decides the effective kind, while the machine's
+        // own recognition truth stays exactly as recognition recorded it.
+        expect(rec.effectiveKind(kept), DocumentKind.passport);
+        expect(kept.recognition!.documentKind, DocumentKind.unifiedNationalId);
         expect(report.warnings.join('\n'), contains('تُرِك'));
         // Still no duplicates.
         expect(report.project.documents, hasLength(2));

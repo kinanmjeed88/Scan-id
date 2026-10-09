@@ -158,10 +158,31 @@ void main() {
 
       // The real button, on its real tab.
       await tapKey(tester, const Key('ribbon-tab-file'));
-      expect(find.byKey(const Key('rb-reprocess')), findsOneWidget);
-      await tapKey(tester, const Key('rb-reprocess'));
-      await tester.pumpAndSettle();
+      final button = find.byKey(const Key('rb-reprocess'));
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.pump();
+      await tester.tap(button);
+
+      // Pumping is BOUNDED here, never pumpAndSettle: reprocessing does real
+      // file IO and the editor keeps scheduling frames while it runs, so
+      // waiting for a fully settled tree can spin until the 10-minute
+      // timeout. Pump frames until the command has committed, then stop.
+      final startRevision = project.revision;
+      for (var frame = 0; frame < 300; frame++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        if (store.values[project.id]!.revision > startRevision) break;
+      }
+      // A few more frames so any post-commit rebuild is flushed.
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
       expect(tester.takeException(), isNull);
+      expect(
+        store.values[project.id]!.revision,
+        greaterThan(startRevision),
+        reason: 'the reprocess command committed a new revision',
+      );
 
       final after = EditorHarness(store, project.id).saved;
 

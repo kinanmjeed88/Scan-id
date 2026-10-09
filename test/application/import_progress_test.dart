@@ -38,7 +38,7 @@ void main() {
 
   List<ImportSource> sources(
     int count, {
-    List<bool> broken = const [],
+    List<int> broken = const [],
     List<int> cleaned = const [],
   }) => [
     for (var i = 0; i < count; i++)

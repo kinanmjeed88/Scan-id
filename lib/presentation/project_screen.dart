@@ -61,8 +61,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
       final latest = run.project;
       final automatic = run.layout;
       setState(() => _project = latest);
-      if (run.error != null && mounted) {
-        showMessage(context, userError(run.error));
+      final failure = run.error;
+      if (failure != null && mounted) {
+        showMessage(context, userError(failure));
       }
       if (result.failures.isNotEmpty) {
         await showDialog<void>(

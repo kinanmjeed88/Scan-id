@@ -161,6 +161,14 @@ class ImageAnalysis {
 Future<SegmentationResult> defaultSegment(Uint8List previewBytes) =>
     Isolate.run(() => segmentDocumentBytes(previewBytes));
 
+/// The stable identity of one measured region of [assetId].
+///
+/// It depends on the region's position only — never on whether that region
+/// could be resolved into a quadrilateral — so a later retry of the same
+/// deterministic analysis recognises the same document again.
+String regionDetectionId(String assetId, int regionIndex) =>
+    '$assetId-d$regionIndex';
+
 class RecognitionPipeline {
   const RecognitionPipeline({
     required this.suggestSingle,
@@ -224,7 +232,12 @@ class RecognitionPipeline {
           unresolved.add(
             await _analyzeDetection(
               input,
-              detectionId: '${input.assetId}-u$regionIndex',
+              // The id depends on the REGION only, never on whether that
+              // region could be resolved. Reprocessing the same original is
+              // deterministic, so a region keeps its id when a later pass
+              // finds the boundary it missed — which is what lets the retry
+              // update that document instead of duplicating it.
+              detectionId: regionDetectionId(input.assetId, regionIndex),
               corners: null,
               detectionConfidence: candidate.detectionConfidence,
               region: candidate.region,
@@ -238,7 +251,7 @@ class RecognitionPipeline {
         detections.add(
           await _analyzeDetection(
             input,
-            detectionId: '${input.assetId}-d$regionIndex',
+            detectionId: regionDetectionId(input.assetId, regionIndex),
             corners: candidate.corners,
             detectionConfidence: candidate.detectionConfidence,
             region: candidate.region,

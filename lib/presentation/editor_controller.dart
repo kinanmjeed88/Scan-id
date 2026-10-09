@@ -625,7 +625,8 @@ class LayoutEditorController extends ChangeNotifier {
     }
     if (!ok) return;
     final failures = outcome?.failures.length ?? 0;
-    if (outcome?.error != null) _say(userError(outcome!.error));
+    final failure = outcome?.error;
+    if (failure != null) _say(userError(failure));
     final r = outcome?.layout;
     if (r != null) {
       _say(
@@ -634,6 +635,41 @@ class LayoutEditorController extends ChangeNotifier {
         '${failures > 0 ? ' · تعذر استيراد $failures' : ''}',
       );
     }
+  }
+
+  /// Re-runs recognition over the given source images.
+  ///
+  /// A retry, not an import: the sources stay where they are, documents keep
+  /// their ids and placement, and documents the user confirmed are left alone.
+  /// Like every other command it goes through [session], so it is one undoable
+  /// step and the sheet is re-laid out afterwards.
+  Future<void> reprocessImages(List<String> assetIds) async {
+    if (assetIds.isEmpty) return;
+    AutomaticLayoutReport? report;
+    final ok = await run(() async {
+      final before = session.current;
+      report = await service.reprocessImages(
+        before,
+        assetIds,
+        keepPlaced: !autoFlow,
+      );
+      final latest = report?.project ?? before;
+      // Adopting the saved result records it as ONE undoable step, so the
+      // whole re-run is undone at once and never piecemeal.
+      if (latest.revision > session.current.revision) {
+        await session.adoptSaved(latest);
+      }
+    });
+    if (!ok) return;
+    final r = report;
+    if (r == null) {
+      _say('التعرف الذكي غير مفعّل في هذا البناء.');
+      return;
+    }
+    _say(
+      'أُعيد التعرف: حدّث ${r.needsReview} · بلا حدود ${r.notDetected}'
+      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}',
+    );
   }
 
   /// Adopts a crop saved by the crop editor and re-applies the catalog size

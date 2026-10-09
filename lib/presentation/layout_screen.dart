@@ -296,6 +296,19 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     ? null
                     : c.importImages,
               ),
+              RibbonButton(
+                key: const Key('rb-reprocess'),
+                icon: Icons.refresh_outlined,
+                label: 'إعادة التعرف',
+                tooltip:
+                    'إعادة تحليل صور هذا المشروع: تحدّث الأصول المشتقة '
+                    'والأدلة دون إضافة صور جديدة ودون تغيير تأكيداتك',
+                onPressed: busy || project.assets.isEmpty
+                    ? null
+                    : () => c.reprocessImages(
+                        [for (final asset in project.assets) asset.id],
+                      ),
+              ),
             ],
           ),
           RibbonGroup(

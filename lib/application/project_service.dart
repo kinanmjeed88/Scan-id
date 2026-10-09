@@ -148,6 +148,38 @@ class ProjectService {
   Future<Project> rename(Project project, String name) async =>
       projects.save(project.copyWith(name: name.trim()));
 
+  /// Re-runs recognition over source images that are ALREADY in the project.
+  ///
+  /// This is a retry, not an import: no source image is added and no original
+  /// file is written. Documents this source already produced keep their ids,
+  /// their layout items and their placement; only their derived image and
+  /// evidence are regenerated. Documents the user confirmed are left alone.
+  ///
+  /// Returns null when Smart Recognition is off or no image editor is
+  /// available, so callers can say so instead of pretending nothing happened.
+  Future<AutomaticLayoutReport?> reprocessImages(
+    Project project,
+    Iterable<String> assetIds, {
+    bool keepPlaced = true,
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
+    final smartEditor = imageEditor;
+    if (!smartRecognitionEnabled || smartEditor == null) return null;
+    return SmartIntake(
+      projects: projects,
+      assets: assets,
+      editor: smartEditor,
+      segment: segmenter ?? defaultSegment,
+    ).reprocess(
+      project,
+      assetIds,
+      keepPlaced: keepPlaced,
+      cancellation: cancellation,
+      onProgress: onProgress,
+    );
+  }
+
   /// Each successfully imported image is committed before processing the next.
   /// A batch may partially succeed; report precisely rather than losing work.
   ///

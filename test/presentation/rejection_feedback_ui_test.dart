@@ -272,33 +272,41 @@ void main() {
       // carries the refusal tally is what puts a message on screen at all.
       // With no image editor the command reports that recognition is off, so
       // this needs no files and no recognition run.
+      //
+      // Frames are pumped a bounded number of times rather than settled, and
+      // the SnackBar is dismissed through its messenger. `showMessage` gives it
+      // a six-second duration, and both a timer left running and an animation
+      // that never settles are reported against the test AFTER its body has
+      // already passed, which reaches the log only as "see exception logs
+      // above" — unreadable through the annotation channel CI has. Bounded
+      // pumps make neither possible.
       await EditorHarness.pump(tester);
-      await tapKey(tester, const Key('rb-reprocess'));
+      final button = find.byKey(const Key('rb-reprocess'));
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(button);
+      // The command itself is a chain of microtasks, which the first pump
+      // drains; the rest let the SnackBar's entrance run to completion.
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
 
-      expect(find.byType(SnackBar), findsOneWidget);
+      final snack = find.byType(SnackBar);
+      expect(snack, findsOneWidget);
       expect(
         find.text('التعرف الذكي غير مفعّل في هذا البناء.'),
         findsOneWidget,
       );
 
-      // `showMessage` gives every SnackBar a six-second duration, so it owns a
-      // timer that outlives the test body; dismissing it through the messenger
-      // cancels that timer instead of leaving it for the binding to report at
-      // teardown.
-      ScaffoldMessenger.of(
-        tester.element(find.byType(SnackBar)),
-      ).hideCurrentSnackBar();
-      await tester.pumpAndSettle();
+      // Cancels the duration timer instead of waiting it out.
+      ScaffoldMessenger.of(tester.element(snack)).clearSnackBars();
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       expect(find.byType(SnackBar), findsNothing);
-      // Run the clock on, so that nothing scheduled by the dismissal is left
-      // behind either.
-      await tester.pump(const Duration(seconds: 10));
-      await tester.pumpAndSettle();
-
-      // Last, so it catches anything the frames above recorded. A recorded
-      // exception fails a widget test after the body has run, which reads as
-      // "see exception logs above" — naming it here puts the reason in the
-      // failure detail instead of only in a log.
+      // Last, so it names anything the frames above recorded in the failure
+      // detail rather than only in a log this sandbox cannot read.
       expect(tester.takeException(), isNull, reason: 'see the actual value');
     });
   });

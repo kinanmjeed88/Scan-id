@@ -27,6 +27,7 @@ import '../domain/side_pairing.dart';
 import '../domain/validation.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/perspective.dart';
+import '../imaging/region_crop.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
 import 'ids.dart';
@@ -42,6 +43,16 @@ Future<Uint8List> defaultWarp(
   Uint8List originalBytes,
   ImageEditRecipe recipe,
 ) => Isolate.run(() => renderPerspective(originalBytes, recipe));
+
+/// Axis-aligned crop of one measured region, off the UI isolate.
+///
+/// This is the RECOVERY path for a segmented region whose quadrilateral could
+/// not be trusted: it keeps the measured pixels without guessing a rectangle,
+/// and it only ever READS the original bytes (ADR-003).
+Future<Uint8List> defaultRegionCrop(
+  Uint8List originalBytes,
+  List<double> region,
+) => Isolate.run(() => cropRegionBytes(originalBytes, region));
 
 class _Analyzed {
   const _Analyzed(
@@ -65,6 +76,7 @@ class SmartIntake {
     this.ocr = const UnavailableOcrEngine(),
     this.worker = const RecognitionBatchWorker(),
     this.warp = defaultWarp,
+    this.cropRegion = defaultRegionCrop,
     this.thresholds = defaultThresholds,
   });
 
@@ -79,6 +91,14 @@ class SmartIntake {
     ImageEditRecipe recipe,
   )
   warp;
+
+  /// Keeps an unresolved region as a plain crop of the original, so a region
+  /// without a trustworthy quadrilateral is preserved instead of dropped.
+  final Future<Uint8List> Function(
+    Uint8List originalBytes,
+    List<double> region,
+  )
+  cropRegion;
   final RecognitionThresholds thresholds;
 
   Future<AutomaticLayoutReport> run(
@@ -254,21 +274,30 @@ class SmartIntake {
   }) async {
     var asset = analyzed.asset;
     final analysis = analyzed.analysis;
-    final usable = [
-      for (final d in analysis.detections)
-        if (d.hasUsableQuad) d,
-    ];
 
-    if (analysis.multi && usable.length >= 2) {
+    // Surface every analysis issue. An unresolved or geometrically rejected
+    // region is an explicit, actionable finding — it must never stay hidden
+    // inside the analysis object while the report claims success.
+    for (final issue in analysis.issues) {
+      warnings.add('${analyzed.asset.name}: ${issue.message}');
+    }
+
+    if (analysis.needsMultiIntake) {
+      // A source holding more than one measured region NEVER goes through the
+      // single-document path: that path crops the SOURCE asset to the one quad
+      // it found, which would make every other region of the photo
+      // unrecoverable (ADR-003). Every region is preserved instead — resolved
+      // ones as rectified crops, unresolved ones as reviewable region crops.
       onMulti();
       return _applyMultiDocument(
         current,
         analyzed,
-        usable,
+        analysis.allRegions,
         newItems: newItems,
         newDocuments: newDocuments,
         warnings: warnings,
         onCropped: onCropped,
+        onNotDetected: onNotDetected,
         cancellation: cancellation,
       );
     }
@@ -392,6 +421,7 @@ class SmartIntake {
     required List<DocumentRecord> newDocuments,
     required List<String> warnings,
     required void Function() onCropped,
+    required void Function() onNotDetected,
     required CancellationToken? cancellation,
   }) async {
     final sourceAsset = analyzed.asset;
@@ -404,36 +434,65 @@ class SmartIntake {
       for (final detection in detections) {
         cancellation?.throwIfCancelled();
         final kind = detection.classification.kind;
-        final estimate = CropDraft(
-          corners: detection.corners!,
-          adjustments: sourceAsset.adjustments,
-        ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-        final size = current.catalog.sizeFor(
-          kind,
-          landscape:
-              estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
-        );
-        final recipe = size == null
-            ? estimate
-            : CropDraft(
-                corners: detection.corners!,
-                adjustments: sourceAsset.adjustments,
-                aspectRatio: size.width / size.height,
-              ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-        final warped = await warp(originalBytes, recipe);
+        final trustworthy = detection.hasUsableQuad;
+        final Uint8List derivedBytes;
+        List<Point2>? recordedCorners;
+        int? outputWidth;
+        int? outputHeight;
+        if (trustworthy) {
+          final estimate = CropDraft(
+            corners: detection.corners!,
+            adjustments: sourceAsset.adjustments,
+          ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+          final size = current.catalog.sizeFor(
+            kind,
+            landscape:
+                estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+          );
+          final recipe = size == null
+              ? estimate
+              : CropDraft(
+                  corners: detection.corners!,
+                  adjustments: sourceAsset.adjustments,
+                  aspectRatio: size.width / size.height,
+                ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+          derivedBytes = await warp(originalBytes, recipe);
+          recordedCorners = detection.corners;
+          outputWidth = recipe.geometry.outputWidth;
+          outputHeight = recipe.geometry.outputHeight;
+        } else {
+          // RECOVERY PATH — this region has no trustworthy quadrilateral.
+          // Keep it as a plain axis-aligned crop of the ORIGINAL: no guessed
+          // rectangle, no perspective warp, no source mutation (ADR-003). The
+          // document stays in the review workflow and the user finishes its
+          // boundary by hand in the editor — it is never silently discarded.
+          derivedBytes = await cropRegion(
+            originalBytes,
+            detection.region ?? fullFrameRegion,
+          );
+          onNotDetected();
+          warnings.add(
+            '${sourceAsset.name} (مستند ${position + 1}): لم تُكتشف حدود '
+            'موثوقة لهذه المنطقة؛ حُفظت كما هي لتُقصّ يدوياً من المحرر.',
+          );
+        }
         final derived = await assets.importImage(
           current.id,
           _derivedName(sourceAsset.name, position + 1),
-          warped,
+          derivedBytes,
         );
         current = await projects.save(
           current.copyWith(assets: [...current.assets, derived]),
         );
-        onCropped();
-        final catalogSize = current.catalog.sizeFor(
-          kind,
-          landscape: derived.width >= derived.height,
-        );
+        if (trustworthy) onCropped();
+        // An unresolved region was never rectified, so its size is NOT
+        // confirmed: claiming a catalog size here would distort the print.
+        final catalogSize = trustworthy
+            ? current.catalog.sizeFor(
+                kind,
+                landscape: derived.width >= derived.height,
+              )
+            : null;
         final itemSize =
             catalogSize ??
             provisionalSize(width: derived.width, height: derived.height);
@@ -451,9 +510,9 @@ class SmartIntake {
             height: derived.height,
             orientation: 0,
             processingVersion: recognitionPipelineVersion,
-            corners: detection.corners,
-            outputWidth: recipe.geometry.outputWidth,
-            outputHeight: recipe.geometry.outputHeight,
+            corners: recordedCorners,
+            outputWidth: outputWidth,
+            outputHeight: outputHeight,
           ),
           producer: 'document-segmenter',
         );

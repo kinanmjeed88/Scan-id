@@ -48,6 +48,21 @@ class PipelineImageInput {
   final String? captureId;
 }
 
+/// Why a region does (or does not) carry a trustworthy boundary.
+///
+/// An unresolved region is an explicit, reportable state — never an implicit
+/// drop and never a guessed rectangle.
+enum DetectionBoundary {
+  /// A quadrilateral was found and passed geometry validation.
+  trustworthy,
+
+  /// A quadrilateral was found but geometry validation rejected it.
+  rejected,
+
+  /// No quadrilateral was found inside the region at all.
+  undetected,
+}
+
 /// Analysis of one detected document inside an image.
 class DetectionAnalysis {
   const DetectionAnalysis({
@@ -57,12 +72,29 @@ class DetectionAnalysis {
     this.corners,
     this.detectionConfidence,
     this.geometry,
+    this.region,
+    this.boundary = DetectionBoundary.undetected,
+    this.regionIndex = 0,
   });
   final String detectionId;
 
   /// Normalized source-image corners (CropGeometry order); null when no
   /// trustworthy boundary exists (full-frame fallback).
   final List<Point2>? corners;
+
+  /// Normalized `[left, top, right, bottom]` bounds of the region this
+  /// analysis came from, as MEASURED by the segmenter. Present for every
+  /// segmented region — including the ones whose boundary could not be
+  /// resolved — so the region can still be recovered by a manual crop.
+  /// Null for a full-frame fallback, which has no region measurement.
+  final List<double>? region;
+
+  /// Whether [corners] can be trusted. See [DetectionBoundary].
+  final DetectionBoundary boundary;
+
+  /// Position of this region in the deterministic region order
+  /// (top-to-bottom, left-to-right), used to keep results stable.
+  final int regionIndex;
 
   /// Measured segmenter support; absent for the single-document detector
   /// (it exposes no calibrated score) and for full-frame fallbacks.
@@ -72,6 +104,11 @@ class DetectionAnalysis {
   final OrientationEstimate orientation;
 
   bool get hasUsableQuad => corners != null && (geometry?.acceptable ?? false);
+
+  /// Whether this region needs a manual boundary before it can be placed
+  /// confidently. Its measured [region] is always kept so the document is
+  /// never lost from the review workflow.
+  bool get needsManualBoundary => !hasUsableQuad;
 }
 
 /// The complete analysis of one source image.
@@ -82,6 +119,7 @@ class ImageAnalysis {
     required this.detections,
     required this.issues,
     required this.multi,
+    this.unresolvedRegions = const [],
   });
   final String assetId;
   final int importIndex;
@@ -90,6 +128,33 @@ class ImageAnalysis {
 
   /// Whether this image was treated as a multi-document source.
   final bool multi;
+
+  /// Document-like regions the segmenter MEASURED but could not resolve into
+  /// a trustworthy quadrilateral.
+  ///
+  /// These are kept — never dropped — because silently discarding a measured
+  /// region is how a photo of several documents loses one of them. Each entry
+  /// carries its measured [DetectionAnalysis.region], so the intake can keep
+  /// the document as a reviewable region crop the user finishes by hand.
+  final List<DetectionAnalysis> unresolvedRegions;
+
+  /// Every region of this image (resolved first, then unresolved), in the
+  /// deterministic region order the segmenter produced them in.
+  List<DetectionAnalysis> get allRegions => [
+    ...detections,
+    ...unresolvedRegions,
+  ]..sort((a, b) => a.regionIndex.compareTo(b.regionIndex));
+
+  /// How many document-like regions this image holds, resolved or not.
+  int get regionCount => detections.length + unresolvedRegions.length;
+
+  /// Whether this source needs the multi-document intake path.
+  ///
+  /// True as soon as more than one region was measured: routing a
+  /// multi-region photo through the single-document path would crop the
+  /// SOURCE asset to one quad and make every other region unrecoverable
+  /// (ADR-003).
+  bool get needsMultiIntake => multi || regionCount > 1;
 }
 
 /// Default segmentation seam: the real classical segmenter off the UI
@@ -139,16 +204,34 @@ class RecognitionPipeline {
     token?.throwIfCancelled();
 
     final detections = <DetectionAnalysis>[];
+    final unresolved = <DetectionAnalysis>[];
     if (segmentation.multi) {
       var index = 0;
       for (final candidate in segmentation.candidates) {
         token?.throwIfCancelled();
+        final regionIndex = index;
+        index++;
         if (candidate.corners == null) {
           issues.add(
             const BatchItemFailure(
               category: RecognitionErrorCategory.detectionFailure,
               message:
-                  'منطقة مستند بلا حدود موثوقة؛ تحتاج قصاً يدوياً من المحرر.',
+                  'منطقة مستند بلا حدود موثوقة؛ حُفظت كما هي لتُقصّ يدوياً من المحرر.',
+            ),
+          );
+          // KEEP the region instead of dropping it. No rectangle is guessed:
+          // the measured bounds are carried through so the intake can preserve
+          // the document as a reviewable crop for a manual boundary.
+          unresolved.add(
+            await _analyzeDetection(
+              input,
+              detectionId: '${input.assetId}-u$regionIndex',
+              corners: null,
+              detectionConfidence: candidate.detectionConfidence,
+              region: candidate.region,
+              regionIndex: regionIndex,
+              issues: issues,
+              token: token,
             ),
           );
           continue;
@@ -156,14 +239,15 @@ class RecognitionPipeline {
         detections.add(
           await _analyzeDetection(
             input,
-            detectionId: '${input.assetId}-d$index',
+            detectionId: '${input.assetId}-d$regionIndex',
             corners: candidate.corners,
             detectionConfidence: candidate.detectionConfidence,
+            region: candidate.region,
+            regionIndex: regionIndex,
             issues: issues,
             token: token,
           ),
         );
-        index++;
       }
     }
     if (detections.isEmpty) {
@@ -199,6 +283,7 @@ class RecognitionPipeline {
       detections: detections,
       issues: issues,
       multi: segmentation.multi && detections.length > 1,
+      unresolvedRegions: unresolved,
     );
   }
 
@@ -209,9 +294,12 @@ class RecognitionPipeline {
     required double? detectionConfidence,
     required List<BatchItemFailure> issues,
     required CancellationToken? token,
+    List<double>? region,
+    int regionIndex = 0,
   }) async {
     QuadAssessment? assessment;
     var usableCorners = corners;
+    var boundary = DetectionBoundary.undetected;
     if (corners != null) {
       assessment = assessQuad(
         corners,
@@ -224,11 +312,14 @@ class RecognitionPipeline {
             category: RecognitionErrorCategory.geometryFailure,
             message:
                 'حدود مرفوضة هندسياً (${assessment.rejection?.name})؛ '
-                'بقيت الصورة كاملة.',
+                'حُفظت المنطقة كما هي لتُقصّ يدوياً من المحرر.',
           ),
         );
         usableCorners = null;
         assessment = null;
+        boundary = DetectionBoundary.rejected;
+      } else {
+        boundary = DetectionBoundary.trustworthy;
       }
     }
 
@@ -258,8 +349,17 @@ class RecognitionPipeline {
       final aspect = quadAspect;
       // Only the proportion matters for shape classification; the quad is in
       // pixel space so its aspect is the crop's proportion.
-      width = aspect >= 1 ? (aspect * 1000).round() : 1000;
-      height = aspect >= 1 ? 1000 : (1000 / aspect).round();
+      width = _shapeSide(aspect, long: true);
+      height = _shapeSide(aspect, long: false);
+    } else if (region != null) {
+      // No trustworthy quadrilateral, but the segmenter DID measure this
+      // region. Classify from the measured region proportion — using the whole
+      // frame here would describe a different document.
+      final regionWidth = (region[2] - region[0]).abs() * input.sourceWidth;
+      final regionHeight = (region[3] - region[1]).abs() * input.sourceHeight;
+      final aspect = regionHeight <= 0 ? 1.0 : regionWidth / regionHeight;
+      width = _shapeSide(aspect, long: true);
+      height = _shapeSide(aspect, long: false);
     } else {
       width = input.sourceWidth;
       height = input.sourceHeight;
@@ -293,6 +393,22 @@ class RecognitionPipeline {
       geometry: assessment,
       classification: classification,
       orientation: orientation,
+      region: region,
+      boundary: boundary,
+      regionIndex: regionIndex,
     );
   }
+}
+
+/// One side of the synthetic 1000-px-long-edge shape used for classification.
+///
+/// Reproduces the historical aspect→pixels mapping exactly, but clamps a
+/// degenerate measurement so a zero-area or hostile region can never produce
+/// a zero, negative or overflowing dimension.
+int _shapeSide(double aspect, {required bool long}) {
+  final safe = aspect.isFinite && aspect > 0 ? aspect : 1.0;
+  if (safe >= 1) {
+    return long ? (safe * 1000).round().clamp(1, 100000).toInt() : 1000;
+  }
+  return long ? 1000 : (1000 / safe).round().clamp(1, 100000).toInt();
 }

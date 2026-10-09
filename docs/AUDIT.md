@@ -63,15 +63,17 @@ mm/point conversions); `crop_draft.dart` (`CropDraft`, `ImageEditRecipe`);
 `document_edits.dart` (`DocumentEdits`); `edit_history.dart` (`EditHistory`,
 session undo/redo); `validation.dart` (`require`, typed readers, `validId`,
 `validName`, `validAssetPath`, reserved-Windows-name guard); `image_limits.dart`
-(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`, `export_naming.dart`,
+(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`,
+`export_naming.dart`,
 `image_adjustments.dart`.
 
 **imaging/** — no Widgets. `document_detector.dart`
 (`suggestDocumentCorners`/`detectDocumentCorners`: classical, deterministic,
 single quad or `null`); `perspective.dart` (`PerspectiveMap` 8-param homography,
 `warpPerspective`, `renderPerspective`); `prepare_image.dart`
-(`decodeForProcessing`, `prepareImage`, `normalizeChannels`); `image_header.dart`
-(`inspectImageHeader`), `safe_png.dart`, `auto_adjustments.dart`.
+(`decodeForProcessing`, `prepareImage`, `normalizeChannels`);
+`image_header.dart` (`inspectImageHeader`), `safe_png.dart`,
+`auto_adjustments.dart`.
 
 **application/** — `project_service.dart` (`ProjectService`: `create`, `rename`,
 `importImages`, `arrangeImportedImages` (auto-intake: open→suggest→classify→
@@ -87,10 +89,11 @@ maintenance, `suggestAutoAdjustments`); `contracts.dart` (ports + result types);
 (optimistic `revision`, `RecoveryCheckpoints`, explicit `recover`, never
 delete/recreate on corruption); `local_asset_repository.dart`
 (`importImage`/`replaceImage` in `Isolate.run`, staging→publish, immutable
-original); `local_image_editor.dart` (`open`/`suggest`/`preview`/`createRevision`
-in isolates); `local_project_backups.dart` (`.scanid`: magic + length-prefixed
-manifest ≤16 MiB + payloads, SHA256 per file, zip-slip/size guards, restore as
-new project); `local_project_recovery.dart`; `local_storage_maintenance.dart`;
+original); `local_image_editor.dart`
+(`open`/`suggest`/`preview`/`createRevision` in isolates);
+`local_project_backups.dart` (`.scanid`: magic + length-prefixed manifest ≤16
+MiB + payloads, SHA256 per file, zip-slip/size guards, restore as new project);
+`local_project_recovery.dart`; `local_storage_maintenance.dart`;
 `recovery_checkpoints.dart`; `safe_files.dart` (symlink/`..`/root confinement).
 
 **export/** — `document_exporter.dart`: PDF = vector A4 page + embedded working
@@ -148,21 +151,20 @@ build); storage under LocalAppData; save via system picker; reveal-folder share.
 ## D. Missing architecture (actual gaps to build)
 
 1. **Multi-document detection & segmentation** — detector returns one quad; no
-   per-candidate id/`detectionConfidence`/visibility/quality; no overlap
-   resolution.
-2. **Geometry confidence** — no `geometryConfidence` from named, measurable
-   factors; no scored geometry stage (only binary `CropGeometry` validation).
-3. **Orientation stage** — no explicit orientation proposal (only quarter-turn
-   adjustments chosen by the user).
-4. **`ProcessedDocumentAsset`** — a crop rewrites the *same* asset's working
-   image; no first-class per-detection derived asset with transform/DPI/version.
-5. **`DocumentInstance` / `DocumentSide`** — no logical-document or front/back
-   model; no `UncertainPairing`.
-6. **OCR** — none (`OCRAnalyzer` behind an interface, evidence-only).
-7. **Evidence fusion + five confidence dimensions** — `DocumentItem` carries a
-   single `recognitionConfidence`; no `detection/geometry/ocr/classification/
-   final` separation, no R1–R4 rules, no bands.
-8. **Preset resolver / variants / snapshots** — catalog has one size per type; no
+per-candidate id/`detectionConfidence`/visibility/quality; no overlap
+resolution. 2. **Geometry confidence** — no `geometryConfidence` from named,
+measurable factors; no scored geometry stage (only binary `CropGeometry`
+validation). 3. **Orientation stage** — no explicit orientation proposal (only
+quarter-turn adjustments chosen by the user). 4. **`ProcessedDocumentAsset`** —
+a crop rewrites the *same* asset's working image; no first-class per-detection
+derived asset with transform/DPI/version. 5. **`DocumentInstance` /
+`DocumentSide`** — no logical-document or front/back model; no
+`UncertainPairing`. 6. **OCR** — none (`OCRAnalyzer` behind an interface,
+evidence-only). 7. **Evidence fusion + five confidence dimensions** —
+`DocumentItem` carries a single `recognitionConfidence`; no
+`detection/geometry/ocr/classification/ final` separation, no R1–R4 rules, no
+bands. 8. **Preset resolver / variants / snapshots** — catalog has one size per
+type; no
    `PresetVariant`, no `DocumentPresetResolver`, no per-item preset snapshot.
 9. **Provenance chain** — no `sourceImageId→detectionId→documentInstanceId→side→
    model/recognition versions` record.
@@ -197,8 +199,8 @@ finding accepted earlier):
   fonts).
 
 These contexts must not be recreated, ported, or inferred here. `akrym1582/
-ExcelRenderer` is an unrelated third-party repository and is **not** a source for
-Scan-id.
+ExcelRenderer` is an unrelated third-party repository and is **not** a source
+for Scan-id.
 
 ---
 
@@ -246,25 +248,28 @@ Legend: **[E]** existing · **[X]** extension required · **[N]** new stage.
 
 ```
 IMPORT            [E] ProjectService.importImages / AssetRepository.importImage
- → VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget
- → PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels
- → DETECT         [X] suggestDocumentCorners → multi-candidate + detectionConfidence
- → SEGMENT        [N] independent units; deterministic overlap resolution (IoU/area/confidence/validity) + candidate-quality gate (ADR-012)
- → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed GeometryInvalid
- → PERSPECTIVE    [E] PerspectiveMap / warpPerspective → ProcessedDocumentAsset
- → ORIENTATION    [N] geometry + structure proposal (asset-only; layout rotation separate)
- → OCR            [N] OCRAnalyzer (evidence-only; label anchors/structure; no field values)
- → CLASSIFICATION [X] DocumentClassifier over geometry+structure+aspect+OCR (+ optional visual)
- → EVIDENCE FUSION[N] fusion per §F (five confidences, R1–R4)
- → CONFIDENCE     [N] finalConfidence + band + reasons
- → DOCUMENT TYPE  [X] DocumentKind (+ Unknown on insufficient evidence)
- → PRESET         [N] DocumentPresetResolver → variant / presetConfidence / awaitingSize shortlist
- → FRONT/BACK     [N] pairing → DocumentInstance/DocumentSide / UncertainPairing
- → USER REVIEW    [N] review queue + override layer (authoritative; AI never overwrites)
- → LAYOUT ITEM    [X] DocumentLayoutItem (mm size from preset; provenance; override; group id)
- → A4 AUTO LAYOUT [E] arrangeDocuments / proposePacking (sole coordinate authority; + keep-together [X])
- → EXISTING EDITOR[E] LayoutEditorController / PageCanvas / ribbon (correct AI results here)
- → EXPORT         [E] DocumentExporter (PDF/PNG/JPG/print/share) — unchanged
+→ VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget →
+PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels →
+DETECT         [X] suggestDocumentCorners → multi-candidate +
+detectionConfidence → SEGMENT        [N] independent units; deterministic
+overlap resolution (IoU/area/confidence/validity) + candidate-quality gate
+(ADR-012) → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed
+GeometryInvalid → PERSPECTIVE    [E] PerspectiveMap / warpPerspective →
+ProcessedDocumentAsset → ORIENTATION    [N] geometry + structure proposal
+(asset-only; layout rotation separate) → OCR            [N] OCRAnalyzer
+(evidence-only; label anchors/structure; no field values) → CLASSIFICATION [X]
+DocumentClassifier over geometry+structure+aspect+OCR (+ optional visual) →
+EVIDENCE FUSION[N] fusion per §F (five confidences, R1–R4) → CONFIDENCE     [N]
+finalConfidence + band + reasons → DOCUMENT TYPE  [X] DocumentKind (+ Unknown on
+insufficient evidence) → PRESET         [N] DocumentPresetResolver → variant /
+presetConfidence / awaitingSize shortlist → FRONT/BACK     [N] pairing →
+DocumentInstance/DocumentSide / UncertainPairing → USER REVIEW    [N] review
+queue + override layer (authoritative; AI never overwrites) → LAYOUT ITEM    [X]
+DocumentLayoutItem (mm size from preset; provenance; override; group id) → A4
+AUTO LAYOUT [E] arrangeDocuments / proposePacking (sole coordinate authority; +
+keep-together [X]) → EXISTING EDITOR[E] LayoutEditorController / PageCanvas /
+ribbon (correct AI results here) → EXPORT         [E] DocumentExporter
+(PDF/PNG/JPG/print/share) — unchanged
 ```
 
 Every stage degrades gracefully: a failure is recorded with a typed reason and
@@ -321,8 +326,8 @@ Known cost centers to be bounded and later measured by the benchmark harness
   detector uses ~480/1200 px rasters); full resolution is read only to warp the
   needed region per document. At most one full-res bitmap per worker.
 - **600 DPI output** — an A4 page at 600 DPI is ~4961×7016; a single RGB page
-  buffer is on the order of ~100 MiB before codec/source (existing export already
-  budgets 40 MP embedded / 96 MiB encoded and rasters one page at a time).
+buffer is on the order of ~100 MiB before codec/source (existing export already
+budgets 40 MP embedded / 96 MiB encoded and rasters one page at a time).
 - **Multiple documents per source** — N derived assets per image multiply warp
   and encode cost; must be bounded and streamed, not batched in memory.
 - **OCR memory** — model session + per-image tensors; session created once per
@@ -447,10 +452,10 @@ owner approval.
 ## P. Defects found (carried forward; see `docs/AUDIT_HISTORY.md`)
 
 No new production defects are introduced by Phase 0 (documentation only). The
-known defects/lessons from the prior audit remain the regression baseline and are
-preserved in `docs/AUDIT_HISTORY.md` (baseline gaps G1–G9; PR #4 defects R1–R6;
-S1–S7 lessons). Two are directly relevant to this work and are restated as
-forward obligations, not fixed here:
+known defects/lessons from the prior audit remain the regression baseline and
+are preserved in `docs/AUDIT_HISTORY.md` (baseline gaps G1–G9; PR #4 defects
+R1–R6; S1–S7 lessons). Two are directly relevant to this work and are restated
+as forward obligations, not fixed here:
 
 - **Override/confidence conflation** (ADR-004): `DocumentEdits.setKind` sets
   `recognitionConfidence: 0`; Phase 4 must separate the override layer.
@@ -628,16 +633,32 @@ the conservative behaviour the constraint asked to preserve, not a silent loss.
 positive control, and asserts the indistinguishability as equality of decisions
 rather than as a threshold.
 
+What that test measured when it first ran on CI is worth recording, because it
+is a real observation rather than a prediction. For the shadow band and the
+genuine card the pipeline produced, in both cases: 2 documents, 2 items, 0
+refused regions, every record in the review queue, and the narrow one classified
+`rationCard` with a catalog-confirmed size of aspect 5.52. The two runs differed
+in exactly one respect — which way round the confirmed 287 mm card was placed
+(287 × 52 for one fixture, 52 × 287 for the other), although their crops differ
+by 3 px. That is a placement outcome, not a recognition decision, and the
+recognition claim above is unaffected; but it is a genuine sensitivity of the
+placement path to sub-millimetre crop differences at the extreme card length
+(287 mm fits A4 only with margins of at most 5 mm, so rotation there is a
+knife-edge), it predates this work, and it is not addressed here because
+consuming an orientation estimate is forbidden while every branch of
+`DetectionAnalysis.orientation` reports `confident: false`.
+
 **R.3 There is no routing headroom to exploit (§H invariant).**
-`const automationMode` is `AutomationMode.reviewAll`, and `reviewReasons(record)`
-is non-empty for every record carrying a recognition block unless the user
-resolved it (`مؤهل تلقائياً — بانتظار التأكيد`, `ثقة متوسطة`, `ثقة منخفضة`,
-`بلا ثقة نهائية`, `حدود غير محسومة — يحتاج القص إلى مراجعة`,
-`بانتظار تحديد المقاس`). A genuine ration card and the shadow band therefore
-already enter the same review queue for the same stated reason, through
-`review_screen.dart` via `reviewReasonsFor`. Routing is what *bounds* the
-residual risk in R.2; it cannot also be tuned to reduce it. Suppressing review
-for narrow regions would be the only lever left, and it moves risk the wrong way.
+`const automationMode` is `AutomationMode.reviewAll`, and
+`reviewReasons(record)` is non-empty for every record carrying a recognition
+block unless the user resolved it (`مؤهل تلقائياً — بانتظار التأكيد`, `ثقة
+متوسطة`, `ثقة منخفضة`, `بلا ثقة نهائية`, `حدود غير محسومة — يحتاج القص إلى
+مراجعة`, `بانتظار تحديد المقاس`). A genuine ration card and the shadow band
+therefore already enter the same review queue for the same stated reason,
+through `review_screen.dart` via `reviewReasonsFor`. Routing is what *bounds*
+the residual risk in R.2; it cannot also be tuned to reduce it. Suppressing
+review for narrow regions would be the only lever left, and it moves risk the
+wrong way.
 
 **R.4 Provenance verified across every rewrite path (ADR-003, §H invariant).**
 The four places that build a replacement `ImageAsset` were audited —
@@ -654,9 +675,9 @@ revises **every** asset and keeps it for each, with the source never becoming
 derived and asset ids stable; backup → restore keeps it under a new project id
 with the same asset ids, because the relationship is id-based and only paths are
 remapped; and — the classification consequence — an asset whose recorded origin
-still exists but whose document record never got committed is **not** re-analysed
-as a source (`_sourceAssetIds` excludes it), while an ambiguous record-less
-asset with no `derivedFrom` stays a source and
+still exists but whose document record never got committed is **not**
+re-analysed as a source (`_sourceAssetIds` excludes it), while an ambiguous
+record-less asset with no `derivedFrom` stays a source and
 `reconcileDerivedProvenance` reports no change rather than guessing.
 
 **R.5 Still not verified.** No physical-device testing was done; no real Iraqi

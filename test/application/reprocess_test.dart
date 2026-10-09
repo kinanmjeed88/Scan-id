@@ -8,7 +8,6 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';

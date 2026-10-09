@@ -5,7 +5,6 @@ import 'dart:ui' show Offset;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../application/cancellation.dart';
 import '../application/ids.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
@@ -20,6 +19,7 @@ import '../domain/recognition.dart';
 import '../domain/recognition_overrides.dart' as rec;
 import '../domain/recognition_routing.dart' as routing;
 import '../domain/validation.dart';
+import 'intake.dart';
 
 /// How the sheet view chooses its scale.
 enum ZoomMode { custom, pageWidth, wholePage }
@@ -359,17 +359,19 @@ class LayoutEditorController extends ChangeNotifier {
 
   /// Live progress line of a running smart intake, or null.
   String? recognitionProgress;
-  CancellationToken? _intakeToken;
 
-  bool get canCancelIntake =>
-      _intakeToken != null && !_intakeToken!.isCancelled;
+  /// The running intake, shared with the project screen so both entry points
+  /// expose the same progress and cancellation behaviour.
+  IntakeRunner? _intake;
+
+  bool get canCancelIntake => _intake != null && !_intake!.isCancelling;
 
   /// Requests cooperative cancellation of the running intake. Completed
   /// images stay; the rest are skipped at the next safe checkpoint.
   void cancelIntake() {
-    final token = _intakeToken;
-    if (token == null || token.isCancelled) return;
-    token.cancel();
+    final intake = _intake;
+    if (intake == null || intake.isCancelling) return;
+    intake.cancel();
     recognitionProgress = 'جارٍ الإلغاء بعد الصورة الحالية…';
     _notify();
   }
@@ -590,52 +592,41 @@ class LayoutEditorController extends ChangeNotifier {
       return;
     }
     if (sources.isEmpty) return;
-    AutomaticLayoutReport? report;
-    var failures = 0;
-    final token = CancellationToken();
-    _intakeToken = token;
+    // The shared runner: the editor and the project screen therefore expose
+    // the same real progress, cooperative cancellation and committed final
+    // state.
+    final runner = IntakeRunner(
+      service: service,
+      project: session.current,
+      keepPlaced: !autoFlow,
+    );
+    _intake = runner;
+    IntakeRun? outcome;
+    final bool ok;
     try {
-      await run(() async {
-        final existing = session.current.assets.map((a) => a.id).toSet();
-        final imported = await service.importImages(session.current, sources);
-        failures = imported.failures.length;
-        final ids = [
-          for (final asset in imported.project.assets)
-            if (!existing.contains(asset.id)) asset.id,
-        ];
-        var latest = imported.project;
-        if (ids.isNotEmpty) {
-          try {
-            report = await service.arrangeImportedImages(
-              latest,
-              ids,
-              keepPlaced: !autoFlow,
-              cancellation: token,
-              onProgress: (progress) {
-                recognitionProgress =
-                    '${progress.stage}: ${progress.completed}/${progress.total}';
-                _notify();
-              },
-            );
-            latest = report!.project;
-          } catch (_) {
-            latest = await service.projects.get(latest.id);
-            rethrow;
-          } finally {
-            if (latest.revision > session.current.revision) {
-              await session.adoptSaved(latest);
-            }
-          }
-        } else if (latest.revision > session.current.revision) {
+      ok = await run(() async {
+        outcome = await runner.run(
+          sources,
+          onProgress: (progress) {
+            recognitionProgress =
+                '${progress.stage}: ${progress.completed}/${progress.total}';
+            _notify();
+          },
+        );
+        final latest = outcome!.project;
+        if (latest.revision > session.current.revision) {
           await session.adoptSaved(latest);
         }
       });
     } finally {
-      _intakeToken = null;
+      _intake = null;
       recognitionProgress = null;
       _notify();
     }
-    final r = report;
+    if (!ok) return;
+    final failures = outcome?.failures.length ?? 0;
+    if (outcome?.error != null) _say(userError(outcome!.error));
+    final r = outcome?.layout;
     if (r != null) {
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'

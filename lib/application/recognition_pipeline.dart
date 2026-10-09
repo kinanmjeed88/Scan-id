@@ -250,7 +250,11 @@ class RecognitionPipeline {
         );
       }
     }
-    if (detections.isEmpty) {
+    // Only fall back to the whole frame when NOTHING was measured. Once the
+    // segmenter has produced regions — even unresolved ones — a full-frame
+    // detection would describe a DIFFERENT document spanning those regions,
+    // duplicating them instead of recovering them.
+    if (detections.isEmpty && unresolved.isEmpty) {
       List<Point2>? corners;
       try {
         corners = await suggestSingle(input.previewBytes);

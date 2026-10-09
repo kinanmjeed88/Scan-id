@@ -167,8 +167,9 @@ void main() {
   /// Using this construction is the point of the suite: it is what the user
   /// actually triggers, and it hands the service EVERY asset, derived crops
   /// included.
-  List<String> uiAssetIds(Project project) =>
-      [for (final asset in project.assets) asset.id];
+  List<String> uiAssetIds(Project project) => [
+    for (final asset in project.assets) asset.id,
+  ];
 
   Future<Project> importAndArrange(
     Uint8List bytes, {
@@ -178,12 +179,10 @@ void main() {
     var project = await s.create('مسار الواجهة');
     project = (await s.importImages(project, [
       ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ]))
-        .project;
+    ])).project;
     return (await s.arrangeImportedImages(project, [
       project.assets.single.id,
-    ]))
-        .project;
+    ])).project;
   }
 
   /// The exhaustive layout fingerprint of one item.
@@ -228,7 +227,10 @@ void main() {
     test(
       'reprocessing every asset of a two-document photo keeps both documents',
       () async {
-        final first = await importAndArrange(_photo(), segmenter: _bothResolved);
+        final first = await importAndArrange(
+          _photo(),
+          segmenter: _bothResolved,
+        );
 
         // One source photo plus one derived crop per region.
         expect(first.assets, hasLength(3));
@@ -240,10 +242,9 @@ void main() {
         final assetIds = first.assets.map((a) => a.id).toList();
 
         // The button passes all three ids, derived crops included.
-        final result =
-            (await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(first, uiAssetIds(first)))!.project;
+        final result = (await service(
+          segmenter: _bothResolved,
+        ).reprocessImages(first, uiAssetIds(first)))!.project;
 
         // A derived crop is a PRODUCT of its source, not a new photograph.
         // Treating it as one re-detects the card inside the crop and appends
@@ -273,14 +274,12 @@ void main() {
       final recordIds = first.documents.map((d) => d.id).toList();
       final itemIds = first.items.map((i) => i.id).toList();
 
-      final once =
-          (await service(
-            segmenter: _bothResolved,
-          ).reprocessImages(first, uiAssetIds(first)))!.project;
-      final twice =
-          (await service(
-            segmenter: _bothResolved,
-          ).reprocessImages(once, uiAssetIds(once)))!.project;
+      final once = (await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(first, uiAssetIds(first)))!.project;
+      final twice = (await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(once, uiAssetIds(once)))!.project;
 
       // Counts never grow on a repeated run over unchanged sources.
       expect(twice.documents, hasLength(2));
@@ -314,10 +313,9 @@ void main() {
 
         // A better analysis finds the boundary it missed — through the same
         // full-asset-list path the button uses.
-        final result =
-            (await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(first, uiAssetIds(first)))!.project;
+        final result = (await service(
+          segmenter: _bothResolved,
+        ).reprocessImages(first, uiAssetIds(first)))!.project;
 
         expect(result.documents, hasLength(2), reason: 'updated, not appended');
         expect(result.items, hasLength(2));
@@ -341,10 +339,9 @@ void main() {
       final first = await importAndArrange(_photo(), segmenter: _bothResolved);
       final recordIds = first.documents.map((d) => d.id).toList();
 
-      final result =
-          (await service(
-            segmenter: _threeResolved,
-          ).reprocessImages(first, uiAssetIds(first)))!.project;
+      final result = (await service(
+        segmenter: _threeResolved,
+      ).reprocessImages(first, uiAssetIds(first)))!.project;
 
       expect(result.documents, hasLength(3));
       expect(result.items, hasLength(3));
@@ -365,10 +362,9 @@ void main() {
       );
       await (await assets.resolve(victim.workingPath)).delete();
 
-      final report =
-          await service(
-            segmenter: _bothResolved,
-          ).reprocessImages(first, uiAssetIds(first));
+      final report = await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(first, uiAssetIds(first));
 
       // The record survives, its crop is regenerated, and nothing duplicates.
       expect(report!.project.documents, hasLength(2));
@@ -378,17 +374,23 @@ void main() {
         report.project.documents.map((d) => d.id).toList(),
         first.documents.map((d) => d.id).toList(),
       );
-      final restored = report.project.assets.firstWhere((a) => a.id == victim.id);
+      final restored = report.project.assets.firstWhere(
+        (a) => a.id == victim.id,
+      );
       expect(
         restored.workingPath,
         isNot(victim.workingPath),
         reason: 'the crop was regenerated',
       );
-      expect(await (await assets.resolve(restored.workingPath)).exists(), isTrue);
+      expect(
+        await (await assets.resolve(restored.workingPath)).exists(),
+        isTrue,
+      );
       // The source photo was never destroyed.
       expect(
-        await (await assets.resolve(first.assets.first.originalPath))
-            .readAsBytes(),
+        await (await assets.resolve(
+          first.assets.first.originalPath,
+        )).readAsBytes(),
         isNotEmpty,
       );
     });
@@ -396,13 +398,15 @@ void main() {
     test(
       'an unreadable source original is reported and the project survives',
       () async {
-        final first = await importAndArrange(_photo(), segmenter: _bothResolved);
+        final first = await importAndArrange(
+          _photo(),
+          segmenter: _bothResolved,
+        );
         await (await assets.resolve(first.assets.first.originalPath)).delete();
 
-        final report =
-            await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(first, uiAssetIds(first));
+        final report = await service(
+          segmenter: _bothResolved,
+        ).reprocessImages(first, uiAssetIds(first));
 
         expect(report!.warnings, isNotEmpty);
         expect(report.notDetected, 1);
@@ -416,47 +420,56 @@ void main() {
       },
     );
 
-    test('user overrides survive and are reported, never overwritten', () async {
-      var first = await importAndArrange(_photo(), segmenter: _bothResolved);
-      final itemId = first.items.last.id;
-      final recordId = first.items.last.documentId!;
-      first = await projects.save(
-        rec.setKindWithOverride(first, itemId, DocumentKind.passport),
-      );
-      expect(
-        first.documents.firstWhere((d) => d.id == recordId).overrides,
-        isNotEmpty,
-      );
+    test(
+      'user overrides survive and are reported, never overwritten',
+      () async {
+        var first = await importAndArrange(_photo(), segmenter: _bothResolved);
+        final itemId = first.items.last.id;
+        final recordId = first.items.last.documentId!;
+        first = await projects.save(
+          rec.setKindWithOverride(first, itemId, DocumentKind.passport),
+        );
+        expect(
+          first.documents.firstWhere((d) => d.id == recordId).overrides,
+          isNotEmpty,
+        );
 
-      final report =
-          await service(
-            segmenter: _bothResolved,
-          ).reprocessImages(first, uiAssetIds(first));
+        final report = await service(
+          segmenter: _bothResolved,
+        ).reprocessImages(first, uiAssetIds(first));
 
-      final kept = report!.project.documents.firstWhere((d) => d.id == recordId);
-      expect(kept.overrides, isNotEmpty, reason: 'ADR-004: the decision stays');
-      expect(kept.recognition!.documentKind, DocumentKind.passport);
-      expect(report.warnings.join('\n'), contains('تُرِك'));
-      // Still no duplicates.
-      expect(report.project.documents, hasLength(2));
-      expect(report.project.items, hasLength(2));
-    });
+        final kept = report!.project.documents.firstWhere(
+          (d) => d.id == recordId,
+        );
+        expect(
+          kept.overrides,
+          isNotEmpty,
+          reason: 'ADR-004: the decision stays',
+        );
+        expect(kept.recognition!.documentKind, DocumentKind.passport);
+        expect(report.warnings.join('\n'), contains('تُرِك'));
+        // Still no duplicates.
+        expect(report.project.documents, hasLength(2));
+        expect(report.project.items, hasLength(2));
+      },
+    );
 
     test('side-paired documents keep their pairing', () async {
       var first = await importAndArrange(_photo(), segmenter: _bothResolved);
       final a = first.documents[0];
       final b = first.documents[1];
       first = await projects.save(
-        first.copyWith(documents: [
-          a.copyWith(pairing: PairingState.paired, pairedDocumentId: b.id),
-          b.copyWith(pairing: PairingState.paired, pairedDocumentId: a.id),
-        ]),
+        first.copyWith(
+          documents: [
+            a.copyWith(pairing: PairingState.paired, pairedDocumentId: b.id),
+            b.copyWith(pairing: PairingState.paired, pairedDocumentId: a.id),
+          ],
+        ),
       );
 
-      final result =
-          (await service(
-            segmenter: _bothResolved,
-          ).reprocessImages(first, uiAssetIds(first)))!.project;
+      final result = (await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(first, uiAssetIds(first)))!.project;
 
       // The reciprocal pair still resolves in both directions.
       expect(result.documents, hasLength(2));
@@ -468,7 +481,9 @@ void main() {
       expect(afterB.pairedDocumentId, a.id);
       // A pair is never merged into one document.
       expect(
-        result.documents.map((d) => d.sides.single.detection!.detectionId).toSet(),
+        result.documents
+            .map((d) => d.sides.single.detection!.detectionId)
+            .toSet(),
         hasLength(2),
       );
     });
@@ -476,24 +491,25 @@ void main() {
     test(
       'a cancelled run followed by a normal run leaves no duplicates',
       () async {
-        final first = await importAndArrange(_photo(), segmenter: _bothResolved);
-
-        final cancelled = await service(
+        final first = await importAndArrange(
+          _photo(),
           segmenter: _bothResolved,
-        ).reprocessImages(first, uiAssetIds(first), cancellation: CancellationToken()
-          ..cancel());
+        );
+
+        final cancelled = await service(segmenter: _bothResolved)
+            .reprocessImages(
+              first,
+              uiAssetIds(first),
+              cancellation: CancellationToken()..cancel(),
+            );
         expect(cancelled!.project.revision, first.revision);
         expect(cancelled.warnings.join('\n'), contains('أُلغيت'));
 
         // The retry after a cancellation is clean: no residue, no duplicates.
-        final result =
-            (await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(
-              cancelled.project,
-              uiAssetIds(cancelled.project),
-            ))!
-                .project;
+        final result = (await service(segmenter: _bothResolved).reprocessImages(
+          cancelled.project,
+          uiAssetIds(cancelled.project),
+        ))!.project;
         expect(result.documents, hasLength(2));
         expect(result.items, hasLength(2));
         expect(result.assets, hasLength(3));
@@ -515,14 +531,10 @@ void main() {
       return projects.save(
         project.copyWith(
           items: [
-            for (final item in rearranged)
-              item.copyWith(groupId: 'group-a'),
+            for (final item in rearranged) item.copyWith(groupId: 'group-a'),
           ],
           layoutGroups: [
-            LayoutGroup(
-              id: 'group-a',
-              itemIds: [items[0].id, items[1].id],
-            ),
+            LayoutGroup(id: 'group-a', itemIds: [items[0].id, items[1].id]),
           ],
         ),
       );
@@ -548,10 +560,9 @@ void main() {
         // autoFlow only ever reached the service as `keepPlaced: !autoFlow`.
         // With that parameter gone the call is identical in both modes, and
         // this is exactly the call the controller makes.
-        final result =
-            (await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(first, uiAssetIds(first)))!.project;
+        final result = (await service(
+          segmenter: _bothResolved,
+        ).reprocessImages(first, uiAssetIds(first)))!.project;
 
         expect(result.items, hasLength(2));
         for (final before in first.items) {
@@ -560,7 +571,9 @@ void main() {
         }
         // A locked item is left completely alone, recognition included.
         final lockedBefore = first.items.firstWhere((i) => i.locked);
-        final lockedAfter = result.items.firstWhere((i) => i.id == lockedBefore.id);
+        final lockedAfter = result.items.firstWhere(
+          (i) => i.id == lockedBefore.id,
+        );
         expect(lockedAfter.toJson(), lockedBefore.toJson());
         // Page count, paper and groups are untouched.
         expect(result.pageCount, first.pageCount);
@@ -577,14 +590,12 @@ void main() {
           );
           final first = await withNontrivialLayout(arranged);
 
-          final once =
-              (await service(
-                segmenter: _bothResolved,
-              ).reprocessImages(first, uiAssetIds(first)))!.project;
-          final twice =
-              (await service(
-                segmenter: _bothResolved,
-              ).reprocessImages(once, uiAssetIds(once)))!.project;
+          final once = (await service(
+            segmenter: _bothResolved,
+          ).reprocessImages(first, uiAssetIds(first)))!.project;
+          final twice = (await service(
+            segmenter: _bothResolved,
+          ).reprocessImages(once, uiAssetIds(once)))!.project;
 
           // No implicit full arrangement: the second run moves nothing.
           for (final before in once.items) {
@@ -596,78 +607,74 @@ void main() {
       );
     }
 
-    test(
-      'a substantially changed recognized size does not resize or move a '
-      'placed item',
-      () async {
-        final arranged = await importAndArrange(
-          _photo(),
-          segmenter: _bothResolved,
-        );
-        // Give one placed document a size that differs from the catalog size
-        // the next recognition will report, plus a deliberate position.
-        final target = arranged.items.first;
-        final resized = await projects.save(
-          arranged.copyWith(
-            items: [
-              for (final item in arranged.items)
-                if (item.id == target.id)
-                  item.copyWith(x: 10, y: 20, width: 120, height: 80)
-                else
-                  item,
-            ],
-          ),
-        );
-        expect(resized.items.firstWhere((i) => i.id == target.id).width, 120);
+    test('a substantially changed recognized size does not resize or move a '
+        'placed item', () async {
+      final arranged = await importAndArrange(
+        _photo(),
+        segmenter: _bothResolved,
+      );
+      // Give one placed document a size that differs from the catalog size
+      // the next recognition will report, plus a deliberate position.
+      final target = arranged.items.first;
+      final resized = await projects.save(
+        arranged.copyWith(
+          items: [
+            for (final item in arranged.items)
+              if (item.id == target.id)
+                item.copyWith(x: 10, y: 20, width: 120, height: 80)
+              else
+                item,
+          ],
+        ),
+      );
+      expect(resized.items.firstWhere((i) => i.id == target.id).width, 120);
 
-        final report =
-            await service(
-              segmenter: _bothResolved,
-            ).reprocessImages(resized, uiAssetIds(resized));
+      final report = await service(
+        segmenter: _bothResolved,
+      ).reprocessImages(resized, uiAssetIds(resized));
 
-        final after = report!.project.items.firstWhere(
-          (i) => i.id == target.id,
-        );
-        // Kept where and how large the user has it — not silently resized.
-        expect(after.pageIndex, target.pageIndex);
-        expect(after.x, 10);
-        expect(after.y, 20);
-        expect(after.width, 120, reason: 'printed footprint is the user layout');
-        expect(after.height, 80);
-        expect(after.sizeConfirmed, isTrue);
-        // …and the conflict is reported instead of applied.
-        expect(
-          report.warnings.join('\n'),
-          contains('بقي المستند بموضعه وحجمه الحالي'),
-        );
-        // Recognition still refreshed the derived image and the kind.
-        final record = report.project.documents.firstWhere(
-          (d) => d.id == target.documentId,
-        );
-        expect(
-          record.sides.single.processedAsset.workingPath,
-          isNot(
-            arranged.documents
-                .firstWhere((d) => d.id == target.documentId)
-                .sides
-                .single
-                .processedAsset
-                .workingPath,
-          ),
-          reason: 'the crop was still regenerated',
-        );
-      },
-    );
+      final after = report!.project.items.firstWhere((i) => i.id == target.id);
+      // Kept where and how large the user has it — not silently resized.
+      expect(after.pageIndex, target.pageIndex);
+      expect(after.x, 10);
+      expect(after.y, 20);
+      expect(after.width, 120, reason: 'printed footprint is the user layout');
+      expect(after.height, 80);
+      expect(after.sizeConfirmed, isTrue);
+      // …and the conflict is reported instead of applied.
+      expect(
+        report.warnings.join('\n'),
+        contains('بقي المستند بموضعه وحجمه الحالي'),
+      );
+      // Recognition still refreshed the derived image and the kind.
+      final record = report.project.documents.firstWhere(
+        (d) => d.id == target.documentId,
+      );
+      expect(
+        record.sides.single.processedAsset.workingPath,
+        isNot(
+          arranged.documents
+              .firstWhere((d) => d.id == target.documentId)
+              .sides
+              .single
+              .processedAsset
+              .workingPath,
+        ),
+        reason: 'the crop was still regenerated',
+      );
+    });
 
     test('a new document is placed; existing ones are not moved', () async {
-      final arranged = await importAndArrange(_photo(), segmenter: _bothResolved);
+      final arranged = await importAndArrange(
+        _photo(),
+        segmenter: _bothResolved,
+      );
       final first = await withNontrivialLayout(arranged);
       final beforeIds = first.items.map((i) => i.id).toList();
 
-      final result =
-          (await service(
-            segmenter: _threeResolved,
-          ).reprocessImages(first, uiAssetIds(first)))!.project;
+      final result = (await service(
+        segmenter: _threeResolved,
+      ).reprocessImages(first, uiAssetIds(first)))!.project;
 
       expect(result.items, hasLength(3));
       for (final before in first.items) {

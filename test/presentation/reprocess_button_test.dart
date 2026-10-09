@@ -102,108 +102,103 @@ void main() {
     var project = await service.create('زر إعادة التعرف');
     project = (await service.importImages(project, [
       ImportSource('صورة.png', () => Stream<List<int>>.value(photo())),
-    ]))
-        .project;
+    ])).project;
     project = (await service.arrangeImportedImages(project, [
       project.assets.single.id,
-    ]))
-        .project;
+    ])).project;
     expect(project.items, hasLength(2));
     return store.save(
-      project.copyWith(items: [
-        project.items[0].copyWith(
-          x: 10,
-          y: 20,
-          rotation: 90,
-          zIndex: 7,
-          locked: true,
-        ),
-        project.items[1].copyWith(x: 90, y: 10, rotation: 0, zIndex: 3),
-      ]),
+      project.copyWith(
+        items: [
+          project.items[0].copyWith(
+            x: 10,
+            y: 20,
+            rotation: 90,
+            zIndex: 7,
+            locked: true,
+          ),
+          project.items[1].copyWith(x: 90, y: 10, rotation: 0, zIndex: 3),
+        ],
+      ),
     );
   }
 
   for (final autoFlow in [true, false]) {
-    testWidgets(
-      'autoFlow = $autoFlow: the reprocess button refreshes without '
-      'duplicating or rearranging',
-      (tester) async {
-        final store = MemoryProjects();
-        final project = await arrangedProject(store);
-        expect(project.assets, hasLength(3), reason: 'source + 2 derived');
+    testWidgets('autoFlow = $autoFlow: the reprocess button refreshes without '
+        'duplicating or rearranging', (tester) async {
+      final store = MemoryProjects();
+      final project = await arrangedProject(store);
+      expect(project.assets, hasLength(3), reason: 'source + 2 derived');
 
-        final beforeItems = {
-          for (final item in project.items) item.id: item.toJson(),
-        };
-        final beforeRecordIds = project.documents.map((d) => d.id).toList();
+      final beforeItems = {
+        for (final item in project.items) item.id: item.toJson(),
+      };
+      final beforeRecordIds = project.documents.map((d) => d.id).toList();
 
-        await EditorHarness.pump(
-          tester,
-          project: project,
-          repository: store,
-          segmenter: twoCards,
-          assetRepository: LocalAssetRepository(
-            SafeFiles(Directory(await root.resolveSymbolicLinks())),
-          ),
-          imageEditor: LocalImageEditor(
-            SafeFiles(Directory(await root.resolveSymbolicLinks())),
-          ),
-        );
+      await EditorHarness.pump(
+        tester,
+        project: project,
+        repository: store,
+        segmenter: twoCards,
+        assetRepository: LocalAssetRepository(
+          SafeFiles(Directory(await root.resolveSymbolicLinks())),
+        ),
+        imageEditor: LocalImageEditor(
+          SafeFiles(Directory(await root.resolveSymbolicLinks())),
+        ),
+      );
 
-        // The controller starts with automatic flow ON (its documented
-        // default); the ribbon's own toggle turns it off where required.
-        await tapKey(tester, const Key('ribbon-tab-home'));
-        if (!autoFlow) {
-          // ترتيب مستمر — the ribbon's own automatic-flow toggle.
-          await tapKey(tester, const Key('rb-autoflow'));
-        }
+      // The controller starts with automatic flow ON (its documented
+      // default); the ribbon's own toggle turns it off where required.
+      await tapKey(tester, const Key('ribbon-tab-home'));
+      if (!autoFlow) {
+        // ترتيب مستمر — the ribbon's own automatic-flow toggle.
+        await tapKey(tester, const Key('rb-autoflow'));
+      }
 
-        // The real button, on its real tab.
-        await tapKey(tester, const Key('ribbon-tab-file'));
-        expect(find.byKey(const Key('rb-reprocess')), findsOneWidget);
-        await tapKey(tester, const Key('rb-reprocess'));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
+      // The real button, on its real tab.
+      await tapKey(tester, const Key('ribbon-tab-file'));
+      expect(find.byKey(const Key('rb-reprocess')), findsOneWidget);
+      await tapKey(tester, const Key('rb-reprocess'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
 
-        final after = EditorHarness(store, project.id).saved;
+      final after = EditorHarness(store, project.id).saved;
 
-        // Defect A: the button passes every asset id, derived crops included.
-        // A derived crop must not be re-analysed as its own photograph.
-        expect(after.documents, hasLength(2), reason: 'no duplicate records');
-        expect(after.items, hasLength(2), reason: 'no duplicate items');
-        expect(after.assets, hasLength(3), reason: 'no redundant assets');
-        expect(
-          after.documents.map((d) => d.id).toList(),
-          beforeRecordIds,
-          reason: 'the same records were refreshed in place',
-        );
+      // Defect A: the button passes every asset id, derived crops included.
+      // A derived crop must not be re-analysed as its own photograph.
+      expect(after.documents, hasLength(2), reason: 'no duplicate records');
+      expect(after.items, hasLength(2), reason: 'no duplicate items');
+      expect(after.assets, hasLength(3), reason: 'no redundant assets');
+      expect(
+        after.documents.map((d) => d.id).toList(),
+        beforeRecordIds,
+        reason: 'the same records were refreshed in place',
+      );
 
-        // Defect B: layout preservation no longer depends on autoFlow.
-        for (final item in after.items) {
-          final before = beforeItems[item.id]!;
-          for (final key in before.keys) {
-            if (key == 'documentKind' || key == 'recognitionConfidence') {
-              continue;
-            }
-            expect(
-              item.toJson()[key],
-              before[key],
-              reason: '$key must not change (autoFlow = $autoFlow)',
-            );
+      // Defect B: layout preservation no longer depends on autoFlow.
+      for (final item in after.items) {
+        final before = beforeItems[item.id]!;
+        for (final key in before.keys) {
+          if (key == 'documentKind' || key == 'recognitionConfidence') {
+            continue;
           }
-        }
-        // Recognition really did run: the derived crops were regenerated.
-        for (final record in after.documents) {
-          final previous = project.documents.firstWhere(
-            (d) => d.id == record.id,
-          );
           expect(
-            record.sides.single.processedAsset.workingPath,
-            isNot(previous.sides.single.processedAsset.workingPath),
-            reason: 'the crop was regenerated',
+            item.toJson()[key],
+            before[key],
+            reason: '$key must not change (autoFlow = $autoFlow)',
           );
         }
-      },
-    );
+      }
+      // Recognition really did run: the derived crops were regenerated.
+      for (final record in after.documents) {
+        final previous = project.documents.firstWhere((d) => d.id == record.id);
+        expect(
+          record.sides.single.processedAsset.workingPath,
+          isNot(previous.sides.single.processedAsset.workingPath),
+          reason: 'the crop was regenerated',
+        );
+      }
+    });
   }
 }

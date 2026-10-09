@@ -1,6 +1,8 @@
 name: Debug failing tests
 on:
   workflow_dispatch:
+  push:
+    branches: ['arena/**']
 jobs:
   debug:
     runs-on: ubuntu-24.04

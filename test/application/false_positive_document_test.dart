@@ -29,7 +29,6 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
-
 final _paper = img.ColorRgb8(240, 238, 230);
 final _paper2 = img.ColorRgb8(232, 230, 222);
 final _dark = img.ColorRgb8(14, 14, 16);
@@ -124,69 +123,69 @@ void main() {
   test(
     'a narrow dark strip beside two cards creates no third document',
     () async {
-    final photo = _twoCards();
-    // A solid dark strip, 57 px wide and 721 px tall (measured aspect 12.46 at
-    // working scale against a bound of 8.0, 68 px short side in the preview).
-    _rect(photo, 40, 700, 96, 1420, _dark);
-    final s = service();
-    final bytes = _png(photo);
-    var project = await s.create('بطاقتان وشريط');
-    project = (await s.importImages(project, [
-      ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final originalPath = project.assets.single.originalPath;
+      final photo = _twoCards();
+      // A solid dark strip, 57 px wide and 721 px tall (measured aspect 12.46 at
+      // working scale against a bound of 8.0, 68 px short side in the preview).
+      _rect(photo, 40, 700, 96, 1420, _dark);
+      final s = service();
+      final bytes = _png(photo);
+      var project = await s.create('بطاقتان وشريط');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final originalPath = project.assets.single.originalPath;
 
-    final report = await s.arrangeImportedImages(project, [sourceId]);
-    final result = report.project;
+      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final result = report.project;
 
-    // The defect: this used to be 3 documents / 3 items / 4 assets, the extra
-    // one a strip of background with no confirmed size, sitting outside the
-    // sheet. The two real cards are unaffected.
-    expect(result.documents, hasLength(2));
-    expect(result.items, hasLength(2));
-    expect(result.assets, hasLength(3), reason: 'original + two derived');
-    expect(report.multiDocumentImages, 1);
-    expect(report.cropped, 2);
-    expect(report.rejectedRegions, 1);
+      // The defect: this used to be 3 documents / 3 items / 4 assets, the extra
+      // one a strip of background with no confirmed size, sitting outside the
+      // sheet. The two real cards are unaffected.
+      expect(result.documents, hasLength(2));
+      expect(result.items, hasLength(2));
+      expect(result.assets, hasLength(3), reason: 'original + two derived');
+      expect(report.multiDocumentImages, 1);
+      expect(report.cropped, 2);
+      expect(report.rejectedRegions, 1);
 
-    // Both survivors are real, confirmed, placed documents — not off-sheet
-    // fragments.
-    for (final item in result.items) {
-      expect(item.documentKind, DocumentKind.unifiedNationalId);
-      expect(item.sizeConfirmed, isTrue);
-      expect(item.pageIndex, 0);
-      expect([item.width, item.height], [85.6, 53.98]);
-    }
-    // No item was sized from the strip's proportions.
-    expect(
-      result.items.where((i) => i.height > i.width * 2),
-      isEmpty,
-      reason: 'no ration-card-shaped fragment',
-    );
+      // Both survivors are real, confirmed, placed documents — not off-sheet
+      // fragments.
+      for (final item in result.items) {
+        expect(item.documentKind, DocumentKind.unifiedNationalId);
+        expect(item.sizeConfirmed, isTrue);
+        expect(item.pageIndex, 0);
+        expect([item.width, item.height], [85.6, 53.98]);
+      }
+      // No item was sized from the strip's proportions.
+      expect(
+        result.items.where((i) => i.height > i.width * 2),
+        isEmpty,
+        reason: 'no ration-card-shaped fragment',
+      );
 
-    // The refusal is reported to the user in Arabic, aggregated, and the
-    // original photo is byte-for-byte untouched (ADR-003).
-    expect(
-      report.warnings.any((w) => w.contains('تجاهل التقسيم')),
-      isTrue,
-      reason: '${report.warnings}',
-    );
-    expect(
-      report.warnings.any(
-        (w) => w.contains(
-          regionRejectionLabel(RegionRejection.implausibleAspect),
+      // The refusal is reported to the user in Arabic, aggregated, and the
+      // original photo is byte-for-byte untouched (ADR-003).
+      expect(
+        report.warnings.any((w) => w.contains('تجاهل التقسيم')),
+        isTrue,
+        reason: '${report.warnings}',
+      );
+      expect(
+        report.warnings.any(
+          (w) => w.contains(
+            regionRejectionLabel(RegionRejection.implausibleAspect),
+          ),
         ),
-      ),
-      isTrue,
-      reason: '${report.warnings}',
-    );
-    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+        isTrue,
+        reason: '${report.warnings}',
+      );
+      expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
 
-    // Every derived asset traces back to the source photo.
-    for (final asset in result.assets.where((a) => a.id != sourceId)) {
-      expect(asset.derivedFrom, sourceId);
-    }
+      // Every derived asset traces back to the source photo.
+      for (final asset in result.assets.where((a) => a.id != sourceId)) {
+        expect(asset.derivedFrom, sourceId);
+      }
     },
   );
 
@@ -260,88 +259,85 @@ void main() {
   test(
     'an ambiguous blank region is preserved for review, never confirmed',
     () async {
-    final image = _canvas(1200, 1600, img.ColorRgb8(88, 90, 96));
-    _rect(image, 120, 120, 640, 450, _paper);
-    // A blank sheet of paper that is not a document. Its shape matches no
-    // catalogued size (1021x281, ratio 3.63 — measured 3.61 at working scale,
-    // well inside the aspect bound of 8.0 and reaching no frame edge), so
-    // nothing about it can be confirmed — but it is not provably invalid
-    // either, so it is KEPT for review instead of being refused. This is the
-    // deliberate Case-4 boundary.
-    _rect(image, 100, 1300, 1120, 1580, img.ColorRgb8(246, 245, 242));
-    final s = service();
-    final bytes = _png(image);
-    var project = await s.create('غامضة');
-    project = (await s.importImages(project, [
-      ImportSource('غامضة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
+      final image = _canvas(1200, 1600, img.ColorRgb8(88, 90, 96));
+      _rect(image, 120, 120, 640, 450, _paper);
+      // A blank sheet of paper that is not a document. Its shape matches no
+      // catalogued size (1021x281, ratio 3.63 — measured 3.61 at working scale,
+      // well inside the aspect bound of 8.0 and reaching no frame edge), so
+      // nothing about it can be confirmed — but it is not provably invalid
+      // either, so it is KEPT for review instead of being refused. This is the
+      // deliberate Case-4 boundary.
+      _rect(image, 100, 1300, 1120, 1580, img.ColorRgb8(246, 245, 242));
+      final s = service();
+      final bytes = _png(image);
+      var project = await s.create('غامضة');
+      project = (await s.importImages(project, [
+        ImportSource('غامضة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
 
-    final report = await s.arrangeImportedImages(project, [sourceId]);
-    final result = report.project;
+      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final result = report.project;
 
-    expect(result.documents, hasLength(2));
-    expect(report.rejectedRegions, 0, reason: 'ambiguity is not invalidity');
+      expect(result.documents, hasLength(2));
+      expect(report.rejectedRegions, 0, reason: 'ambiguity is not invalidity');
 
-    final confirmed = result.items.where((i) => i.sizeConfirmed).toList();
-    final pending = result.items.where((i) => !i.sizeConfirmed).toList();
-    expect(confirmed, hasLength(1));
-    expect(confirmed.single.documentKind, DocumentKind.unifiedNationalId);
-    expect(pending, hasLength(1));
-    expect(pending.single.documentKind, DocumentKind.unknown);
+      final confirmed = result.items.where((i) => i.sizeConfirmed).toList();
+      final pending = result.items.where((i) => !i.sizeConfirmed).toList();
+      expect(confirmed, hasLength(1));
+      expect(confirmed.single.documentKind, DocumentKind.unifiedNationalId);
+      expect(pending, hasLength(1));
+      expect(pending.single.documentKind, DocumentKind.unknown);
 
-    // The ambiguous one is recoverable: it stays in the review queue with an
-    // explicit reason and is never presented as a confirmed document.
-    final pendingRecord = result.documents.firstWhere(
-      (d) => d.id == pending.single.documentId,
-    );
-    expect(pendingRecord.recognition!.preset.awaitingSize, isTrue);
-    expect(
-      reviewReasons(pendingRecord),
-      contains('بانتظار تحديد المقاس'),
-    );
-    expect(recordNeedsReview(pendingRecord), isTrue);
-    // Its source photo is preserved, so the region can be re-examined.
-    expect(pendingRecord.provenance.sourceImageId, sourceId);
-    expect(
-      result.assets.firstWhere((a) => a.id == sourceId).originalPath,
-      isNotEmpty,
-    );
+      // The ambiguous one is recoverable: it stays in the review queue with an
+      // explicit reason and is never presented as a confirmed document.
+      final pendingRecord = result.documents.firstWhere(
+        (d) => d.id == pending.single.documentId,
+      );
+      expect(pendingRecord.recognition!.preset.awaitingSize, isTrue);
+      expect(reviewReasons(pendingRecord), contains('بانتظار تحديد المقاس'));
+      expect(recordNeedsReview(pendingRecord), isTrue);
+      // Its source photo is preserved, so the region can be re-examined.
+      expect(pendingRecord.provenance.sourceImageId, sourceId);
+      expect(
+        result.assets.firstWhere((a) => a.id == sourceId).originalPath,
+        isNotEmpty,
+      );
     },
   );
 
   test(
     'reprocessing a photo with artifacts does not duplicate anything',
     () async {
-    final photo = _twoCards();
-    _rect(photo, 40, 700, 96, 1420, _dark);
-    final s = service();
-    final bytes = _png(photo);
-    var project = await s.create('إعادة');
-    project = (await s.importImages(project, [
-      ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final first = await s.arrangeImportedImages(project, [sourceId]);
+      final photo = _twoCards();
+      _rect(photo, 40, 700, 96, 1420, _dark);
+      final s = service();
+      final bytes = _png(photo);
+      var project = await s.create('إعادة');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final first = await s.arrangeImportedImages(project, [sourceId]);
 
-    final itemIds = first.project.items.map((i) => i.id).toList();
-    final recordIds = first.project.documents.map((d) => d.id).toList();
-    final assetIds = first.project.assets.map((a) => a.id).toList();
+      final itemIds = first.project.items.map((i) => i.id).toList();
+      final recordIds = first.project.documents.map((d) => d.id).toList();
+      final assetIds = first.project.assets.map((a) => a.id).toList();
 
-    final second = await s.reprocessImages(first.project, [sourceId]);
-    final result = second!.project;
+      final second = await s.reprocessImages(first.project, [sourceId]);
+      final result = second!.project;
 
-    // The strip is refused again — it is never re-analysed as a photo and
-    // never comes back as a duplicate document.
-    expect(result.documents, hasLength(2));
-    expect(result.items, hasLength(2));
-    expect(result.assets, hasLength(3));
-    expect(result.documents.map((d) => d.id).toList(), recordIds);
-    expect(result.items.map((i) => i.id).toList(), itemIds);
-    expect(result.assets.map((a) => a.id).toList(), assetIds);
-    expect(second.rejectedRegions, 1);
-    // Placement is still the deterministic engine's decision.
-    expect((await projects.get(result.id)).toJson(), result.toJson());
+      // The strip is refused again — it is never re-analysed as a photo and
+      // never comes back as a duplicate document.
+      expect(result.documents, hasLength(2));
+      expect(result.items, hasLength(2));
+      expect(result.assets, hasLength(3));
+      expect(result.documents.map((d) => d.id).toList(), recordIds);
+      expect(result.items.map((i) => i.id).toList(), itemIds);
+      expect(result.assets.map((a) => a.id).toList(), assetIds);
+      expect(second.rejectedRegions, 1);
+      // Placement is still the deterministic engine's decision.
+      expect((await projects.get(result.id)).toJson(), result.toJson());
     },
   );
 

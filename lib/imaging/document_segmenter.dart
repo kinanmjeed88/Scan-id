@@ -428,13 +428,7 @@ class _Measurement {
 /// The margin-expanded, clamped region of [box] and its preview-resolution crop
 /// size. This is the SAME arithmetic the corner-detection loop has always used,
 /// lifted out so validation measures exactly what rendering would produce.
-_Measurement _measure(
-  _Box box,
-  int w,
-  int h,
-  int imageWidth,
-  int imageHeight,
-) {
+_Measurement _measure(_Box box, int w, int h, int imageWidth, int imageHeight) {
   final marginX = math.max(4, (box.width * .08).round());
   final marginY = math.max(4, (box.height * .08).round());
   final left = math.max(0, box.left - marginX);
@@ -521,13 +515,14 @@ void _applyCandidateCap(
   double total,
 ) {
   if (accepted.length <= maxSegmentCandidates) return;
-  final ranked = [
-    for (var index = 0; index < accepted.length; index++)
-      (index, accepted[index]),
-  ]..sort((a, b) {
-    final byArea = b.$2.box.area.compareTo(a.$2.box.area);
-    return byArea != 0 ? byArea : a.$1.compareTo(b.$1);
-  });
+  final ranked =
+      [
+        for (var index = 0; index < accepted.length; index++)
+          (index, accepted[index]),
+      ]..sort((a, b) {
+        final byArea = b.$2.box.area.compareTo(a.$2.box.area);
+        return byArea != 0 ? byArea : a.$1.compareTo(b.$1);
+      });
   final keep = <int>{
     for (final entry in ranked.take(maxSegmentCandidates)) entry.$1,
   };
@@ -658,12 +653,11 @@ bool _contains(_Box outer, _Box inner) =>
 /// would lose a real detection while keeping its duplicate-free neighbour.
 /// Survivors are returned in the deterministic region order.
 List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
-  final preference = [
-    for (var index = 0; index < input.length; index++) index,
-  ]..sort((a, b) {
-    final byQuad = _hasQuad(input[b]).compareTo(_hasQuad(input[a]));
-    return byQuad != 0 ? byQuad : a.compareTo(b);
-  });
+  final preference = [for (var index = 0; index < input.length; index++) index]
+    ..sort((a, b) {
+      final byQuad = _hasQuad(input[b]).compareTo(_hasQuad(input[a]));
+      return byQuad != 0 ? byQuad : a.compareTo(b);
+    });
   final kept = <SegmentCandidate>[];
   final survivors = <int>{};
   for (final index in preference) {

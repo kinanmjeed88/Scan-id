@@ -38,7 +38,6 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
-
 final _paper = img.ColorRgb8(240, 238, 232);
 
 Uint8List _photo(List<List<int>> rects) {
@@ -90,10 +89,12 @@ List<Point2> _cardQuad() => [
 List<double> _regionOf(List<Point2> quad) {
   final xs = quad.map((p) => p.x).toList();
   final ys = quad.map((p) => p.y).toList();
-  final mx = (xs.reduce((a, b) => a > b ? a : b) -
+  final mx =
+      (xs.reduce((a, b) => a > b ? a : b) -
           xs.reduce((a, b) => a < b ? a : b)) *
       .08;
-  final my = (ys.reduce((a, b) => a > b ? a : b) -
+  final my =
+      (ys.reduce((a, b) => a > b ? a : b) -
           ys.reduce((a, b) => a < b ? a : b)) *
       .08;
   return [
@@ -113,10 +114,8 @@ SegmentCandidate _candidate(List<Point2> quad, {double confidence = .8}) =>
     );
 
 /// A region whose boundary could NOT be resolved: measured bounds, no corners.
-SegmentCandidate _unresolved(List<Point2> quad) => SegmentCandidate(
-  region: _regionOf(quad),
-  reason: 'no-trustworthy-quad',
-);
+SegmentCandidate _unresolved(List<Point2> quad) =>
+    SegmentCandidate(region: _regionOf(quad), reason: 'no-trustworthy-quad');
 
 /// Two regions — the ration card and a national card — the second always
 /// resolved so the multi-document path is taken either way.
@@ -331,8 +330,10 @@ void main() {
       );
       // Held on its side, it is crossed and a turn IS proposed.
       expect(
-        estimateOrientation(pixelAspect: 1 / expected, expectedAspect: expected)
-            .quarterTurns,
+        estimateOrientation(
+          pixelAspect: 1 / expected,
+          expectedAspect: expected,
+        ).quarterTurns,
         1,
       );
       // A landscape-natural document held portrait is crossed too.
@@ -346,8 +347,10 @@ void main() {
       // Every branch stays unconfident: rotation is the user's decision, so
       // nothing downstream may apply this without asking.
       expect(
-        estimateOrientation(pixelAspect: 1 / expected, expectedAspect: expected)
-            .confident,
+        estimateOrientation(
+          pixelAspect: 1 / expected,
+          expectedAspect: expected,
+        ).confident,
         isFalse,
       );
     });
@@ -509,22 +512,16 @@ void main() {
     });
 
     test('a shape match too weak to classify confirms no size', () async {
-      final report = await run(
-        service(_weakShapeMatch),
-        'ضعيفة',
-        const [
-          [50, 200, 950, 746],
-          [100, 800, 385, 980],
-        ],
-      );
+      final report = await run(service(_weakShapeMatch), 'ضعيفة', const [
+        [50, 200, 950, 746],
+        [100, 800, 385, 980],
+      ]);
 
       expect(report.project.items, hasLength(2));
       // Ratio 1.648 is inside the 4 % tolerance of 85.6 / 53.98, but the
       // resulting confidence 0.509 is below the R4 floor of 0.6, so the kind
       // becomes unknown and no catalog size can be claimed.
-      final weak = report.project.items
-          .where((i) => !i.sizeConfirmed)
-          .toList();
+      final weak = report.project.items.where((i) => !i.sizeConfirmed).toList();
       expect(weak, hasLength(1));
       expect(weak.single.documentKind, DocumentKind.unknown);
       expect([weak.single.width, weak.single.height], isNot([85.6, 53.98]));

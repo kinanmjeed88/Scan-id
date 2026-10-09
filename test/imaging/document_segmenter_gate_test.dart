@@ -29,7 +29,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/imaging/document_segmenter.dart';
 
-
 final _paper = img.ColorRgb8(240, 238, 230);
 final _paper2 = img.ColorRgb8(232, 230, 222);
 final _dark = img.ColorRgb8(14, 14, 16);
@@ -237,27 +236,9 @@ void main() {
     });
 
     test('low-contrast and washed-out cards survive', () {
-      final lowContrast = _canvas(
-        1200,
-        1600,
-        img.ColorRgb8(120, 118, 114),
-      );
-      _rect(
-        lowContrast,
-        150,
-        200,
-        780,
-        600,
-        img.ColorRgb8(150, 149, 146),
-      );
-      _rect(
-        lowContrast,
-        150,
-        900,
-        780,
-        1300,
-        img.ColorRgb8(148, 147, 145),
-      );
+      final lowContrast = _canvas(1200, 1600, img.ColorRgb8(120, 118, 114));
+      _rect(lowContrast, 150, 200, 780, 600, img.ColorRgb8(150, 149, 146));
+      _rect(lowContrast, 150, 900, 780, 1300, img.ColorRgb8(148, 147, 145));
       final faded = segmentDecoded(lowContrast);
       expect(faded.rejected, isEmpty, reason: '$faded');
       expect(faded.candidates, hasLength(2));
@@ -357,10 +338,7 @@ void main() {
       // foreground area than the smallest survivor.
       final keptTops = result.candidates.map((c) => c.region[1]).toList();
       final keptAreas = result.candidates
-          .map(
-            (c) =>
-                (c.region[2] - c.region[0]) * (c.region[3] - c.region[1]),
-          )
+          .map((c) => (c.region[2] - c.region[0]) * (c.region[3] - c.region[1]))
           .toList();
       for (final rejected in result.rejected) {
         expect(

@@ -43,7 +43,6 @@ import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
 
-
 final _paper = img.ColorRgb8(240, 238, 232);
 
 /// An asset repository that fails one specific `importImage` call, so a failure
@@ -271,8 +270,7 @@ void main() {
         expect(
           await (await assets.resolve(
             result.assets.firstWhere((a) => a.id == sourceId).originalPath,
-          ))
-              .readAsBytes(),
+          )).readAsBytes(),
           bytes,
         );
       },
@@ -286,8 +284,9 @@ void main() {
         ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
-      final result = (await s.arrangeImportedImages(project, [sourceId]))
-          .project;
+      final result = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
       final derived = result.assets.firstWhere((a) => a.id != sourceId);
       expect(derived.derivedFrom, sourceId);
 
@@ -299,12 +298,7 @@ void main() {
         derived,
         ImageEditRecipe(
           CropGeometry(
-            corners: [
-              Point2(0, 0),
-              Point2(1, 0),
-              Point2(1, 1),
-              Point2(0, 1),
-            ],
+            corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
             outputWidth: derived.width,
             outputHeight: derived.height,
           ),
@@ -352,8 +346,9 @@ void main() {
         reason: '${report.warnings}',
       );
       expect(
-        await (await assets.resolve(result.assets.single.originalPath))
-            .readAsBytes(),
+        await (await assets.resolve(
+          result.assets.single.originalPath,
+        )).readAsBytes(),
         bytes,
       );
       // What the report says is what was saved.
@@ -391,10 +386,9 @@ void main() {
 
       // A healthy repository, the same source, and no duplicates left behind by
       // the failed run: the recovered documents are the two cards, once.
-      final recovered = await service().arrangeImportedImages(
-        failed.project,
-        [sourceId],
-      );
+      final recovered = await service().arrangeImportedImages(failed.project, [
+        sourceId,
+      ]);
       final result = recovered.project;
       expect(result.documents, hasLength(2));
       expect(result.items, hasLength(2));
@@ -406,8 +400,7 @@ void main() {
       expect(
         await (await assets.resolve(
           result.assets.firstWhere((a) => a.id == sourceId).originalPath,
-        ))
-            .readAsBytes(),
+        )).readAsBytes(),
         bytes,
       );
     });
@@ -441,13 +434,10 @@ void main() {
       // Identity, page, position, size, rotation and lock state are preserved
       // without depending on autoFlow: the layout engine stays the only
       // authority for placement.
-      expect(
-        [
-          for (final i in result.items)
-            (i.pageIndex, i.x, i.y, i.width, i.height, i.rotation, i.locked),
-        ],
-        placed,
-      );
+      expect([
+        for (final i in result.items)
+          (i.pageIndex, i.x, i.y, i.width, i.height, i.rotation, i.locked),
+      ], placed);
       expect(result.layoutGroups, first.project.layoutGroups);
       for (final asset in result.assets.where((a) => a.id != sourceId)) {
         expect(asset.derivedFrom, sourceId);
@@ -456,8 +446,7 @@ void main() {
       expect(
         await (await assets.resolve(
           result.assets.firstWhere((a) => a.id == sourceId).originalPath,
-        ))
-            .readAsBytes(),
+        )).readAsBytes(),
         bytes,
       );
     });
@@ -468,15 +457,18 @@ void main() {
       final source = _asset('src1', 'p1');
       final crop = _asset('crop1', 'p1');
       final ambiguous = _asset('maybe1', 'p1');
-      final project = _project([source, crop, ambiguous], [
-        _record(
-          id: 'doc1',
-          sourceImageId: 'src1',
-          sideId: 'side1',
-          workingPath: crop.workingPath,
-          thumbnailPath: crop.thumbnailPath,
-        ),
-      ]);
+      final project = _project(
+        [source, crop, ambiguous],
+        [
+          _record(
+            id: 'doc1',
+            sourceImageId: 'src1',
+            sideId: 'side1',
+            workingPath: crop.workingPath,
+            thumbnailPath: crop.thumbnailPath,
+          ),
+        ],
+      );
 
       final report = reconcileDerivedProvenance(project);
 
@@ -506,21 +498,20 @@ void main() {
 
     test('a recorded relationship is authoritative, never overwritten', () {
       final crop = _asset('crop1', 'p1', derivedFrom: 'src2');
-      final project = _project([
-        _asset('src1', 'p1'),
-        _asset('src2', 'p1'),
-        crop,
-      ], [
-        // The record says src1; the asset says src2. A recorded value is left
-        // alone: overwriting it with an inference is how provenance gets lost.
-        _record(
-          id: 'doc1',
-          sourceImageId: 'src1',
-          sideId: 'side1',
-          workingPath: crop.workingPath,
-          thumbnailPath: crop.thumbnailPath,
-        ),
-      ]);
+      final project = _project(
+        [_asset('src1', 'p1'), _asset('src2', 'p1'), crop],
+        [
+          // The record says src1; the asset says src2. A recorded value is left
+          // alone: overwriting it with an inference is how provenance gets lost.
+          _record(
+            id: 'doc1',
+            sourceImageId: 'src1',
+            sideId: 'side1',
+            workingPath: crop.workingPath,
+            thumbnailPath: crop.thumbnailPath,
+          ),
+        ],
+      );
 
       final report = reconcileDerivedProvenance(project);
       expect(report.backfilled, isEmpty);
@@ -593,8 +584,9 @@ void main() {
         ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
-      final first = (await s.arrangeImportedImages(project, [sourceId]))
-          .project;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
 
       // The state the old per-region save could leave behind: a derived asset
       // whose recorded source is no longer in the project.
@@ -636,8 +628,7 @@ void main() {
       expect(
         await (await assets.resolve(
           result.assets.firstWhere((a) => a.id == sourceId).originalPath,
-        ))
-            .readAsBytes(),
+        )).readAsBytes(),
         bytes,
       );
     });
@@ -656,8 +647,7 @@ void main() {
       final before = project.catalog;
       final result = (await s.arrangeImportedImages(project, [
         project.assets.single.id,
-      ]))
-          .project;
+      ])).project;
 
       expect(
         result.catalog.natural(DocumentKind.unifiedNationalId),

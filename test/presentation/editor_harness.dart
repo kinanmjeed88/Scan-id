@@ -66,46 +66,45 @@ Project editorProject({
   List<DocumentItem>? items,
   int pageCount = 1,
   List<DocumentRecord>? documents,
-}) =>
-    Project(
-      id: 'project1',
-      name: 'مستمسكات العائلة',
-      createdAt: DateTime.utc(2026, 10, 7),
-      updatedAt: DateTime.utc(2026, 10, 7),
-      pageCount: pageCount,
-      paper: PaperSettings(margins: Margins.all(5)),
-      assets: [
-        for (final id in ['asset1', 'asset2', 'asset3', 'asset4'])
-          assetFixture(id: id),
+}) => Project(
+  id: 'project1',
+  name: 'مستمسكات العائلة',
+  createdAt: DateTime.utc(2026, 10, 7),
+  updatedAt: DateTime.utc(2026, 10, 7),
+  pageCount: pageCount,
+  paper: PaperSettings(margins: Margins.all(5)),
+  assets: [
+    for (final id in ['asset1', 'asset2', 'asset3', 'asset4'])
+      assetFixture(id: id),
+  ],
+  documents: documents ?? const [],
+  items:
+      items ??
+      [
+        placedDocument(
+          'card',
+          'asset1',
+          DocumentKind.unifiedNationalId,
+          x: 62.2,
+        ),
+        placedDocument(
+          'passport',
+          'asset2',
+          DocumentKind.passport,
+          x: 42.5,
+          y: 64,
+        ),
+        DocumentItem(
+          id: 'unknown',
+          assetId: 'asset3',
+          x: 0,
+          y: 0,
+          width: 60,
+          height: 40,
+          pageIndex: null,
+        ),
       ],
-      documents: documents ?? const [],
-      items:
-          items ??
-          [
-            placedDocument(
-              'card',
-              'asset1',
-              DocumentKind.unifiedNationalId,
-              x: 62.2,
-            ),
-            placedDocument(
-              'passport',
-              'asset2',
-              DocumentKind.passport,
-              x: 42.5,
-              y: 64,
-            ),
-            DocumentItem(
-              id: 'unknown',
-              assetId: 'asset3',
-              x: 0,
-              y: 0,
-              width: 60,
-              height: 40,
-              pageIndex: null,
-            ),
-          ],
-    );
+);
 
 DocumentItem placedDocument(
   String id,

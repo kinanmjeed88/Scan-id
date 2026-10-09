@@ -637,10 +637,7 @@ class SmartIntake {
       replaced.keys.every(known.contains),
       'a replaced asset must already belong to the project',
     );
-    return [
-      for (final asset in current) replaced[asset.id] ?? asset,
-      ...added,
-    ];
+    return [for (final asset in current) replaced[asset.id] ?? asset, ...added];
   }
 
   /// One aggregated report for derived assets whose recorded source is gone.

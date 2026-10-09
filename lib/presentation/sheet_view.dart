@@ -440,6 +440,10 @@ class OffSheetTray extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
+                              if (c.isUnresolvedCandidate(item)) ...[
+                                const _UnresolvedBadge(),
+                                const SizedBox(width: 4),
+                              ],
                               SizedBox(
                                 width: 44,
                                 height: 40,
@@ -472,6 +476,31 @@ class OffSheetTray extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Marks an off-sheet tile that is an UNRESOLVED recognition candidate.
+///
+/// The region was measured in the source photo and kept on purpose, but no
+/// trustworthy outline was found, so it was never rectified and its size is not
+/// confirmed. Without this marker such a tile is indistinguishable from an
+/// ordinary document that merely lacks a category — which is how a background
+/// fragment came to read as a detected identity document. It is a badge rather
+/// than another text line so the tray's height and RTL layout are unchanged.
+class _UnresolvedBadge extends StatelessWidget {
+  const _UnresolvedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      key: const Key('offsheet-unresolved-badge'),
+      message:
+          'منطقة مستمسك لم يُتأكّد من حدودها: لم تُقصّ تلقائياً ولم يُخترع '
+          'لها مستطيل. الصورة الأصلية محفوظة كما هي — افتحها من المكتبة وقصّ '
+          'الحدود يدوياً، ثم اختر النوع ليُطبَّق مقاسه.',
+      child: Icon(Icons.crop_free, size: 16, color: scheme.tertiary),
     );
   }
 }

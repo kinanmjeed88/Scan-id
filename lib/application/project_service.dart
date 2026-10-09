@@ -59,6 +59,7 @@ class AutomaticLayoutReport {
     this.recognized = 0,
     this.needsReview = 0,
     this.multiDocumentImages = 0,
+    this.rejectedRegions = 0,
     required List<String> warnings,
   }) : warnings = List.unmodifiable(warnings);
 
@@ -74,6 +75,16 @@ class AutomaticLayoutReport {
 
   /// Source images that were segmented into several documents.
   final int multiDocumentImages;
+
+  /// Measured regions that candidate-quality validation REFUSED as document
+  /// candidates across this batch (a frame edge, a strip, a region too small to
+  /// crop, or one beyond the per-photo cap).
+  ///
+  /// Counted separately from [notDetected] on purpose: a refused region created
+  /// no crop, no derived file, no document record and no layout item, while an
+  /// unresolved one was kept for review. Both are reported in [warnings], but
+  /// only one of them entered the project.
+  final int rejectedRegions;
   final List<String> warnings;
   int get unplaced =>
       project.items.where((item) => item.pageIndex == null).length;
@@ -549,6 +560,9 @@ class ProjectService {
       final updated = ImageAsset(
         id: asset.id,
         captureId: asset.captureId,
+        // Replacing the pixels of an asset never changes what it is derived
+        // from; losing this would make a derived crop look like an original.
+        derivedFrom: asset.derivedFrom,
         name: source.name,
         originalPath: files.originalPath,
         workingPath: files.workingPath,

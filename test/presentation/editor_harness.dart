@@ -10,6 +10,7 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 import 'package:scan_id/presentation/page_canvas.dart';
@@ -59,7 +60,13 @@ class EditorHarness {
   }
 }
 
-Project editorProject({List<DocumentItem>? items, int pageCount = 1}) =>
+/// [documents] defaults to none, so a harness project stays a plain layout
+/// fixture unless a test needs recognition records.
+Project editorProject({
+  List<DocumentItem>? items,
+  int pageCount = 1,
+  List<DocumentRecord>? documents,
+}) =>
     Project(
       id: 'project1',
       name: 'مستمسكات العائلة',
@@ -71,6 +78,7 @@ Project editorProject({List<DocumentItem>? items, int pageCount = 1}) =>
         for (final id in ['asset1', 'asset2', 'asset3', 'asset4'])
           assetFixture(id: id),
       ],
+      documents: documents ?? const [],
       items:
           items ??
           [

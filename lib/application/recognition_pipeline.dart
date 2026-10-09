@@ -120,6 +120,7 @@ class ImageAnalysis {
     required this.issues,
     required this.multi,
     this.unresolvedRegions = const [],
+    this.rejectedRegions = const [],
   });
   final String assetId;
   final int importIndex;
@@ -128,6 +129,21 @@ class ImageAnalysis {
 
   /// Whether this image was treated as a multi-document source.
   final bool multi;
+
+  /// Measured regions the segmenter REFUSED as document candidates, with the
+  /// measurements that decided each one.
+  ///
+  /// These never become a crop, a derived file, a `DocumentRecord` or a layout
+  /// item, so they are deliberately NOT part of [allRegions] and not part of
+  /// [regionCount]: counting them would make the intake preserve a background
+  /// fragment as though it were a document. They are kept here so the decision
+  /// stays explainable, and so the user is told once per image instead of once
+  /// per component.
+  ///
+  /// Refusing a candidate never touches the original image (ADR-003): the whole
+  /// photo stays in the library and any part of it can still be cropped by
+  /// hand, which is the recovery route for a region refused by mistake.
+  final List<RejectedRegion> rejectedRegions;
 
   /// Document-like regions the segmenter MEASURED but could not resolve into
   /// a trustworthy quadrilateral.
@@ -300,6 +316,7 @@ class RecognitionPipeline {
       issues: issues,
       multi: segmentation.multi && detections.length > 1,
       unresolvedRegions: unresolved,
+      rejectedRegions: segmentation.rejected,
     );
   }
 
@@ -361,12 +378,22 @@ class RecognitionPipeline {
     final boundaryDetected = quadAspect != null;
     final int width;
     final int height;
+    // Which way the document is HELD, orientation preserved. [_shapeSide]
+    // normalizes the pair below to long/short — right for the catalog shape
+    // comparison, wrong for [estimateOrientation], which would otherwise be
+    // told every crop is landscape. See `cropHeldAspect`.
+    final double heldAspect;
     if (quadAspect != null) {
       final aspect = quadAspect;
       // Only the proportion matters for shape classification; the quad is in
       // pixel space so its aspect is the crop's proportion.
       width = _shapeSide(aspect, long: true);
       height = _shapeSide(aspect, long: false);
+      heldAspect = cropHeldAspect(
+        usableCorners!,
+        sourceWidth: input.sourceWidth,
+        sourceHeight: input.sourceHeight,
+      );
     } else if (region != null) {
       // No trustworthy quadrilateral, but the segmenter DID measure this
       // region. Classify from the measured region proportion — using the whole
@@ -376,9 +403,14 @@ class RecognitionPipeline {
       final aspect = regionHeight <= 0 ? 1.0 : regionWidth / regionHeight;
       width = _shapeSide(aspect, long: true);
       height = _shapeSide(aspect, long: false);
+      // A measured region keeps its own orientation; nothing normalized it.
+      heldAspect = aspect;
     } else {
       width = input.sourceWidth;
       height = input.sourceHeight;
+      heldAspect = input.sourceHeight <= 0
+          ? 1.0
+          : input.sourceWidth / input.sourceHeight;
     }
 
     final classification = classifyDocument(
@@ -398,7 +430,7 @@ class RecognitionPipeline {
 
     final natural = catalog.natural(classification.kind);
     final orientation = estimateOrientation(
-      pixelAspect: width / height,
+      pixelAspect: heldAspect,
       expectedAspect: natural == null ? null : natural.width / natural.height,
     );
 
@@ -427,4 +459,34 @@ int _shapeSide(double aspect, {required bool long}) {
     return long ? (safe * 1000).round().clamp(1, 100000).toInt() : 1000;
   }
   return long ? 1000 : (1000 / safe).round().clamp(1, 100000).toInt();
+}
+
+/// Arabic label of one rejection reason, for the single aggregated diagnostic.
+String regionRejectionLabel(RegionRejection rejection) => switch (rejection) {
+  RegionRejection.frameArtifact => 'حافة الإطار أو صورة مبتورة',
+  RegionRejection.implausibleAspect => 'شريط ضيق',
+  RegionRejection.unusableCrop => 'منطقة أصغر من أن تُقصّ',
+  RegionRejection.candidateCap => 'تجاوزت حدّ المناطق في صورة واحدة',
+};
+
+/// ONE concise diagnostic for every region a photo had refused.
+///
+/// Deliberately a single message with per-reason counts: a noisy threshold can
+/// produce dozens of refused components, and one warning each would bury the
+/// messages that actually need the user. Returns null when nothing was refused.
+String? rejectedRegionsMessage(List<RejectedRegion> rejected) {
+  if (rejected.isEmpty) return null;
+  final counts = <RegionRejection, int>{};
+  for (final region in rejected) {
+    counts[region.rejection] = (counts[region.rejection] ?? 0) + 1;
+  }
+  final parts = <String>[];
+  for (final reason in RegionRejection.values) {
+    final count = counts[reason];
+    if (count == null) continue;
+    parts.add('$count ${regionRejectionLabel(reason)}');
+  }
+  return 'تجاهل التقسيم ${rejected.length} منطقة لا يمكن أن تكون مستمسكاً '
+      '(${parts.join('، ')})؛ لم تُضف إلى المشروع. الصورة الأصلية محفوظة كما '
+      'هي، ويمكن قصّ أي جزء منها يدوياً من المكتبة.';
 }

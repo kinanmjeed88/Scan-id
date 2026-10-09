@@ -18,5 +18,6 @@ or UI changes are made here.
 | [ADR-009](ADR-009.md) | Worker abstraction: bounded concurrency, progress, cancellation | Accepted |
 | [ADR-010](ADR-010.md) | Explicit schema migration before recognition metadata is persisted | Accepted |
 | [ADR-011](ADR-011.md) | Persistence schema version becomes 5 | Accepted (decision); implementation deferred to Phase 1 (Gate 1) |
+| [ADR-012](ADR-012.md) | Candidate-quality gates before any derived asset exists; derived provenance recorded on the asset | Accepted |
 
 Baseline for all ADRs: `docs/AUDIT.md`. Prior audit history: `docs/AUDIT_HISTORY.md`.

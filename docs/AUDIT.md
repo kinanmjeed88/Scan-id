@@ -249,7 +249,7 @@ IMPORT            [E] ProjectService.importImages / AssetRepository.importImage
  → VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget
  → PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels
  → DETECT         [X] suggestDocumentCorners → multi-candidate + detectionConfidence
- → SEGMENT        [N] independent units; deterministic overlap resolution (IoU/area/confidence/validity)
+ → SEGMENT        [N] independent units; deterministic overlap resolution (IoU/area/confidence/validity) + candidate-quality gate (ADR-012)
  → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed GeometryInvalid
  → PERSPECTIVE    [E] PerspectiveMap / warpPerspective → ProcessedDocumentAsset
  → ORIENTATION    [N] geometry + structure proposal (asset-only; layout rotation separate)
@@ -456,6 +456,89 @@ forward obligations, not fixed here:
   `recognitionConfidence: 0`; Phase 4 must separate the override layer.
 - **Implicit migration** (ADR-010/011): `Project.fromJson` parses 1–4 with
   defaults; Phase 1 must add the explicit, snapshot-protected v4→v5 migration.
+
+## Q. Reliability audit (2026-10-09) — false-positive documents and derived-asset provenance
+
+Added after implementation; the Phase 0 baseline above is unchanged. Decision
+record: [ADR-012](adr/ADR-012.md).
+
+Two defects were reproduced against the code and fixed. Both are restated here
+with their code paths so the regression tests have something to point at.
+
+**Q.1 Background fragments became ordinary documents (§G SEGMENT).**
+`segmentDecoded` filtered merged components only by `area >= total * .015`,
+`width >= 10`, `height >= 10`, `fill >= .4`, `width * height <= total * .95`.
+`fill >= .4` is satisfied trivially by any *solid* region — which is what a
+shadow strip, a table edge or a vignette band is — and there was no aspect
+bound, no frame-contact test, no usable-crop minimum and no candidate cap.
+`multi` is true at `deduplicated.length >= 2 && quads >= 1`, so one real card
+plus one junk strip was enough to take the multi path, and
+`SmartIntake._applyMultiDocument` then iterated **all** regions creating a
+derived asset, a `DocumentRecord` and a `DocumentItem` for each. Unresolved
+regions got an axis-aligned crop with `trustworthy: false`, which routes to
+`autoLayoutStatus() == sizeUnconfirmed` and renders in `OffSheetTray`. The extra
+editor items were therefore real documents with real crop files, not a rendering
+fault. `SegmentCandidate.reason` was read by nobody, so the one diagnostic that
+existed was discarded and a `region-too-small` region still became a document.
+
+**Q.2 Derived assets could be committed without anything explaining them
+(§H invariant, ADR-003).** `_sourceAssetIds` classified an asset as derived
+*solely* from document-record path matching, so anything no record named was an
+authoritative SOURCE. `_applyMultiDocument` and `_refreshDocument` wrote each
+derived file and saved the asset list per region, while records and items were
+merged only at the end of `run()` / `reprocess()`. A failure, `RevisionConflict`
+or cancellation in between left record-less derived crops persisted; `Project`
+validation (`items.every((i) => assetIds.contains(i.assetId))`) then made the
+final `copyWith` throw, the batch aborted, and the next reprocess re-analysed
+the crop as a photograph and appended a duplicate document.
+
+**Q.3 Measured evidence for the bounds.** The fixture set this repository ships
+(`test/imaging`, `test/application`) run through a port of the segmenter's own
+arithmetic — its Otsu binning, 360 px working frame with
+`Interpolation.average`, 2 px border median, 8 % region margin and `.round()`
+semantics — with `img.fillRect`'s inclusive corners and `copyResize`'s kernels
+taken from the pinned `image` 4.x source:
+
+| population | aspect | frame sides | crop short side |
+|---|---|---|---|
+| genuine documents | 1.26 – 5.49 | 0 – 1 | 215 – 670 px |
+| strips, slivers, vignettes | 12.00 – 22.50 | 2 – 3 | 43 – 104 px |
+
+The genuine aspect maximum **is** the ration-card proportion (287 / 52 = 5.52
+catalogued), which fixes the aspect bound at 8.0 — 1.46× above it and 33 % below
+the narrowest strip. The genuine aspect minimum is a card rotated 18° in the
+photo, whose axis-aligned box is 1.26 with fill 0.61. The 48 px crop floor sits
+4.5× below the smallest genuine document crop and is a floor, not a
+discriminator: an artificial 14-region grid used only to exercise the candidate
+cap reaches 139 px and is still 2.9× above it.
+
+No content gate ships. An internal-structure ("ink") measure — the fraction of a
+crop differing from the crop's own median — scores **0.000** for BOTH a genuine
+low-contrast card and a solid dark strip on these fixtures, because both are
+uniform, so no separating threshold exists between them; on real documents a
+faded, washed-out or blank-margin card is low-structure too. That is the
+structural reason the shipped gates read only geometry and frame contact.
+
+**Q.4 Residual risk, accepted.** A crisp solid strip drawn to the ration card's
+own catalogued proportion measures 5.62 against the genuine card's 5.49, and
+both are accepted. The two are geometrically indistinguishable, so the strip is
+treated as ambiguous: preserved, routed to review under
+`AutomationMode.reviewAll`, never silently accepted. A soft-edged strip (the
+common shadow case) cannot claim a catalog size at all, because `sizeConfirmed`
+requires a trustworthy boundary.
+
+**Q.5 Diagnostic inventory.** What was lost downstream, and where it now goes:
+
+| diagnostic | before | now |
+|---|---|---|
+| `SegmentCandidate.reason` | written, read by nobody | redundant with `corners == null`; the value that mattered became a typed `RegionRejection` |
+| a region too small to crop | emitted as a candidate, then became a document | `RegionRejection.unusableCrop`, reported |
+| refused regions | not representable | `SegmentationResult.rejected` → one aggregated Arabic message + `AutomaticLayoutReport.rejectedRegions` |
+| `assessQuad` rejection reason | surfaced | unchanged (`حدود مرفوضة هندسياً (name)`) |
+| `ImageAnalysis.issues` | surfaced as warnings | unchanged |
+| unresolved boundary | off-sheet with `sizeConfirmed: false`, indistinguishable from a document that merely lacks a category | `hasUnresolvedBoundary` → `OffSheetTray` badge + its own review reason |
+| `DetectionAnalysis.orientation` | computed, consumed by nobody, and fed a normalized long/short ratio so it was constant per kind | input corrected (`cropHeldAspect`); still unconsumed — every branch is `confident: false`, so applying it would need a real signal (OCR or content), which does not ship |
+| derived-asset origin | inferred from record paths only | `ImageAsset.derivedFrom`, recorded at creation, preserved across revisions and replacements, backfilled only where records prove it, broken chains reported |
 
 ---
 

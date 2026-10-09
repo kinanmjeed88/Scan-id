@@ -194,3 +194,39 @@ OrientationEstimate estimateOrientation({
     reason: 'اقتراح ربع لفة لمطابقة الاتجاه الطبيعي؛ يحتاج تأكيد المستخدم',
   );
 }
+
+/// Which way a quadrilateral is held: crop width / height in SOURCE pixel
+/// space, orientation preserved (below 1 when the crop is portrait).
+///
+/// [QuadAssessment.aspect] is long / short by contract, which is exactly what
+/// the catalog shape comparison needs and exactly what [estimateOrientation]
+/// must NOT be given: feeding it a normalized ratio tells it every crop is
+/// landscape, so a portrait-natural document (the ration card, 52 × 287 mm)
+/// would be proposed a quarter turn while already upright, and a
+/// landscape-natural one would never be proposed a turn at all.
+///
+/// The proportion is measured the same way `CropDraft.toRecipe` measures the
+/// crop it will actually produce — the mean of each pair of opposite edges —
+/// so this diagnostic and the sizing decision cannot disagree about which way
+/// round the document is. Returns 1.0 for a degenerate quad rather than
+/// inventing an orientation.
+double cropHeldAspect(
+  List<Point2> corners, {
+  required int sourceWidth,
+  required int sourceHeight,
+}) {
+  if (corners.length != 4) return 1.0;
+  double distance(Point2 a, Point2 b) => math.sqrt(
+    math.pow((a.x - b.x) * (sourceWidth - 1), 2) +
+        math.pow((a.y - b.y) * (sourceHeight - 1), 2),
+  );
+
+  final width =
+      (distance(corners[0], corners[1]) + distance(corners[3], corners[2])) / 2;
+  final height =
+      (distance(corners[0], corners[3]) + distance(corners[1], corners[2])) / 2;
+  if (!width.isFinite || !height.isFinite || width <= 0 || height <= 0) {
+    return 1.0;
+  }
+  return width / height;
+}

@@ -59,12 +59,13 @@ void main() {
   test(
     'a source above the processing limit is admitted for bounded scaling',
     () {
-    const width = 4001, height = 4000;
-    final header = inspectImageHeader(_jpegHeader(width, height));
-    expect(header.width, width);
-    expect(header.height, height);
-    expect(header.width * header.height, greaterThan(16000000));
-  });
+      const width = 4001, height = 4000;
+      final header = inspectImageHeader(_jpegHeader(width, height));
+      expect(header.width, width);
+      expect(header.height, height);
+      expect(header.width * header.height, greaterThan(16000000));
+    },
+  );
 
   test('JPEG segment lengths cannot overflow the input', () {
     expect(

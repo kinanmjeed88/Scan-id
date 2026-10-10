@@ -273,39 +273,37 @@ void main() {
       // With no image editor the command reports that recognition is off, so
       // this needs no files and no recognition run.
       //
-      // The interaction is wrapped so that a failure names its STAGE and its
-      // text. This test has failed four times reporting only "see exception
-      // logs above", because flutter_test prints the exception block above the
-      // failure marker and CI's annotation channel publishes only the indented
-      // detail below it. A thrown error here is republished as a failure
-      // detail, which that channel does carry.
+      // Every animation the tap starts is SETTLED before anything is asserted
+      // or dismissed. flutter_test fails a test whose tree is disposed while a
+      // ticker is still running ("An animation is still running even after the
+      // widget tree was disposed"), which bounded pumps cannot avoid: the ink
+      // ripple alone outlives them. Settling is also what disarms nothing — the
+      // SnackBar's own duration timer is cancelled below by the messenger.
+      //
+      // Each stage is guarded so that a thrown error is republished as a
+      // failure detail. This test failed five rounds running with only "Test
+      // failed. See exception logs above.", because flutter_test prints the
+      // exception in a framed block ABOVE the reporter's failure marker and
+      // `tool/ci_gate.py` published only the indented detail below it. That
+      // collector is fixed in this commit; the guard stays as a second channel.
+      final button = find.byKey(const Key('rb-reprocess'));
       var stage = 'pump';
       Object? thrown;
-      final button = find.byKey(const Key('rb-reprocess'));
       try {
         await EditorHarness.pump(tester);
         stage = 'find';
         expect(button, findsOneWidget);
         stage = 'ensureVisible';
         await tester.ensureVisible(button);
-        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
         stage = 'tap';
-        await tester.tap(button, warnIfMissed: false);
-        stage = 'frames';
-        // The command is a chain of microtasks, which the first pump drains;
-        // the rest let the SnackBar's entrance run to completion. Bounded pumps
-        // rather than pumpAndSettle, so that nothing which animates forever can
-        // time the settle out.
-        for (var frame = 0; frame < 6; frame++) {
-          await tester.pump(const Duration(milliseconds: 100));
-        }
+        await tester.tap(button);
+        stage = 'settle';
+        await tester.pumpAndSettle();
       } catch (error) {
         thrown = error;
       }
-      final rect = tester.widgetList(button).isEmpty
-          ? 'gone'
-          : '${tester.getRect(button)}';
-      expect(thrown, isNull, reason: 'failed at $stage: $thrown rect=$rect');
+      expect(thrown, isNull, reason: 'failed at $stage: $thrown');
 
       final snack = find.byType(SnackBar);
       expect(snack, findsOneWidget);
@@ -314,13 +312,20 @@ void main() {
         findsOneWidget,
       );
 
-      // `showMessage` gives every SnackBar a six-second duration, so it is
-      // dismissed through its messenger, which cancels that timer instead of
-      // leaving it for the binding to report once the body has passed.
-      ScaffoldMessenger.of(tester.element(snack)).clearSnackBars();
-      for (var frame = 0; frame < 4; frame++) {
-        await tester.pump(const Duration(milliseconds: 100));
+      // `showMessage` gives the SnackBar a six-second duration, armed by the
+      // messenger's own build once the entrance completes. `clearSnackBars`
+      // cancels it through `hideCurrentSnackBar`, and settling afterwards runs
+      // the exit animation to completion, so neither a timer nor a ticker is
+      // left for the binding to report once the body has passed.
+      thrown = null;
+      stage = 'dismiss';
+      try {
+        ScaffoldMessenger.of(tester.element(snack)).clearSnackBars();
+        await tester.pumpAndSettle();
+      } catch (error) {
+        thrown = error;
       }
+      expect(thrown, isNull, reason: 'failed at $stage: $thrown');
       expect(find.byType(SnackBar), findsNothing);
       expect(tester.takeException(), isNull, reason: 'see the actual value');
     });

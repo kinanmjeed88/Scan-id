@@ -55,6 +55,48 @@ if code:
     lines = text.splitlines()
     marks = []
     seen = set()
+
+    # A widget-test exception is printed in a framed block ("EXCEPTION CAUGHT
+    # BY ...") and the reporter's own `[E]` line then says only "Test failed.
+    # See exception logs above." The block is ABOVE that line, and because
+    # `flutter test` runs files concurrently it is interleaved with other
+    # suites' progress lines far from it, so neither the indented detail below
+    # `[E]` nor the tail of the log ever reaches it. That is exactly the case
+    # where a failing test names itself but never says why, so the blocks are
+    # collected first and ahead of everything else in the annotation budget.
+    FRAMES, PER_FRAME = 4, 45
+    framed = 0
+    for index, line in enumerate(lines):
+        if 'EXCEPTION CAUGHT BY' not in line:
+            continue
+        if framed >= FRAMES:
+            break
+        framed += 1
+        marks.append(line)
+        for detail in lines[index + 1:index + PER_FRAME]:
+            marks.append(detail)
+            closed = detail.startswith('\u2550')
+            if closed and detail.rstrip().endswith('\u2550'):
+                break
+    # Fallback for the same invariants named without a frame, which is how a
+    # widget test fails after every assertion in its body has passed. The
+    # phrases are specific on purpose: a broad keyword also matches the
+    # progress lines other suites print concurrently and buries the reason.
+    for index, line in enumerate(lines):
+        if not any(word in line for word in (
+            'Timer is still pending',
+            'pumpAndSettle timed out',
+        )):
+            continue
+        if line.rstrip() in seen:
+            continue
+        seen.add(line.rstrip())
+        marks.append(line)
+        for detail in lines[index + 1:index + 7]:
+            if detail[:1] not in (' ', '\t') or not detail.strip():
+                break
+            marks.append(detail)
+    seen.clear()
     for index, line in enumerate(lines):
         stripped = line.rstrip()
         if stripped.endswith('[E]'):

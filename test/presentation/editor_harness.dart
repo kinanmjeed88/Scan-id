@@ -10,6 +10,7 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 import 'package:scan_id/presentation/page_canvas.dart';
@@ -32,6 +33,8 @@ class EditorHarness {
     Project? project,
     ImageEditor? imageEditor,
     Future<List<ImportSource>> Function()? pickImages,
+    String? intakeSummary,
+    List<String> intakeWarnings = const [],
   }) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
@@ -51,6 +54,8 @@ class EditorHarness {
           service: service,
           pickImages: pickImages ?? () async => <ImportSource>[],
           adjustmentCommitDelay: const Duration(milliseconds: 200),
+          intakeSummary: intakeSummary,
+          intakeWarnings: intakeWarnings,
         ),
       ),
     );
@@ -59,45 +64,51 @@ class EditorHarness {
   }
 }
 
-Project editorProject({List<DocumentItem>? items, int pageCount = 1}) =>
-    Project(
-      id: 'project1',
-      name: 'مستمسكات العائلة',
-      createdAt: DateTime.utc(2026, 10, 7),
-      updatedAt: DateTime.utc(2026, 10, 7),
-      pageCount: pageCount,
-      paper: PaperSettings(margins: Margins.all(5)),
-      assets: [
-        for (final id in ['asset1', 'asset2', 'asset3', 'asset4'])
-          assetFixture(id: id),
+/// [documents] defaults to none, so a harness project stays a plain layout
+/// fixture unless a test needs recognition records.
+Project editorProject({
+  List<DocumentItem>? items,
+  int pageCount = 1,
+  List<DocumentRecord>? documents,
+}) => Project(
+  id: 'project1',
+  name: 'مستمسكات العائلة',
+  createdAt: DateTime.utc(2026, 10, 7),
+  updatedAt: DateTime.utc(2026, 10, 7),
+  pageCount: pageCount,
+  paper: PaperSettings(margins: Margins.all(5)),
+  assets: [
+    for (final id in ['asset1', 'asset2', 'asset3', 'asset4'])
+      assetFixture(id: id),
+  ],
+  documents: documents ?? const [],
+  items:
+      items ??
+      [
+        placedDocument(
+          'card',
+          'asset1',
+          DocumentKind.unifiedNationalId,
+          x: 62.2,
+        ),
+        placedDocument(
+          'passport',
+          'asset2',
+          DocumentKind.passport,
+          x: 42.5,
+          y: 64,
+        ),
+        DocumentItem(
+          id: 'unknown',
+          assetId: 'asset3',
+          x: 0,
+          y: 0,
+          width: 60,
+          height: 40,
+          pageIndex: null,
+        ),
       ],
-      items:
-          items ??
-          [
-            placedDocument(
-              'card',
-              'asset1',
-              DocumentKind.unifiedNationalId,
-              x: 62.2,
-            ),
-            placedDocument(
-              'passport',
-              'asset2',
-              DocumentKind.passport,
-              x: 42.5,
-              y: 64,
-            ),
-            DocumentItem(
-              id: 'unknown',
-              assetId: 'asset3',
-              x: 0,
-              y: 0,
-              width: 60,
-              height: 40,
-              pageIndex: null,
-            ),
-          ],
-    );
+);
 
 DocumentItem placedDocument(
   String id,

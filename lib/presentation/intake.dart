@@ -135,6 +135,23 @@ class IntakeRunner {
   }
 }
 
+/// The arrangement screen's intake summary: what the automatic pass produced,
+/// plus — on its own line — how many regions the gates refused and why.
+///
+/// The tally gets its own line rather than relying on [IntakeRun]'s warnings:
+/// the arrangement banner shows at most three warnings, so a batch with several
+/// per-image issues could otherwise push the only mention of the refused
+/// regions out of view entirely, and a refusal the user never sees is
+/// indistinguishable from a document the app never looked for.
+String intakeSummaryText(AutomaticLayoutReport report) {
+  final counts =
+      'قُصّ تلقائياً: ${report.cropped} · تُعرّف على النوع والمقاس: '
+      '${report.recognized} · بلا حدود واضحة: ${report.notDetected} '
+      '· خارج الورق: ${report.unplaced}';
+  final refused = report.rejectedHeadline;
+  return refused == null ? counts : '$counts\n$refused';
+}
+
 /// Runs an intake inside a modal progress dialog with a cancel button.
 ///
 /// Used by the project screen so that importing there behaves exactly like

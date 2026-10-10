@@ -104,6 +104,9 @@ Future<ImageAsset> _saveRevision(
     return ImageAsset(
       id: asset.id,
       captureId: asset.captureId,
+      // A revision changes pixels, never provenance: dropping this would turn a
+      // derived crop back into an apparent original photograph.
+      derivedFrom: asset.derivedFrom,
       name: asset.name,
       originalPath: asset.originalPath,
       workingPath: '$relative/working.png',

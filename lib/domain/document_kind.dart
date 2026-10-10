@@ -485,11 +485,29 @@ bool _containsAny(String value, List<String> tokens) =>
 /// Starting size for a document whose category is not known yet. It keeps the
 /// image's proportions and is never described as a real measurement; such
 /// items stay off the sheet until the user picks a category or a size.
+///
+/// The short edge never falls below [minDocumentEdgeMm]. An extreme proportion
+/// — a long narrow region such as a shadow strip — would otherwise yield a size
+/// that [validDocumentSize] rejects, and `DocumentEdits.resize` validates
+/// through that same function, so the item would be one the editor cannot
+/// resize at all. Lifting only the short edge keeps the long edge at
+/// [longEdge], so the result is always an editable size for ANY proportion;
+/// the floor binds only above an 8:1 proportion, which is beyond every
+/// catalogued document shape, so a plausible document keeps its proportions.
 PhysicalSizeMm provisionalSize({required int width, required int height}) {
   final aspect = width / height;
   const longEdge = 80.0;
   final rawWidth = aspect >= 1 ? longEdge : longEdge * aspect;
   final rawHeight = aspect >= 1 ? longEdge / aspect : longEdge;
   final scale = math.min(1.0, 150 / math.max(rawWidth, rawHeight));
-  return PhysicalSizeMm(rawWidth * scale, rawHeight * scale);
+  var sizedWidth = rawWidth * scale;
+  var sizedHeight = rawHeight * scale;
+  if (math.min(sizedWidth, sizedHeight) < minDocumentEdgeMm) {
+    if (sizedWidth <= sizedHeight) {
+      sizedWidth = minDocumentEdgeMm;
+    } else {
+      sizedHeight = minDocumentEdgeMm;
+    }
+  }
+  return PhysicalSizeMm(sizedWidth, sizedHeight);
 }

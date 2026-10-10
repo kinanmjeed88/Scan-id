@@ -63,15 +63,17 @@ mm/point conversions); `crop_draft.dart` (`CropDraft`, `ImageEditRecipe`);
 `document_edits.dart` (`DocumentEdits`); `edit_history.dart` (`EditHistory`,
 session undo/redo); `validation.dart` (`require`, typed readers, `validId`,
 `validName`, `validAssetPath`, reserved-Windows-name guard); `image_limits.dart`
-(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`, `export_naming.dart`,
+(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`,
+`export_naming.dart`,
 `image_adjustments.dart`.
 
 **imaging/** — no Widgets. `document_detector.dart`
 (`suggestDocumentCorners`/`detectDocumentCorners`: classical, deterministic,
 single quad or `null`); `perspective.dart` (`PerspectiveMap` 8-param homography,
 `warpPerspective`, `renderPerspective`); `prepare_image.dart`
-(`decodeForProcessing`, `prepareImage`, `normalizeChannels`); `image_header.dart`
-(`inspectImageHeader`), `safe_png.dart`, `auto_adjustments.dart`.
+(`decodeForProcessing`, `prepareImage`, `normalizeChannels`);
+`image_header.dart` (`inspectImageHeader`), `safe_png.dart`,
+`auto_adjustments.dart`.
 
 **application/** — `project_service.dart` (`ProjectService`: `create`, `rename`,
 `importImages`, `arrangeImportedImages` (auto-intake: open→suggest→classify→
@@ -87,10 +89,11 @@ maintenance, `suggestAutoAdjustments`); `contracts.dart` (ports + result types);
 (optimistic `revision`, `RecoveryCheckpoints`, explicit `recover`, never
 delete/recreate on corruption); `local_asset_repository.dart`
 (`importImage`/`replaceImage` in `Isolate.run`, staging→publish, immutable
-original); `local_image_editor.dart` (`open`/`suggest`/`preview`/`createRevision`
-in isolates); `local_project_backups.dart` (`.scanid`: magic + length-prefixed
-manifest ≤16 MiB + payloads, SHA256 per file, zip-slip/size guards, restore as
-new project); `local_project_recovery.dart`; `local_storage_maintenance.dart`;
+original); `local_image_editor.dart`
+(`open`/`suggest`/`preview`/`createRevision` in isolates);
+`local_project_backups.dart` (`.scanid`: magic + length-prefixed manifest ≤16
+MiB + payloads, SHA256 per file, zip-slip/size guards, restore as new project);
+`local_project_recovery.dart`; `local_storage_maintenance.dart`;
 `recovery_checkpoints.dart`; `safe_files.dart` (symlink/`..`/root confinement).
 
 **export/** — `document_exporter.dart`: PDF = vector A4 page + embedded working
@@ -148,21 +151,20 @@ build); storage under LocalAppData; save via system picker; reveal-folder share.
 ## D. Missing architecture (actual gaps to build)
 
 1. **Multi-document detection & segmentation** — detector returns one quad; no
-   per-candidate id/`detectionConfidence`/visibility/quality; no overlap
-   resolution.
-2. **Geometry confidence** — no `geometryConfidence` from named, measurable
-   factors; no scored geometry stage (only binary `CropGeometry` validation).
-3. **Orientation stage** — no explicit orientation proposal (only quarter-turn
-   adjustments chosen by the user).
-4. **`ProcessedDocumentAsset`** — a crop rewrites the *same* asset's working
-   image; no first-class per-detection derived asset with transform/DPI/version.
-5. **`DocumentInstance` / `DocumentSide`** — no logical-document or front/back
-   model; no `UncertainPairing`.
-6. **OCR** — none (`OCRAnalyzer` behind an interface, evidence-only).
-7. **Evidence fusion + five confidence dimensions** — `DocumentItem` carries a
-   single `recognitionConfidence`; no `detection/geometry/ocr/classification/
-   final` separation, no R1–R4 rules, no bands.
-8. **Preset resolver / variants / snapshots** — catalog has one size per type; no
+per-candidate id/`detectionConfidence`/visibility/quality; no overlap
+resolution. 2. **Geometry confidence** — no `geometryConfidence` from named,
+measurable factors; no scored geometry stage (only binary `CropGeometry`
+validation). 3. **Orientation stage** — no explicit orientation proposal (only
+quarter-turn adjustments chosen by the user). 4. **`ProcessedDocumentAsset`** —
+a crop rewrites the *same* asset's working image; no first-class per-detection
+derived asset with transform/DPI/version. 5. **`DocumentInstance` /
+`DocumentSide`** — no logical-document or front/back model; no
+`UncertainPairing`. 6. **OCR** — none (`OCRAnalyzer` behind an interface,
+evidence-only). 7. **Evidence fusion + five confidence dimensions** —
+`DocumentItem` carries a single `recognitionConfidence`; no
+`detection/geometry/ocr/classification/ final` separation, no R1–R4 rules, no
+bands. 8. **Preset resolver / variants / snapshots** — catalog has one size per
+type; no
    `PresetVariant`, no `DocumentPresetResolver`, no per-item preset snapshot.
 9. **Provenance chain** — no `sourceImageId→detectionId→documentInstanceId→side→
    model/recognition versions` record.
@@ -197,8 +199,8 @@ finding accepted earlier):
   fonts).
 
 These contexts must not be recreated, ported, or inferred here. `akrym1582/
-ExcelRenderer` is an unrelated third-party repository and is **not** a source for
-Scan-id.
+ExcelRenderer` is an unrelated third-party repository and is **not** a source
+for Scan-id.
 
 ---
 
@@ -246,25 +248,28 @@ Legend: **[E]** existing · **[X]** extension required · **[N]** new stage.
 
 ```
 IMPORT            [E] ProjectService.importImages / AssetRepository.importImage
- → VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget
- → PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels
- → DETECT         [X] suggestDocumentCorners → multi-candidate + detectionConfidence
- → SEGMENT        [N] independent units; deterministic overlap resolution (IoU/area/confidence/validity)
- → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed GeometryInvalid
- → PERSPECTIVE    [E] PerspectiveMap / warpPerspective → ProcessedDocumentAsset
- → ORIENTATION    [N] geometry + structure proposal (asset-only; layout rotation separate)
- → OCR            [N] OCRAnalyzer (evidence-only; label anchors/structure; no field values)
- → CLASSIFICATION [X] DocumentClassifier over geometry+structure+aspect+OCR (+ optional visual)
- → EVIDENCE FUSION[N] fusion per §F (five confidences, R1–R4)
- → CONFIDENCE     [N] finalConfidence + band + reasons
- → DOCUMENT TYPE  [X] DocumentKind (+ Unknown on insufficient evidence)
- → PRESET         [N] DocumentPresetResolver → variant / presetConfidence / awaitingSize shortlist
- → FRONT/BACK     [N] pairing → DocumentInstance/DocumentSide / UncertainPairing
- → USER REVIEW    [N] review queue + override layer (authoritative; AI never overwrites)
- → LAYOUT ITEM    [X] DocumentLayoutItem (mm size from preset; provenance; override; group id)
- → A4 AUTO LAYOUT [E] arrangeDocuments / proposePacking (sole coordinate authority; + keep-together [X])
- → EXISTING EDITOR[E] LayoutEditorController / PageCanvas / ribbon (correct AI results here)
- → EXPORT         [E] DocumentExporter (PDF/PNG/JPG/print/share) — unchanged
+→ VALIDATE       [E] readBoundedImage + inspectImageHeader + withinImageBudget →
+PREPROCESS     [E] decodeForProcessing / prepareImage / normalizeChannels →
+DETECT         [X] suggestDocumentCorners → multi-candidate +
+detectionConfidence → SEGMENT        [N] independent units; deterministic
+overlap resolution (IoU/area/confidence/validity) + candidate-quality gate
+(ADR-012) → REFINE GEOMETRY[X] CornerRefiner + geometryConfidence + typed
+GeometryInvalid → PERSPECTIVE    [E] PerspectiveMap / warpPerspective →
+ProcessedDocumentAsset → ORIENTATION    [N] geometry + structure proposal
+(asset-only; layout rotation separate) → OCR            [N] OCRAnalyzer
+(evidence-only; label anchors/structure; no field values) → CLASSIFICATION [X]
+DocumentClassifier over geometry+structure+aspect+OCR (+ optional visual) →
+EVIDENCE FUSION[N] fusion per §F (five confidences, R1–R4) → CONFIDENCE     [N]
+finalConfidence + band + reasons → DOCUMENT TYPE  [X] DocumentKind (+ Unknown on
+insufficient evidence) → PRESET         [N] DocumentPresetResolver → variant /
+presetConfidence / awaitingSize shortlist → FRONT/BACK     [N] pairing →
+DocumentInstance/DocumentSide / UncertainPairing → USER REVIEW    [N] review
+queue + override layer (authoritative; AI never overwrites) → LAYOUT ITEM    [X]
+DocumentLayoutItem (mm size from preset; provenance; override; group id) → A4
+AUTO LAYOUT [E] arrangeDocuments / proposePacking (sole coordinate authority; +
+keep-together [X]) → EXISTING EDITOR[E] LayoutEditorController / PageCanvas /
+ribbon (correct AI results here) → EXPORT         [E] DocumentExporter
+(PDF/PNG/JPG/print/share) — unchanged
 ```
 
 Every stage degrades gracefully: a failure is recorded with a typed reason and
@@ -321,8 +326,8 @@ Known cost centers to be bounded and later measured by the benchmark harness
   detector uses ~480/1200 px rasters); full resolution is read only to warp the
   needed region per document. At most one full-res bitmap per worker.
 - **600 DPI output** — an A4 page at 600 DPI is ~4961×7016; a single RGB page
-  buffer is on the order of ~100 MiB before codec/source (existing export already
-  budgets 40 MP embedded / 96 MiB encoded and rasters one page at a time).
+buffer is on the order of ~100 MiB before codec/source (existing export already
+budgets 40 MP embedded / 96 MiB encoded and rasters one page at a time).
 - **Multiple documents per source** — N derived assets per image multiply warp
   and encode cost; must be bounded and streamed, not batched in memory.
 - **OCR memory** — model session + per-image tensors; session created once per
@@ -447,15 +452,238 @@ owner approval.
 ## P. Defects found (carried forward; see `docs/AUDIT_HISTORY.md`)
 
 No new production defects are introduced by Phase 0 (documentation only). The
-known defects/lessons from the prior audit remain the regression baseline and are
-preserved in `docs/AUDIT_HISTORY.md` (baseline gaps G1–G9; PR #4 defects R1–R6;
-S1–S7 lessons). Two are directly relevant to this work and are restated as
-forward obligations, not fixed here:
+known defects/lessons from the prior audit remain the regression baseline and
+are preserved in `docs/AUDIT_HISTORY.md` (baseline gaps G1–G9; PR #4 defects
+R1–R6; S1–S7 lessons). Two are directly relevant to this work and are restated
+as forward obligations, not fixed here:
 
 - **Override/confidence conflation** (ADR-004): `DocumentEdits.setKind` sets
   `recognitionConfidence: 0`; Phase 4 must separate the override layer.
 - **Implicit migration** (ADR-010/011): `Project.fromJson` parses 1–4 with
   defaults; Phase 1 must add the explicit, snapshot-protected v4→v5 migration.
+
+## Q. Reliability audit (2026-10-09) — false-positive documents and derived-asset provenance
+
+Added after implementation; the Phase 0 baseline above is unchanged. Decision
+record: [ADR-012](adr/ADR-012.md).
+
+Two defects were reproduced against the code and fixed. Both are restated here
+with their code paths so the regression tests have something to point at.
+
+**Q.1 Background fragments became ordinary documents (§G SEGMENT).**
+`segmentDecoded` filtered merged components only by `area >= total * .015`,
+`width >= 10`, `height >= 10`, `fill >= .4`, `width * height <= total * .95`.
+`fill >= .4` is satisfied trivially by any *solid* region — which is what a
+shadow strip, a table edge or a vignette band is — and there was no aspect
+bound, no frame-contact test, no usable-crop minimum and no candidate cap.
+`multi` is true at `deduplicated.length >= 2 && quads >= 1`, so one real card
+plus one junk strip was enough to take the multi path, and
+`SmartIntake._applyMultiDocument` then iterated **all** regions creating a
+derived asset, a `DocumentRecord` and a `DocumentItem` for each. Unresolved
+regions got an axis-aligned crop with `trustworthy: false`, which routes to
+`autoLayoutStatus() == sizeUnconfirmed` and renders in `OffSheetTray`. The extra
+editor items were therefore real documents with real crop files, not a rendering
+fault. `SegmentCandidate.reason` was read by nobody, so the one diagnostic that
+existed was discarded and a `region-too-small` region still became a document.
+
+**Q.2 Derived assets could be committed without anything explaining them
+(§H invariant, ADR-003).** `_sourceAssetIds` classified an asset as derived
+*solely* from document-record path matching, so anything no record named was an
+authoritative SOURCE. `_applyMultiDocument` and `_refreshDocument` wrote each
+derived file and saved the asset list per region, while records and items were
+merged only at the end of `run()` / `reprocess()`. A failure, `RevisionConflict`
+or cancellation in between left record-less derived crops persisted; `Project`
+validation (`items.every((i) => assetIds.contains(i.assetId))`) then made the
+final `copyWith` throw, the batch aborted, and the next reprocess re-analysed
+the crop as a photograph and appended a duplicate document.
+
+**Q.3 Measured evidence for the bounds.** The fixture set this repository ships
+(`test/imaging`, `test/application`) run through a port of the segmenter's own
+arithmetic — its Otsu binning, 360 px working frame with
+`Interpolation.average`, 2 px border median, 8 % region margin and `.round()`
+semantics — with `img.fillRect`'s inclusive corners and `copyResize`'s kernels
+taken from the pinned `image` 4.x source:
+
+| population | aspect | frame sides | crop short side |
+|---|---|---|---|
+| genuine documents | 1.26 – 5.49 | 0 – 1 | 215 – 670 px |
+| strips, slivers, vignettes | 12.00 – 22.50 | 2 – 3 | 43 – 104 px |
+
+The genuine aspect maximum **is** the ration-card proportion (287 / 52 = 5.52
+catalogued), which fixes the aspect bound at 8.0 — 1.46× above it and 33 % below
+the narrowest strip. The genuine aspect minimum is a card rotated 18° in the
+photo, whose axis-aligned box is 1.26 with fill 0.61. The 48 px crop floor sits
+4.5× below the smallest genuine document crop and is a floor, not a
+discriminator: an artificial 14-region grid used only to exercise the candidate
+cap reaches 139 px and is still 2.9× above it.
+
+No content gate ships. An internal-structure ("ink") measure — the fraction of a
+crop differing from the crop's own median — scores **0.000** for BOTH a genuine
+low-contrast card and a solid dark strip on these fixtures, because both are
+uniform, so no separating threshold exists between them; on real documents a
+faded, washed-out or blank-margin card is low-structure too. That is the
+structural reason the shipped gates read only geometry and frame contact.
+
+**Q.4 Residual risk, accepted.** A crisp solid strip drawn to the ration card's
+own catalogued proportion measures 5.62 against the genuine card's 5.49, and
+both are accepted. The two are geometrically indistinguishable, so the strip is
+treated as ambiguous: preserved, routed to review under
+`AutomationMode.reviewAll`, never silently accepted. A soft-edged strip (the
+common shadow case) cannot claim a catalog size at all, because `sizeConfirmed`
+requires a trustworthy boundary.
+
+> **Corrected by R.2.** The two numbers in that paragraph came from different
+> measurement bases — 5.62 is the *work-frame box* aspect and 5.49 the *preview
+> region* aspect — so they did not compare the band with the card. Measured on
+> one harness, the band is lower than the genuine card on every aspect basis and
+> higher on fill. The conclusion (indistinguishable, preserved, reviewed) is
+> unchanged and now stronger: there is no bound that refuses the artifact
+> first. See [R.2](#r2-the-ration-proportion-residual-risk-re-measured) and
+> [ADR-012](adr/ADR-012.md).
+
+**Q.5 Diagnostic inventory.** What was lost downstream, and where it now goes:
+
+| diagnostic | before | now |
+|---|---|---|
+| `SegmentCandidate.reason` | written, read by nobody | redundant with `corners == null`; the value that mattered became a typed `RegionRejection` |
+| a region too small to crop | emitted as a candidate, then became a document | `RegionRejection.unusableCrop`, reported |
+| refused regions | not representable | `SegmentationResult.rejected` → one aggregated Arabic message + `AutomaticLayoutReport.rejectedRegions` |
+| `assessQuad` rejection reason | surfaced | unchanged (`حدود مرفوضة هندسياً (name)`) |
+| `ImageAnalysis.issues` | surfaced as warnings | unchanged |
+| unresolved boundary | off-sheet with `sizeConfirmed: false`, indistinguishable from a document that merely lacks a category | `hasUnresolvedBoundary` → `OffSheetTray` badge + its own review reason |
+| `DetectionAnalysis.orientation` | computed, consumed by nobody, and fed a normalized long/short ratio so it was constant per kind | input corrected (`cropHeldAspect`); still unconsumed — every branch is `confident: false`, so applying it would need a real signal (OCR or content), which does not ship |
+| derived-asset origin | inferred from record paths only | `ImageAsset.derivedFrom`, recorded at creation, preserved across revisions and replacements, backfilled only where records prove it, broken chains reported |
+
+## R. Reliability audit, second pass (2026-10-09) — refusal feedback, residual risk
+
+Added after the ADR-012 implementation was verified on CI. §Q above and the
+Phase 0 baseline are unchanged except for the correction note on Q.4. Decision
+record: [ADR-012](adr/ADR-012.md). This pass found one real defect (R.1),
+corrected one recorded measurement (R.2), and verified one invariant that had no
+test (R.4). No threshold, preset or routing rule was changed.
+
+**R.1 Refusal feedback never reached the editor's own import door (§G SEGMENT,
+§I failure contract).** `SegmentationResult.rejected` →
+`ImageAnalysis.rejectedRegions` → `rejectedRegionsMessage` produced exactly one
+aggregated Arabic warning per photo, and that warning was carried into
+`AutomaticLayoutReport.warnings` — but the report's own refusal count
+(`rejectedRegions`) was read by *nothing* in `lib/presentation/`. Tracing every
+entry point:
+
+| entry point | path | refusals before | refusals now |
+|---|---|---|---|
+| project screen → `startWithImagePicker` | `_import` → `IntakeRunner.run` → banner `warnings.take(3)` | listed, but a 4th warning pushed the aggregate out of the banner entirely | banner shows `intakeSummaryText`, whose second line is `rejectedHeadline` |
+| project screen → file drop / share target | same `IntakeRunner` | same loss | same fix |
+| A4 editor → `Key('rb-import')` | `LayoutEditorController.importImages` → `_say` | **nothing at all** — only cropped / recognised / not-detected counts | `_say` line 2 is `rejectedSummary` |
+| A4 editor → `Key('rb-reprocess')` | `LayoutEditorController.reprocessImages` → `_say` | **nothing at all** | same summary from the reprocess report |
+| review queue | `reviewReasonsFor` | unaffected | unaffected |
+
+Two details of the existing surfaces shaped the fix. `_say` shows a `SnackBar`,
+so a second call replaces the first — the refusal therefore had to be merged
+into the *same* message, not added after it. And the banner renders
+`warnings.take(3)` plus a `وتوجد N تنبيهات أخرى.` tail, so a busy batch could
+drop the aggregate while still claiming to have shown everything; the headline
+gets its own line of the summary instead, and `intakeSummaryText` is a pure
+function so both are testable without a widget tree.
+
+The categories the message names are the four the gates actually decide —
+`frameArtifact`, `implausibleAspect`, `unusableCrop`, `candidateCap` — joined
+with `، ` in `RegionRejection.values` order, each named **once** whatever the
+count. A reason nobody decided is absent from the tally: `AutomaticLayoutReport`
+asserts `rejectedByReason.values.fold(0, +) == rejectedRegions` at construction,
+so the count and the breakdown can never tell the user two different stories.
+Nothing was invented: no per-region list, no coordinates, no confidence the
+pipeline did not compute, and no word implying text was read (there is no OCR
+engine — see §K and RECOGNITION §6).
+
+**R.2 The ration-proportion residual risk, re-measured.** Q.4's two numbers came
+from different bases. One harness, one fixture construction (1200 × 1600 photo,
+uniform desk, an ID card in the upper half, a 1000 × 181 region in the lower
+half — 5.5249 as drawn against 287 / 52 = 5.5192 catalogued), preview 900 ×
+1200, Otsu 114.4:
+
+| basis | crisp shadow band | genuine printed ration card |
+|---|---|---|
+| work-frame box aspect — what the 8.0 bound reads | **5.6000** | **5.6250** |
+| preview region aspect | **5.4785** | **5.4997** |
+| derived crop aspect (158 × 866 / 158 × 869) | 5.4810 | 5.5000 |
+| fill | **1.000** | **0.986** |
+| frame border sides | 0 | 0 |
+| area fraction | 0.0922 | 0.0913 |
+
+Both are accepted, and the band is the *less* extreme of the two on every aspect
+basis — so an aspect bound placed between them refuses the genuine card first,
+which is why 8.0 stays where it is (1.46× above the catalogued extreme, 33 %
+below the narrowest measured artifact). On fill the band is the *more* extreme
+(1.000 vs 0.986), so a `fill >= .99 ⇒ artifact` rule separates them by 1.4 % and
+loses blank paper, printed pages and washed-out or faded genuine cards, which
+also measure fill 1.000. Population overlap is total on the remaining signals:
+border sides 0 – 1 for both, crop short side 158 px for both. There is no
+threshold in this data.
+
+The measured cost of the shipped geometry-only gates is recorded too, because it
+is real and it is not zero: two narrow cards laid edge to edge with **no** desk
+between them form one connected component of aspect 11.25 (sides 0), which
+`implausibleAspect` refuses, so that photo takes the single-document path and
+yields one document instead of two. The same three documents with a visible gap
+yield all three. The refusal is reported with its category, the original is
+untouched, and either card can be cropped by hand from the library — which is
+the conservative behaviour the constraint asked to preserve, not a silent loss.
+`test/application/ration_proportion_test.dart` pins both directions plus a
+positive control, and asserts the indistinguishability as equality of decisions
+rather than as a threshold.
+
+What that test measured when it first ran on CI is worth recording, because it
+is a real observation rather than a prediction. For the shadow band and the
+genuine card the pipeline produced, in both cases: 2 documents, 2 items, 0
+refused regions, every record in the review queue, and the narrow one classified
+`rationCard` with a catalog-confirmed size of aspect 5.52. The two runs differed
+in exactly one respect — which way round the confirmed 287 mm card was placed
+(287 × 52 for one fixture, 52 × 287 for the other), although their crops differ
+by 3 px. That is a placement outcome, not a recognition decision, and the
+recognition claim above is unaffected; but it is a genuine sensitivity of the
+placement path to sub-millimetre crop differences at the extreme card length
+(287 mm fits A4 only with margins of at most 5 mm, so rotation there is a
+knife-edge), it predates this work, and it is not addressed here because
+consuming an orientation estimate is forbidden while every branch of
+`DetectionAnalysis.orientation` reports `confident: false`.
+
+**R.3 There is no routing headroom to exploit (§H invariant).**
+`const automationMode` is `AutomationMode.reviewAll`, and
+`reviewReasons(record)` is non-empty for every record carrying a recognition
+block unless the user resolved it (`مؤهل تلقائياً — بانتظار التأكيد`, `ثقة
+متوسطة`, `ثقة منخفضة`, `بلا ثقة نهائية`, `حدود غير محسومة — يحتاج القص إلى
+مراجعة`, `بانتظار تحديد المقاس`). A genuine ration card and the shadow band
+therefore already enter the same review queue for the same stated reason,
+through `review_screen.dart` via `reviewReasonsFor`. Routing is what *bounds*
+the residual risk in R.2; it cannot also be tuned to reduce it. Suppressing
+review for narrow regions would be the only lever left, and it moves risk the
+wrong way.
+
+**R.4 Provenance verified across every rewrite path (ADR-003, §H invariant).**
+The four places that build a replacement `ImageAsset` were audited —
+`ProjectService.replaceImage`, `LocalProjectRecovery.rebuildDerived`,
+`LocalProjectBackups.create` / `restore`, and the derived-asset creation in
+`_applyMultiDocument` / `_appendNewDocument`. All four already carried
+`derivedFrom`, so **no production code changed**: no regression was reproduced,
+and the constraint for this task was to change code only on a concrete
+regression or an unhandled path. What was missing was tests, and
+`test/application/provenance_rewrite_paths_test.dart` now covers the paths
+`derived_provenance_test.dart` did not: replacement keeps `derivedFrom` while
+the paths really move (`transforms.last` starts `replaced:`); `rebuildDerived`
+revises **every** asset and keeps it for each, with the source never becoming
+derived and asset ids stable; backup → restore keeps it under a new project id
+with the same asset ids, because the relationship is id-based and only paths are
+remapped; and — the classification consequence — an asset whose recorded origin
+still exists but whose document record never got committed is **not**
+re-analysed as a source (`_sourceAssetIds` excludes it), while an ambiguous
+record-less asset with no `derivedFrom` stays a source and
+`reconcileDerivedProvenance` reports no change rather than guessing.
+
+**R.5 Still not verified.** No physical-device testing was done; no real Iraqi
+document photograph took part in any measurement; no OCR engine ships; the
+residual risk in R.2 is established on synthetic fixtures and is bounded by
+mandatory review and immutable originals, not eliminated.
 
 ---
 

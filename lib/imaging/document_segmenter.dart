@@ -6,16 +6,27 @@
 /// 1. A ≤360 px working copy; background colour estimated from the border.
 /// 2. Foreground = colour distance from the background over an Otsu threshold.
 /// 3. 4-connected components, filtered by area/fill/size, merged on overlap.
-/// 4. Fewer than two usable regions → explicit single-image fallback (the
+/// 4. Candidate-quality validation of every MERGED region — before any crop is
+///    rendered and before any corner is searched for — so a frame edge, a
+///    shadow strip or a region too small to crop never becomes a document
+///    ([RegionRejection]). Rejections are measured and reported, never silent.
+/// 5. Fewer than two ACCEPTED regions → explicit single-image fallback (the
 ///    caller then runs the precise single-document detector).
-/// 5. Per region, the existing corner detector runs on the region crop at
+/// 6. Per region, the existing corner detector runs on the region crop at
 ///    preview resolution; corners are mapped back to full-image coordinates.
-/// 6. Duplicate quads are suppressed by bounding-box IoU, keeping the first
-///    in the deterministic top-to-bottom, left-to-right region order.
+/// 7. Duplicate quads are suppressed by bounding-box IoU, preferring a region
+///    that HAS a trustworthy quadrilateral and otherwise keeping the first in
+///    the deterministic top-to-bottom, left-to-right region order.
 ///
 /// Detection confidence is a measured support value (region fill ratio), not
 /// a calibrated probability; a region without a trustworthy quadrilateral is
 /// an explicit failure candidate, never a guessed rectangle.
+///
+/// Acceptance is deliberately conservative in BOTH directions: a region is
+/// rejected only when a measurement says it cannot be a document of any
+/// catalogued shape, and a region that is merely hard to outline is KEPT as an
+/// unresolved candidate so a genuine document is never lost because its
+/// boundaries were uncertain.
 library;
 
 import 'dart:math' as math;
@@ -49,14 +60,156 @@ class SegmentCandidate {
   final String reason;
 }
 
+/// Why a MEASURED foreground region was not accepted as a document candidate.
+///
+/// A rejection is a decision about the candidate only. It never crops,
+/// overwrites or otherwise touches the original image (ADR-003): the photo
+/// stays whole and every part of it remains croppable by hand from the
+/// library. Rejecting a region is therefore always recoverable, while
+/// accepting one creates a derived file, a document record and a layout item.
+enum RegionRejection {
+  /// It reaches two or more frame edges, so it is the frame edge itself, a
+  /// vignette or a table edge — or a document the photo cut in half — rather
+  /// than a separable document lying on a surface.
+  frameArtifact,
+
+  /// A strip: its proportion is more extreme than any catalogued document
+  /// shape can be, even allowing for perspective.
+  implausibleAspect,
+
+  /// The crop it would produce is too small to be a usable document image
+  /// (thumbnail, manual crop, print).
+  unusableCrop,
+
+  /// One photo yielded more plausible regions than [maxSegmentCandidates]; the
+  /// weakest measured regions give way to the strongest.
+  candidateCap,
+}
+
+/// A measured region that was NOT accepted, with the measurements that decided
+/// it. Kept so a rejection is explainable instead of invisible.
+class RejectedRegion {
+  const RejectedRegion({
+    required this.region,
+    required this.rejection,
+    required this.aspect,
+    required this.areaFraction,
+    required this.fill,
+    required this.borderSides,
+    required this.cropWidth,
+    required this.cropHeight,
+  });
+
+  /// Normalized region [left, top, right, bottom] in the source image, exactly
+  /// as the accepted candidates carry it, so a rejection stays locatable.
+  final List<double> region;
+  final RegionRejection rejection;
+
+  /// Long edge / short edge of the measured component, in working pixels.
+  final double aspect;
+
+  /// Component foreground area as a fraction of the working frame.
+  final double areaFraction;
+
+  /// Foreground pixels / bounding-box pixels.
+  final double fill;
+
+  /// How many of the four frame edges the component touches (0..4).
+  final int borderSides;
+
+  /// Size the axis-aligned crop of this region would have had, in preview
+  /// pixels — the measurement behind [RegionRejection.unusableCrop].
+  final int cropWidth;
+  final int cropHeight;
+
+  @override
+  String toString() =>
+      'RejectedRegion(${rejection.name}, aspect=${aspect.toStringAsFixed(2)}, '
+      'area=${areaFraction.toStringAsFixed(3)}, border=$borderSides, '
+      'crop=${cropWidth}x$cropHeight)';
+}
+
+/// Longest/shortest side ratio a document region may have.
+///
+/// Derived from the application's OWN definition of a document shape, not from
+/// a screenshot: the most extreme catalogued size is the ration card at
+/// 287 / 52 = 5.52 (`DocumentSizeCatalog.defaultRationCard`), so a bound below
+/// that would reject a document the catalog itself sells. 8.0 leaves that shape
+/// ~45 % headroom for perspective, rotation and measurement error.
+///
+/// Measured on the fixtures this repository ships (`test/imaging` and
+/// `test/application`): genuine documents — landscape, portrait, rotated,
+/// distant, low-contrast, washed-out, textured background, blank margins, and
+/// the ration-card proportion itself — measure 1.26 to 5.49, where 5.49 IS the
+/// ration card. Shadow/border strips measure 12.00 to 22.50. The bound sits
+/// with margin on both sides: 1.46x above the most extreme genuine document and
+/// 33 % below the narrowest strip.
+///
+/// The gap is not accidental and must not be closed. A dark strip drawn to the
+/// ration card's own catalogued proportion measures 5.62 against the genuine
+/// card's 5.49, and BOTH are accepted: any aspect bound low enough to reject
+/// that strip also rejects the real ration card. Such a region is therefore
+/// ambiguous, not invalid, and is left to the caller's review path instead of
+/// being refused here (ADR-012).
+///
+/// This is ONE of three gates, never the whole decision: aspect alone cannot
+/// tell a blank sheet of paper from a document, and a genuine document with an
+/// uncertain outline must not be rejected for lacking corners.
+const maxPlausibleRegionAspect = 8.0;
+
+/// Shortest side, in PREVIEW pixels, that a region crop must have to be a
+/// usable document image. The derived crop is what the user thumbnails, crops
+/// by hand and prints; below this it cannot serve any of those.
+///
+/// A floor, not a discriminator, and deliberately far below the evidence: the
+/// smallest genuine crop on the fixtures this repository ships is 215 px (the
+/// distant document and the ration-card proportion, whose 52 mm side is short
+/// by nature) — 4.5x this bound — while the refused artifacts measure 43 to
+/// 104 px on their short side. Every artifact above 43 px is already refused by
+/// the aspect or frame-edge gate with margin; raising this floor to 160 px to
+/// catch them too would leave only 1.34x to the genuine minimum, which is
+/// tuning to the fixture rather than to the domain.
+///
+/// The floor binds only for SMALL sources. A region that clears the segmenter's
+/// own 10 px box floor crops to at least `previewLongEdge / 20` px once the 8 %
+/// margin is added, so with the editor's 1200 px preview this branch cannot
+/// fire at all; it is sources whose long edge is below ~960 px that can produce
+/// a region too small to crop. What the bound changes is that such a region is
+/// now REFUSED with a reason instead of being emitted as a `region-too-small`
+/// candidate that the intake went on to turn into a document record and an
+/// editor item.
+const minUsableRegionCropPx = 48;
+
+/// Most document candidates one photo may yield.
+///
+/// A single photograph realistically holds a handful of identity documents.
+/// The cap stops a noisy threshold from turning one photo into dozens of
+/// editor items; it keeps the strongest measured regions (most foreground
+/// area, ties broken by the deterministic region order) and reports the rest
+/// through [RegionRejection.candidateCap] instead of dropping them silently.
+const maxSegmentCandidates = 12;
+
 class SegmentationResult {
-  const SegmentationResult({required this.candidates, required this.multi});
+  const SegmentationResult({
+    required this.candidates,
+    required this.multi,
+    this.rejected = const [],
+  });
 
   /// With [multi] true: one candidate per segmented document. With [multi]
   /// false: segmentation found no reliable multi-document structure and the
   /// caller should use the single-document path on the whole image.
+  ///
+  /// Every entry here is a PLAUSIBLE document region: either it carries a
+  /// trustworthy quadrilateral, or it is an explicitly unresolved region the
+  /// caller must keep for review. Regions that cannot be documents are in
+  /// [rejected], never here.
   final List<SegmentCandidate> candidates;
   final bool multi;
+
+  /// Measured regions that candidate-quality validation refused, with the
+  /// measurements that decided each one. Empty for a clean photo.
+  final List<RejectedRegion> rejected;
 }
 
 const segmenterVersion = 'segment-1';
@@ -139,33 +292,55 @@ SegmentationResult segmentDecoded(img.Image image) {
     if (byTop != 0) return byTop;
     return a.left.compareTo(b.left);
   });
-  if (merged.length < 2) {
-    return const SegmentationResult(candidates: [], multi: false);
+
+  // Candidate-quality validation. Measured HERE — before any crop is rendered,
+  // before any corner is searched for and long before a derived file, a
+  // document record or a layout item exists — because this is the earliest
+  // point where the measurements that decide it are all available. A region
+  // refused here costs nothing; the same region accepted costs a derived file
+  // and an editor item the user has to delete by hand.
+  final measured = [
+    for (final box in merged) _measure(box, w, h, image.width, image.height),
+  ];
+  final accepted = <_Measurement>[];
+  final rejected = <RejectedRegion>[];
+  for (final measurement in measured) {
+    final rejection = _rejectionFor(measurement);
+    if (rejection == null) {
+      accepted.add(measurement);
+    } else {
+      rejected.add(_rejectedRegion(measurement, rejection, total));
+    }
   }
-  // Map each region back to the preview-resolution image and detect corners.
+  _applyCandidateCap(accepted, rejected, total);
+
+  if (accepted.length < 2) {
+    // One plausible document (or none) is the single-document path's job: the
+    // precise detector sees the whole frame and the rejections above are
+    // reported, so this is never a silent loss of a measured region.
+    return SegmentationResult(
+      candidates: const [],
+      multi: false,
+      rejected: List.unmodifiable(rejected),
+    );
+  }
+
+  // Map each ACCEPTED region back to the preview-resolution image and detect
+  // corners.
   final candidates = <SegmentCandidate>[];
-  for (final box in merged) {
-    final marginX = math.max(4, (box.width * .08).round());
-    final marginY = math.max(4, (box.height * .08).round());
-    final left = math.max(0, box.left - marginX);
-    final top = math.max(0, box.top - marginY);
-    final right = math.min(w - 1, box.right + marginX);
-    final bottom = math.min(h - 1, box.bottom + marginY);
-    final region = [
-      left / (w - 1),
-      top / (h - 1),
-      right / (w - 1),
-      bottom / (h - 1),
-    ];
-    final subLeft = (region[0] * (image.width - 1)).round();
-    final subTop = (region[1] * (image.height - 1)).round();
-    final subRight = (region[2] * (image.width - 1)).round();
-    final subBottom = (region[3] * (image.height - 1)).round();
-    final subWidth = subRight - subLeft + 1;
-    final subHeight = subBottom - subTop + 1;
+  for (final measurement in accepted) {
+    final region = measurement.region;
+    final subLeft = measurement.subLeft;
+    final subTop = measurement.subTop;
+    final subWidth = measurement.subWidth;
+    final subHeight = measurement.subHeight;
+    final box = measurement.box;
     if (subWidth < 20 || subHeight < 20) {
-      candidates.add(
-        SegmentCandidate(region: region, reason: 'region-too-small'),
+      // Unreachable for an accepted region ([minUsableRegionCropPx] is
+      // larger); kept as a defensive branch so a future bound change can never
+      // reintroduce a too-small crop as a document.
+      rejected.add(
+        _rejectedRegion(measurement, RegionRejection.unusableCrop, total),
       );
       continue;
     }
@@ -211,7 +386,159 @@ SegmentationResult segmentDecoded(img.Image image) {
   return SegmentationResult(
     candidates: deduplicated,
     multi: deduplicated.length >= 2 && quads >= 1,
+    rejected: List.unmodifiable(rejected),
   );
+}
+
+/// One merged component plus everything the acceptance gates measure about it:
+/// its normalized region and the size that region's crop would have at preview
+/// resolution. Computed once so validation and rendering cannot disagree.
+class _Measurement {
+  const _Measurement({
+    required this.box,
+    required this.region,
+    required this.subLeft,
+    required this.subTop,
+    required this.subWidth,
+    required this.subHeight,
+    required this.borderSides,
+  });
+
+  final _Box box;
+
+  /// Normalized [left, top, right, bottom] in the source image.
+  final List<double> region;
+  final int subLeft;
+  final int subTop;
+  final int subWidth;
+  final int subHeight;
+
+  /// How many of the four working-frame edges the component touches.
+  final int borderSides;
+
+  double get aspect {
+    final long = math.max(box.width, box.height).toDouble();
+    final short = math.max(1, math.min(box.width, box.height)).toDouble();
+    return long / short;
+  }
+
+  int get cropShortSide => math.min(subWidth, subHeight);
+}
+
+/// The margin-expanded, clamped region of [box] and its preview-resolution crop
+/// size. This is the SAME arithmetic the corner-detection loop has always used,
+/// lifted out so validation measures exactly what rendering would produce.
+_Measurement _measure(_Box box, int w, int h, int imageWidth, int imageHeight) {
+  final marginX = math.max(4, (box.width * .08).round());
+  final marginY = math.max(4, (box.height * .08).round());
+  final left = math.max(0, box.left - marginX);
+  final top = math.max(0, box.top - marginY);
+  final right = math.min(w - 1, box.right + marginX);
+  final bottom = math.min(h - 1, box.bottom + marginY);
+  final region = [
+    left / (w - 1),
+    top / (h - 1),
+    right / (w - 1),
+    bottom / (h - 1),
+  ];
+  final subLeft = (region[0] * (imageWidth - 1)).round();
+  final subTop = (region[1] * (imageHeight - 1)).round();
+  final subRight = (region[2] * (imageWidth - 1)).round();
+  final subBottom = (region[3] * (imageHeight - 1)).round();
+  final borderSides =
+      (box.left == 0 ? 1 : 0) +
+      (box.top == 0 ? 1 : 0) +
+      (box.right == w - 1 ? 1 : 0) +
+      (box.bottom == h - 1 ? 1 : 0);
+  return _Measurement(
+    box: box,
+    region: region,
+    subLeft: subLeft,
+    subTop: subTop,
+    subWidth: subRight - subLeft + 1,
+    subHeight: subBottom - subTop + 1,
+    borderSides: borderSides,
+  );
+}
+
+/// The gate that refuses [measurement], or null when the region is a plausible
+/// document candidate.
+///
+/// Every branch is a measurement that CANNOT fire on a plausible document, so
+/// the gate is conservative in the direction that matters: it never rejects a
+/// region merely because its outline was hard to find. A genuine document with
+/// an uncertain boundary stays a candidate and is resolved by the caller's
+/// unresolved-region review path.
+///
+/// Order is the order of decisiveness, so the reported reason is the strongest
+/// one available:
+/// - a region reaching two frame edges is frame furniture or a document the
+///   photo cut in half, whichever it is it is not a separable document;
+/// - a proportion no catalogued document can have is a strip or a shadow band;
+/// - a crop too small to thumbnail, hand-crop or print is not usable.
+RegionRejection? _rejectionFor(_Measurement measurement) {
+  if (measurement.borderSides >= 2) return RegionRejection.frameArtifact;
+  if (measurement.aspect > maxPlausibleRegionAspect) {
+    return RegionRejection.implausibleAspect;
+  }
+  if (measurement.cropShortSide < minUsableRegionCropPx) {
+    return RegionRejection.unusableCrop;
+  }
+  return null;
+}
+
+RejectedRegion _rejectedRegion(
+  _Measurement measurement,
+  RegionRejection rejection,
+  double total,
+) {
+  final box = measurement.box;
+  return RejectedRegion(
+    region: measurement.region,
+    rejection: rejection,
+    aspect: measurement.aspect,
+    areaFraction: total <= 0 ? 0.0 : box.area / total,
+    fill: box.fill,
+    borderSides: measurement.borderSides,
+    cropWidth: measurement.subWidth,
+    cropHeight: measurement.subHeight,
+  );
+}
+
+/// Keeps at most [maxSegmentCandidates] regions: the ones with the most
+/// measured foreground, ties broken by the deterministic region order. The rest
+/// are reported as [RegionRejection.candidateCap] rather than dropped, and the
+/// survivors stay in region order so downstream results remain deterministic.
+void _applyCandidateCap(
+  List<_Measurement> accepted,
+  List<RejectedRegion> rejected,
+  double total,
+) {
+  if (accepted.length <= maxSegmentCandidates) return;
+  final ranked =
+      [
+        for (var index = 0; index < accepted.length; index++)
+          (index, accepted[index]),
+      ]..sort((a, b) {
+        final byArea = b.$2.box.area.compareTo(a.$2.box.area);
+        return byArea != 0 ? byArea : a.$1.compareTo(b.$1);
+      });
+  final keep = <int>{
+    for (final entry in ranked.take(maxSegmentCandidates)) entry.$1,
+  };
+  final survivors = <_Measurement>[];
+  for (var index = 0; index < accepted.length; index++) {
+    if (keep.contains(index)) {
+      survivors.add(accepted[index]);
+    } else {
+      rejected.add(
+        _rejectedRegion(accepted[index], RegionRejection.candidateCap, total),
+      );
+    }
+  }
+  accepted
+    ..clear()
+    ..addAll(survivors);
 }
 
 class _Box {
@@ -318,9 +645,23 @@ bool _contains(_Box outer, _Box inner) =>
 /// Suppresses candidates whose corner quads overlap an earlier candidate
 /// (bounding-box IoU > .5). Candidates without corners are kept as explicit
 /// failures unless their region overlaps an earlier quad.
+///
+/// A region that HAS a trustworthy quadrilateral wins over an overlapping
+/// region without one, whichever came first in the region order: suppression
+/// must be consistent between region detection, crop generation and document
+/// creation, and letting an unresolved artifact suppress a resolved document
+/// would lose a real detection while keeping its duplicate-free neighbour.
+/// Survivors are returned in the deterministic region order.
 List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
+  final preference = [for (var index = 0; index < input.length; index++) index]
+    ..sort((a, b) {
+      final byQuad = _hasQuad(input[b]).compareTo(_hasQuad(input[a]));
+      return byQuad != 0 ? byQuad : a.compareTo(b);
+    });
   final kept = <SegmentCandidate>[];
-  for (final candidate in input) {
+  final survivors = <int>{};
+  for (final index in preference) {
+    final candidate = input[index];
     final bounds = candidate.corners != null
         ? _quadBounds(candidate.corners!)
         : candidate.region;
@@ -334,10 +675,16 @@ List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
         break;
       }
     }
-    if (!duplicate) kept.add(candidate);
+    if (!duplicate) {
+      kept.add(candidate);
+      survivors.add(index);
+    }
   }
-  return kept;
+  final ordered = survivors.toList()..sort();
+  return [for (final index in ordered) input[index]];
 }
+
+int _hasQuad(SegmentCandidate candidate) => candidate.corners != null ? 1 : 0;
 
 List<double> _quadBounds(List<Point2> corners) {
   var left = 1.0, top = 1.0, right = 0.0, bottom = 0.0;

@@ -178,6 +178,17 @@ List<String> reviewReasons(
   if (recognition.preset.awaitingSize) {
     reasons.add('بانتظار تحديد المقاس');
   }
+  // An unresolved boundary is a separate problem from an unknown category, and
+  // the two do not coincide: the preset is resolved from the KIND alone
+  // (`SmartIntake._variantFor` asks whether the catalog has a size for it),
+  // while the item's size is confirmed only from a TRUSTWORTHY boundary. A
+  // ration-card-shaped region whose outline could not be resolved therefore has
+  // a resolved preset and an unconfirmed size, and without this reason the
+  // queue would name only its confidence band — hiding the one thing the user
+  // has to act on.
+  if (hasUnresolvedBoundary(record)) {
+    reasons.add('حدود غير محسومة — يحتاج القص إلى مراجعة');
+  }
   if (record.pairing == PairingState.ambiguous) {
     reasons.add('اقتران وجهين غير مؤكد');
   }
@@ -189,3 +200,24 @@ bool recordNeedsReview(
   DocumentRecord record, [
   RecognitionThresholds thresholds = defaultThresholds,
 ]) => reviewReasons(record, thresholds).isNotEmpty;
+
+/// Whether [record] stands for a region whose BOUNDARIES recognition could not
+/// resolve: a side that carries a detection but no polygon.
+///
+/// This is the distinction the editor owes the user between two things that
+/// both look like "a document without a confirmed size":
+///
+/// - an unresolved recognition CANDIDATE — a measured region kept deliberately
+///   for review, whose crop was never rectified because no trustworthy
+///   quadrilateral existed. Nothing was invented for it, and the way to finish
+///   it is a manual crop of the immutable original;
+/// - an ordinary item that simply has no category yet.
+///
+/// Derived state, never persisted: it is read from the recorded detection, so
+/// it cannot drift from the evidence. A side with NO detection at all (a pure
+/// manual item, or a legacy record — `synthesizeLegacyRecords` always records a
+/// polygon, truthful even when it is the whole frame) is not an unresolved
+/// candidate: no detector ran, so there is nothing that failed to resolve.
+bool hasUnresolvedBoundary(DocumentRecord record) => record.sides.any(
+  (side) => side.detection != null && side.detection!.polygon == null,
+);

@@ -143,10 +143,16 @@ class SmartIntake {
     var recognized = 0;
     var needsReview = 0;
     var multiImages = 0;
+    final refusedRegions = <RejectedRegion>[];
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
     final newDocuments = <DocumentRecord>[];
     final newGroups = <LayoutGroup>[];
+    // Derived assets created by this batch, and source assets whose revision
+    // changed. Accumulated HERE, beside the records and items they belong to,
+    // and committed with them in the single save below.
+    final newAssets = <ImageAsset>[];
+    final replacedAssets = <String, ImageAsset>{};
 
     // Phase A: bounded analysis. Each lane opens one preview, analyzes it
     // and releases it before the next image (memory stays bounded).
@@ -179,18 +185,46 @@ class SmartIntake {
         continue;
       }
       final analyzed = outcome.value!;
+      // PER-IMAGE STAGING. An image joins the batch only if it completed.
+      // `_applyImage` accumulates into the lists it is handed and can throw
+      // part-way through (a crop that fails, a cancellation between regions),
+      // so handing it the batch lists directly would let a half-processed image
+      // contribute a derived asset that no document record explains — the same
+      // untraceable asset the per-region save used to create, merely deferred
+      // to the end of the batch. Crop files already written are unreferenced
+      // until this merge, which is exactly the state
+      // `StorageMaintenance.findOrphans` exists to report.
+      final imageItems = <DocumentItem>[];
+      final imageDocuments = <DocumentRecord>[];
+      final imageAssets = <ImageAsset>[];
+      final imageReplacements = <String, ImageAsset>{};
+      var imageCropped = 0;
+      var imageNotDetected = 0;
+      var imageMulti = 0;
       try {
         current = await _applyImage(
           current,
           analyzed,
-          newItems: newItems,
-          newDocuments: newDocuments,
+          newItems: imageItems,
+          newDocuments: imageDocuments,
+          newAssets: imageAssets,
+          replacedAssets: imageReplacements,
           warnings: warnings,
-          onCropped: () => cropped++,
-          onNotDetected: () => notDetected++,
-          onMulti: () => multiImages++,
+          onCropped: () => imageCropped++,
+          onNotDetected: () => imageNotDetected++,
+          onMulti: () => imageMulti++,
+          // Refusals describe the ANALYSIS, which already happened, so they are
+          // reported even if this image later fails.
+          onRejected: refusedRegions.addAll,
           cancellation: cancellation,
         );
+        newItems.addAll(imageItems);
+        newDocuments.addAll(imageDocuments);
+        newAssets.addAll(imageAssets);
+        replacedAssets.addAll(imageReplacements);
+        cropped += imageCropped;
+        notDetected += imageNotDetected;
+        multiImages += imageMulti;
       } on RevisionConflict {
         rethrow;
       } on OperationCancelled {
@@ -220,7 +254,9 @@ class SmartIntake {
       }
     }
 
-    if (newItems.isEmpty) {
+    if (newItems.isEmpty && newAssets.isEmpty && replacedAssets.isEmpty) {
+      // Nothing was produced, so nothing is committed and the revision does not
+      // move: a no-op run must be indistinguishable from no run at all.
       return AutomaticLayoutReport(
         project: current,
         cropped: cropped,
@@ -228,10 +264,16 @@ class SmartIntake {
         recognized: recognized,
         needsReview: needsReview,
         multiDocumentImages: multiImages,
+        rejectedRegions: refusedRegions.length,
+        rejectedByReason: rejectionTally(refusedRegions),
         warnings: warnings,
       );
     }
+    // ONE commit boundary for the whole batch: assets, records, items and
+    // groups are written together, so no derived asset can ever be committed
+    // without the document that explains it.
     current = current.copyWith(
+      assets: _mergedAssets(current.assets, newAssets, replacedAssets),
       items: [...current.items, ...newItems],
       documents: [...current.documents, ...newDocuments],
       layoutGroups: [...current.layoutGroups, ...newGroups],
@@ -251,6 +293,8 @@ class SmartIntake {
       recognized: recognized,
       needsReview: needsReview,
       multiDocumentImages: multiImages,
+      rejectedRegions: refusedRegions.length,
+      rejectedByReason: rejectionTally(refusedRegions),
       warnings: warnings,
     );
   }
@@ -358,11 +402,29 @@ class SmartIntake {
     var notDetected = 0;
     var needsReview = 0;
     var multiImages = 0;
+    final refusedRegions = <RejectedRegion>[];
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
     final newDocuments = <DocumentRecord>[];
+    final newAssets = <ImageAsset>[];
     final replacementRecords = <String, DocumentRecord>{};
     final replacementItems = <String, DocumentItem>{};
+    final replacedAssets = <String, ImageAsset>{};
+
+    // Conservative reconciliation BEFORE selection. A project written before
+    // `ImageAsset.derivedFrom` existed proves the relationship through its
+    // document records instead; recording it here means the selection below is
+    // authoritative for old projects too, and the provenance survives the next
+    // save. Nothing is deleted, nothing is guessed and a project with orphaned
+    // or ambiguous assets is still perfectly usable when there is nothing to
+    // backfill.
+    final reconciliation = reconcileDerivedProvenance(current);
+    if (reconciliation.brokenChains.isNotEmpty) {
+      warnings.add(_brokenProvenanceMessage(current, reconciliation));
+    }
+    if (reconciliation.changed) {
+      current = await projects.save(reconciliation.project);
+    }
 
     final analysis = await _analyzeImages(
       current,
@@ -383,19 +445,41 @@ class SmartIntake {
         continue;
       }
       final analyzed = outcome.value!;
+      // PER-IMAGE STAGING, for the reason given in `run`: a reprocess that
+      // fails part-way through one image must not leave that image's derived
+      // asset, or a replacement half-applied, in the batch that is committed.
+      final imageItems = <DocumentItem>[];
+      final imageDocuments = <DocumentRecord>[];
+      final imageAssets = <ImageAsset>[];
+      final imageReplacementRecords = <String, DocumentRecord>{};
+      final imageReplacementItems = <String, DocumentItem>{};
+      final imageReplacements = <String, ImageAsset>{};
+      var imageCropped = 0;
+      var imageNotDetected = 0;
       try {
         current = await _reprocessImage(
           current,
           analyzed,
-          newItems: newItems,
-          newDocuments: newDocuments,
-          replacementRecords: replacementRecords,
-          replacementItems: replacementItems,
+          newItems: imageItems,
+          newDocuments: imageDocuments,
+          newAssets: imageAssets,
+          replacementRecords: imageReplacementRecords,
+          replacementItems: imageReplacementItems,
+          replacedAssets: imageReplacements,
           warnings: warnings,
-          onCropped: () => cropped++,
-          onNotDetected: () => notDetected++,
+          onCropped: () => imageCropped++,
+          onNotDetected: () => imageNotDetected++,
+          onRejected: refusedRegions.addAll,
           cancellation: cancellation,
         );
+        newItems.addAll(imageItems);
+        newDocuments.addAll(imageDocuments);
+        newAssets.addAll(imageAssets);
+        replacementRecords.addAll(imageReplacementRecords);
+        replacementItems.addAll(imageReplacementItems);
+        replacedAssets.addAll(imageReplacements);
+        cropped += imageCropped;
+        notDetected += imageNotDetected;
         // Reported honestly: a re-analysed photo can still hold several
         // documents, and the report must not claim otherwise.
         if (analyzed.analysis.needsMultiIntake) multiImages++;
@@ -420,7 +504,10 @@ class SmartIntake {
       if (recordNeedsReview(record, thresholds)) needsReview++;
     }
 
-    if (newItems.isEmpty && replacementRecords.isEmpty) {
+    if (newItems.isEmpty &&
+        newAssets.isEmpty &&
+        replacementRecords.isEmpty &&
+        replacedAssets.isEmpty) {
       return AutomaticLayoutReport(
         project: current,
         cropped: cropped,
@@ -428,10 +515,15 @@ class SmartIntake {
         recognized: recognized,
         needsReview: needsReview,
         multiDocumentImages: multiImages,
+        rejectedRegions: refusedRegions.length,
+        rejectedByReason: rejectionTally(refusedRegions),
         warnings: warnings,
       );
     }
+    // ONE commit boundary: regenerated and newly derived assets are written
+    // together with the records and items that reference them.
     current = current.copyWith(
+      assets: _mergedAssets(current.assets, newAssets, replacedAssets),
       items: [
         for (final item in current.items) replacementItems[item.id] ?? item,
         ...newItems,
@@ -461,6 +553,8 @@ class SmartIntake {
       recognized: recognized,
       needsReview: needsReview,
       multiDocumentImages: multiImages,
+      rejectedRegions: refusedRegions.length,
+      rejectedByReason: rejectionTally(refusedRegions),
       warnings: warnings,
     );
   }
@@ -479,7 +573,43 @@ class SmartIntake {
   /// geometry. An imported photo that produced no document yet is still a
   /// source — retrying it is the whole point of reprocessing.
   List<String> _sourceAssetIds(Project project, Iterable<String> requested) {
-    final derived = <String>{};
+    final derived = _derivedAssetIds(project);
+    final ids = <String>[];
+    final seen = <String>{};
+    for (final id in requested) {
+      if (derived.contains(id)) continue;
+      if (!seen.add(id)) continue;
+      ids.add(id);
+    }
+    return ids;
+  }
+
+  /// Every asset of [project] that is DERIVED — a product of another asset —
+  /// and must therefore never be re-analysed as an original photograph.
+  ///
+  /// Two authoritative relationships are consulted, in order of strength:
+  ///
+  /// 1. [ImageAsset.derivedFrom], recorded when the crop was created. It is
+  ///    part of the asset itself, so it survives the loss of the document
+  ///    record — which is precisely the failure that used to make a derived
+  ///    crop look like an imported photograph.
+  /// 2. The document records: an asset a side names as its PROCESSED image
+  ///    while a DIFFERENT asset is that record's source. This keeps projects
+  ///    and backups written before `derivedFrom` existed classifiable, so no
+  ///    migration and no schema bump are needed.
+  ///
+  /// Matching is by identity only — never by dimensions, aspect ratio,
+  /// filename or visual similarity, which cannot distinguish a crop of a card
+  /// from a photograph of a card. An asset neither relationship marks as
+  /// derived is treated as a source: a genuine imported photo that produced no
+  /// document yet is still a source, and retrying it is the whole point of
+  /// reprocessing. Ambiguity is therefore resolved in the direction that cannot
+  /// invent a relationship, and it is reported rather than guessed.
+  Set<String> _derivedAssetIds(Project project) {
+    final derived = <String>{
+      for (final asset in project.assets)
+        if (asset.derivedFrom != null) asset.id,
+    };
     for (final record in project.documents) {
       for (final side in record.sides) {
         final processed = side.processedAsset;
@@ -492,14 +622,44 @@ class SmartIntake {
         }
       }
     }
-    final ids = <String>[];
-    final seen = <String>{};
-    for (final id in requested) {
-      if (derived.contains(id)) continue;
-      if (!seen.add(id)) continue;
-      ids.add(id);
+    return derived;
+  }
+
+  /// The committed asset list: replacements applied in place, newly derived
+  /// assets appended in creation order.
+  ///
+  /// A replacement that names an asset no longer in the list would be a silent
+  /// loss, so it is asserted instead: every entry of [replaced] is keyed by an
+  /// asset id this project already holds.
+  List<ImageAsset> _mergedAssets(
+    List<ImageAsset> current,
+    List<ImageAsset> added,
+    Map<String, ImageAsset> replaced,
+  ) {
+    final known = {for (final asset in current) asset.id};
+    assert(
+      replaced.keys.every(known.contains),
+      'a replaced asset must already belong to the project',
+    );
+    return [for (final asset in current) replaced[asset.id] ?? asset, ...added];
+  }
+
+  /// One aggregated report for derived assets whose recorded source is gone.
+  ///
+  /// They are kept exactly as they are: an asset is still derived when its
+  /// source has been removed, and neither deleting it nor reclassifying it as
+  /// an original photograph would be a conservative recovery.
+  String _brokenProvenanceMessage(
+    Project project,
+    DerivedProvenanceReport reconciliation,
+  ) {
+    final names = <String>[];
+    for (final id in reconciliation.brokenChains) {
+      final asset = project.assets.where((a) => a.id == id).firstOrNull;
+      names.add(asset?.name ?? id);
     }
-    return ids;
+    return '${names.length} أصل مشتق يشير إلى صورة مصدر لم تعد موجودة '
+        '(${names.join('، ')})؛ حُفظ كما هو ولم يُعامل كصورة أصلية.';
   }
 
   /// Reconciles one re-analysed source image with its existing documents.
@@ -508,16 +668,26 @@ class SmartIntake {
     _Analyzed analyzed, {
     required List<DocumentItem> newItems,
     required List<DocumentRecord> newDocuments,
+    required List<ImageAsset> newAssets,
     required Map<String, DocumentRecord> replacementRecords,
     required Map<String, DocumentItem> replacementItems,
+    required Map<String, ImageAsset> replacedAssets,
     required List<String> warnings,
     required void Function() onCropped,
     required void Function() onNotDetected,
+    required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
   }) async {
     final sourceAsset = analyzed.asset;
     for (final issue in analyzed.analysis.issues) {
       warnings.add('${sourceAsset.name}: ${issue.message}');
+    }
+    // One aggregated diagnostic per image for the regions candidate-quality
+    // validation refused — the same contract the intake reports under.
+    final refused = rejectedRegionsMessage(analyzed.analysis.rejectedRegions);
+    if (refused != null) {
+      warnings.add('${sourceAsset.name}: $refused');
+      onRejected(analyzed.analysis.rejectedRegions);
     }
     // Existing records of THIS source, keyed by the deterministic detection
     // id. The segmenter is deterministic, so re-analysing the same original
@@ -565,6 +735,7 @@ class SmartIntake {
             position: position,
             newItems: newItems,
             newDocuments: newDocuments,
+            newAssets: newAssets,
             warnings: warnings,
             onCropped: onCropped,
             onNotDetected: onNotDetected,
@@ -580,6 +751,7 @@ class SmartIntake {
           position: position,
           replacementRecords: replacementRecords,
           replacementItems: replacementItems,
+          replacedAssets: replacedAssets,
           warnings: warnings,
           onNotDetected: onNotDetected,
         );
@@ -602,20 +774,23 @@ class SmartIntake {
     required int position,
     required List<DocumentItem> newItems,
     required List<DocumentRecord> newDocuments,
+    required List<ImageAsset> newAssets,
     required List<String> warnings,
     required void Function() onCropped,
     required void Function() onNotDetected,
   }) async {
     final sourceAsset = analyzed.asset;
     final kind = detection.classification.kind;
-    final derived = await assets.importImage(
+    // Same commit boundary as the intake path: the crop file is written now and
+    // the asset is committed together with the record and item built below, so
+    // a failure between the two can never leave a derived asset that nothing in
+    // the project accounts for.
+    final derived = (await assets.importImage(
       current.id,
       _derivedName(sourceAsset.name, position),
       output.bytes,
-    );
-    current = await projects.save(
-      current.copyWith(assets: [...current.assets, derived]),
-    );
+    )).asDerivedOf(sourceAsset.id);
+    newAssets.add(derived);
     if (output.trustworthy) {
       onCropped();
     } else {
@@ -758,6 +933,7 @@ class SmartIntake {
     required int position,
     required Map<String, DocumentRecord> replacementRecords,
     required Map<String, DocumentItem> replacementItems,
+    required Map<String, ImageAsset> replacedAssets,
     required List<String> warnings,
     required void Function() onNotDetected,
   }) async {
@@ -798,6 +974,8 @@ class SmartIntake {
       regenerated = ImageAsset(
         id: target.id,
         captureId: target.captureId,
+        // Regenerating the crop keeps its recorded source relationship.
+        derivedFrom: target.derivedFrom ?? sourceAsset.id,
         name: target.name,
         originalPath: files.originalPath,
         workingPath: files.workingPath,
@@ -807,14 +985,10 @@ class SmartIntake {
         transforms: [...target.transforms, 'reprocessed:${files.revision}'],
       );
     }
-    current = await projects.save(
-      current.copyWith(
-        assets: [
-          for (final asset in current.assets)
-            asset.id == regenerated.id ? regenerated : asset,
-        ],
-      ),
-    );
+    // Deferred to the reprocess commit boundary: the regenerated asset and the
+    // record that points at it are written together, so the project can never
+    // hold an asset whose paths no record explains.
+    replacedAssets[regenerated.id] = regenerated;
     // Refresh what follows from recognition on the linked layout item, while
     // leaving its position, page and grouping exactly as the user left them.
     for (final itemId in existing.provenance.layoutItemIds) {
@@ -853,10 +1027,13 @@ class SmartIntake {
     _Analyzed analyzed, {
     required List<DocumentItem> newItems,
     required List<DocumentRecord> newDocuments,
+    required List<ImageAsset> newAssets,
+    required Map<String, ImageAsset> replacedAssets,
     required List<String> warnings,
     required void Function() onCropped,
     required void Function() onNotDetected,
     required void Function() onMulti,
+    required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
   }) async {
     var asset = analyzed.asset;
@@ -867,6 +1044,13 @@ class SmartIntake {
     // inside the analysis object while the report claims success.
     for (final issue in analysis.issues) {
       warnings.add('${analyzed.asset.name}: ${issue.message}');
+    }
+    // ONE aggregated diagnostic for every refused region, never one per
+    // component: a noisy threshold can refuse dozens.
+    final refused = rejectedRegionsMessage(analysis.rejectedRegions);
+    if (refused != null) {
+      warnings.add('${analyzed.asset.name}: $refused');
+      onRejected(analysis.rejectedRegions);
     }
 
     if (analysis.needsMultiIntake) {
@@ -882,6 +1066,7 @@ class SmartIntake {
         analysis.allRegions,
         newItems: newItems,
         newDocuments: newDocuments,
+        newAssets: newAssets,
         warnings: warnings,
         onCropped: onCropped,
         onNotDetected: onNotDetected,
@@ -913,14 +1098,12 @@ class SmartIntake {
               aspectRatio: size.width / size.height,
             ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
       final updated = await editor.createRevision(asset, recipe);
-      current = await projects.save(
-        current.copyWith(
-          assets: [
-            for (final entry in current.assets)
-              entry.id == asset.id ? updated : entry,
-          ],
-        ),
-      );
+      // Deferred to the batch commit: a revision saved on its own, whose
+      // document record then failed to be created, leaves the source asset
+      // pointing at files nothing explains. The revision files themselves are
+      // unreferenced until that commit, which is exactly the state
+      // `StorageMaintenance.findOrphans` exists to report.
+      replacedAssets[asset.id] = updated;
       asset = updated;
       onCropped();
     } else {
@@ -1006,6 +1189,7 @@ class SmartIntake {
     List<DetectionAnalysis> detections, {
     required List<DocumentItem> newItems,
     required List<DocumentRecord> newDocuments,
+    required List<ImageAsset> newAssets,
     required List<String> warnings,
     required void Function() onCropped,
     required void Function() onNotDetected,
@@ -1034,14 +1218,20 @@ class SmartIntake {
             'موثوقة لهذه المنطقة؛ حُفظت كما هي لتُقصّ يدوياً من المحرر.',
           );
         }
-        final derived = await assets.importImage(
+        // The derived file is written here, but the asset is NOT committed
+        // here: it joins [newAssets] and is written to the database in the same
+        // save as the record and the layout item below. Committing the asset
+        // first is what used to leave a derived crop in the project with no
+        // document explaining it whenever a later region failed or the run was
+        // cancelled — and a derived crop with no record is indistinguishable
+        // from an imported photograph, so the next reprocess re-analysed it and
+        // appended a second document for the same physical card.
+        final derived = (await assets.importImage(
           current.id,
           _derivedName(sourceAsset.name, position + 1),
           output.bytes,
-        );
-        current = await projects.save(
-          current.copyWith(assets: [...current.assets, derived]),
-        );
+        )).asDerivedOf(sourceAsset.id);
+        newAssets.add(derived);
         if (output.trustworthy) onCropped();
         // An unresolved region was never rectified, so its size is NOT
         // confirmed: claiming a catalog size here would distort the print.

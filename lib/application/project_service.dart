@@ -59,8 +59,19 @@ class AutomaticLayoutReport {
     this.recognized = 0,
     this.needsReview = 0,
     this.multiDocumentImages = 0,
+    this.rejectedRegions = 0,
+    Map<RegionRejection, int> rejectedByReason = const {},
     required List<String> warnings,
-  }) : warnings = List.unmodifiable(warnings);
+  }) : rejectedByReason = Map.unmodifiable(rejectedByReason),
+       warnings = List.unmodifiable(warnings),
+       // A count and a category breakdown that disagree would let one surface
+       // tell the user a different story from another, so they are checked
+       // against each other rather than trusted to have been built together.
+       assert(
+         rejectedByReason.values.fold(0, (sum, n) => sum + n) ==
+             rejectedRegions,
+         'the rejection tally must account for every refused region',
+       );
 
   final Project project;
   final int cropped;
@@ -74,6 +85,37 @@ class AutomaticLayoutReport {
 
   /// Source images that were segmented into several documents.
   final int multiDocumentImages;
+
+  /// Measured regions that candidate-quality validation REFUSED as document
+  /// candidates across this batch (a frame edge, a strip, a region too small to
+  /// crop, or one beyond the per-photo cap).
+  ///
+  /// Counted separately from [notDetected] on purpose: a refused region created
+  /// no crop, no derived file, no document record and no layout item, while an
+  /// unresolved one was kept for review. Both are reported in [warnings], but
+  /// only one of them entered the project.
+  final int rejectedRegions;
+
+  /// The same refusals broken down by the reason that decided each one.
+  ///
+  /// Carried as data, not as rendered text, so every surface — the editor's
+  /// status message, the project screen's intake summary, the arrangement
+  /// banner — words it for its own space while reporting identical facts.
+  /// Only reasons the gates actually measured appear, so this can never claim
+  /// a diagnostic the pipeline did not decide.
+  final Map<RegionRejection, int> rejectedByReason;
+
+  /// ONE concise Arabic line for the whole batch: how many regions were
+  /// refused, by which measured categories, and what the user can still do.
+  /// Null when nothing was refused, so callers can append it unconditionally.
+  String? get rejectedSummary =>
+      rejectedRegionsSummary(rejectedRegions, rejectedByReason);
+
+  /// The tally alone, for a surface that already shows the per-image warnings
+  /// and only needs the refusal count and its categories to be unmissable.
+  String? get rejectedHeadline =>
+      rejectedRegionsHeadline(rejectedRegions, rejectedByReason);
+
   final List<String> warnings;
   int get unplaced =>
       project.items.where((item) => item.pageIndex == null).length;
@@ -549,6 +591,9 @@ class ProjectService {
       final updated = ImageAsset(
         id: asset.id,
         captureId: asset.captureId,
+        // Replacing the pixels of an asset never changes what it is derived
+        // from; losing this would make a derived crop look like an original.
+        derivedFrom: asset.derivedFrom,
         name: source.name,
         originalPath: files.originalPath,
         workingPath: files.workingPath,

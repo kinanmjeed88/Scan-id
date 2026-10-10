@@ -191,6 +191,7 @@ class ImageAsset {
     required this.height,
     this.crop,
     this.captureId,
+    this.derivedFrom,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
   }) : adjustments = adjustments ?? ImageAdjustments(),
@@ -198,6 +199,13 @@ class ImageAsset {
     validId(id);
     if (captureId != null) {
       validId(captureId!);
+    }
+    if (derivedFrom != null) {
+      validId(derivedFrom!);
+      require(
+        derivedFrom != id,
+        'الأصل المشتق لا يمكن أن يكون مشتقاً من نفسه.',
+      );
     }
     validName(name);
     for (final path in [originalPath, workingPath, thumbnailPath]) {
@@ -221,6 +229,23 @@ class ImageAsset {
   final String? captureId;
   final String id;
   final String name;
+
+  /// The asset this one was DERIVED from, when it is a product of another
+  /// asset rather than an imported photograph (ADR-003/ADR-008).
+  ///
+  /// This is the authoritative source/derived relationship. It is recorded
+  /// when the recognition intake creates a per-region crop, and it is what
+  /// keeps a derived crop from being mistaken for an original photograph
+  /// during reprocessing — a classification that must not depend on a
+  /// `DocumentRecord` existing, because a missing record is exactly the
+  /// symptom of the partial failure this field survives.
+  ///
+  /// Null for every imported original and for every asset written before this
+  /// field existed; [reconcileDerivedProvenance] backfills the ones the
+  /// existing document records can PROVE and never guesses the rest. A project
+  /// or backup without the key reads exactly as before, so no schema bump and
+  /// no migration are needed.
+  final String? derivedFrom;
   final String originalPath;
   final String workingPath;
   final String thumbnailPath;
@@ -229,9 +254,31 @@ class ImageAsset {
   final CropGeometry? crop;
   final ImageAdjustments adjustments;
   final List<String> transforms;
+
+  /// This asset with [source] recorded as the asset it was derived from.
+  ///
+  /// Every field is carried over unchanged, so recording provenance can never
+  /// cost a path, a crop or a transform. Used by the recognition intake when it
+  /// creates a per-region crop and by [reconcileDerivedProvenance].
+  ImageAsset asDerivedOf(String source) => ImageAsset(
+    id: id,
+    captureId: captureId,
+    derivedFrom: source,
+    name: name,
+    originalPath: originalPath,
+    workingPath: workingPath,
+    thumbnailPath: thumbnailPath,
+    width: width,
+    height: height,
+    crop: crop,
+    adjustments: adjustments,
+    transforms: transforms,
+  );
+
   Map<String, Object?> toJson() => {
     'id': id,
     'captureId': captureId,
+    'derivedFrom': derivedFrom,
     'name': name,
     'originalPath': originalPath,
     'workingPath': workingPath,
@@ -249,6 +296,11 @@ class ImageAsset {
       captureId: m['captureId'] == null
           ? null
           : text(m['captureId'], 'captureId'),
+      // Absent in every project and backup written before this field existed;
+      // a missing key means "no provenance recorded", never "not derived".
+      derivedFrom: m['derivedFrom'] == null
+          ? null
+          : text(m['derivedFrom'], 'derivedFrom'),
       name: text(m['name'], 'name'),
       originalPath: text(m['originalPath'], 'originalPath'),
       workingPath: text(m['workingPath'], 'workingPath'),
@@ -882,5 +934,97 @@ PresetSnapshot _snapshotFor(DocumentItem item, DocumentSizeCatalog catalog) {
     widthMm: item.width,
     heightMm: item.height,
     status: presetStatusFor(item.documentKind),
+  );
+}
+
+/// What [reconcileDerivedProvenance] found and did.
+class DerivedProvenanceReport {
+  const DerivedProvenanceReport({
+    required this.project,
+    required this.backfilled,
+    required this.brokenChains,
+  });
+
+  /// The project with every PROVEN source/derived relationship recorded. The
+  /// same instance as the input when there was nothing to backfill.
+  final Project project;
+
+  /// Asset ids given an [ImageAsset.derivedFrom] that the project's own
+  /// document records already proved, in asset order.
+  final List<String> backfilled;
+
+  /// Asset ids whose recorded [ImageAsset.derivedFrom] names an asset this
+  /// project no longer holds. Reported and preserved: the asset is still
+  /// derived, its source is simply gone, and neither fact is a reason to guess
+  /// or to delete.
+  final List<String> brokenChains;
+
+  /// Whether [project] differs from the reconciliation input.
+  bool get changed => backfilled.isNotEmpty;
+}
+
+/// Records the source/derived relationship the project's own document records
+/// already PROVE, so an asset's origin never has to be inferred from its
+/// dimensions, aspect ratio, filename or appearance.
+///
+/// Conservative by construction, because this is the recovery path for projects
+/// that already hold orphaned or ambiguous assets:
+///
+/// - it backfills only where a document side names the asset as its PROCESSED
+///   image while a DIFFERENT asset is that record's source — exactly the
+///   relationship the recognition intake creates for a per-region crop;
+/// - it never marks an asset derived on a guess, so an imported photograph that
+///   produced no document yet stays a source (retrying it is the whole point of
+///   reprocessing);
+/// - an already-recorded [ImageAsset.derivedFrom] is authoritative and is left
+///   alone even when the records disagree with it — overwriting a recorded
+///   relationship with an inferred one is how provenance gets lost;
+/// - it deletes nothing, reads no files and invents no pixels, so a project
+///   holding orphaned assets still opens, validates, backs up and restores
+///   exactly as before. Reconciliation makes the data better; it is never a
+///   precondition for using it.
+DerivedProvenanceReport reconcileDerivedProvenance(Project project) {
+  final known = {for (final asset in project.assets) asset.id};
+  final proven = <String, String>{};
+  for (final record in project.documents) {
+    for (final side in record.sides) {
+      final processed = side.processedAsset;
+      for (final asset in project.assets) {
+        if (asset.id == record.sourceImageId) continue;
+        if (asset.workingPath != processed.workingPath &&
+            asset.thumbnailPath != processed.thumbnailPath) {
+          continue;
+        }
+        proven.putIfAbsent(asset.id, () => record.sourceImageId);
+      }
+    }
+  }
+  final assets = <ImageAsset>[];
+  final backfilled = <String>[];
+  final broken = <String>[];
+  for (final asset in project.assets) {
+    final source = asset.derivedFrom ?? proven[asset.id];
+    if (source == null || source == asset.derivedFrom) {
+      assets.add(asset);
+    } else {
+      assets.add(asset.asDerivedOf(source));
+      backfilled.add(asset.id);
+    }
+    final recorded = assets.last.derivedFrom;
+    if (recorded != null && !known.contains(recorded)) {
+      broken.add(asset.id);
+    }
+  }
+  if (backfilled.isEmpty) {
+    return DerivedProvenanceReport(
+      project: project,
+      backfilled: const [],
+      brokenChains: List.unmodifiable(broken),
+    );
+  }
+  return DerivedProvenanceReport(
+    project: project.copyWith(assets: assets),
+    backfilled: List.unmodifiable(backfilled),
+    brokenChains: List.unmodifiable(broken),
   );
 }

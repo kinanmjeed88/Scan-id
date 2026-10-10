@@ -102,6 +102,25 @@ class LayoutEditorController extends ChangeNotifier {
   AutoLayoutStatus autoLayoutOf(DocumentItem item) =>
       autoLayoutStatus(project, item);
 
+  /// Whether [item] is an UNRESOLVED recognition candidate rather than an
+  /// ordinary document item.
+  ///
+  /// Such an item was measured in the source photo and kept on purpose, but no
+  /// trustworthy outline was found for it, so its crop was never rectified and
+  /// its size is not confirmed. The editor says so explicitly instead of
+  /// letting it look like a normal document that merely lacks a category, and
+  /// the original photo stays in the library so it can be cropped by hand.
+  ///
+  /// False for a manual item and for anything recognition did outline.
+  bool isUnresolvedCandidate(DocumentItem item) {
+    final documentId = item.documentId;
+    if (documentId == null) return false;
+    final record = project.documents
+        .where((document) => document.id == documentId)
+        .firstOrNull;
+    return record != null && routing.hasUnresolvedBoundary(record);
+  }
+
   ImageAsset assetOf(DocumentItem item) =>
       project.assets.firstWhere((a) => a.id == item.assetId);
 
@@ -629,10 +648,16 @@ class LayoutEditorController extends ChangeNotifier {
     if (failure != null) _say(userError(failure));
     final r = outcome?.layout;
     if (r != null) {
+      // Refused regions are named here, with the categories the gates actually
+      // measured. Importing from inside the editor shows no intake banner, so
+      // without this the refusals would be invisible at this entry point while
+      // the very same import from the project screen reports them.
+      final refused = r.rejectedSummary;
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
         '${r.needsReview > 0 ? ' · للمراجعة ${r.needsReview}' : ''}'
-        '${failures > 0 ? ' · تعذر استيراد $failures' : ''}',
+        '${failures > 0 ? ' · تعذر استيراد $failures' : ''}'
+        '${refused == null ? '' : '\n$refused'}',
       );
     }
   }
@@ -669,7 +694,8 @@ class LayoutEditorController extends ChangeNotifier {
     }
     _say(
       'أُعيد التعرف: حدّث ${r.needsReview} · بلا حدود ${r.notDetected}'
-      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}',
+      '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}'
+      '${r.rejectedSummary == null ? '' : '\n${r.rejectedSummary}'}',
     );
   }
 

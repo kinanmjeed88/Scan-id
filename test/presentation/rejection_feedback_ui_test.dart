@@ -273,61 +273,31 @@ void main() {
       // With no image editor the command reports that recognition is off, so
       // this needs no files and no recognition run.
       //
-      // Every animation the tap starts is SETTLED before anything is asserted
-      // or dismissed. flutter_test fails a test whose tree is disposed while a
-      // ticker is still running ("An animation is still running even after the
-      // widget tree was disposed"), which bounded pumps cannot avoid: the ink
-      // ripple alone outlives them. Settling is also what disarms nothing — the
-      // SnackBar's own duration timer is cancelled below by the messenger.
-      //
-      // Each stage is guarded so that a thrown error is republished as a
-      // failure detail. This test failed five rounds running with only "Test
-      // failed. See exception logs above.", because flutter_test prints the
-      // exception in a framed block ABOVE the reporter's failure marker and
-      // `tool/ci_gate.py` published only the indented detail below it. That
-      // collector is fixed in this commit; the guard stays as a second channel.
-      final button = find.byKey(const Key('rb-reprocess'));
-      var stage = 'pump';
-      Object? thrown;
-      try {
-        await EditorHarness.pump(tester);
-        stage = 'find';
-        expect(button, findsOneWidget);
-        stage = 'ensureVisible';
-        await tester.ensureVisible(button);
-        await tester.pumpAndSettle();
-        stage = 'tap';
-        await tester.tap(button);
-        stage = 'settle';
-        await tester.pumpAndSettle();
-      } catch (error) {
-        thrown = error;
-      }
-      expect(thrown, isNull, reason: 'failed at $stage: $thrown');
+      // Both recognition commands sit in the ribbon's file tab
+      // (`RibbonTab(id: 'file')` in layout_screen.dart) while the editor opens
+      // on its home tab, so that tab is selected first. Without this step the
+      // button is not in the tree at all and the test fails looking for it —
+      // the same ordering the rest of the suite uses for file-tab buttons.
+      await EditorHarness.pump(tester);
+      await tapKey(tester, const Key('ribbon-tab-file'));
+      await tapKey(tester, const Key('rb-reprocess'));
 
-      final snack = find.byType(SnackBar);
-      expect(snack, findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
       expect(
         find.text('التعرف الذكي غير مفعّل في هذا البناء.'),
         findsOneWidget,
       );
 
-      // `showMessage` gives the SnackBar a six-second duration, armed by the
-      // messenger's own build once the entrance completes. `clearSnackBars`
-      // cancels it through `hideCurrentSnackBar`, and settling afterwards runs
-      // the exit animation to completion, so neither a timer nor a ticker is
-      // left for the binding to report once the body has passed.
-      thrown = null;
-      stage = 'dismiss';
-      try {
-        ScaffoldMessenger.of(tester.element(snack)).clearSnackBars();
-        await tester.pumpAndSettle();
-      } catch (error) {
-        thrown = error;
-      }
-      expect(thrown, isNull, reason: 'failed at $stage: $thrown');
+      // `showMessage` gives the SnackBar a six-second duration, which the
+      // messenger arms in its own build once the entrance has completed.
+      // Dismissing through the messenger cancels that timer, and the settle
+      // runs the exit animation to completion, so neither a timer nor a ticker
+      // is left for the binding to report once the body has passed.
+      ScaffoldMessenger.of(
+        tester.element(find.byType(SnackBar)),
+      ).clearSnackBars();
+      await tester.pumpAndSettle();
       expect(find.byType(SnackBar), findsNothing);
-      expect(tester.takeException(), isNull, reason: 'see the actual value');
     });
   });
 }

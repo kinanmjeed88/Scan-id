@@ -72,11 +72,13 @@ Future<SegmentationResult> _cardPlusUnresolved(Uint8List bytes) async =>
       ],
     );
 
-/// Two measured regions, neither with a trustworthy quadrilateral.
+/// Two measured regions, neither with a trustworthy quadrilateral. The old
+/// multi hint is false because it used to depend on at least one quad — these
+/// still have to enter the multi-region preservation path.
 Future<SegmentationResult> _twoUnresolved(
   Uint8List bytes,
 ) async => const SegmentationResult(
-  multi: true,
+  multi: false,
   candidates: [
     SegmentCandidate(region: [.1, .1, .9, .45], reason: 'no-trustworthy-quad'),
     SegmentCandidate(region: [.1, .55, .9, .95], reason: 'region-too-small'),

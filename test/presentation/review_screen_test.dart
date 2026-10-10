@@ -97,6 +97,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'review lets the user dismiss a false candidate as not a document',
+    (tester) async {
+    final editor = await EditorHarness.pump(tester, project: _reviewProject());
+    final targetBefore = editor.saved.documents.firstWhere(
+      (record) => record.id == 'rec-front',
+    );
+    final sourceAssetIds = [
+      for (final asset in editor.saved.assets) asset.id,
+    ];
+
+    await tapKey(tester, const Key('rb-review'));
+    await tapKey(tester, const Key('review-dismiss-rec-front'));
+
+    final dismissed = editor.saved.documents.firstWhere(
+      (record) => record.id == 'rec-front',
+    );
+    expect(dismissed.overrides.last.dismissed, isTrue);
+    expect(dismissed.recognition, same(targetBefore.recognition));
+    expect(editor.saved.items.map((item) => item.id), ['back']);
+    expect(editor.saved.assets.map((asset) => asset.id), sourceAssetIds);
+    expect(recordsNeedingReview(editor.saved), isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('accepting a proposed pair groups both items', (tester) async {
     final editor = await EditorHarness.pump(tester, project: _reviewProject());
     await tapKey(tester, const Key('rb-review'));

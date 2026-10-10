@@ -4,6 +4,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/imaging/image_header.dart';
 
+Uint8List _jpegHeader(int width, int height) => Uint8List.fromList([
+  0xff,
+  0xd8,
+  0xff,
+  0xc0,
+  0,
+  11,
+  8,
+  (height >> 8) & 255,
+  height & 255,
+  (width >> 8) & 255,
+  width & 255,
+  1,
+  1,
+  0x11,
+  0,
+  0xff,
+  0xd9,
+]);
+
 void main() {
   test('oversized JPEG SOF rejected without entering a codec', () {
     final bytes = Uint8List.fromList([
@@ -36,6 +56,16 @@ void main() {
       ),
     );
   });
+  test(
+    'a source above the processing limit is admitted for bounded scaling',
+    () {
+    const width = 4001, height = 4000;
+    final header = inspectImageHeader(_jpegHeader(width, height));
+    expect(header.width, width);
+    expect(header.height, height);
+    expect(header.width * header.height, greaterThan(16000000));
+  });
+
   test('JPEG segment lengths cannot overflow the input', () {
     expect(
       () => inspectImageHeader(

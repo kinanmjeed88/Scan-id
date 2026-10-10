@@ -185,7 +185,9 @@ void main() {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),
       segment: (bytes) async => SegmentationResult(
-        multi: true,
+        // A measured candidate is not rejected merely because its corners are
+        // unresolved; two candidates make this a multi-region source.
+        multi: false,
         candidates: [
           const SegmentCandidate(
             region: [.1, .1, .5, .5],
@@ -213,9 +215,101 @@ void main() {
     expect(analysis.detections, hasLength(1));
     expect(
       analysis.multi,
-      isFalse,
-      reason: 'one usable quad is not a multi-document image',
+      isTrue,
+      reason: 'both measured candidates count even when one lacks corners',
     );
+    expect(analysis.unresolvedRegions, hasLength(1));
+    expect(analysis.regionCount, 2);
+    expect(analysis.needsMultiIntake, isTrue);
+  });
+
+  test(
+    'all measured candidates survive when the multi hint is false',
+    () async {
+    var singleCalled = false;
+    final pipeline = RecognitionPipeline(
+      suggestSingle: (bytes) async {
+        singleCalled = true;
+        return _quad();
+      },
+      segment: (bytes) async => const SegmentationResult(
+        multi: false,
+        candidates: [
+          SegmentCandidate(
+            region: [.1, .1, .45, .45],
+            reason: 'no-trustworthy-quad',
+          ),
+          SegmentCandidate(
+            region: [.55, .55, .9, .9],
+            reason: 'no-trustworthy-quad',
+          ),
+        ],
+      ),
+    );
+
+    final analysis = await pipeline.analyze(_input(name: 'two-candidates.png'));
+
+    expect(
+      singleCalled,
+      isFalse,
+      reason: 'never replace candidates with a full frame',
+    );
+    expect(analysis.detections, isEmpty);
+    expect(analysis.unresolvedRegions, hasLength(2));
+    expect(analysis.allRegions.map((region) => region.regionIndex), [0, 1]);
+    expect(analysis.multi, isTrue);
+    expect(analysis.needsMultiIntake, isTrue);
+    expect(
+      analysis.unresolvedRegions.every((region) => region.corners == null),
+      isTrue,
+      reason: 'no corners may be invented for unresolved candidates',
+    );
+  });
+
+  test(
+    'rejected unusable measurements are not promoted to candidates',
+    () async {
+    const rejected = RejectedRegion(
+      region: [.01, .01, .03, .03],
+      rejection: RegionRejection.unusableCrop,
+      aspect: 1,
+      areaFraction: .0004,
+      fill: 1,
+      borderSides: 0,
+      cropWidth: 20,
+      cropHeight: 20,
+    );
+    final pipeline = RecognitionPipeline(
+      suggestSingle: (bytes) async => _quad(),
+      segment: (bytes) async => const SegmentationResult(
+        multi: true,
+        candidates: [
+          SegmentCandidate(
+            region: [.1, .1, .45, .45],
+            reason: 'no-trustworthy-quad',
+          ),
+          SegmentCandidate(
+            region: [.55, .55, .9, .9],
+            reason: 'no-trustworthy-quad',
+          ),
+        ],
+        rejected: [rejected],
+      ),
+    );
+
+    final analysis = await pipeline.analyze(_input(name: 'mixed-quality.png'));
+
+    expect(analysis.unresolvedRegions, hasLength(2));
+    expect(analysis.rejectedRegions, [rejected]);
+    expect(
+      analysis.regionCount,
+      2,
+      reason: 'rejected clutter is not a document',
+    );
+    expect(analysis.allRegions.map((region) => region.region), [
+      [.1, .1, .45, .45],
+      [.55, .55, .9, .9],
+    ]);
   });
 
   test('an unresolved region is kept and reportable, never dropped', () async {

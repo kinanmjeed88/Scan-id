@@ -414,6 +414,12 @@ void main() {
       ])).project;
       final source = project.assets.single;
       project = (await s.arrangeImportedImages(project, [source.id])).project;
+      // The automatic crops the arrangement made from the photo.
+      final autoCrops = [
+        for (final a in project.assets)
+          if (a.derivedFrom == source.id) a.id,
+      ];
+      expect(autoCrops, isNotEmpty);
 
       // A crop made by hand from the photo: its own element, no record.
       final crop = (await assets.importImage(
@@ -440,22 +446,38 @@ void main() {
       // removed. The assertions below are about the project, not the folder.
       await s.deleteImage(project, source.id);
       final after = await projects.get(project.id);
-      // The photo's own records and elements go with it; the crop does not.
+      // The photo's own records and elements go with it. Every derived image
+      // stays as an independent image, with its lineage (the confirmation
+      // says so), and the element made by hand survives.
+      final derivedIds = [...autoCrops, crop.id];
       expect(after.documents, isEmpty);
       expect(after.items.map((i) => i.id), ['manual1']);
-      expect(after.assets.map((a) => a.id), [crop.id]);
+      expect(after.assets.map((a) => a.id), unorderedEquals(derivedIds));
 
       // Asking to reprocess the crop must not turn it into a source photo.
       final report = await s.reprocessImages(after, [crop.id]);
       final result = report!.project;
       expect(report.cropped, 0);
       expect(result.documents, isEmpty);
-      expect(result.assets.map((a) => a.id), [crop.id]);
+      expect(result.assets.map((a) => a.id), unorderedEquals(derivedIds));
       expect(result.items.map((i) => i.id), ['manual1']);
-      expect(result.assets.single.derivedFrom, source.id);
-      expect(reconcileDerivedProvenance(result).brokenChains, [crop.id]);
+      expect(
+        result.assets.every((a) => a.derivedFrom == source.id),
+        isTrue,
+        reason: 'no derived image was re-classified as an original',
+      );
+      expect(
+        reconcileDerivedProvenance(result).brokenChains,
+        unorderedEquals(derivedIds),
+      );
       expect(report.warnings, isNotEmpty, reason: 'the broken chain is named');
-      expect(await (await assets.resolve(crop.workingPath)).exists(), isTrue);
+      for (final asset in result.assets) {
+        expect(
+          await (await assets.resolve(asset.workingPath)).exists(),
+          isTrue,
+          reason: '${asset.name} keeps its pixels',
+        );
+      }
     },
   );
 

@@ -36,14 +36,57 @@ class ProjectScreen extends StatefulWidget {
 class _ProjectScreenState extends State<ProjectScreen> {
   late Project _project = widget.project;
   bool _busy = false;
+  // Whether this project's recovery copy is behind its saved data. Read from
+  // the copies, so it stays visible after a restart until it is repaired.
+  bool _recoveryStale = false;
+  bool _refreshingRecovery = false;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_checkRecoveryPoint());
     if (widget.startWithImagePicker) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_import());
       });
+    }
+  }
+
+  Future<void> _checkRecoveryPoint() async {
+    if (widget.service.recovery == null) {
+      return;
+    }
+    try {
+      final stale = await widget.service.staleRecoveryPoints();
+      if (mounted) {
+        setState(() => _recoveryStale = stale.contains(_project.id));
+      }
+    } catch (error) {
+      // Shown, not swallowed: the user must know the copies could not be read.
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    }
+  }
+
+  /// Rewrites this project's recovery copy from the saved data. The data is
+  /// not touched; a failure is shown as an error, never as success.
+  Future<void> _refreshRecovery() async {
+    setState(() => _refreshingRecovery = true);
+    try {
+      await widget.service.refreshRecoveryPoint(_project.id);
+      if (mounted) {
+        showMessage(context, 'حُدّثت نقطة الاستعادة لهذا المشروع.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _refreshingRecovery = false);
+      }
+      await _checkRecoveryPoint();
     }
   }
 
@@ -310,6 +353,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (mounted) {
         setState(() => _busy = false);
       }
+      await _checkRecoveryPoint();
     }
   }
 
@@ -365,6 +409,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (mounted) showMessage(context, userError(error));
     } finally {
       if (mounted) setState(() => _busy = false);
+      await _checkRecoveryPoint();
     }
   }
 
@@ -385,8 +430,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
     if (plan.dismissedDocumentIds.isNotEmpty) {
       lines.add(
-        'تُزال أيضاً المناطق المستبعدة سابقاً (${plan.dismissedDocumentIds.length})؛ '
-        'قد تُقترح مجدداً عند إعادة معالجة الصورة الأصلية.',
+        'تُزال أيضاً المناطق المستبعدة سابقاً (${plan.dismissedDocumentIds.length}). '
+        'قرارات الاستبعاد هذه تُحذف مع الصورة؛ إن استوردت الملف نفسه لاحقاً '
+        'فقد تظهر هذه المناطق للمراجعة من جديد.',
       );
     }
     if (plan.keptDerivedAssetIds.isNotEmpty) {
@@ -720,11 +766,25 @@ class _ProjectScreenState extends State<ProjectScreen> {
                           ),
                         ),
                       ),
-                      if (widget.service.recovery?.warning != null) ...[
+                      if (_recoveryStale) ...[
                         const SizedBox(height: 12),
                         InfoBanner(
                           tone: BannerTone.caution,
-                          message: widget.service.recovery!.warning!,
+                          title: 'نقطة الاستعادة متأخرة',
+                          message:
+                              'البيانات محفوظة في المشروع، لكن نسخة الاستعادة المحلية لهذا المشروع لم تُحدَّث بعد. '
+                              'لا تعتمد عليها إن فقدت قاعدة البيانات قبل تحديثها.',
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: OutlinedButton.icon(
+                            onPressed: _refreshingRecovery
+                                ? null
+                                : () => unawaited(_refreshRecovery()),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('تحديث نقطة الاستعادة'),
+                          ),
                         ),
                       ],
                       const SizedBox(height: 12),

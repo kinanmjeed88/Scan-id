@@ -42,12 +42,14 @@ class ImageDeletionPlan {
   final List<String> documentIds;
 
   /// The subset of [documentIds] that were dismissal tombstones. A tombstone
-  /// remembers a region the user rejected; removing it means reprocessing the
-  /// source photo may propose that region again. This is disclosed, not hidden.
+  /// remembers a region the user rejected. Deleting the image deletes the
+  /// decision with it: nothing keeps a fingerprint of the photo, so importing
+  /// the same file later may propose that region again. This is disclosed.
   final List<String> dismissedDocumentIds;
 
   /// Derived images (crops made from this image) that remain in the project.
-  /// They keep their own files and pixels, but lose their recorded source.
+  /// They keep their own files and pixels. Their `derivedFrom` still names the
+  /// deleted image, which is what keeps them from being treated as photographs.
   final List<String> keptDerivedAssetIds;
 
   bool get removesSheetElements => itemIds.isNotEmpty;

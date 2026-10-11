@@ -783,6 +783,18 @@ class ProjectService {
     return store.findOrphans(projects);
   }
 
+  /// Projects whose recovery copy does not match their saved data. Read from
+  /// the copies, so it is still true after a restart.
+  Future<Set<String>> staleRecoveryPoints() =>
+      _recovery().staleRecoveryPoints();
+
+  /// Rewrites one project's recovery copy. Fails if the copy cannot be written,
+  /// so the caller can say so instead of showing a false success.
+  Future<void> refreshRecoveryPoint(String projectId) {
+    validId(projectId);
+    return _recovery().refreshRecoveryPoint(projectId);
+  }
+
   /// Deletes exactly the paths [findOrphans] reported, after re-reading the
   /// project list so a concurrent import cannot be mistaken for an orphan.
   Future<int> deleteOrphans() async {
@@ -797,6 +809,12 @@ class ProjectService {
   }
 
   Future<int> pruneStaging() => _maintenance().pruneStaging();
+
+  ProjectRecovery _recovery() {
+    final store = recovery;
+    require(store != null, 'استعادة نقاط الحفظ غير متاحة في هذا البناء.');
+    return store!;
+  }
 
   StorageMaintenance _maintenance() {
     final store = maintenance;

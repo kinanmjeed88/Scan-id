@@ -210,7 +210,7 @@ class _ExportScreenState extends State<ExportScreen> {
                         ],
                       ),
                       const Text(
-                        'تُصدّر الصفحات المختارة. JPG/PNG ملف لكل صفحة. اختر حفظاً محلياً.',
+                        'تُصدّر الصفحات المختارة. PDF ملف واحد يضم الصفحات، وPNG وJPG ملف لكل صفحة. اختر حفظاً محلياً.',
                       ),
                       const InfoBanner(
                         tone: BannerTone.caution,

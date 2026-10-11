@@ -780,6 +780,53 @@ void main() {
     );
 
     test(
+      'a folder kept because its unwritten recovery copy still names it: after a restart the image stays gone, a retry changes nothing, and cleanup after the repair removes only that folder',
+      () async {
+        final project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        final folder = 'projects/${project.id}/assets/${target.id}';
+        final checkpoints = Directory(p.join(root.path, 'checkpoints'));
+        try {
+          await setWritable(checkpoints, writable: false);
+          final deletion = await service.deleteImage(project, target.id);
+          expect(deletion.warning, isNotNull);
+        } finally {
+          await setWritable(checkpoints, writable: true);
+        }
+
+        // Restart: the image is gone from the store and stays gone.
+        await projects.close();
+        projects = await LocalProjectRepository.open(root);
+        wire();
+        final after = await stored(project.id);
+        expect(after.assets.map((a) => a.id), [other.id]);
+        expect(await exists(folder), isTrue, reason: 'files wait for repair');
+        // The durable check still knows the copy names the folder.
+        expect(await projects.staleRecoveryPoints(), {project.id});
+
+        // A retry with the old image reference is refused, not re-applied.
+        await expectLater(
+          service.deleteImage(after, target.id),
+          throwsA(isA<ValidationException>()),
+        );
+        expect(await exists(folder), isTrue);
+
+        // Repair the copy first; then only the unlinked folder is released.
+        await service.refreshRecoveryPoint(project.id);
+        expect(await projects.staleRecoveryPoints(), isEmpty);
+        final orphans = await service.findOrphans();
+        expect(orphans.paths, contains(folder));
+        expect(orphans.retained, isEmpty);
+        expect(await service.deleteOrphans(), greaterThan(0));
+        expect(await exists(folder), isFalse);
+        expect(await service.deleteOrphans(), 0, reason: 'a retry is a no-op');
+        await expectConsistent();
+      },
+      skip: Platform.isWindows ? 'directory permissions are POSIX-only' : false,
+    );
+
+    test(
       'maintenance removes unnamed folders, keeps folders named by a pre-upgrade snapshot, and never lists live images',
       () async {
         final project = await projectWith(['أ.png', 'ب.png']);
@@ -821,6 +868,7 @@ void main() {
         }
 
         expect(await service.deleteOrphans(), 1);
+        expect(await service.deleteOrphans(), 0, reason: 'a retry removes nothing more');
         expect(await exists('projects/$id/assets/unnamed'), isFalse);
         expect(await exists('projects/$id/assets/archived'), isTrue);
         for (final asset in project.assets) {

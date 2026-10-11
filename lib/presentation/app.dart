@@ -68,13 +68,73 @@ class ProjectsScreen extends StatefulWidget {
 
 class _ProjectsScreenState extends State<ProjectsScreen> {
   late Future<List<Project>> _projects = widget.service.projects.list();
+  late Future<Set<String>> _stale = _loadStale();
   bool _busy = false;
   void _refresh() {
     final next = widget.service.projects.list();
+    final stale = _loadStale();
     setState(() {
       _projects = next;
+      _stale = stale;
     });
   }
+
+  Future<Set<String>> _loadStale() async {
+    if (widget.service.recovery == null) {
+      return <String>{};
+    }
+    return widget.service.staleRecoveryPoints();
+  }
+
+  /// Rewrites every outdated recovery copy. Stops at the first failure, says
+  /// how many succeeded, and reloads the list so the screen shows what remains.
+  Future<void> _repairRecoveryPoints(Set<String> ids) async {
+    setState(() => _busy = true);
+    var done = 0;
+    try {
+      for (final id in ids) {
+        await widget.service.refreshRecoveryPoint(id);
+        done++;
+      }
+      if (mounted) {
+        showMessage(context, 'حُدّثت $done نقطة استرداد.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          '${userError(error)} حُدّث $done من ${ids.length}.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+        _refresh();
+      }
+    }
+  }
+
+  Widget _staleNotice(Set<String> ids) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      InfoBanner(
+        tone: BannerTone.caution,
+        title: 'نقاط استرداد متأخرة (${ids.length})',
+        message:
+            'بيانات هذه المشاريع محفوظة، لكن نسخها المحلية للاسترداد لا تطابقها. '
+            'حدّثها حتى تعكس الاستعادة أحدث حالة إن فُقدت قاعدة البيانات.',
+      ),
+      const SizedBox(height: 8),
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: OutlinedButton.icon(
+          onPressed: _busy ? null : () => _repairRecoveryPoints(ids),
+          icon: const Icon(Icons.refresh),
+          label: const Text('تحديث نقاط الاستعادة'),
+        ),
+      ),
+    ],
+  );
 
   Future<void> _restore() async {
     if (!await confirm(
@@ -386,6 +446,32 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       const SizedBox(height: 12),
                     ],
                   ),
+                ),
+                FutureBuilder<Set<String>>(
+                  future: _stale,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: InfoBanner(
+                            tone: BannerTone.caution,
+                            message: userError(snapshot.error!),
+                          ),
+                        ),
+                      );
+                    }
+                    final ids = snapshot.data;
+                    if (ids == null || ids.isEmpty) {
+                      return const SliverToBoxAdapter(child: SizedBox.shrink());
+                    }
+                    return SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _staleNotice(ids),
+                      ),
+                    );
+                  },
                 ),
                 FutureBuilder<List<Project>>(
                   future: _projects,

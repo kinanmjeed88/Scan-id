@@ -202,6 +202,10 @@ class TestBinaryMessenger final : public flutter::BinaryMessenger {
                                       EncodableValue arguments) {
     auto promise = std::make_shared<std::promise<RawResponse>>();
     auto future = promise->get_future();
+    {
+      std::lock_guard<std::mutex> lock(promises_mutex_);
+      pending_promises_.push_back(promise);
+    }
     flutter::MethodCall<EncodableValue> call(
         method, std::make_unique<EncodableValue>(std::move(arguments)));
     const auto message = flutter::StandardMethodCodec::GetInstance()
@@ -269,6 +273,8 @@ class TestBinaryMessenger final : public flutter::BinaryMessenger {
  private:
   mutable std::mutex handlers_mutex_;
   std::map<std::string, flutter::BinaryMessageHandler> handlers_;
+  std::mutex promises_mutex_;
+  std::vector<std::shared_ptr<std::promise<RawResponse>>> pending_promises_;
   std::shared_ptr<Accounting> accounting_;
 };
 

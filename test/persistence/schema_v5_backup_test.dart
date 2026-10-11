@@ -8,6 +8,7 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/persistence/local_project_backups.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
@@ -154,6 +155,33 @@ void main() {
   });
 
   test(
+    'a legacy dismissed v5 record with a live item survives restore',
+    () async {
+      final base = v5Project();
+      final legacyDismissed = base.documents.single.copyWith(
+        overrides: [
+          ...base.documents.single.overrides,
+          UserOverride(dismissed: true, fields: const ['dismissed']),
+        ],
+      );
+      final created = await projects.create(
+        base.copyWith(documents: [legacyDismissed]),
+      );
+      final backup = await backups.create(created, root);
+      await Directory('${root.path}/projects/p1').delete(recursive: true);
+
+      final restored = await backups.restore(backup);
+
+      expect(restored.items, hasLength(1));
+      expect(restored.items.single.documentId, 'rec-card');
+      expect(restored.documents, hasLength(1));
+      expect(restored.documents.single.overrides.last.dismissed, isTrue);
+      expect(isDismissalTombstone(restored.documents.single), isFalse);
+      expect((await projects.get(restored.id)).toJson(), restored.toJson());
+    },
+  );
+
+  test(
     'a dismissed record and its shared derived asset survive backup restore',
     () async {
       const prefix = 'projects/p1/assets/a2';
@@ -170,7 +198,10 @@ void main() {
       final dismissed = base.documents.single.copyWith(
         overrides: [
           ...base.documents.single.overrides,
-          UserOverride(dismissed: true, fields: const ['dismissed']),
+          UserOverride(
+            dismissed: true,
+            fields: const ['dismissed', dismissalTombstoneField],
+          ),
         ],
       );
       final project = base.copyWith(

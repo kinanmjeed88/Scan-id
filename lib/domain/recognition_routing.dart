@@ -133,9 +133,21 @@ RoutingDecision routeRecognition({
 /// recognition result from the review queue.
 const reviewConfirmedField = 'review-confirmed';
 
+/// Marker in [UserOverride.fields] distinguishing a new detached dismissal
+/// tombstone from schema-v5 records that already used `dismissed` while their
+/// layout item and pair were still present.
+const dismissalTombstoneField = 'dismissal-tombstone';
+
+/// Whether this record uses the current detached-tombstone representation.
+bool isDismissalTombstone(DocumentRecord record) => record.overrides.any(
+  (override) =>
+      override.dismissed == true &&
+      override.fields.contains(dismissalTombstoneField),
+);
+
 /// Whether the user explicitly dismissed this recognition candidate as not a
-/// document. The evidence and provenance stay on the record; its layout items
-/// are removed by the explicit dismissal command.
+/// document. The evidence and provenance stay on the record; current explicit
+/// dismissal also marks a detached tombstone and removes its layout items.
 bool isDismissed(DocumentRecord record) =>
     record.overrides.any((override) => override.dismissed == true);
 

@@ -286,7 +286,12 @@ Recognition-level only. Layout-level user edits remain on `DocumentItem`.
 | `side` | enum? | user-confirmed side |
 | `pairing` | enum? | user-confirmed pairing (`paired`/`split`) |
 | `dismissed` | bool | user dismissed recognition for this instance |
-| `fields` | `List<String>` | which of the above are overridden (audit) |
+| `fields` | `List<String>` | which of the above are overridden (audit); current detached dismissals also include `dismissal-tombstone` |
+
+Compatibility: v5 projects may already contain `dismissed: true` while the record
+still has a layout item or pair link. Those legacy overrides remain valid and
+continue to resolve review; only the `dismissal-tombstone` marker identifies
+the newer detached form, which must have neither.
 
 **Precedence (computed, not stored as copies):**
 `UserOverride` ▸ validated user confirmation ▸ high-confidence recognition ▸

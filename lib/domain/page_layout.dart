@@ -176,13 +176,14 @@ class PageLayout {
         if (item.documentId != null) item.documentId!,
     };
     // A normal deletion cascades the recognition record only when its last
-    // layout item is gone. Dismissal is different: its record is an explicit
-    // rejection/provenance tombstone and deliberately survives without items.
+    // layout item is gone. New detached-dismissal tombstones survive without
+    // items; legacy v5 `dismissed` overrides on linked records do not change
+    // ordinary item-deletion behavior.
     final removedDocumentIds = {
       for (final record in sourceDocuments)
         if (removed.any((item) => item.documentId == record.id) &&
             !remainingDocumentIds.contains(record.id) &&
-            !isDismissed(record))
+            !isDismissalTombstone(record))
           record.id,
     };
 

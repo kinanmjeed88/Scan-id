@@ -3,6 +3,7 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/validation.dart';
 
@@ -183,6 +184,11 @@ void main() {
 
         final record = dismissed.documents.firstWhere((d) => d.id == target.id);
         expect(record.overrides.single.dismissed, isTrue);
+        expect(
+          record.overrides.single.fields,
+          contains(dismissalTombstoneField),
+        );
+        expect(isDismissalTombstone(record), isTrue);
         expect(record.recognition, same(target.recognition));
         expect(record.provenance.toJson(), target.provenance.toJson());
         expect(dismissed.documents, hasLength(2));
@@ -200,6 +206,47 @@ void main() {
         expect(dismissRecognition(before, 'missing'), same(before));
       },
     );
+
+    test('legacy schema-v5 dismissals retain linked and paired state', () {
+      final paired = acceptPair(_project(), 'rec-item-a', 'rec-item-b');
+      final legacy = paired.copyWith(
+        documents: [
+          for (final record in paired.documents)
+            if (record.id == 'rec-item-a')
+              record.copyWith(
+                overrides: [
+                  ...record.overrides,
+                  UserOverride(dismissed: true, fields: const ['dismissed']),
+                ],
+              )
+            else
+              record,
+        ],
+      );
+
+      final restored = Project.fromJson(legacy.toJson());
+      final target = restored.documents.firstWhere(
+        (record) => record.id == 'rec-item-a',
+      );
+
+      expect(restored.items, hasLength(2));
+      expect(isDismissalTombstone(target), isFalse);
+      expect(target.pairing, PairingState.paired);
+      expect(target.pairedDocumentId, 'rec-item-b');
+      expect(
+        Project.fromJson(restored.toJson()).toJson(),
+        restored.toJson(),
+      );
+      expect(
+        recordsNeedingReview(restored).map((record) => record.id),
+        isNot(contains('rec-item-a')),
+      );
+
+      final deleted = PageLayout.remove(restored, {'item-a'});
+      expect(deleted.documents.map((record) => record.id), ['rec-item-b']);
+      expect(deleted.documents.single.pairing, PairingState.single);
+      expect(deleted.documents.single.pairedDocumentId, isNull);
+    });
 
     test(
       'dismissing one side dissolves an unresolved pair and preserves the partner',

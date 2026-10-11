@@ -6,6 +6,7 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
@@ -192,7 +193,10 @@ void main() {
           pipelineVersion: 'smart-1',
         ),
         overrides: [
-          UserOverride(dismissed: true, fields: const ['dismissed']),
+          UserOverride(
+            dismissed: true,
+            fields: const ['dismissed', dismissalTombstoneField],
+          ),
         ],
       );
       project = await projects.save(project.copyWith(documents: [record]));

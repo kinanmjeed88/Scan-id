@@ -184,6 +184,41 @@ void main() {
       );
     },
   );
+  test('oversized PNG remains rejected before decoding', () {
+    final bytes = Uint8List(33);
+    bytes.setAll(0, [137, 80, 78, 71, 13, 10, 26, 10]);
+    final data = ByteData.sublistView(bytes);
+    data.setUint32(8, 13);
+    data.setUint32(12, 0x49484452);
+    data.setUint32(16, 5000);
+    data.setUint32(20, 4000);
+
+    expect(
+      () => inspectImageHeader(bytes),
+      throwsA(
+        isA<ValidationException>().having(
+          (error) => error.message,
+          'PNG pixel budget',
+          contains('16'),
+        ),
+      ),
+    );
+  });
+
+  test('PNG side limits remain governed by the existing pixel budget', () {
+    final bytes = Uint8List(33);
+    bytes.setAll(0, [137, 80, 78, 71, 13, 10, 26, 10]);
+    final data = ByteData.sublistView(bytes);
+    data.setUint32(8, 13);
+    data.setUint32(12, 0x49484452);
+    data.setUint32(16, 65536);
+    data.setUint32(20, 1);
+
+    final header = inspectImageHeader(bytes);
+
+    expect([header.width, header.height], [65536, 1]);
+  });
+
   test('zero-size PNG header cannot enter a codec', () {
     final bytes = Uint8List(33);
     bytes.setAll(0, [137, 80, 78, 71, 13, 10, 26, 10]);

@@ -120,7 +120,10 @@ Project dismissRecognition(Project project, String documentId) {
   final updated = currentRecord.copyWith(
     overrides: [
       ...currentRecord.overrides,
-      UserOverride(dismissed: true, fields: const ['dismissed']),
+      UserOverride(
+        dismissed: true,
+        fields: const ['dismissed', dismissalTombstoneField],
+      ),
     ],
   );
   final updatedRecords = [

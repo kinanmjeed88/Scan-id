@@ -10,6 +10,7 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/domain/image_limits.dart';
 import 'package:scan_id/imaging/large_jpeg_plan.dart';
@@ -327,7 +328,10 @@ void main() {
           pipelineVersion: 'smart-1',
         ),
         overrides: [
-          UserOverride(dismissed: true, fields: const ['dismissed']),
+          UserOverride(
+            dismissed: true,
+            fields: const ['dismissed', dismissalTombstoneField],
+          ),
         ],
       );
       project = await projects.save(

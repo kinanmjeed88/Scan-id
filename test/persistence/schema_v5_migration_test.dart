@@ -3,6 +3,7 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/image_limits.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/domain/validation.dart';
 
 /// Deterministic, non-destructive v1..v4 → v5 migration semantics
@@ -253,7 +254,10 @@ void main() {
         );
         final dismissed = _minimalRecord('rec-1').copyWith(
           overrides: [
-            UserOverride(dismissed: true, fields: const ['dismissed']),
+            UserOverride(
+              dismissed: true,
+              fields: const ['dismissed', dismissalTombstoneField],
+            ),
           ],
         );
         final tombstone = project(record: dismissed);
@@ -271,7 +275,10 @@ void main() {
         for (var i = 0; i < maxProjectItems + 1; i++)
           _minimalRecord('rec-$i').copyWith(
             overrides: [
-              UserOverride(dismissed: true, fields: const ['dismissed']),
+              UserOverride(
+                dismissed: true,
+                fields: const ['dismissed', dismissalTombstoneField],
+              ),
             ],
           ),
       ];

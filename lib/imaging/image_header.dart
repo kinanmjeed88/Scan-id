@@ -8,14 +8,26 @@ enum ImageEncoding { jpeg, png }
 class ImageHeader {
   ImageHeader(this.encoding, this.width, this.height, {this.orientation = 1}) {
     require(
-      width > 0 && height > 0 && width <= 65535 && height <= 65535,
-      'أبعاد الصورة خارج المجال المدعوم.',
+      width > 0 && height > 0,
+      'أبعاد الصورة غير صالحة.',
     );
     require(orientation >= 1 && orientation <= 8, 'اتجاه JPEG غير صالح.');
     if (encoding == ImageEncoding.jpeg) {
+      // JPEG SOF dimensions are 16-bit by format definition.
+      require(
+        width <= 65535 && height <= 65535,
+        'أبعاد JPEG خارج المجال المدعوم.',
+      );
       require(
         width * height <= maxScalableJpegSourcePixels,
         'صورة JPEG تتجاوز حد المصدر الآمن (32 مليون بكسل).',
+      );
+    } else {
+      // Preserve the pre-existing PNG acceptance rule; PNG dimensions are
+      // 32-bit and do not share JPEG's 16-bit side limit.
+      require(
+        withinImageBudget(width, height),
+        'الصورة تتجاوز حد المعالجة (16 مليون بكسل).',
       );
     }
   }

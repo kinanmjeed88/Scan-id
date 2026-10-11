@@ -52,10 +52,10 @@ void main() {
     },
   );
 
-  test('oversized PNG is rejected instead of full-decoded then resized', () {
+  test('PNG is never eligible for the sampled JPEG plan', () {
     expect(
       () =>
-          LargeJpegPlan.fromHeader(ImageHeader(ImageEncoding.png, 5000, 4000)),
+          LargeJpegPlan.fromHeader(ImageHeader(ImageEncoding.png, 4000, 4000)),
       throwsA(
         isA<ValidationException>().having(
           (error) => error.message,

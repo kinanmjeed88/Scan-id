@@ -4,6 +4,7 @@ import 'image_adjustments.dart';
 import 'validation.dart';
 import 'image_limits.dart';
 import 'recognition.dart';
+import 'recognition_routing.dart' show isDismissalTombstone;
 
 enum PaperOrientation { portrait, landscape }
 
@@ -665,10 +666,10 @@ class Project {
         'الصورة ليست مملوكة لهذا المشروع.',
       );
     }
-    // v5 records and groups use the existing item bound. A dismissed record
-    // is the deliberate exception to a live layout-item link: it retains the
-    // user's rejection, recognition evidence and provenance after its item is
-    // removed. Active records must still be realized by at least one item.
+    // v5 records and groups use the existing item bound. `dismissed` was
+    // already a persisted v5 review override before explicit dismissal detached
+    // the record from layout. Preserve those legacy records (including their
+    // item/pair links); only the current marker denotes a detached tombstone.
     require(
       documents.length <= maxProjectItems &&
           layoutGroups.length <= items.length &&
@@ -710,15 +711,25 @@ class Project {
     }
     for (final record in documents) {
       final hasLayoutItem = items.any((item) => item.documentId == record.id);
-      require(
-        hasLayoutItem != _isDismissedRecord(record),
-        'المستند النشط يجب أن يرتبط بعنصر تخطيط، والمستند المستبعد لا يملك عنصراً.',
-      );
-      if (_isDismissedRecord(record)) {
+      final isTombstone = isDismissalTombstone(record);
+      if (isTombstone) {
+        require(
+          !hasLayoutItem,
+          'سجل الاستبعاد المنفصل لا يملك عنصر تخطيط.',
+        );
         require(
           record.pairing == PairingState.single &&
               record.pairedDocumentId == null,
-          'المستند المستبعد لا يمكن أن يبقى مقترناً.',
+          'سجل الاستبعاد المنفصل لا يمكن أن يبقى مقترناً.',
+        );
+      } else {
+        // Before tombstones were introduced, v5 allowed `dismissed: true` on
+        // an ordinary linked record (including a paired one). Keep accepting
+        // that serialized state; a non-dismissed active record still needs an
+        // item.
+        require(
+          hasLayoutItem || _isDismissedRecord(record),
+          'المستند النشط يجب أن يرتبط بعنصر تخطيط.',
         );
       }
       require(

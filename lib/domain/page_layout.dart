@@ -154,6 +154,7 @@ class PageLayout {
       for (final e in p.items) e.id == id ? e.copyWith(locked: locked) : e,
     ],
   );
+
   /// Removes layout elements and cascades to the recognition records and pair
   /// links they alone supported. [allowLocked] is for deliberate removals that
   /// the user confirmed from a surface that is not the sheet editor (deleting

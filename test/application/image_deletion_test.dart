@@ -58,8 +58,9 @@ void main() {
     await workspace.delete(recursive: true);
   });
 
-  Uint8List png(int width, int height) =>
-      Uint8List.fromList(img.encodePng(img.Image(width: width, height: height)));
+  Uint8List png(int width, int height) => Uint8List.fromList(
+    img.encodePng(img.Image(width: width, height: height)),
+  );
 
   Future<bool> exists(String relative) async =>
       await File(p.join(root.path, relative)).exists() ||
@@ -206,49 +207,52 @@ void main() {
   }
 
   group('deleting an image directly from image management', () {
-    test('1. an image that is not on the sheet is deleted with its folder', () async {
-      final project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final kept = project.assets.last;
-      final folder = 'projects/${project.id}/assets/${target.id}';
-      expect(await exists(folder), isTrue);
+    test(
+      '1. an image that is not on the sheet is deleted with its folder',
+      () async {
+        final project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final kept = project.assets.last;
+        final folder = 'projects/${project.id}/assets/${target.id}';
+        expect(await exists(folder), isTrue);
 
-      final deletion = await service.deleteImage(project, target.id);
-      await deleteSucceeded(deletion);
+        final deletion = await service.deleteImage(project, target.id);
+        await deleteSucceeded(deletion);
 
-      expect(deletion.plan.itemIds, isEmpty);
-      final after = await stored(project.id);
-      expect(after.assets.map((a) => a.id), [kept.id]);
-      expect(await exists(folder), isFalse);
-      expect(await exists(kept.originalPath), isTrue);
-      await expectConsistent();
-    });
+        expect(deletion.plan.itemIds, isEmpty);
+        final after = await stored(project.id);
+        expect(after.assets.map((a) => a.id), [kept.id]);
+        expect(await exists(folder), isFalse);
+        expect(await exists(kept.originalPath), isTrue);
+        await expectConsistent();
+      },
+    );
 
-    test('2. an image used by one element: only its element leaves the sheet', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = project.assets.last;
-      project = await projects.save(
-        project.copyWith(
-          items: [
-            placed('a1', target.id),
-            placed('b1', other.id, x: 80),
-          ],
-        ),
-      );
-      final otherBefore = project.items.firstWhere((i) => i.id == 'b1');
+    test(
+      '2. an image used by one element: only its element leaves the sheet',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        project = await projects.save(
+          project.copyWith(
+            items: [placed('a1', target.id), placed('b1', other.id, x: 80)],
+          ),
+        );
+        final otherBefore = project.items.firstWhere((i) => i.id == 'b1');
 
-      final deletion = await service.deleteImage(project, target.id);
-      await deleteSucceeded(deletion);
+        final deletion = await service.deleteImage(project, target.id);
+        await deleteSucceeded(deletion);
 
-      expect(deletion.plan.itemIds, ['a1']);
-      final after = await stored(project.id);
-      expect(after.items.map((i) => i.id), ['b1']);
-      final otherAfter = after.items.single;
-      expect(otherAfter.toJson(), otherBefore.toJson());
-      expect(await exists(target.originalPath), isFalse);
-      await expectConsistent();
-    });
+        expect(deletion.plan.itemIds, ['a1']);
+        final after = await stored(project.id);
+        expect(after.items.map((i) => i.id), ['b1']);
+        final otherAfter = after.items.single;
+        expect(otherAfter.toJson(), otherBefore.toJson());
+        expect(await exists(target.originalPath), isFalse);
+        await expectConsistent();
+      },
+    );
 
     test(
       '3. an image used by several elements, a locked one and a recognition record: all leave together',
@@ -359,9 +363,7 @@ void main() {
         expect(restored.assets, hasLength(2));
         final copy = restored.assets.firstWhere((a) => a.name == target.name);
         expect(
-          await File(
-            p.join(root.path, copy.originalPath),
-          ).readAsBytes(),
+          await File(p.join(root.path, copy.originalPath)).readAsBytes(),
           targetOriginal,
         );
         await expectConsistent();
@@ -468,161 +470,189 @@ void main() {
       },
     );
 
-    test('10. reopening the store after a delete shows the same state', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = project.assets.last;
-      project = await projects.save(
-        project.copyWith(items: [placed('a1', target.id), placed('b1', other.id, x: 80)]),
-      );
-      await deleteSucceeded(await service.deleteImage(project, target.id));
+    test(
+      '10. reopening the store after a delete shows the same state',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        project = await projects.save(
+          project.copyWith(
+            items: [placed('a1', target.id), placed('b1', other.id, x: 80)],
+          ),
+        );
+        await deleteSucceeded(await service.deleteImage(project, target.id));
 
-      await projects.close();
-      projects = await LocalProjectRepository.open(root);
-      wire();
+        await projects.close();
+        projects = await LocalProjectRepository.open(root);
+        wire();
 
-      final reopened = await stored(project.id);
-      expect(reopened.assets.map((a) => a.id), [other.id]);
-      expect(reopened.items.map((i) => i.id), ['b1']);
-      expect(await exists('projects/${project.id}/assets/${target.id}'), isFalse);
-      await expectConsistent();
-    });
+        final reopened = await stored(project.id);
+        expect(reopened.assets.map((a) => a.id), [other.id]);
+        expect(reopened.items.map((i) => i.id), ['b1']);
+        expect(
+          await exists('projects/${project.id}/assets/${target.id}'),
+          isFalse,
+        );
+        await expectConsistent();
+      },
+    );
 
-    test('11. export after the delete succeeds and contains the remaining image only', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = project.assets.last;
-      project = await projects.save(
-        project.copyWith(items: [placed('a1', target.id), placed('b1', other.id, x: 80)]),
-      );
-      await deleteSucceeded(await service.deleteImage(project, target.id));
+    test(
+      '11. export after the delete succeeds and contains the remaining image only',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        project = await projects.save(
+          project.copyWith(
+            items: [placed('a1', target.id), placed('b1', other.id, x: 80)],
+          ),
+        );
+        await deleteSucceeded(await service.deleteImage(project, target.id));
 
-      final latest = await stored(project.id);
-      final bundle = await DocumentExporter(assets).generate(
-        ExportPlan(
-          latest,
-          ExportProfile(format: ExportFormat.pdf, dpi: 300),
-        ),
-        workspace,
-      );
+        final latest = await stored(project.id);
+        final bundle = await DocumentExporter(assets).generate(
+          ExportPlan(latest, ExportProfile(format: ExportFormat.pdf, dpi: 300)),
+          workspace,
+        );
 
-      expect(bundle.files, hasLength(1));
-      expect(await File(bundle.files.single).length(), greaterThan(0));
-      await expectConsistent();
-    });
+        expect(bundle.files, hasLength(1));
+        expect(await File(bundle.files.single).length(), greaterThan(0));
+        await expectConsistent();
+      },
+    );
 
-    test('12. restoring a backup taken after the delete does not bring the image back', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      await deleteSucceeded(await service.deleteImage(project, target.id));
+    test(
+      '12. restoring a backup taken after the delete does not bring the image back',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        await deleteSucceeded(await service.deleteImage(project, target.id));
 
-      final latest = await stored(project.id);
-      final file = await service.backups!.create(latest, workspace);
-      final restored = await service.backups!.restore(file);
+        final latest = await stored(project.id);
+        final file = await service.backups!.create(latest, workspace);
+        final restored = await service.backups!.restore(file);
 
-      expect(restored.assets.map((a) => a.id), isNot(contains(target.id)));
-      expect(restored.assets, hasLength(1));
-      await expectConsistent();
-    });
+        expect(restored.assets.map((a) => a.id), isNot(contains(target.id)));
+        expect(restored.assets, hasLength(1));
+        await expectConsistent();
+      },
+    );
 
-    test('13. deleting the project afterwards leaves no folder and does not touch the other project', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = await projectWith(['ج.png']);
-      await deleteSucceeded(await service.deleteImage(project, target.id));
-      project = await stored(project.id);
+    test(
+      '13. deleting the project afterwards leaves no folder and does not touch the other project',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = await projectWith(['ج.png']);
+        await deleteSucceeded(await service.deleteImage(project, target.id));
+        project = await stored(project.id);
 
-      final report = await service.deleteProject(project);
+        final report = await service.deleteProject(project);
 
-      expect(report.warning, isNull);
-      expect(await exists('projects/${project.id}'), isFalse);
-      expect(await exists(other.assets.single.originalPath), isTrue);
-      await expectConsistent();
-    });
+        expect(report.warning, isNull);
+        expect(await exists('projects/${project.id}'), isFalse);
+        expect(await exists(other.assets.single.originalPath), isTrue);
+        await expectConsistent();
+      },
+    );
 
-    test('14. after several deletes across projects there are no broken references and no orphans', () async {
-      var first = await projectWith(['أ.png', 'ب.png', 'ج.png']);
-      final second = await projectWith(['د.png']);
-      final a = first.assets[0];
-      final b = first.assets[1];
-      first = await projects.save(
-        first.copyWith(
-          items: [
-            placed('x1', a.id),
-            placed('x2', b.id, x: 70, documentId: 'r-b', sideId: 's-b'),
-          ],
-          documents: [recordFor('r-b', b, processed: b, sideId: 's-b')],
-        ),
-      );
-      await deleteSucceeded(await service.deleteImage(first, a.id));
-      first = await stored(first.id);
-      await deleteSucceeded(
-        await service.deleteImage(first, first.assets.first.id),
-      );
-      await deleteSucceeded(
-        await service.deleteImage(
-          await stored(second.id),
-          second.assets.single.id,
-        ),
-      );
+    test(
+      '14. after several deletes across projects there are no broken references and no orphans',
+      () async {
+        var first = await projectWith(['أ.png', 'ب.png', 'ج.png']);
+        final second = await projectWith(['د.png']);
+        final a = first.assets[0];
+        final b = first.assets[1];
+        first = await projects.save(
+          first.copyWith(
+            items: [
+              placed('x1', a.id),
+              placed('x2', b.id, x: 70, documentId: 'r-b', sideId: 's-b'),
+            ],
+            documents: [recordFor('r-b', b, processed: b, sideId: 's-b')],
+          ),
+        );
+        await deleteSucceeded(await service.deleteImage(first, a.id));
+        first = await stored(first.id);
+        await deleteSucceeded(
+          await service.deleteImage(first, first.assets.first.id),
+        );
+        await deleteSucceeded(
+          await service.deleteImage(
+            await stored(second.id),
+            second.assets.single.id,
+          ),
+        );
 
-      await expectConsistent();
-      expect(await stored(first.id), isNotNull);
-    });
+        await expectConsistent();
+        expect(await stored(first.id), isNotNull);
+      },
+    );
 
-    test('15. a dismissed region on the image is removed and counted in the plan', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = project.assets.last;
-      final tombstone = tombstoneFor('rec-dismissed', target);
-      project = await projects.save(
-        project.copyWith(
-          documents: [tombstone],
-          items: [placed('o1', other.id)],
-        ),
-      );
+    test(
+      '15. a dismissed region on the image is removed and counted in the plan',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        final tombstone = tombstoneFor('rec-dismissed', target);
+        project = await projects.save(
+          project.copyWith(
+            documents: [tombstone],
+            items: [placed('o1', other.id)],
+          ),
+        );
 
-      final deletion = await service.deleteImage(project, target.id);
+        final deletion = await service.deleteImage(project, target.id);
 
-      await deleteSucceeded(deletion);
-      expect(deletion.plan.dismissedDocumentIds, ['rec-dismissed']);
-      final after = await stored(project.id);
-      expect(after.documents, isEmpty);
-      expect(after.items.map((i) => i.id), ['o1']);
-      await expectConsistent();
-    });
+        await deleteSucceeded(deletion);
+        expect(deletion.plan.dismissedDocumentIds, ['rec-dismissed']);
+        final after = await stored(project.id);
+        expect(after.documents, isEmpty);
+        expect(after.items.map((i) => i.id), ['o1']);
+        await expectConsistent();
+      },
+    );
 
-    test('16. removing an image from the sheet keeps the image and its files', () async {
-      var project = await projectWith(['أ.png', 'ب.png']);
-      final target = project.assets.first;
-      final other = project.assets.last;
-      project = await projects.save(
-        project.copyWith(
-          items: [
-            placed('a1', target.id),
-            placed('a2', target.id, x: 30, locked: true),
-            placed('b1', other.id, x: 80),
-          ],
-        ),
-      );
+    test(
+      '16. removing an image from the sheet keeps the image and its files',
+      () async {
+        var project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final other = project.assets.last;
+        project = await projects.save(
+          project.copyWith(
+            items: [
+              placed('a1', target.id),
+              placed('a2', target.id, x: 30, locked: true),
+              placed('b1', other.id, x: 80),
+            ],
+          ),
+        );
 
-      final detached = await service.removeImageFromSheet(project, target.id);
+        final detached = await service.removeImageFromSheet(project, target.id);
 
-      expect(detached.assets.map((a) => a.id), containsAll([target.id, other.id]));
-      expect(detached.items.map((i) => i.id), ['b1']);
-      expect(await exists(target.originalPath), isTrue);
-      expect(await exists(target.workingPath), isTrue);
-      await expectConsistent();
+        expect(
+          detached.assets.map((a) => a.id),
+          containsAll([target.id, other.id]),
+        );
+        expect(detached.items.map((i) => i.id), ['b1']);
+        expect(await exists(target.originalPath), isTrue);
+        expect(await exists(target.workingPath), isTrue);
+        await expectConsistent();
 
-      // The image is still a normal, deletable project image.
-      final deletion = await service.deleteImage(
-        await stored(project.id),
-        target.id,
-      );
-      await deleteSucceeded(deletion);
-      expect(deletion.plan.itemIds, isEmpty);
-      await expectConsistent();
-    });
+        // The image is still a normal, deletable project image.
+        final deletion = await service.deleteImage(
+          await stored(project.id),
+          target.id,
+        );
+        await deleteSucceeded(deletion);
+        expect(deletion.plan.itemIds, isEmpty);
+        await expectConsistent();
+      },
+    );
   });
 }
 

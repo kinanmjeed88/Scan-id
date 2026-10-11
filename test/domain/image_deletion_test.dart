@@ -61,23 +61,26 @@ void main() {
   });
 
   group('applyImageDeletion', () {
-    test('removes only the image and its own elements; others are identical', () {
-      final a = assetFixture(id: 'a');
-      final b = assetFixture(id: 'b');
-      final keep = placed('b1', 'b');
-      final project = projectFixture(
-        assets: [a, b],
-        items: [placed('a1', 'a', locked: true), keep],
-      );
+    test(
+      'removes only the image and its own elements; others are identical',
+      () {
+        final a = assetFixture(id: 'a');
+        final b = assetFixture(id: 'b');
+        final keep = placed('b1', 'b');
+        final project = projectFixture(
+          assets: [a, b],
+          items: [placed('a1', 'a', locked: true), keep],
+        );
 
-      final next = applyImageDeletion(
-        project,
-        planImageDeletion(project, 'a'),
-      );
+        final next = applyImageDeletion(
+          project,
+          planImageDeletion(project, 'a'),
+        );
 
-      expect(next.assets.map((asset) => asset.id), ['b']);
-      expect(next.items.single.toJson(), keep.toJson());
-    });
+        expect(next.assets.map((asset) => asset.id), ['b']);
+        expect(next.items.single.toJson(), keep.toJson());
+      },
+    );
   });
 
   group('detachImageFromSheet', () {

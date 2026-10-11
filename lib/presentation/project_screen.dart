@@ -324,8 +324,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
       context,
       'إزالة الصورة من الورقة؟',
       'ستُزال $count من عناصر «${asset.name}» من ورقة A4'
-      '${locked == 0 ? '' : '، منها $locked مثبّتة'}. '
-      'تبقى الصورة في المشروع وملفاتها كما هي، ويمكن وضعها على الورقة مجدداً من المحرر.',
+          '${locked == 0 ? '' : '، منها $locked مثبّتة'}. '
+          'تبقى الصورة في المشروع وملفاتها كما هي، ويمكن وضعها على الورقة مجدداً من المحرر.',
       confirmLabel: 'إزالة من الورقة',
     );
     if (!yes || !mounted) return;
@@ -406,7 +406,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
     if (_busy) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => ExportScreen(project: _project, service: widget.service),
+        builder: (_) =>
+            ExportScreen(project: _project, service: widget.service),
       ),
     );
   }

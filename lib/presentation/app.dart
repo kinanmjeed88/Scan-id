@@ -361,7 +361,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                 children: [
                                   Icon(Icons.shield_outlined, size: 18),
                                   SizedBox(width: 8),
-                                  Text('محلي · لا يرسل التطبيق صورك عبر الشبكة'),
+                                  Text(
+                                    'محلي · لا يرسل التطبيق صورك عبر الشبكة',
+                                  ),
                                 ],
                               ),
                             ],

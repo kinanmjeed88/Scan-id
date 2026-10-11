@@ -66,8 +66,7 @@ ImageDeletionPlan planImageDeletion(Project project, String assetId) {
     project.assets.any((asset) => asset.id == assetId),
     'الصورة ليست ضمن هذا المشروع.',
   );
-  bool ownsPath(String path) =>
-      assetOwnsProjectPath(project.id, assetId, path);
+  bool ownsPath(String path) => assetOwnsProjectPath(project.id, assetId, path);
 
   final documents = [
     for (final record in project.documents)

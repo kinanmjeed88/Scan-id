@@ -5,6 +5,8 @@ import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/presentation/export_screen.dart';
 import 'package:scan_id/presentation/project_screen.dart';
 import 'package:scan_id/application/project_backups.dart';
+import 'package:scan_id/application/project_recovery.dart';
+import 'package:scan_id/domain/recognition.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -531,6 +533,174 @@ void main() {
     expect(stored.items.map((i) => i.id), ['i3']);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a stale recovery copy is named on home and project screen at phone width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()], items: [itemFixture()]),
+    );
+    final recovery = _StaleRecovery({project.id});
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      recovery: recovery,
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectsScreen(service: service, pickImages: () async => []),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('نقاط استرداد متأخرة (1)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('نقطة الاستعادة متأخرة'), findsOneWidget);
+    expect(find.text('تحديث نقطة الاستعادة'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('refreshing a stale recovery copy reports failure as failure', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()], items: [itemFixture()]),
+    );
+    final recovery = _StaleRecovery({project.id}, failRefresh: true);
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      recovery: recovery,
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('تحديث نقطة الاستعادة'));
+    await tester.tap(find.text('تحديث نقطة الاستعادة'));
+    await tester.pumpAndSettle();
+    expect(find.text('حُدّثت نقطة الاستعادة لهذا المشروع.'), findsNothing);
+    expect(find.textContaining('تعذر تحديث نقطة الاستعادة'), findsOneWidget);
+    expect(find.text('نقطة الاستعادة متأخرة'), findsOneWidget);
+    // Let the error message leave before the next tap.
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+
+    recovery.failRefresh = false;
+    await tester.ensureVisible(find.text('تحديث نقطة الاستعادة'));
+    await tester.tap(find.text('تحديث نقطة الاستعادة'));
+    await tester.pumpAndSettle();
+    expect(find.text('حُدّثت نقطة الاستعادة لهذا المشروع.'), findsOneWidget);
+    expect(find.text('نقطة الاستعادة متأخرة'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('deleting a photo with crops says what stays, at phone width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final source = assetFixture(id: 'asset1');
+    final crop = assetFixture(id: 'crop1').asDerivedOf('asset1');
+    final record = DocumentRecord(
+      id: 'rec-1',
+      sourceImageId: 'asset1',
+      sides: [
+        DocumentSide(
+          id: 'side-1',
+          side: SideKind.unknown,
+          processedAsset: ProcessedAssetRef(
+            workingPath: crop.workingPath,
+            thumbnailPath: crop.thumbnailPath,
+            width: crop.width,
+            height: crop.height,
+          ),
+        ),
+      ],
+      pairing: PairingState.single,
+      provenance: Provenance(
+        sourceImageId: 'asset1',
+        detectionIds: const ['rec-1-d0'],
+        processedAssetVersion: 'smart-1',
+        pipelineVersion: 'smart-1',
+      ),
+    );
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [source, crop],
+        items: [
+          itemFixture(id: 'own', assetId: 'asset1'),
+          itemFixture(id: 'crop-item', assetId: 'crop1').copyWith(
+            documentId: 'rec-1',
+            sideId: 'side-1',
+            x: 60,
+          ),
+        ],
+      ).copyWith(documents: [record]),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byTooltip('خيارات الصورة').first);
+    await tester.tap(find.byTooltip('خيارات الصورة').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حذف الصورة نهائياً'));
+    await tester.pumpAndSettle();
+
+    // The element that shows the photo and the crop element tied to its
+    // record leave the sheet; the crop itself stays as an independent image.
+    expect(find.textContaining('ستُزال 2 من عناصر ورقة A4'), findsOneWidget);
+    expect(find.textContaining('الصور المشتقة منها (1) تبقى'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('حذف الصورة'));
+    await tester.pumpAndSettle();
+    final stored = repository.values[project.id]!;
+    expect(stored.assets.map((a) => a.id), ['crop1']);
+    expect(stored.assets.single.derivedFrom, 'asset1');
+    expect(stored.items, isEmpty);
+    expect(stored.documents, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _MemoryProjects implements ProjectRepository {
@@ -637,4 +807,31 @@ class _UnusedBackups implements ProjectBackups {
   Future<Project> restore(File source) => throw StateError(
     'Native transfer is not invoked by the responsive layout test',
   );
+}
+
+class _StaleRecovery implements ProjectRecovery {
+  _StaleRecovery(this.stale, {this.failRefresh = false});
+
+  final Set<String> stale;
+  bool failRefresh;
+
+  @override
+  Future<Project> metadata(String id) => throw UnimplementedError();
+
+  @override
+  Future<Project> rebuildDerived(Project project) async => project;
+
+  @override
+  String? get warning => null;
+
+  @override
+  Future<Set<String>> staleRecoveryPoints() async => {...stale};
+
+  @override
+  Future<void> refreshRecoveryPoint(String projectId) async {
+    if (failRefresh) {
+      throw const StorageException('تعذر تحديث نقطة الاستعادة لهذا المشروع.');
+    }
+    stale.remove(projectId);
+  }
 }

@@ -346,23 +346,23 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            crossAxisAlignment: WrapCrossAlignment.center,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               FilledButton.icon(
                                 onPressed: _busy ? null : _newProject,
                                 icon: const Icon(Icons.add),
                                 label: const Text('مشروع جديد'),
                               ),
+                              const SizedBox(height: 12),
                               const Row(
-                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(Icons.shield_outlined, size: 18),
                                   SizedBox(width: 8),
-                                  Text(
-                                    'محلي · لا يرسل التطبيق صورك عبر الشبكة',
+                                  Expanded(
+                                    child: Text(
+                                      'محلي · لا يرسل التطبيق صورك عبر الشبكة',
+                                    ),
                                   ),
                                 ],
                               ),

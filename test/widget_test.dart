@@ -496,10 +496,7 @@ void main() {
         ],
         items: [
           itemFixture(id: 'i1', assetId: 'asset1'),
-          itemFixture(
-            id: 'i2',
-            assetId: 'asset1',
-          ).copyWith(locked: false),
+          itemFixture(id: 'i2', assetId: 'asset1').copyWith(locked: false),
           itemFixture(id: 'i3', assetId: 'asset3'),
         ],
       ),

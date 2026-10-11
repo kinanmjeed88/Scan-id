@@ -26,10 +26,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
   Future<void> deleteProjectFiles(String projectId) async {
     validId(projectId);
     final relative = '$_projects/$projectId';
-    require(
-      !_under(relative, await _recoveryReferences()),
-      _keptByRecovery,
-    );
+    require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
     await _deleteTree(await files.checkedPath(relative));
   }
 
@@ -192,9 +189,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
   Future<Set<String>> _recoveryReferences() async {
     final copies = await RecoveryCheckpoints(files).read();
     final paths = _referencesOf(copies);
-    final snapshots = Directory(
-      await files.checkedPath('migration-snapshots'),
-    );
+    final snapshots = Directory(await files.checkedPath('migration-snapshots'));
     if (await snapshots.exists()) {
       final pattern = RegExp(r'projects/[^"\\\s]+');
       await for (final entity in snapshots.list(followLinks: false)) {

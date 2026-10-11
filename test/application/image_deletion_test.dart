@@ -676,7 +676,10 @@ void main() {
     // Recovery copies live in checkpoints/. Making that directory read-only
     // makes the copy write fail while every earlier copy stays readable, which
     // is the real partial-failure state. POSIX permissions only.
-    Future<void> setWritable(Directory directory, {required bool writable}) async {
+    Future<void> setWritable(
+      Directory directory, {
+      required bool writable,
+    }) async {
       final result = await Process.run('chmod', [
         writable ? '755' : '555',
         directory.path,
@@ -698,7 +701,8 @@ void main() {
               p.join(checkpoints.path, 'probe.tmp'),
             ).writeAsStringSync('x'),
             throwsA(isA<FileSystemException>()),
-            reason: 'the scenario needs a checkpoint directory that refuses writes',
+            reason:
+                'the scenario needs a checkpoint directory that refuses writes',
           );
 
           final deletion = await service.deleteImage(project, target.id);
@@ -746,7 +750,9 @@ void main() {
         final other = await service.create('ملف آخر');
         // Occupy this project's copy path with a directory: the rename of the
         // new copy over it fails, while the other project's copy still works.
-        final blocked = Directory(p.join(root.path, 'checkpoints', '${stale.id}.json'));
+        final blocked = Directory(
+          p.join(root.path, 'checkpoints', '${stale.id}.json'),
+        );
         await blocked.create(recursive: true);
         try {
           await projects.save(stale.copyWith(name: 'مستمسكات بعد التعديل'));
@@ -766,7 +772,9 @@ void main() {
         await projects.save(await stored(stale.id));
         expect(projects.checkpoints.warning, isNull);
       },
-      skip: Platform.isWindows ? 'rename over a directory behaves differently' : false,
+      skip: Platform.isWindows
+          ? 'rename over a directory behaves differently'
+          : false,
     );
 
     test(
@@ -801,7 +809,10 @@ void main() {
         expect(found.retained, ['projects/$id/assets/archived']);
         for (final asset in project.assets) {
           expect(
-            [...found.paths, ...found.retained].where((path) => path.contains(asset.id)),
+            [
+              ...found.paths,
+              ...found.retained,
+            ].where((path) => path.contains(asset.id)),
             isEmpty,
             reason: 'a live image must never be reported as garbage',
           );

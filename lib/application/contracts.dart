@@ -83,9 +83,12 @@ class RevisionConflict extends StorageException {
 /// they stay until that copy is rewritten, because removing them would leave
 /// the copy pointing at missing files.
 class OrphanFiles {
-  OrphanFiles(List<String> paths, this.bytes, {List<String> retained = const []})
-    : paths = List.unmodifiable(paths),
-      retained = List.unmodifiable(retained);
+  OrphanFiles(
+    List<String> paths,
+    this.bytes, {
+    List<String> retained = const [],
+  }) : paths = List.unmodifiable(paths),
+       retained = List.unmodifiable(retained);
   final List<String> paths;
   final List<String> retained;
   final int bytes;

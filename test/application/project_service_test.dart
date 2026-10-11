@@ -9,8 +9,6 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
-import 'package:scan_id/domain/recognition.dart';
-import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/domain/image_limits.dart';
 import 'package:scan_id/imaging/large_jpeg_plan.dart';
@@ -244,122 +242,6 @@ void main() {
       expect(await File(originals.single.path).readAsBytes(), bytes);
     },
   );
-  test(
-    'removing an asset removes only the reference; used assets are protected',
-    () async {
-      final bytes = img.encodePng(img.Image(width: 8, height: 8));
-      final created = await service.create('إزالة');
-      final imported = (await service.importImages(created, [
-        ImportSource('good.png', () => Stream.value(bytes)),
-      ])).project;
-      final asset = imported.assets.single;
-      final used = await projects.save(
-        imported.copyWith(
-          items: [
-            DocumentItem(
-              id: 'item',
-              assetId: asset.id,
-              x: 10,
-              y: 10,
-              width: 50,
-              height: 40,
-            ),
-          ],
-        ),
-      );
-      await expectLater(
-        service.removeAsset(used, asset.id),
-        throwsA(isA<ValidationException>()),
-      );
-      final cleared = await projects.save(used.copyWith(items: []));
-      final result = await service.removeAsset(cleared, asset.id);
-      expect(result.assets, isEmpty);
-      expect(
-        await (await assets.resolve(asset.originalPath)).readAsBytes(),
-        bytes,
-      );
-    },
-  );
-
-  test(
-    'a dismissed record continues to protect its source and derived assets',
-    () async {
-      final bytes = img.encodePng(img.Image(width: 40, height: 30));
-      var project = await service.create('أصول مستبعدة');
-      project = (await service.importImages(project, [
-        ImportSource('source.png', () => Stream.value(bytes)),
-      ])).project;
-      final source = project.assets.single;
-      final derived = (await assets.importImage(
-        project.id,
-        'مستند مشتق.png',
-        bytes,
-      )).asDerivedOf(source.id);
-      final historicalPrefix =
-          'projects/${project.id}/assets/${derived.id}/edits/old-output';
-      for (final path in [
-        '$historicalPrefix/working.png',
-        '$historicalPrefix/thumb.jpg',
-      ]) {
-        final file = File('${root.path}/$path');
-        await file.parent.create(recursive: true);
-        await file.writeAsBytes([1, 2, 3]);
-      }
-      final record = DocumentRecord(
-        id: 'rec-dismissed',
-        sourceImageId: source.id,
-        sides: [
-          DocumentSide(
-            id: 'side-dismissed',
-            side: SideKind.unknown,
-            processedAsset: ProcessedAssetRef(
-              workingPath: '$historicalPrefix/working.png',
-              thumbnailPath: '$historicalPrefix/thumb.jpg',
-              width: derived.width,
-              height: derived.height,
-            ),
-          ),
-        ],
-        pairing: PairingState.single,
-        provenance: Provenance(
-          sourceImageId: source.id,
-          detectionIds: ['${source.id}-d0'],
-          processedAssetVersion: 'smart-1',
-          pipelineVersion: 'smart-1',
-        ),
-        overrides: [
-          UserOverride(
-            dismissed: true,
-            fields: const ['dismissed', dismissalTombstoneField],
-          ),
-        ],
-      );
-      project = await projects.save(
-        project.copyWith(
-          assets: [...project.assets, derived],
-          documents: [record],
-        ),
-      );
-
-      await expectLater(
-        service.removeAsset(project, source.id),
-        throwsA(isA<ValidationException>()),
-      );
-      await expectLater(
-        service.removeAsset(project, derived.id),
-        throwsA(isA<ValidationException>()),
-      );
-      expect(
-        await (await assets.resolve(source.originalPath)).readAsBytes(),
-        bytes,
-      );
-      expect(
-        await (await assets.resolve(derived.workingPath)).length(),
-        greaterThan(0),
-      );
-    },
-  );
-
   test(
     'automatic crop clears a stale manual-crop marker without changing the original',
     () async {

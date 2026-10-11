@@ -8,10 +8,12 @@ import '../application/contracts.dart';
 import '../application/backup_transfer.dart';
 import '../application/project_service.dart';
 import '../application/image_reader.dart';
+import '../domain/image_deletion.dart';
 import '../domain/project.dart';
 import 'app.dart';
 import 'shared.dart';
 import 'crop_screen.dart';
+import 'export_screen.dart';
 import 'intake.dart';
 import 'layout_screen.dart';
 
@@ -105,6 +107,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
           context,
           'إعادة إنشاء النسخ المعالجة؟',
           'ستنشأ نسخ جديدة من الأصول باستخدام وصفات القص المحفوظة. تبقى النسخ القديمة والأصول ومقاسات الورقة؛ راجع الصور الناتجة. إذا كان الأصل مفقوداً أو فاسداً فاستعد نسختك الاحتياطية.',
+          confirmLabel: 'إعادة إنشاء النسخ',
         ) &&
         mounted) {
       await _save(() => widget.service.recovery!.rebuildDerived(_project));
@@ -232,6 +235,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
             context,
             'حذف الالتقاط المعلق؟',
             'سيُحذف ملف الكاميرا المؤقت نهائياً. لا تُحذف صور أي مشروع محفوظ.',
+            confirmLabel: 'حذف الالتقاط',
+            destructive: true,
           )) {
         await camera.port.discard(photo.id);
       }
@@ -250,7 +255,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
     if (!await confirm(
           context,
           'نسخة احتياطية كاملة؟',
-          'تشمل الأصول والنسخ المعالجة السابقة وبيانات المشروع. النسخة غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
+          'تشمل الأصول والنسخ المعالجة السابقة وبيانات المشروع. النسخة غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً. احفظها قبل إزالة التطبيق أو تغيير الجهاز.',
+          confirmLabel: 'متابعة إلى الحفظ',
         ) ||
         !mounted) {
       return;
@@ -307,15 +313,102 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
-  Future<void> _remove(ImageAsset asset) async {
+  /// Takes the image's elements off the sheet and keeps the image. Locked
+  /// elements are included on purpose: the confirmation names them, so the
+  /// user does not have to unlock them in the editor first.
+  Future<void> _removeFromSheet(ImageAsset asset) async {
+    final items = _project.items.where((item) => item.assetId == asset.id);
+    final count = items.length;
+    final locked = items.where((item) => item.locked).length;
     final yes = await confirm(
       context,
-      'إزالة الصورة من المشروع؟',
-      'ستُزال «${asset.name}» من قائمة الصور فقط. لن يُحذف الأصل من جهازك أو نسخته المحلية.',
+      'إزالة الصورة من الورقة؟',
+      'ستُزال $count من عناصر «${asset.name}» من ورقة A4'
+      '${locked == 0 ? '' : '، منها $locked مثبّتة'}. '
+      'تبقى الصورة في المشروع وملفاتها كما هي، ويمكن وضعها على الورقة مجدداً من المحرر.',
+      confirmLabel: 'إزالة من الورقة',
     );
-    if (yes && mounted) {
-      await _save(() => widget.service.removeAsset(_project, asset.id));
+    if (!yes || !mounted) return;
+    await _save(() => widget.service.removeImageFromSheet(_project, asset.id));
+  }
+
+  /// Deletes the image from the project and its files. The confirmation text
+  /// is computed from the same plan the service applies, so what the user reads
+  /// is what happens.
+  Future<void> _deleteImage(ImageAsset asset) async {
+    final ImageDeletionPlan plan;
+    try {
+      plan = planImageDeletion(_project, asset.id);
+    } on Object catch (error) {
+      if (mounted) showMessage(context, userError(error));
+      return;
     }
+    final yes = await confirm(
+      context,
+      'حذف الصورة نهائياً؟',
+      _deleteImageMessage(asset, plan),
+      confirmLabel: 'حذف الصورة',
+      destructive: true,
+    );
+    if (!yes || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final result = await widget.service.deleteImage(_project, asset.id);
+      if (mounted) {
+        setState(() => _project = result.project);
+        showMessage(
+          context,
+          result.warning ?? 'حُذفت «${asset.name}» من المشروع وملفاتها.',
+        );
+      }
+    } catch (error) {
+      if (mounted) showMessage(context, userError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _deleteImageMessage(ImageAsset asset, ImageDeletionPlan plan) {
+    final lines = <String>[
+      'ستُحذف «${asset.name}» من المشروع، وتُحذف ملفاتها داخل مساحة التطبيق.',
+    ];
+    if (plan.itemIds.isNotEmpty) {
+      lines.add(
+        'ستُزال ${plan.itemIds.length} من عناصر ورقة A4: عناصر هذه الصورة '
+        'والعناصر المرتبطة بتعرّفها؛ بقية الصفحات والعناصر لا تتغير.',
+      );
+    }
+    if (plan.lockedItemIds.isNotEmpty) {
+      lines.add(
+        'منها ${plan.lockedItemIds.length} عناصر مثبّتة، وستُزال دون فك تثبيتها أولاً.',
+      );
+    }
+    if (plan.dismissedDocumentIds.isNotEmpty) {
+      lines.add(
+        'ستُزال أيضاً ${plan.dismissedDocumentIds.length} مناطق استبعدتها سابقاً؛ '
+        'قد تُقترح مجدداً عند إعادة معالجة الصورة الأصلية.',
+      );
+    }
+    if (plan.keptDerivedAssetIds.isNotEmpty) {
+      lines.add(
+        'تبقى ${plan.keptDerivedAssetIds.length} صور مشتقة منها في المشروع '
+        'كصور مستقلة، دون ربطها بهذه الصورة.',
+      );
+    }
+    lines.add(
+      'لا تُحذف النسخ الاحتياطية السابقة ولا نقاط الاستعادة. '
+      'لا يمكن التراجع عن الحذف من داخل التطبيق.',
+    );
+    return lines.join('\n');
+  }
+
+  Future<void> _openExport() async {
+    if (_busy) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ExportScreen(project: _project, service: widget.service),
+      ),
+    );
   }
 
   Future<void> _crop(ImageAsset asset) async {
@@ -364,6 +457,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
   /// explicit menu so reordering is reachable without a drag gesture.
   Widget _assetCard(int index) {
     final asset = _project.assets[index];
+    final placed = _project.items.where((item) => item.assetId == asset.id);
+    final onSheet = placed.isNotEmpty;
     final card = Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -394,10 +489,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              '${index + 1}/${_project.assets.length} · ${asset.width} × ${asset.height} px',
-              maxLines: 1,
+              '${index + 1}/${_project.assets.length} · ${asset.width} × ${asset.height} px\n'
+              '${onSheet ? 'على الورقة: ${placed.length} عناصر' : 'غير موضوعة على الورقة'}',
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              textDirection: TextDirection.ltr,
             ),
             trailing: PopupMenuButton<_AssetAction>(
               tooltip: 'خيارات الصورة',
@@ -406,7 +501,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
                 _AssetAction.replace => unawaited(_replace(asset)),
                 _AssetAction.moveUp => unawaited(_move(asset, index - 1)),
                 _AssetAction.moveDown => unawaited(_move(asset, index + 1)),
-                _AssetAction.remove => unawaited(_remove(asset)),
+                _AssetAction.removeFromSheet => unawaited(
+                  _removeFromSheet(asset),
+                ),
+                _AssetAction.delete => unawaited(_deleteImage(asset)),
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(
@@ -423,9 +521,20 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   enabled: index + 1 < _project.assets.length,
                   child: const Text('نقل إلى ترتيب لاحق'),
                 ),
-                const PopupMenuItem(
-                  value: _AssetAction.remove,
-                  child: Text('إزالة من قائمة الصور'),
+                if (onSheet)
+                  const PopupMenuItem(
+                    value: _AssetAction.removeFromSheet,
+                    child: Text('إزالة من الورقة (تبقى الصورة)'),
+                  ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: _AssetAction.delete,
+                  child: Text(
+                    'حذف الصورة نهائياً',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -563,41 +672,108 @@ class _ProjectScreenState extends State<ProjectScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const FoundationNotice(),
-                      OutlinedButton.icon(
-                        onPressed: _busy ? null : _layout,
-                        icon: const Icon(Icons.description_outlined),
-                        label: const Text('تحرير ورقة A4'),
-                      ),
-                      if (widget.service.recovery != null)
-                        TextButton.icon(
-                          onPressed: _busy ? null : _repairImages,
-                          icon: const Icon(Icons.healing),
-                          label: const Text('إصلاح النسخ من الأصول'),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'الورقة والتصدير',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _project.items.isEmpty
+                                    ? 'لا يمكن استنتاج المقاس الحقيقي من الصورة وحدها؛ عيّنه في محرر الورقة.'
+                                    : '${_project.items.length} عناصر بمقاسات mm محفوظة في محرر الورقة.',
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: [
+                                  FilledButton.icon(
+                                    onPressed: _busy ? null : _layout,
+                                    icon: const Icon(
+                                      Icons.description_outlined,
+                                    ),
+                                    label: const Text('محرر ورقة A4'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _openExport,
+                                    icon: const Icon(Icons.print_outlined),
+                                    label: const Text('تصدير وطباعة'),
+                                  ),
+                                  if (widget.service.camera != null)
+                                    OutlinedButton.icon(
+                                      onPressed: _busy ? null : _camera,
+                                      icon: const Icon(
+                                        Icons.camera_alt_outlined,
+                                      ),
+                                      label: const Text('التقاط بالكاميرا'),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      if (widget.service.recovery?.warning != null)
-                        Text(widget.service.recovery!.warning!),
-                      if (widget.service.camera != null)
-                        Wrap(
-                          spacing: 8,
+                      ),
+                      if (widget.service.recovery?.warning != null) ...[
+                        const SizedBox(height: 12),
+                        InfoBanner(
+                          tone: BannerTone.caution,
+                          message: widget.service.recovery!.warning!,
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Card(
+                        child: ExpansionTile(
+                          title: const Text('البيانات والصيانة'),
+                          subtitle: const Text(
+                            'نسخة احتياطية كاملة، وإصلاح النسخ، واسترداد التقاط معلق',
+                          ),
+                          childrenPadding: const EdgeInsets.fromLTRB(
+                            16,
+                            0,
+                            16,
+                            16,
+                          ),
                           children: [
-                            OutlinedButton.icon(
-                              onPressed: _busy ? null : _camera,
-                              icon: const Icon(Icons.camera_alt_outlined),
-                              label: const Text('التقاط بالكاميرا'),
+                            const InfoBanner(
+                              tone: BannerTone.caution,
+                              title: 'النسخ الاحتياطية غير مشفرة',
+                              message:
+                                  'احفظ نسخة احتياطية قبل إزالة التطبيق أو تغيير الجهاز. النسخة تحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
                             ),
-                            TextButton(
-                              onPressed: _busy ? null : _recoverCapture,
-                              child: const Text('استرداد التقاط معلق'),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                if (widget.service.backups != null)
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _backup,
+                                    icon: const Icon(Icons.backup_outlined),
+                                    label: const Text('نسخة احتياطية كاملة'),
+                                  ),
+                                if (widget.service.recovery != null)
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _repairImages,
+                                    icon: const Icon(Icons.healing),
+                                    label: const Text('إصلاح النسخ من الأصول'),
+                                  ),
+                                if (widget.service.camera != null)
+                                  OutlinedButton.icon(
+                                    onPressed: _busy ? null : _recoverCapture,
+                                    icon: const Icon(Icons.history),
+                                    label: const Text('استرداد التقاط معلق'),
+                                  ),
+                              ],
                             ),
                           ],
                         ),
-                      if (widget.service.backups != null)
-                        OutlinedButton.icon(
-                          onPressed: _busy ? null : _backup,
-                          icon: const Icon(Icons.backup_outlined),
-                          label: const Text('نسخة احتياطية كاملة'),
-                        ),
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         '${_project.assets.length} صور · JPEG / PNG · 16 مليون بكسل مباشرة؛ JPEG حتى 32 مليوناً بنسخة عمل مصغّرة',
@@ -607,12 +783,6 @@ class _ProjectScreenState extends State<ProjectScreen> {
                         _busy
                             ? 'جارٍ العمل والحفظ محلياً… يرجى عدم إغلاق التطبيق.'
                             : 'تم حفظ الحالة المعروضة محلياً.',
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _project.items.isEmpty
-                            ? 'لا يمكن استنتاج المقاس الحقيقي من الصورة وحدها؛ عيّنه في محرر الورقة.'
-                            : '${_project.items.length} عناصر بمقاسات mm محفوظة في محرر الورقة.',
                       ),
                     ],
                   ),
@@ -637,8 +807,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
                     gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                       maxCrossAxisExtent: 280,
                       mainAxisExtent: widget.service.imageEditor == null
-                          ? 250
-                          : 290,
+                          ? 270
+                          : 310,
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
                     ),
@@ -656,7 +826,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   );
 }
 
-enum _AssetAction { replace, moveUp, moveDown, remove }
+enum _AssetAction { replace, moveUp, moveDown, removeFromSheet, delete }
 
 /// Pointing devices drag immediately; touch keeps long-press so the grid still
 /// scrolls normally.

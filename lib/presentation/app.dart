@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -83,6 +81,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           context,
           'استعادة نسخة احتياطية؟',
           'اختر ملف Scan ID محلياً موثوقاً. تُستعاد الصور والبيانات كمشروع جديد؛ لن يُستبدل أي مشروع موجود.',
+          confirmLabel: 'اختيار ملف',
         ) ||
         !mounted) {
       return;
@@ -145,6 +144,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
               context,
               'تعذر فتح ملفات المشروع',
               'يمكن إعادة إنشاء الصور المعالجة والمصغرات من الأصول بوصفة القص المحفوظة، دون حذف شيء. إن كان الأصل مفقوداً فاستعد نسخة احتياطية كاملة.',
+              confirmLabel: 'إعادة إنشاء النسخ',
             )) {
           try {
             project = await recovery.rebuildDerived(
@@ -186,6 +186,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       context,
       'استرداد قاعدة المشاريع؟',
       'ستُستعاد نقاط الحفظ إلى قاعدة جديدة مع إبقاء القديمة والصور. قد تختلف آخر تغييرات غير مكتملة. إن كانت البيانات من إصدار أحدث فحدّث التطبيق أولاً.',
+      confirmLabel: 'استرداد القاعدة',
     )) {
       await widget.recoverStorage?.call();
     }
@@ -195,7 +196,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     final yes = await confirm(
       context,
       'حذف المشروع وملفاته؟',
-      'ستُزال بيانات «${project.name}» من قاعدة المشاريع، ثم تُحذف نسخ الصور والمصغرات التي أنشأها التطبيق داخل مساحته الخاصة. لا تُحذف ملفات جهازك الأصلية ولا مشاريع أخرى. لا يوجد تراجع عن حذف المشروع.',
+      'ستُزال بيانات «${project.name}» من قاعدة المشاريع، ثم تُحذف نسخ الصور والمصغرات التي أنشأها التطبيق داخل مساحته الخاصة. لا تُحذف ملفات جهازك الأصلية ولا مشاريع أخرى. لا يوجد تراجع عن حذف المشروع؛ النسخ الاحتياطية التي أنشأتها سابقاً تبقى كما هي.',
+      confirmLabel: 'حذف المشروع',
+      destructive: true,
     );
     if (!yes || !mounted) {
       return;
@@ -239,6 +242,8 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
             'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. '
             'لا تُحذف ملفات المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق حمايةً لعمل جارٍ.',
+        confirmLabel: 'حذف الملفات',
+        destructive: true,
       );
       if (!yes || !mounted) {
         return;
@@ -256,6 +261,39 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         setState(() => _busy = false);
       }
     }
+  }
+
+  void _about() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'مستمسكات — Scan ID',
+      applicationVersion: '0.1.0',
+      children: [
+        const Text(
+          'معالجة محلية دون رفع. تبقى صورك على هذا الجهاز، ولا يرسلها التطبيق عبر الشبكة.',
+        ),
+        const SizedBox(height: 12),
+        const InfoBanner(
+          tone: BannerTone.caution,
+          title: 'النسخ الاحتياطية',
+          message:
+              'احفظ نسخة احتياطية قبل إزالة التطبيق أو تغيير الجهاز. النسخ غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
+        ),
+        const SizedBox(height: 12),
+        const InfoBanner(
+          tone: BannerTone.caution,
+          title: 'الطباعة',
+          message:
+              'للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
+        ),
+        const SizedBox(height: 12),
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          title: const Text('تفاصيل تقنية'),
+          children: [Text('مخطط البيانات: الإصدار ${Project.schemaVersion}')],
+        ),
+      ],
+    );
   }
 
   @override
@@ -277,46 +315,10 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           ],
         ),
         actions: [
-          PopupMenuButton<String>(
-            tooltip: 'أدوات أخرى',
-            enabled: !_busy,
-            onSelected: (value) {
-              if (value == 'maintenance') {
-                unawaited(_maintenance());
-              } else if (value == 'recover') {
-                unawaited(_recoverDatabase());
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'maintenance',
-                child: Text('صيانة المساحة والملفات غير المرتبطة'),
-              ),
-              if (widget.recoverStorage != null)
-                const PopupMenuItem(
-                  value: 'recover',
-                  child: Text('استرداد قاعدة المشاريع من نقاط الحفظ'),
-                ),
-            ],
-          ),
           IconButton(
             tooltip: 'عن التطبيق والتراخيص',
             icon: const Icon(Icons.info_outline),
-            onPressed: () => showAboutDialog(
-              context: context,
-              applicationName: 'مستمسكات — Scan ID',
-              applicationVersion: '0.1.0 (تطوير)',
-              children: const [
-                Text(
-                  'معالجة محلية دون رفع. اختر مواقع حفظ محلية آمنة؛ النسخ الاحتياطية غير مشفرة. راجع الطباعة بالمسطرة.',
-                ),
-              ],
-            ),
-          ),
-          AdaptableAction(
-            label: 'مشروع جديد',
-            icon: Icons.add,
-            onPressed: _busy ? null : _newProject,
+            onPressed: _about,
           ),
         ],
       ),
@@ -331,36 +333,51 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.shield_outlined, size: 18),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'محلي · لا يرسل التطبيق صورك عبر الشبكة',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
                       Text(
                         'مساحة مستمسكاتك',
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'أنشئ مشروعاً، واجمع صوره بأمان، ثم عد إليه من حيث توقفت.',
+                        'أنشئ مشروعاً، واجمع صوره، ثم عد إليه من حيث توقفت. '
+                        'كل شيء محفوظ على هذا الجهاز.',
                       ),
-                      if (widget.service.backups != null)
-                        OutlinedButton.icon(
-                          onPressed: _busy ? null : _restore,
-                          icon: const Icon(Icons.restore),
-                          label: const Text('استعادة نسخة احتياطية'),
-                        ),
-                      const SizedBox(height: 20),
-                      const FoundationNotice(),
                       const SizedBox(height: 16),
-                      if (_busy) const LinearProgressIndicator(),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              FilledButton.icon(
+                                onPressed: _busy ? null : _newProject,
+                                icon: const Icon(Icons.add),
+                                label: const Text('مشروع جديد'),
+                              ),
+                              const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.shield_outlined, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('محلي · لا يرسل التطبيق صورك عبر الشبكة'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (_busy) ...[
+                        const SizedBox(height: 12),
+                        const LinearProgressIndicator(),
+                      ],
+                      const SizedBox(height: 24),
+                      Text(
+                        'مشاريعك',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
@@ -410,23 +427,34 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                       delegate: SliverChildBuilderDelegate((context, index) {
                         final project = projects[index];
                         return Card(
+                          margin: const EdgeInsets.only(bottom: 10),
                           child: ListTile(
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 20,
-                              vertical: 12,
+                              vertical: 8,
                             ),
                             leading: const CircleAvatar(
                               child: Icon(Icons.folder_outlined),
                             ),
-                            title: Text(project.name),
+                            title: Text(
+                              project.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             subtitle: Text(
-                              '${project.assets.length} صور · A4 · ${project.updatedAt.toLocal().toString().substring(0, 16)}',
+                              '${project.assets.length} صور · '
+                              'آخر تعديل ${formatLocalDateTime(project.updatedAt)}',
                             ),
                             onTap: _busy ? null : () => _open(project.id),
-                            trailing: IconButton(
-                              tooltip: 'حذف المشروع',
+                            trailing: TextButton.icon(
                               onPressed: _busy ? null : () => _delete(project),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.error,
+                              ),
                               icon: const Icon(Icons.delete_outline),
+                              label: const Text('حذف'),
                             ),
                           ),
                         );
@@ -434,6 +462,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     );
                   },
                 ),
+                SliverToBoxAdapter(child: _maintenanceSection()),
               ],
             ),
           ),
@@ -441,4 +470,65 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       ),
     ),
   );
+
+  /// Secondary tools: they change storage, so they sit below the projects and
+  /// carry their own cautions. Nothing here is removed; each action keeps its
+  /// confirmation.
+  Widget _maintenanceSection() => Padding(
+    padding: const EdgeInsets.only(top: 24, bottom: 24),
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'البيانات والصيانة',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text('أدوات تعمل على التخزين. لا تُنفَّذ أي منها دون تأكيد.'),
+            const SizedBox(height: 12),
+            const InfoBanner(
+              tone: BannerTone.caution,
+              message: 'احفظ نسخة احتياطية قبل إزالة التطبيق؛ النسخ غير مشفرة.',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                if (widget.service.backups != null)
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _restore,
+                    icon: const Icon(Icons.restore),
+                    label: const Text('استعادة نسخة احتياطية'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _maintenance,
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  label: const Text('صيانة المساحة والملفات غير المرتبطة'),
+                ),
+                if (widget.recoverStorage != null)
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _recoverDatabase,
+                    icon: const Icon(Icons.history),
+                    label: const Text('استرداد قاعدة المشاريع من نقاط الحفظ'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Local date and time as "YYYY-MM-DD HH:mm": fixed width, so it never clips
+/// in an Arabic layout and never depends on the platform's default format.
+String formatLocalDateTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }

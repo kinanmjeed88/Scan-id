@@ -231,8 +231,12 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       if (!mounted) {
         return;
       }
+      final kept = orphans.retained.isEmpty
+          ? ''
+          : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر تشير إليه '
+                'نقطة استرداد أو نسخة ترقية ما زالت قائمة. تُحذف بعد تحديث تلك النقطة.';
       if (orphans.count == 0) {
-        showMessage(context, 'لا ملفات غير مرتبطة بمشاريعك.');
+        showMessage(context, 'لا ملفات غير مرتبطة بمشاريعك.$kept');
         return;
       }
       final megabytes = (orphans.bytes / (1024 * 1024)).toStringAsFixed(2);
@@ -241,7 +245,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
         'حذف الملفات غير المرتبطة؟',
         'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
             'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. '
-            'لا تُحذف ملفات المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق حمايةً لعمل جارٍ.',
+            'لا تُحذف ملفات المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق حمايةً لعمل جارٍ.$kept',
         confirmLabel: 'حذف الملفات',
         destructive: true,
       );

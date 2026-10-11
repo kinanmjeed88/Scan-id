@@ -707,9 +707,11 @@ class ProjectService {
   /// 2. derived crops made from it stay in the project as independent images;
   /// 3. the project metadata is committed in ONE save, guarded by the revision,
   ///    so a second tap or a stale window fails instead of applying twice;
-  /// 4. only then is the image's folder removed. If that fails, the image is
-  ///    still gone from the project, and its folder is unreferenced: the
-  ///    storage maintenance screen can clean it later. Nothing points at it.
+  /// 4. only then is the image's folder removed. If that fails, or if the
+  ///    recovery copy has not been rewritten yet and still names the folder,
+  ///    the image is still gone from the project and the folder is kept. The
+  ///    result carries a warning. Maintenance removes the folder later, once
+  ///    nothing names it. Nothing points at it.
   ///
   /// Backups made earlier keep their own copies and are never touched.
   Future<ImageDeletion> deleteImage(Project project, String assetId) async {
@@ -728,13 +730,16 @@ class ProjectService {
     try {
       await store.deleteFiles([plan.assetDirectory]);
       return ImageDeletion(saved, plan);
-    } on Object {
+    } catch (error) {
+      // The metadata is already committed, so this must be reported as a
+      // warning rather than thrown: a thrown error would leave the screen
+      // showing an image that no longer exists. The cause is kept.
       return ImageDeletion(
         saved,
         plan,
         warning:
-            'حُذفت الصورة من المشروع، وتعذر حذف ملفاتها الآن. لن تتأثر الصور '
-            'الأخرى؛ أعد التنظيف من «البيانات والصيانة» في الشاشة الرئيسية.',
+            'حُذفت الصورة من المشروع، لكن ملفاتها بقيت على الجهاز. ${_deleteFailure(error)} '
+            'لن تتأثر الصور الأخرى؛ أعد التنظيف من «البيانات والصيانة» بعد ذلك.',
       );
     }
   }
@@ -754,10 +759,12 @@ class ProjectService {
     try {
       await store.deleteProjectFiles(project.id);
       return const ProjectDeletion();
-    } catch (_) {
-      return const ProjectDeletion(
+    } catch (error) {
+      // Same reasoning as [deleteImage]: the removal is already committed.
+      return ProjectDeletion(
         warning:
-            'حُذف المشروع من القائمة، وتعذر حذف ملفاته الآن. لن تتأثر المشاريع الأخرى؛ أعد المحاولة من «صيانة المساحة».',
+            'حُذف المشروع من القائمة، لكن ملفاته بقيت على الجهاز. ${_deleteFailure(error)} '
+            'لن تتأثر المشاريع الأخرى؛ أعد التنظيف من «البيانات والصيانة».',
       );
     }
   }
@@ -799,6 +806,14 @@ class ProjectService {
 }
 
 /// Never expose absolute filesystem paths / personal filenames from IO errors.
+/// Why file removal failed, in words that fit a deletion: the storage layer's
+/// own sentences are kept, anything else gets a deletion-specific hint.
+String _deleteFailure(Object error) => switch (error) {
+  ValidationException(:final message) => message,
+  StorageException(:final message) => message,
+  _ => 'تعذر حذف الملفات الآن؛ تحقق من الصلاحيات والمساحة.',
+};
+
 String userError(Object error) {
   if (error is ValidationException) {
     return error.message;

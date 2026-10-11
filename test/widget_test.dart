@@ -478,6 +478,62 @@ void main() {
     ]);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('deleting an image from its menu removes only its own elements', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [
+          assetFixture(id: 'asset1'),
+          assetFixture(id: 'asset2'),
+          assetFixture(id: 'asset3'),
+        ],
+        items: [
+          itemFixture(id: 'i1', assetId: 'asset1'),
+          itemFixture(
+            id: 'i2',
+            assetId: 'asset1',
+          ).copyWith(locked: false),
+          itemFixture(id: 'i3', assetId: 'asset3'),
+        ],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('خيارات الصورة').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حذف الصورة نهائياً'));
+    await tester.pumpAndSettle();
+
+    // The confirmation states the effect, including the locked element.
+    expect(find.textContaining('ستُزال 2'), findsOneWidget);
+    expect(find.textContaining('منها 1 مثبّتة'), findsOneWidget);
+    expect(repository.values[project.id]!.assets, hasLength(3));
+
+    await tester.tap(find.text('حذف الصورة'));
+    await tester.pumpAndSettle();
+
+    final stored = repository.values[project.id]!;
+    expect(stored.assets.map((a) => a.id), ['asset2', 'asset3']);
+    expect(stored.items.map((i) => i.id), ['i3']);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _MemoryProjects implements ProjectRepository {

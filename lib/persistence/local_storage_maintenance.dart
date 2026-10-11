@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../application/contracts.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
+import 'recovery_checkpoints.dart';
 import 'safe_files.dart';
 
 /// File maintenance inside the application-owned root.
@@ -24,57 +25,66 @@ class LocalStorageMaintenance implements StorageMaintenance {
   @override
   Future<void> deleteProjectFiles(String projectId) async {
     validId(projectId);
-    await _deleteTree(await files.checkedPath('$_projects/$projectId'));
+    final relative = '$_projects/$projectId';
+    require(
+      !_under(relative, await _recoveryReferences()),
+      _keptByRecovery,
+    );
+    await _deleteTree(await files.checkedPath(relative));
   }
 
   @override
   Future<OrphanFiles> findOrphans(List<Project> projects) async {
-    final referenced = <String>{
-      for (final project in projects) ...[
-        for (final asset in project.assets) ...[
-          asset.originalPath,
-          asset.workingPath,
-          asset.thumbnailPath,
-          asset.processingInputPath,
-        ],
-        // Recognition references may name an older revision after a later
-        // crop/replacement. Keep that file alive while any document record,
-        // including a dismissed tombstone, still refers to it.
-        for (final record in project.documents)
-          for (final side in record.sides) ...[
-            side.processedAsset.workingPath,
-            side.processedAsset.thumbnailPath,
-          ],
-      ],
-    };
+    final referenced = _referencesOf(projects);
+    // Copies that are not live but can still be restored or rolled back. A
+    // folder named here is historical, not garbage.
+    final recovery = await _recoveryReferences();
     final knownProjects = {for (final project in projects) project.id};
     // Files being written right now are not orphans. An asset directory exists
     // briefly before its project record is committed.
     final cutoff = clock().toUtc().subtract(_grace);
     final orphans = <String>[];
+    final retained = <String>[];
     var bytes = 0;
     final projectsPath = await files.checkedPath(_projects);
     // Known project directories are always inspected: a stale orphan inside a
     // recently touched project must not be hidden by the grace window.
     await for (final project in _directories(projectsPath)) {
       final id = p.basename(project.path);
+      final projectRelative = '$_projects/$id';
       if (!knownProjects.contains(id)) {
         if ((await _modified(project.path)).isAfter(cutoff)) {
           continue;
         }
-        orphans.add('$_projects/$id');
-        bytes += await _size(project.path);
+        switch (_useOf(projectRelative, referenced, recovery)) {
+          case _Use.live:
+            // A folder of a project the list does not know but a live record
+            // names cannot be classified safely; leave it alone.
+            break;
+          case _Use.recovery:
+            retained.add(projectRelative);
+            break;
+          case _Use.unused:
+            orphans.add(projectRelative);
+            bytes += await _size(project.path);
+        }
         continue;
       }
       await for (final asset in _directories(
         p.join(project.path, 'assets'),
         cutoff,
       )) {
-        final relative = '$_projects/$id/assets/${p.basename(asset.path)}';
-        if (!_referenced(relative, referenced)) {
-          orphans.add(relative);
-          bytes += await _size(asset.path);
-          continue;
+        final relative = '$projectRelative/assets/${p.basename(asset.path)}';
+        switch (_useOf(relative, referenced, recovery)) {
+          case _Use.recovery:
+            retained.add(relative);
+            continue;
+          case _Use.unused:
+            orphans.add(relative);
+            bytes += await _size(asset.path);
+            continue;
+          case _Use.live:
+            break;
         }
         // Revisions live one level below the asset: edits/<id> for crops and
         // replacements/<id> for substituted sources.
@@ -83,9 +93,15 @@ class LocalStorageMaintenance implements StorageMaintenance {
           await for (final revision in _directories(group.path, cutoff)) {
             final revisionRelative =
                 '$groupRelative/${p.basename(revision.path)}';
-            if (!_referenced(revisionRelative, referenced)) {
-              orphans.add(revisionRelative);
-              bytes += await _size(revision.path);
+            switch (_useOf(revisionRelative, referenced, recovery)) {
+              case _Use.recovery:
+                retained.add(revisionRelative);
+                break;
+              case _Use.unused:
+                orphans.add(revisionRelative);
+                bytes += await _size(revision.path);
+              case _Use.live:
+                break;
             }
           }
         }
@@ -105,13 +121,18 @@ class LocalStorageMaintenance implements StorageMaintenance {
       orphans.add(name);
       bytes += await entity.length();
     }
-    return OrphanFiles(orphans, bytes);
+    return OrphanFiles(orphans, bytes, retained: retained);
   }
 
+  /// Removes exactly the given paths. A path that a recovery copy or snapshot
+  /// still names is refused, not deleted: the caller reports why, and the path
+  /// is removed once that copy has been rewritten.
   @override
   Future<int> deleteFiles(Iterable<String> relativePaths) async {
+    final recovery = await _recoveryReferences();
     var removed = 0;
     for (final relative in relativePaths) {
+      require(!_under(relative, recovery), _keptByRecovery);
       final path = await files.checkedPath(relative);
       if (await _deleteTree(path)) {
         removed++;
@@ -140,9 +161,69 @@ class LocalStorageMaintenance implements StorageMaintenance {
     return removed;
   }
 
-  bool _referenced(String directory, Set<String> paths) {
-    final prefix = '$directory/';
-    return paths.any((path) => path.startsWith(prefix));
+  static const _keptByRecovery =
+      'نقطة استرداد أو نسخة ترقية ما زالت تشير إلى هذه الملفات، فتُحفظ حتى تُحدَّث.';
+
+  /// Every path a saved project names, including the older revisions that
+  /// recognition records still refer to.
+  Set<String> _referencesOf(Iterable<Project> projects) => {
+    for (final project in projects) ...[
+      for (final asset in project.assets) ...[
+        asset.originalPath,
+        asset.workingPath,
+        asset.thumbnailPath,
+        asset.processingInputPath,
+      ],
+      // Recognition references may name an older revision after a later
+      // crop/replacement. Keep that file alive while any document record,
+      // including a dismissed tombstone, still refers to it.
+      for (final record in project.documents)
+        for (final side in record.sides) ...[
+          side.processedAsset.workingPath,
+          side.processedAsset.thumbnailPath,
+        ],
+    ],
+  };
+
+  /// Paths named by the recovery copies of live projects and by the pre-upgrade
+  /// snapshots. Deleted-project checkpoints are not read by [read] and so name
+  /// nothing. The scan is deliberately broad: any `projects/` string in a
+  /// snapshot protects that path, so an unknown field can only keep data.
+  Future<Set<String>> _recoveryReferences() async {
+    final copies = await RecoveryCheckpoints(files).read();
+    final paths = _referencesOf(copies);
+    final snapshots = Directory(
+      await files.checkedPath('migration-snapshots'),
+    );
+    if (await snapshots.exists()) {
+      final pattern = RegExp(r'projects/[^"\\\s]+');
+      await for (final entity in snapshots.list(followLinks: false)) {
+        if (entity is! File || !entity.path.endsWith('.json')) {
+          continue;
+        }
+        for (final match in pattern.allMatches(await entity.readAsString())) {
+          paths.add(match.group(0)!);
+        }
+      }
+    }
+    return paths;
+  }
+
+  /// Whether [relative] is named by a path in [paths]: as itself or as a
+  /// directory that contains the named path.
+  bool _under(String relative, Set<String> paths) {
+    final prefix = '$relative/';
+    return paths.any((path) => path == relative || path.startsWith(prefix));
+  }
+
+  _Use _useOf(String relative, Set<String> live, Set<String> recovery) {
+    if (_under(relative, live)) {
+      return _Use.live;
+    }
+    if (_under(relative, recovery)) {
+      return _Use.recovery;
+    }
+    return _Use.unused;
   }
 
   Stream<Directory> _directories(String path, [DateTime? cutoff]) async* {
@@ -233,4 +314,16 @@ class LocalStorageMaintenance implements StorageMaintenance {
     }
     return true;
   }
+}
+
+/// How a folder or file relates to the saved state.
+enum _Use {
+  /// Named by a saved project: current data, never touched.
+  live,
+
+  /// Not in any saved project, but named by a recovery copy or snapshot.
+  recovery,
+
+  /// Named by nothing: safe to remove after the grace window.
+  unused,
 }

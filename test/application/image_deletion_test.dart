@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -651,6 +652,167 @@ void main() {
         await deleteSucceeded(deletion);
         expect(deletion.plan.itemIds, isEmpty);
         await expectConsistent();
+      },
+    );
+
+    test('deleting a middle image keeps the order of the others', () async {
+      final project = await projectWith(['أ.png', 'ب.png', 'ج.png']);
+      final first = project.assets[0];
+      final middle = project.assets[1];
+      final last = project.assets[2];
+
+      final deletion = await service.deleteImage(project, middle.id);
+
+      await deleteSucceeded(deletion);
+      expect((await stored(project.id)).assets.map((a) => a.id), [
+        first.id,
+        last.id,
+      ]);
+      await expectConsistent();
+    });
+  });
+
+  group('recovery copies and maintenance', () {
+    // Recovery copies live in checkpoints/. Making that directory read-only
+    // makes the copy write fail while every earlier copy stays readable, which
+    // is the real partial-failure state. POSIX permissions only.
+    Future<void> setWritable(Directory directory, {required bool writable}) async {
+      final result = await Process.run('chmod', [
+        writable ? '755' : '555',
+        directory.path,
+      ]);
+      expect(result.exitCode, 0, reason: 'chmod failed: ${result.stderr}');
+    }
+
+    test(
+      'a folder named by an unwritten recovery copy is kept, then released once the copy is rewritten',
+      () async {
+        final project = await projectWith(['أ.png', 'ب.png']);
+        final target = project.assets.first;
+        final folder = 'projects/${project.id}/assets/${target.id}';
+        final checkpoints = Directory(p.join(root.path, 'checkpoints'));
+        try {
+          await setWritable(checkpoints, writable: false);
+          expect(
+            () => File(
+              p.join(checkpoints.path, 'probe.tmp'),
+            ).writeAsStringSync('x'),
+            throwsA(isA<FileSystemException>()),
+            reason: 'the scenario needs a checkpoint directory that refuses writes',
+          );
+
+          final deletion = await service.deleteImage(project, target.id);
+
+          // The metadata is committed; the files wait for a fresh copy.
+          expect(deletion.warning, isNotNull);
+          expect(
+            (await stored(project.id)).assets.map((a) => a.id),
+            isNot(contains(target.id)),
+          );
+          expect(await exists(folder), isTrue);
+          expect(projects.checkpoints.isStale(project.id), isTrue);
+          expect(projects.checkpoints.warning, isNotNull);
+          // The stale copy still names the folder, so it must not be removed.
+          await expectLater(
+            store.deleteFiles([folder]),
+            throwsA(isA<ValidationException>()),
+          );
+          final held = await service.findOrphans();
+          expect(held.paths, isNot(contains(folder)));
+          expect(held.retained, contains(folder));
+        } finally {
+          await setWritable(checkpoints, writable: true);
+        }
+
+        // The next successful save of this project rewrites its copy.
+        await projects.save(await stored(project.id));
+        expect(projects.checkpoints.isStale(project.id), isFalse);
+        expect(projects.checkpoints.warning, isNull);
+
+        final released = await service.findOrphans();
+        expect(released.paths, contains(folder));
+        expect(released.retained, isEmpty);
+        expect(await service.deleteOrphans(), greaterThan(0));
+        expect(await exists(folder), isFalse);
+        await expectConsistent();
+      },
+      skip: Platform.isWindows ? 'directory permissions are POSIX-only' : false,
+    );
+
+    test(
+      'a stale recovery copy of one project is not hidden by saving another',
+      () async {
+        final stale = await projectWith(['أ.png']);
+        final other = await service.create('ملف آخر');
+        // Occupy this project's copy path with a directory: the rename of the
+        // new copy over it fails, while the other project's copy still works.
+        final blocked = Directory(p.join(root.path, 'checkpoints', '${stale.id}.json'));
+        await blocked.create(recursive: true);
+        try {
+          await projects.save(stale.copyWith(name: 'مستمسكات بعد التعديل'));
+          expect(projects.checkpoints.isStale(stale.id), isTrue);
+
+          await projects.save(other.copyWith(name: 'ملف آخر محدّث'));
+          expect(projects.checkpoints.isStale(other.id), isFalse);
+          expect(
+            projects.checkpoints.warning,
+            isNotNull,
+            reason: 'saving another project must not clear this warning',
+          );
+        } finally {
+          await blocked.delete(recursive: true);
+        }
+
+        await projects.save(await stored(stale.id));
+        expect(projects.checkpoints.warning, isNull);
+      },
+      skip: Platform.isWindows ? 'rename over a directory behaves differently' : false,
+    );
+
+    test(
+      'maintenance removes unnamed folders, keeps folders named by a pre-upgrade snapshot, and never lists live images',
+      () async {
+        final project = await projectWith(['أ.png', 'ب.png']);
+        final id = project.id;
+        Future<void> plant(String relative) async {
+          final file = File(p.join(root.path, relative, 'original.png'));
+          await file.create(recursive: true);
+          await file.writeAsBytes(png(4, 4));
+        }
+
+        await plant('projects/$id/assets/unnamed');
+        await plant('projects/$id/assets/archived');
+        final snapshots = Directory(p.join(root.path, 'migration-snapshots'));
+        await snapshots.create(recursive: true);
+        await File(p.join(snapshots.path, '$id.json')).writeAsString(
+          jsonEncode({
+            'version': 1,
+            'schemaVersion': 4,
+            'project': {
+              'assets': [
+                {'originalPath': 'projects/$id/assets/archived/original.png'},
+              ],
+            },
+          }),
+        );
+
+        final found = await service.findOrphans();
+        expect(found.paths, ['projects/$id/assets/unnamed']);
+        expect(found.retained, ['projects/$id/assets/archived']);
+        for (final asset in project.assets) {
+          expect(
+            [...found.paths, ...found.retained].where((path) => path.contains(asset.id)),
+            isEmpty,
+            reason: 'a live image must never be reported as garbage',
+          );
+        }
+
+        expect(await service.deleteOrphans(), 1);
+        expect(await exists('projects/$id/assets/unnamed'), isFalse);
+        expect(await exists('projects/$id/assets/archived'), isTrue);
+        for (final asset in project.assets) {
+          expect(await exists(asset.originalPath), isTrue);
+        }
       },
     );
   });

@@ -375,23 +375,23 @@ class _ProjectScreenState extends State<ProjectScreen> {
     if (plan.itemIds.isNotEmpty) {
       lines.add(
         'ستُزال ${plan.itemIds.length} من عناصر ورقة A4: عناصر هذه الصورة '
-        'والعناصر المرتبطة بتعرّفها؛ بقية الصفحات والعناصر لا تتغير.',
+        'وما يرتبط بها من تعرّف؛ بقية الصفحات والعناصر لا تتغير.',
       );
     }
     if (plan.lockedItemIds.isNotEmpty) {
       lines.add(
-        'منها ${plan.lockedItemIds.length} عناصر مثبّتة، وستُزال دون فك تثبيتها أولاً.',
+        'منها ${plan.lockedItemIds.length} مثبّتة، وستُزال دون فك تثبيتها أولاً.',
       );
     }
     if (plan.dismissedDocumentIds.isNotEmpty) {
       lines.add(
-        'ستُزال أيضاً ${plan.dismissedDocumentIds.length} مناطق استبعدتها سابقاً؛ '
+        'تُزال أيضاً المناطق المستبعدة سابقاً (${plan.dismissedDocumentIds.length})؛ '
         'قد تُقترح مجدداً عند إعادة معالجة الصورة الأصلية.',
       );
     }
     if (plan.keptDerivedAssetIds.isNotEmpty) {
       lines.add(
-        'تبقى ${plan.keptDerivedAssetIds.length} صور مشتقة منها في المشروع '
+        'الصور المشتقة منها (${plan.keptDerivedAssetIds.length}) تبقى في المشروع '
         'كصور مستقلة، دون ربطها بهذه الصورة.',
       );
     }
@@ -777,7 +777,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        '${_project.assets.length} صور · JPEG / PNG · 16 مليون بكسل مباشرة؛ JPEG حتى 32 مليوناً بنسخة عمل مصغّرة',
+                        'الصور: ${_project.assets.length} · JPEG / PNG · 16 مليون بكسل مباشرة؛ JPEG حتى 32 مليوناً بنسخة عمل مصغّرة',
                       ),
                       const SizedBox(height: 8),
                       Text(

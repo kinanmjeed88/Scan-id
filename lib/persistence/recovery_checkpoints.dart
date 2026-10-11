@@ -10,7 +10,19 @@ class RecoveryCheckpoints {
   RecoveryCheckpoints(this.files);
   final SafeFiles files;
   Future<void> _tail = Future.value();
-  String? warning;
+  // Projects whose latest recovery copy could not be written. Tracked per
+  // project: saving another project must not hide that this one is stale.
+  final _stale = <String>{};
+
+  /// Non-null while at least one project's recovery copy is older than its
+  /// saved data.
+  String? get warning => _stale.isEmpty
+      ? null
+      : 'حُفظ المشروع، لكن تعذر تحديث نقطة الاسترداد المحلية. تحقق من المساحة واحفظ نسخة احتياطية.';
+
+  /// Whether [projectId]'s recovery copy is older than its saved data.
+  bool isStale(String projectId) => _stale.contains(projectId);
+
   Future<void> save(Project project, {bool deleted = false}) {
     final work = _tail.then((_) async {
       final temporary = File(
@@ -29,7 +41,7 @@ class RecoveryCheckpoints {
         await temporary.rename(
           await files.checkedPath('checkpoints/${project.id}.json'),
         );
-        warning = null;
+        _stale.remove(project.id);
       } finally {
         if (await temporary.exists()) {
           await temporary.delete();
@@ -39,8 +51,7 @@ class RecoveryCheckpoints {
     // Main DB commit is already durable. Never tell a caller that it failed
     // just because the redundant recovery snapshot could not be written.
     _tail = work.catchError((Object error) {
-      warning =
-          'حُفظ المشروع، لكن تعذر تحديث نقطة الاسترداد المحلية. تحقق من المساحة واحفظ نسخة احتياطية.';
+      _stale.add(project.id);
     });
     return _tail;
   }

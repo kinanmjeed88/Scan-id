@@ -77,10 +77,17 @@ class RevisionConflict extends StorageException {
 }
 
 /// App-owned files that no saved project references any more.
+///
+/// [paths] are unlinked and safe to remove. [retained] are unlinked by every
+/// saved project but still named by a recovery copy or a pre-upgrade snapshot;
+/// they stay until that copy is rewritten, because removing them would leave
+/// the copy pointing at missing files.
 class OrphanFiles {
-  OrphanFiles(List<String> paths, this.bytes)
-    : paths = List.unmodifiable(paths);
+  OrphanFiles(List<String> paths, this.bytes, {List<String> retained = const []})
+    : paths = List.unmodifiable(paths),
+      retained = List.unmodifiable(retained);
   final List<String> paths;
+  final List<String> retained;
   final int bytes;
   int get count => paths.length;
 }

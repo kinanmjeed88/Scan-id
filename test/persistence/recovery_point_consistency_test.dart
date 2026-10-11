@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
+import 'package:scan_id/persistence/local_image_editor.dart';
+import 'package:scan_id/persistence/local_project_recovery.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/recovery_checkpoints.dart';
 
@@ -24,7 +26,14 @@ void main() {
   Future<void> reopen() async {
     await projects.close();
     projects = await LocalProjectRepository.open(root);
-    service = ProjectService(projects, LocalAssetRepository(projects.files));
+    service = ProjectService(
+      projects,
+      LocalAssetRepository(projects.files),
+      recovery: LocalProjectRecovery(
+        projects,
+        LocalImageEditor(projects.files),
+      ),
+    );
   }
 
   Future<void> setWritable({required bool writable}) async {
@@ -63,7 +72,14 @@ void main() {
   setUp(() async {
     root = await Directory.systemTemp.createTemp('scan-consistency-');
     projects = await LocalProjectRepository.open(root);
-    service = ProjectService(projects, LocalAssetRepository(projects.files));
+    service = ProjectService(
+      projects,
+      LocalAssetRepository(projects.files),
+      recovery: LocalProjectRecovery(
+        projects,
+        LocalImageEditor(projects.files),
+      ),
+    );
   });
 
   tearDown(() async {

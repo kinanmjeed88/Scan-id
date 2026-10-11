@@ -16,6 +16,7 @@ import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_backups.dart';
+import 'package:scan_id/persistence/local_project_recovery.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
 
@@ -44,6 +45,10 @@ void main() {
       imageEditor: LocalImageEditor(projects.files),
       backups: LocalProjectBackups(projects, projects.files),
       maintenance: store,
+      recovery: LocalProjectRecovery(
+        projects,
+        LocalImageEditor(projects.files),
+      ),
     );
   }
 

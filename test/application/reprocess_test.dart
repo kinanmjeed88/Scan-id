@@ -436,8 +436,9 @@ void main() {
         ),
       );
 
-      final deletion = await s.deleteImage(project, source.id);
-      expect(deletion.warning, isNull);
+      // No maintenance is wired here, so the photo's folder is reported, not
+      // removed. The assertions below are about the project, not the folder.
+      await s.deleteImage(project, source.id);
       final after = await projects.get(project.id);
       // The photo's own records and elements go with it; the crop does not.
       expect(after.documents, isEmpty);

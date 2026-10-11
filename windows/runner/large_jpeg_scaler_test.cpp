@@ -1,5 +1,3 @@
-#define NOMINMAX
-
 #include "large_jpeg_scaler.h"
 
 #include <windows.h>

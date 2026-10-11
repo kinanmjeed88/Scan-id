@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "large_jpeg_scaler.h"
+#include "platform_task_dispatcher.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -30,7 +31,8 @@ class FlutterWindow : public Win32Window {
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 
-  // WIC-backed sampled JPEG decode channel.
+  // Window-thread wake bridge and WIC-backed sampled JPEG decode channel.
+  std::unique_ptr<PlatformTaskDispatcher> platform_task_dispatcher_;
   std::unique_ptr<LargeJpegScalerChannel> large_jpeg_scaler_channel_;
 };
 

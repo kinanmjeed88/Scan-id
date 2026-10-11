@@ -34,6 +34,8 @@ jobs:
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
+      - name: Source integrity audit
+        run: python tool/ci_gate.py source-audit python tool/check_source.py
       - name: Report formatter differences
         env:
           SCAN_ID_FORMAT_COMMIT: ${{ contains(github.event.head_commit.message, '[format]') && '1' || '0' }}
@@ -74,9 +76,16 @@ jobs:
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: Build Windows release
         run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Build native Windows scaler regression tests
+        run: python tool/ci_gate.py windows-scaler-build cmake --build build/windows/x64 --config Release --target large_jpeg_scaler_test
+      - name: Run native Windows scaler regressions
+        run: python tool/ci_gate.py windows-scaler-test ctest --test-dir build/windows/x64 -C Release --output-on-failure -R large_jpeg_scaler_windows
       - name: Windows application
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-windows
-          path: build/windows/x64/runner/Release/
+          path: |
+            build/windows/x64/runner/Release/
+            !build/windows/x64/runner/Release/large_jpeg_scaler_test.exe
+            !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
           if-no-files-found: error

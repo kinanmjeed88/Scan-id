@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
   "large_jpeg_scaler.cpp"
   "main.cpp"
+  "platform_task_dispatcher.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -36,6 +37,23 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "windowscodecs.lib" "ole32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+if(BUILD_TESTING)
+  add_executable(large_jpeg_scaler_test
+    "large_jpeg_scaler_test.cpp"
+    "large_jpeg_scaler.cpp"
+  )
+  apply_standard_settings(large_jpeg_scaler_test)
+  target_compile_definitions(large_jpeg_scaler_test PRIVATE "NOMINMAX")
+  target_link_libraries(large_jpeg_scaler_test PRIVATE
+    flutter
+    flutter_wrapper_app
+    "windowscodecs.lib"
+    "ole32.lib"
+  )
+  target_include_directories(large_jpeg_scaler_test PRIVATE "${CMAKE_SOURCE_DIR}")
+  add_test(NAME large_jpeg_scaler_windows COMMAND large_jpeg_scaler_test)
+endif()
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

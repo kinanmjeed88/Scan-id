@@ -454,10 +454,7 @@ void main() {
       expect(result.assets.single.derivedFrom, source.id);
       expect(reconcileDerivedProvenance(result).brokenChains, [crop.id]);
       expect(report.warnings, isNotEmpty, reason: 'the broken chain is named');
-      expect(
-        await (await assets.resolve(crop.workingPath)).exists(),
-        isTrue,
-      );
+      expect(await (await assets.resolve(crop.workingPath)).exists(), isTrue);
     },
   );
 

@@ -868,7 +868,11 @@ void main() {
         }
 
         expect(await service.deleteOrphans(), 1);
-        expect(await service.deleteOrphans(), 0, reason: 'a retry removes nothing more');
+        expect(
+          await service.deleteOrphans(),
+          0,
+          reason: 'a retry removes nothing more',
+        );
         expect(await exists('projects/$id/assets/unnamed'), isFalse);
         expect(await exists('projects/$id/assets/archived'), isTrue);
         for (final asset in project.assets) {

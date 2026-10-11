@@ -177,19 +177,21 @@ void main() {
     skip: Platform.isWindows ? posixOnly : null,
   );
 
-  test('a removal with a stale revision is refused before any copy is touched',
-      () async {
-    final project = await service.create('ق');
-    await service.rename(project, 'ق2');
+  test(
+    'a removal with a stale revision is refused before any copy is touched',
+    () async {
+      final project = await service.create('ق');
+      await service.rename(project, 'ق2');
 
-    await expectLater(
-      projects.remove(project),
-      throwsA(isA<RevisionConflict>()),
-    );
+      await expectLater(
+        projects.remove(project),
+        throwsA(isA<RevisionConflict>()),
+      );
 
-    expect((await projects.get(project.id)).name, 'ق2');
-    expect(await copyName(project.id), 'ق2');
-  });
+      expect((await projects.get(project.id)).name, 'ق2');
+      expect(await copyName(project.id), 'ق2');
+    },
+  );
 
   test(
     'an unreadable copy counts as stale after a restart and is rebuilt from the database',

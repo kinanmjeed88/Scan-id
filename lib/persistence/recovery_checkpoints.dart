@@ -97,7 +97,9 @@ class RecoveryCheckpoints {
   /// Revision and deleted-flag of one copy, or null when the copy is missing
   /// or cannot be read. An unreadable copy counts as outdated: repairing it
   /// from the database is always safe, since the database is the truth.
-  Future<({int revision, bool deleted})?> _copyRevision(String projectId) async {
+  Future<({int revision, bool deleted})?> _copyRevision(
+    String projectId,
+  ) async {
     final path = await files.checkedPath('checkpoints/$projectId.json');
     if (await FileSystemEntity.type(path, followLinks: false) !=
         FileSystemEntityType.file) {

@@ -430,10 +430,7 @@ class LayoutEditorController extends ChangeNotifier {
         !routing.recordNeedsReview(record)) {
       return Future.value();
     }
-    return edit(
-      (p) => rec.dismissRecognition(p, documentId),
-      layout: false,
-    );
+    return edit((p) => rec.dismissRecognition(p, documentId), layout: false);
   }
 
   /// Confirms every queued record in one undoable step.

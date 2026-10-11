@@ -85,10 +85,7 @@ Future<SegmentationResult> _twoUnresolved(
   multi: false,
   candidates: [
     SegmentCandidate(region: [.1, .1, .9, .45], reason: 'no-trustworthy-quad'),
-    SegmentCandidate(
-      region: [.1, .55, .9, .95],
-      reason: 'no-trustworthy-quad',
-    ),
+    SegmentCandidate(region: [.1, .55, .9, .95], reason: 'no-trustworthy-quad'),
   ],
 );
 
@@ -168,22 +165,65 @@ Uint8List _photo() {
 }
 
 Uint8List _jpegSofOnly(int width, int height) => Uint8List.fromList([
-  0xff, 0xd8, 0xff, 0xc0, 0, 11, 8,
-  (height >> 8) & 255, height & 255,
-  (width >> 8) & 255, width & 255,
-  1, 1, 0x11, 0, 0xff, 0xd9,
+  0xff,
+  0xd8,
+  0xff,
+  0xc0,
+  0,
+  11,
+  8,
+  (height >> 8) & 255,
+  height & 255,
+  (width >> 8) & 255,
+  width & 255,
+  1,
+  1,
+  0x11,
+  0,
+  0xff,
+  0xd9,
 ]);
 
 Uint8List _jpegWithExifOrientation(int width, int height, int orientation) =>
     Uint8List.fromList([
-      0xff, 0xd8,
-      0xff, 0xe1, 0x00, 0x22,
-      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
-      0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
-      0x01, 0x00,
-      0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
-      orientation, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00,
+      0xff,
+      0xd8,
+      0xff,
+      0xe1,
+      0x00,
+      0x22,
+      0x45,
+      0x78,
+      0x69,
+      0x66,
+      0x00,
+      0x00,
+      0x49,
+      0x49,
+      0x2a,
+      0x00,
+      0x08,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      orientation,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
       ..._jpegSofOnly(width, height).skip(2),
     ]);
 
@@ -403,7 +443,9 @@ void main() {
       final result = report.project;
       final record = result.documents.single;
       final item = result.items.single;
-      final derived = result.assets.firstWhere((asset) => asset.id == item.assetId);
+      final derived = result.assets.firstWhere(
+        (asset) => asset.id == item.assetId,
+      );
 
       expect(report.multiDocumentImages, 0);
       expect(report.cropped, 0);
@@ -443,10 +485,7 @@ void main() {
         isNull,
       );
       expect(manuallyCropped.items.single.id, item.id);
-      expect(
-        await (await assets.resolve(sourcePath)).readAsBytes(),
-        bytes,
-      );
+      expect(await (await assets.resolve(sourcePath)).readAsBytes(), bytes);
     },
   );
 
@@ -461,10 +500,14 @@ void main() {
       ])).project;
       final sourceId = project.assets.single.id;
       final sourcePath = project.assets.single.originalPath;
-      final first = (await s.arrangeImportedImages(project, [sourceId])).project;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
       final itemBefore = first.items.single;
       final recordBefore = first.documents.single;
-      final derived = first.assets.firstWhere((asset) => asset.id == itemBefore.assetId);
+      final derived = first.assets.firstWhere(
+        (asset) => asset.id == itemBefore.assetId,
+      );
       final manuallyCropped = await s.applyManualCrop(
         first,
         derived,
@@ -483,17 +526,18 @@ void main() {
       final cropBefore = edited.crop!.toJson();
       expect(edited.userAuthoredCrop, isTrue);
       expect(
-        Project.fromJson(manuallyCropped.toJson())
-            .assets
-            .firstWhere((asset) => asset.id == edited.id)
-            .userAuthoredCrop,
+        Project.fromJson(
+          manuallyCropped.toJson(),
+        ).assets.firstWhere((asset) => asset.id == edited.id).userAuthoredCrop,
         isTrue,
       );
       final itemAfterCrop = manuallyCropped.items.single;
 
       final report = await s.reprocessImages(manuallyCropped, [sourceId]);
       final result = report!.project;
-      final preserved = result.assets.firstWhere((asset) => asset.id == edited.id);
+      final preserved = result.assets.firstWhere(
+        (asset) => asset.id == edited.id,
+      );
       final recordAfter = result.documents.single;
 
       expect(preserved.workingPath, edited.workingPath);
@@ -615,7 +659,9 @@ void main() {
       final baseRaster = initialAsset.processingInputPath;
       expect(initialAsset.hasScaledLargeSource, isTrue);
 
-      project = (await s.arrangeImportedImages(project, [initialAsset.id])).project;
+      project = (await s.arrangeImportedImages(project, [
+        initialAsset.id,
+      ])).project;
       final firstPlacement = project.items.single.copyWith(
         x: 31,
         y: 42,
@@ -640,7 +686,12 @@ void main() {
       expect(refreshed.assets.single.workingPath, isNot(firstRevision));
       expect(refreshed.assets.single.processingInputPath, baseRaster);
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
-      expect(await (await assets.resolve(refreshed.assets.single.originalPath)).readAsBytes(), original);
+      expect(
+        await (await assets.resolve(
+          refreshed.assets.single.originalPath,
+        )).readAsBytes(),
+        original,
+      );
 
       final again = await s.reprocessImages(refreshed, [initialAsset.id]);
       expect(again!.project.items, hasLength(1));
@@ -649,7 +700,12 @@ void main() {
       expect(again.project.items.single.toJson(), firstPlacement.toJson());
       expect(again.project.documents.single.id, recordId);
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
-      expect(await (await assets.resolve(again.project.assets.single.originalPath)).readAsBytes(), original);
+      expect(
+        await (await assets.resolve(
+          again.project.assets.single.originalPath,
+        )).readAsBytes(),
+        original,
+      );
     },
   );
 
@@ -675,7 +731,9 @@ void main() {
 
       final report = await s.arrangeImportedImages(project, [source.id]);
       final result = report.project;
-      final derived = result.assets.where((asset) => asset.id != source.id).toList();
+      final derived = result.assets
+          .where((asset) => asset.id != source.id)
+          .toList();
       expect(report.multiDocumentImages, 1);
       expect(result.documents, hasLength(2));
       expect(result.items, hasLength(2));
@@ -695,87 +753,107 @@ void main() {
     },
   );
 
-  test('a failed large-image import does not discard neighboring successes', () async {
-    final originalLarge = _jpegSofOnly(5000, 5000);
-    final scaler = _FakeLargeJpegScaler(_photo());
-    assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-    final s = service();
-    final project = await s.create('استيراد مختلط كبير');
-    final small = img.encodePng(img.Image(width: 30, height: 20));
+  test(
+    'a failed large-image import does not discard neighboring successes',
+    () async {
+      final originalLarge = _jpegSofOnly(5000, 5000);
+      final scaler = _FakeLargeJpegScaler(_photo());
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final s = service();
+      final project = await s.create('استيراد مختلط كبير');
+      final small = img.encodePng(img.Image(width: 30, height: 20));
 
-    final report = await s.importImages(project, [
-      ImportSource('large.jpg', () => Stream.value(originalLarge)),
-      ImportSource('corrupt.jpg', () => Stream.value([0xff, 0xd8, 0xff])),
-      ImportSource('unsupported-large.png', () => Stream.value(_pngHeaderOnly(5000, 4000))),
-      ImportSource('small.png', () => Stream.value(small)),
-    ]);
+      final report = await s.importImages(project, [
+        ImportSource('large.jpg', () => Stream.value(originalLarge)),
+        ImportSource('corrupt.jpg', () => Stream.value([0xff, 0xd8, 0xff])),
+        ImportSource(
+          'unsupported-large.png',
+          () => Stream.value(_pngHeaderOnly(5000, 4000)),
+        ),
+        ImportSource('small.png', () => Stream.value(small)),
+      ]);
 
-    expect(report.imported, 2);
-    expect(report.notices, hasLength(1));
-    expect(report.notices.single.name, 'large.jpg');
-    expect(report.failures, hasLength(2));
-    expect(report.failures.map((failure) => failure.name), [
-      'corrupt.jpg',
-      'unsupported-large.png',
-    ]);
-    expect(report.failures.first.message, isNotEmpty);
-    expect(report.failures.last.message, contains('PNG'));
-    expect(report.project.assets, hasLength(2));
-    expect(report.project.assets.first.hasScaledLargeSource, isTrue);
-    expect(report.project.assets.last.hasScaledLargeSource, isFalse);
-    expect(
-      await (await assets.resolve(report.project.assets.first.originalPath))
-          .readAsBytes(),
-      originalLarge,
-    );
-    expect((await projects.get(project.id)).assets, hasLength(2));
-  });
+      expect(report.imported, 2);
+      expect(report.notices, hasLength(1));
+      expect(report.notices.single.name, 'large.jpg');
+      expect(report.failures, hasLength(2));
+      expect(report.failures.map((failure) => failure.name), [
+        'corrupt.jpg',
+        'unsupported-large.png',
+      ]);
+      expect(report.failures.first.message, isNotEmpty);
+      expect(report.failures.last.message, contains('PNG'));
+      expect(report.project.assets, hasLength(2));
+      expect(report.project.assets.first.hasScaledLargeSource, isTrue);
+      expect(report.project.assets.last.hasScaledLargeSource, isFalse);
+      expect(
+        await (await assets.resolve(
+          report.project.assets.first.originalPath,
+        )).readAsBytes(),
+        originalLarge,
+      );
+      expect((await projects.get(project.id)).assets, hasLength(2));
+    },
+  );
 
-  test('a mismatched scaled raster fails per-image without losing neighbors', () async {
-    final scaler = _FakeLargeJpegScaler(_photo());
-    assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-    final s = service();
-    final project = await s.create('تصغير غير مطابق');
-    final good = img.encodePng(img.Image(width: 40, height: 30));
+  test(
+    'a mismatched scaled raster fails per-image without losing neighbors',
+    () async {
+      final scaler = _FakeLargeJpegScaler(_photo());
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final s = service();
+      final project = await s.create('تصغير غير مطابق');
+      final good = img.encodePng(img.Image(width: 40, height: 30));
 
-    final report = await s.importImages(project, [
-      ImportSource('bad-aspect.jpg', () => Stream.value(_jpegSofOnly(5000, 4000))),
-      ImportSource('good.png', () => Stream.value(good)),
-    ]);
+      final report = await s.importImages(project, [
+        ImportSource(
+          'bad-aspect.jpg',
+          () => Stream.value(_jpegSofOnly(5000, 4000)),
+        ),
+        ImportSource('good.png', () => Stream.value(good)),
+      ]);
 
-    expect(report.imported, 1);
-    expect(report.failures, hasLength(1));
-    expect(report.failures.single.name, 'bad-aspect.jpg');
-    expect(report.failures.single.message, contains('اتجاهه'));
-    expect(report.project.assets, hasLength(1));
-    expect(report.project.assets.single.name, 'good.png');
-  });
+      expect(report.imported, 1);
+      expect(report.failures, hasLength(1));
+      expect(report.failures.single.name, 'bad-aspect.jpg');
+      expect(report.failures.single.message, contains('اتجاهه'));
+      expect(report.project.assets, hasLength(1));
+      expect(report.project.assets.single.name, 'good.png');
+    },
+  );
 
-  test('large sampled JPEG import maps EXIF orientation to the working raster', () async {
-    final original = _jpegWithExifOrientation(5000, 4000, 6);
-    final scaler = _FakeLargeJpegScaler(
-      Uint8List.fromList(img.encodePng(img.Image(width: 800, height: 1000))),
-    );
-    assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-    final project = await service().create('اتجاه مصدر كبير');
+  test(
+    'large sampled JPEG import maps EXIF orientation to the working raster',
+    () async {
+      final original = _jpegWithExifOrientation(5000, 4000, 6);
+      final scaler = _FakeLargeJpegScaler(
+        Uint8List.fromList(img.encodePng(img.Image(width: 800, height: 1000))),
+      );
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final project = await service().create('اتجاه مصدر كبير');
 
-    final report = await service().importImages(project, [
-      ImportSource('موجّه.jpg', () => Stream.value(original)),
-    ]);
+      final report = await service().importImages(project, [
+        ImportSource('موجّه.jpg', () => Stream.value(original)),
+      ]);
 
-    expect(report.imported, 1);
-    expect(scaler.lastPlan!.orientation, 6);
-    expect(
-      [report.project.assets.single.width, report.project.assets.single.height],
-      [800, 1000],
-    );
-    expect(report.project.assets.single.transforms.last, contains('exif6'));
-    expect(
-      await (await assets.resolve(report.project.assets.single.originalPath))
-          .readAsBytes(),
-      original,
-    );
-  });
+      expect(report.imported, 1);
+      expect(scaler.lastPlan!.orientation, 6);
+      expect(
+        [
+          report.project.assets.single.width,
+          report.project.assets.single.height,
+        ],
+        [800, 1000],
+      );
+      expect(report.project.assets.single.transforms.last, contains('exif6'));
+      expect(
+        await (await assets.resolve(
+          report.project.assets.single.originalPath,
+        )).readAsBytes(),
+        original,
+      );
+    },
+  );
 
   test('large-source display previews use a bounded sampled raster', () async {
     final scaler = _FakeLargeJpegScaler(
@@ -794,56 +872,82 @@ void main() {
     expect(source, _jpegSofOnly(5000, 3750));
   });
 
-  test('a native sampled raster below the preview floor fails clearly', () async {
-    final tooSmall = img.encodePng(img.Image(width: 20, height: 16));
-    final scaler = _FakeLargeJpegScaler(tooSmall);
-    assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-    final s = service();
-    final project = await s.create('نتيجة تصغير صغيرة');
+  test(
+    'a native sampled raster below the preview floor fails clearly',
+    () async {
+      final tooSmall = img.encodePng(img.Image(width: 20, height: 16));
+      final scaler = _FakeLargeJpegScaler(tooSmall);
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final s = service();
+      final project = await s.create('نتيجة تصغير صغيرة');
 
-    final report = await s.importImages(project, [
-      ImportSource('too-small.jpg', () => Stream.value(_jpegSofOnly(5000, 4000))),
-    ]);
+      final report = await s.importImages(project, [
+        ImportSource(
+          'too-small.jpg',
+          () => Stream.value(_jpegSofOnly(5000, 4000)),
+        ),
+      ]);
 
-    expect(report.imported, 0);
-    expect(report.failures, hasLength(1));
-    expect(report.failures.single.message, contains('أصغر من حد التحليل الأدنى'));
-    expect(report.project.assets, isEmpty);
-    expect((await projects.get(project.id)).assets, isEmpty);
-  });
+      expect(report.imported, 0);
+      expect(report.failures, hasLength(1));
+      expect(
+        report.failures.single.message,
+        contains('أصغر من حد التحليل الأدنى'),
+      );
+      expect(report.project.assets, isEmpty);
+      expect((await projects.get(project.id)).assets, isEmpty);
+    },
+  );
 
-  test('a dismissed region stays excluded and identifiable on reprocessing', () async {
-    final s = service(segmenter: _twoCards);
-    var project = await s.create('استبعاد وإعادة معالجة');
-    final bytes = _photo();
-    project = (await s.importImages(project, [
-      ImportSource('بطاقتان.png', () => Stream.value(bytes)),
-    ])).project;
-    final sourceId = project.assets.single.id;
-    final originalPath = project.assets.single.originalPath;
-    final first = (await s.arrangeImportedImages(project, [sourceId])).project;
-    final targetId = recordsNeedingReview(first).first.id;
-    final dismissed = await projects.save(dismissRecognition(first, targetId));
-    final dismissedRecord = dismissed.documents.firstWhere(
-      (record) => record.id == targetId,
-    );
-    final originalAssetIds = dismissed.assets.map((asset) => asset.id).toSet();
+  test(
+    'a dismissed region stays excluded and identifiable on reprocessing',
+    () async {
+      final s = service(segmenter: _twoCards);
+      var project = await s.create('استبعاد وإعادة معالجة');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('بطاقتان.png', () => Stream.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final originalPath = project.assets.single.originalPath;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
+      final targetId = recordsNeedingReview(first).first.id;
+      final dismissed = await projects.save(
+        dismissRecognition(first, targetId),
+      );
+      final dismissedRecord = dismissed.documents.firstWhere(
+        (record) => record.id == targetId,
+      );
+      final originalAssetIds = dismissed.assets
+          .map((asset) => asset.id)
+          .toSet();
 
-    final report = await s.reprocessImages(dismissed, [sourceId]);
-    final result = report!.project;
-    expect(report.warnings.join('\n'), contains('مستبعد بقرارك'));
-    expect(report.warnings.join('\n'), isNot(contains('كما أكّدته')));
-    final after = result.documents.firstWhere((record) => record.id == targetId);
+      final report = await s.reprocessImages(dismissed, [sourceId]);
+      final result = report!.project;
+      expect(report.warnings.join('\n'), contains('مستبعد بقرارك'));
+      expect(report.warnings.join('\n'), isNot(contains('كما أكّدته')));
+      final after = result.documents.firstWhere(
+        (record) => record.id == targetId,
+      );
 
-    expect(after.overrides.last.dismissed, isTrue);
-    expect(after.recognition, same(dismissedRecord.recognition));
-    expect(result.items.where((item) => item.documentId == targetId), isEmpty);
-    expect(result.documents, hasLength(2));
-    expect(result.items, hasLength(1));
-    expect(result.assets.map((asset) => asset.id), containsAll(originalAssetIds));
-    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
-    expect(Project.fromJson(result.toJson()).toJson(), result.toJson());
-  });
+      expect(after.overrides.last.dismissed, isTrue);
+      expect(after.recognition, same(dismissedRecord.recognition));
+      expect(
+        result.items.where((item) => item.documentId == targetId),
+        isEmpty,
+      );
+      expect(result.documents, hasLength(2));
+      expect(result.items, hasLength(1));
+      expect(
+        result.assets.map((asset) => asset.id),
+        containsAll(originalAssetIds),
+      );
+      expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+      expect(Project.fromJson(result.toJson()).toJson(), result.toJson());
+    },
+  );
 
   test('recognized records enter the review queue until confirmed', () async {
     final s = service();

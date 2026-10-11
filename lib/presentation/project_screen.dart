@@ -71,10 +71,10 @@ class _ProjectScreenState extends State<ProjectScreen> {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-              title: Text('تم حفظ ${result.imported} صورة'),
-              content: SingleChildScrollView(
-                child: Text(importReportDetails(result)),
-              ),
+            title: Text('تم حفظ ${result.imported} صورة'),
+            content: SingleChildScrollView(
+              child: Text(importReportDetails(result)),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),

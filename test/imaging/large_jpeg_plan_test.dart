@@ -6,14 +6,10 @@ import 'package:scan_id/imaging/large_jpeg_plan.dart';
 
 void main() {
   test('ordinary sources stay on the existing direct decoder path', () {
+    expect(withinImageBudget(4000, 4000), isTrue);
     expect(
-      withinImageBudget(4000, 4000),
-      isTrue,
-    );
-    expect(
-      () => LargeJpegPlan.fromHeader(
-        ImageHeader(ImageEncoding.jpeg, 4000, 4000),
-      ),
+      () =>
+          LargeJpegPlan.fromHeader(ImageHeader(ImageEncoding.jpeg, 4000, 4000)),
       throwsA(isA<ValidationException>()),
     );
   });
@@ -27,9 +23,9 @@ void main() {
     expect(plan.targetPixels, greaterThan(0));
     final relativeAspectError =
         ((plan.targetWidth / plan.targetHeight) /
-                (plan.sourceWidth / plan.sourceHeight) -
-            1)
-        .abs();
+                    (plan.sourceWidth / plan.sourceHeight) -
+                1)
+            .abs();
     expect(
       relativeAspectError,
       lessThanOrEqualTo(1 / plan.targetWidth + 1 / plan.targetHeight),
@@ -38,26 +34,28 @@ void main() {
     expect(plan.transformNote, contains('5000x4000'));
   });
 
-  test('a high-aspect source too small for the analysis preview is refused', () {
-    expect(
-      () => LargeJpegPlan.fromHeader(
-        ImageHeader(ImageEncoding.jpeg, 65535, 245),
-      ),
-      throwsA(
-        isA<ValidationException>().having(
-          (error) => error.message,
-          'too-small-after-downscale',
-          contains('أصغر'),
+  test(
+    'a high-aspect source too small for the analysis preview is refused',
+    () {
+      expect(
+        () => LargeJpegPlan.fromHeader(
+          ImageHeader(ImageEncoding.jpeg, 65535, 245),
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<ValidationException>().having(
+            (error) => error.message,
+            'too-small-after-downscale',
+            contains('أصغر'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('oversized PNG is rejected instead of full-decoded then resized', () {
     expect(
-      () => LargeJpegPlan.fromHeader(
-        ImageHeader(ImageEncoding.png, 5000, 4000),
-      ),
+      () =>
+          LargeJpegPlan.fromHeader(ImageHeader(ImageEncoding.png, 5000, 4000)),
       throwsA(
         isA<ValidationException>().having(
           (error) => error.message,

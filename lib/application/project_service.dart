@@ -135,11 +135,7 @@ class AutomaticLayoutReport {
 
 /// A replaced source: the record is saved and the aspect warning is explicit.
 class ReplaceReport {
-  const ReplaceReport(
-    this.project,
-    this.aspectChanged, {
-    this.scalingMessage,
-  });
+  const ReplaceReport(this.project, this.aspectChanged, {this.scalingMessage});
   final Project project;
 
   /// The rectangle on the sheet no longer matches the new pixel proportions.
@@ -715,9 +711,7 @@ class ProjectService {
                       ),
                 ),
           ) &&
-          !project.assets.any(
-            (candidate) => candidate.derivedFrom == assetId,
-          ),
+          !project.assets.any((candidate) => candidate.derivedFrom == assetId),
       'الصورة مرتبطة بسجل أو بأصل مشتق؛ لا يمكن إزالتها الآن.',
     );
     return projects.save(

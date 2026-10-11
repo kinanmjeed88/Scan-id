@@ -362,8 +362,10 @@ void main() {
       final segment = segmentDocumentBytes(bytes);
       expect(segment.multi, isFalse);
       expect(segment.candidates, hasLength(2));
-      expect(segment.candidates.every((candidate) => candidate.corners == null),
-          isTrue);
+      expect(
+        segment.candidates.every((candidate) => candidate.corners == null),
+        isTrue,
+      );
 
       var singleCalled = false;
       final pipeline = RecognitionPipeline(
@@ -389,8 +391,10 @@ void main() {
       expect(analysis.unresolvedRegions, hasLength(2));
       expect(analysis.multi, isTrue);
       expect(analysis.needsMultiIntake, isTrue);
-      expect(analysis.unresolvedRegions.every((region) => region.corners == null),
-          isTrue);
+      expect(
+        analysis.unresolvedRegions.every((region) => region.corners == null),
+        isTrue,
+      );
       expect(analysis.allRegions.map((region) => region.regionIndex), [0, 1]);
     },
   );

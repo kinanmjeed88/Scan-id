@@ -530,9 +530,8 @@ class _NoAssets implements AssetRepository {
     StateError('No asset operation expected in this widget test'),
   );
   @override
-  Future<Uint8List> previewImage(Uint8List source) => Future.error(
-    StateError('No preview expected in this widget test'),
-  );
+  Future<Uint8List> previewImage(Uint8List source) =>
+      Future.error(StateError('No preview expected in this widget test'));
   @override
   Future<File> resolve(String relativePath) => Future.error(
     StateError('No asset operation expected in this widget test'),

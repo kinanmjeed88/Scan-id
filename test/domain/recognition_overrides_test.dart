@@ -173,75 +173,84 @@ void main() {
   });
 
   group('dismissal', () {
-    test('is a tombstone: removes layout, retains evidence, and is idempotent', () {
-      final before = _project();
-      final target = before.documents.firstWhere((d) => d.id == 'rec-item-a');
+    test(
+      'is a tombstone: removes layout, retains evidence, and is idempotent',
+      () {
+        final before = _project();
+        final target = before.documents.firstWhere((d) => d.id == 'rec-item-a');
 
-      final dismissed = dismissRecognition(before, target.id);
+        final dismissed = dismissRecognition(before, target.id);
 
-      final record = dismissed.documents.firstWhere((d) => d.id == target.id);
-      expect(record.overrides.single.dismissed, isTrue);
-      expect(record.recognition, same(target.recognition));
-      expect(record.provenance.toJson(), target.provenance.toJson());
-      expect(dismissed.documents, hasLength(2));
-      expect(dismissed.items.map((item) => item.id), ['item-b']);
-      expect(
-        dismissed.assets.map((asset) => asset.toJson()).toList(),
-        before.assets.map((asset) => asset.toJson()).toList(),
-      );
-      expect(recordsNeedingReview(dismissed), hasLength(1));
-      expect(Project.fromJson(dismissed.toJson()).toJson(), dismissed.toJson());
-      expect(dismissRecognition(dismissed, target.id), same(dismissed));
-      expect(dismissRecognition(before, 'missing'), same(before));
-    });
+        final record = dismissed.documents.firstWhere((d) => d.id == target.id);
+        expect(record.overrides.single.dismissed, isTrue);
+        expect(record.recognition, same(target.recognition));
+        expect(record.provenance.toJson(), target.provenance.toJson());
+        expect(dismissed.documents, hasLength(2));
+        expect(dismissed.items.map((item) => item.id), ['item-b']);
+        expect(
+          dismissed.assets.map((asset) => asset.toJson()).toList(),
+          before.assets.map((asset) => asset.toJson()).toList(),
+        );
+        expect(recordsNeedingReview(dismissed), hasLength(1));
+        expect(
+          Project.fromJson(dismissed.toJson()).toJson(),
+          dismissed.toJson(),
+        );
+        expect(dismissRecognition(dismissed, target.id), same(dismissed));
+        expect(dismissRecognition(before, 'missing'), same(before));
+      },
+    );
 
-    test('dismissing one side dissolves an unresolved pair and preserves the partner', () {
-      final before = _project();
-      final proposed = before.copyWith(
-        items: [
-          for (final item in before.items)
-            item.id == 'item-b' ? item.copyWith(locked: true) : item,
-        ],
-        documents: [
-          for (final record in before.documents)
-            record.copyWith(
-              pairing: PairingState.ambiguous,
-              pairedDocumentId: record.id == 'rec-item-a'
-                  ? 'rec-item-b'
-                  : 'rec-item-a',
-              pairingConfidence: .8,
-            ),
-        ],
-      );
+    test(
+      'dismissing one side dissolves an unresolved pair and preserves the partner',
+      () {
+        final before = _project();
+        final proposed = before.copyWith(
+          items: [
+            for (final item in before.items)
+              item.id == 'item-b' ? item.copyWith(locked: true) : item,
+          ],
+          documents: [
+            for (final record in before.documents)
+              record.copyWith(
+                pairing: PairingState.ambiguous,
+                pairedDocumentId: record.id == 'rec-item-a'
+                    ? 'rec-item-b'
+                    : 'rec-item-a',
+                pairingConfidence: .8,
+              ),
+          ],
+        );
 
-      final dismissed = dismissRecognition(proposed, 'rec-item-a');
+        final dismissed = dismissRecognition(proposed, 'rec-item-a');
 
-      final target = dismissed.documents.firstWhere(
-        (record) => record.id == 'rec-item-a',
-      );
-      final partner = dismissed.documents.firstWhere(
-        (record) => record.id == 'rec-item-b',
-      );
-      expect(target.overrides.last.dismissed, isTrue);
-      expect(target.pairing, PairingState.single);
-      expect(target.pairedDocumentId, isNull);
-      expect(partner.pairing, PairingState.single);
-      expect(partner.pairedDocumentId, isNull);
-      expect(partner.overrides.last.pairing, PairingState.single);
-      expect(
-        recordsNeedingReview(dismissed).map((record) => record.id),
-        ['rec-item-b'],
-        reason: 'rejecting a pair must not hide the partner’s other reasons',
-      );
-      expect(dismissed.layoutGroups, isEmpty);
-      expect(dismissed.items.single.groupId, isNull);
-      expect(dismissed.items.single.documentId, 'rec-item-b');
-      expect(dismissed.items.single.locked, isTrue);
-      expect(
-        dismissed.assets.map((asset) => asset.toJson()).toList(),
-        proposed.assets.map((asset) => asset.toJson()).toList(),
-      );
-    });
+        final target = dismissed.documents.firstWhere(
+          (record) => record.id == 'rec-item-a',
+        );
+        final partner = dismissed.documents.firstWhere(
+          (record) => record.id == 'rec-item-b',
+        );
+        expect(target.overrides.last.dismissed, isTrue);
+        expect(target.pairing, PairingState.single);
+        expect(target.pairedDocumentId, isNull);
+        expect(partner.pairing, PairingState.single);
+        expect(partner.pairedDocumentId, isNull);
+        expect(partner.overrides.last.pairing, PairingState.single);
+        expect(
+          recordsNeedingReview(dismissed).map((record) => record.id),
+          ['rec-item-b'],
+          reason: 'rejecting a pair must not hide the partner’s other reasons',
+        );
+        expect(dismissed.layoutGroups, isEmpty);
+        expect(dismissed.items.single.groupId, isNull);
+        expect(dismissed.items.single.documentId, 'rec-item-b');
+        expect(dismissed.items.single.locked, isTrue);
+        expect(
+          dismissed.assets.map((asset) => asset.toJson()).toList(),
+          proposed.assets.map((asset) => asset.toJson()).toList(),
+        );
+      },
+    );
 
     test('a stale dismissal cannot replace an already-confirmed decision', () {
       final confirmed = confirmRecognition(_project(), 'rec-item-a');
@@ -251,7 +260,11 @@ void main() {
       expect(stale, same(confirmed));
       expect(stale.items, hasLength(2));
       expect(
-        stale.documents.firstWhere((d) => d.id == 'rec-item-a').overrides.single.dismissed,
+        stale.documents
+            .firstWhere((d) => d.id == 'rec-item-a')
+            .overrides
+            .single
+            .dismissed,
         isNull,
       );
     });
@@ -265,7 +278,9 @@ void main() {
       expect(stale.items, hasLength(2));
       expect(stale.layoutGroups, hasLength(1));
       expect(
-        stale.documents.every((record) => record.pairing == PairingState.paired),
+        stale.documents.every(
+          (record) => record.pairing == PairingState.paired,
+        ),
         isTrue,
       );
     });
@@ -288,23 +303,29 @@ void main() {
   });
 
   group('ordinary linked-item deletion', () {
-    test('deleting the last item cascades its record and unpairs the survivor', () {
-      final paired = acceptPair(_project(), 'rec-item-a', 'rec-item-b');
+    test(
+      'deleting the last item cascades its record and unpairs the survivor',
+      () {
+        final paired = acceptPair(_project(), 'rec-item-a', 'rec-item-b');
 
-      final deleted = PageLayout.remove(paired, {'item-a'});
+        final deleted = PageLayout.remove(paired, {'item-a'});
 
-      expect(deleted.items.map((item) => item.id), ['item-b']);
-      expect(deleted.documents.map((record) => record.id), ['rec-item-b']);
-      expect(deleted.documents.single.pairing, PairingState.single);
-      expect(deleted.documents.single.pairedDocumentId, isNull);
-      expect(deleted.documents.single.overrides.last.pairing, PairingState.single);
-      expect(deleted.layoutGroups, isEmpty);
-      expect(deleted.items.single.groupId, isNull);
-      expect(
-        deleted.assets.map((asset) => asset.toJson()).toList(),
-        paired.assets.map((asset) => asset.toJson()).toList(),
-      );
-    });
+        expect(deleted.items.map((item) => item.id), ['item-b']);
+        expect(deleted.documents.map((record) => record.id), ['rec-item-b']);
+        expect(deleted.documents.single.pairing, PairingState.single);
+        expect(deleted.documents.single.pairedDocumentId, isNull);
+        expect(
+          deleted.documents.single.overrides.last.pairing,
+          PairingState.single,
+        );
+        expect(deleted.layoutGroups, isEmpty);
+        expect(deleted.items.single.groupId, isNull);
+        expect(
+          deleted.assets.map((asset) => asset.toJson()).toList(),
+          paired.assets.map((asset) => asset.toJson()).toList(),
+        );
+      },
+    );
 
     test('deleting one duplicate keeps its record and remaining edit link', () {
       final before = _project();

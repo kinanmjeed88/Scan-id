@@ -129,11 +129,9 @@ Project dismissRecognition(Project project, String documentId) {
   ];
   // The tombstone and removal of its layout item must validate atomically;
   // an intermediate project with a dismissed record and a live item is invalid.
-  return PageLayout.remove(
-    next,
-    {for (final item in linkedItems) item.id},
-    documentsOverride: updatedRecords,
-  );
+  return PageLayout.remove(next, {
+    for (final item in linkedItems) item.id,
+  }, documentsOverride: updatedRecords);
 }
 
 /// Records the user's front/back choice for a document.

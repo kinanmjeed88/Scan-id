@@ -400,8 +400,9 @@ void main() {
         isNot(manualAsset.workingPath),
       );
       expect(
-        await (await assets.resolve(project.assets.single.originalPath))
-            .readAsBytes(),
+        await (await assets.resolve(
+          project.assets.single.originalPath,
+        )).readAsBytes(),
         original,
       );
     },
@@ -538,7 +539,10 @@ void main() {
     final replaced = report.project.assets.single;
     expect(scaler.lastPlan?.sourceWidth, 5000);
     expect(scaler.lastPlan?.sourceHeight, 4000);
-    expect(scaler.lastPlan!.targetPixels, lessThanOrEqualTo(maxScaledWorkingPixels));
+    expect(
+      scaler.lastPlan!.targetPixels,
+      lessThanOrEqualTo(maxScaledWorkingPixels),
+    );
     expect(report.scalingMessage, contains('الأصل كما هو'));
     expect(report.scalingMessage, contains('800×640'));
     expect(replaced.hasScaledLargeSource, isTrue);

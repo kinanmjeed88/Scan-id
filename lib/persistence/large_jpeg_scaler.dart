@@ -23,18 +23,16 @@ class PlatformLargeJpegScaler implements LargeJpegScaler {
   @override
   Future<Uint8List> scaleJpeg(Uint8List source, LargeJpegPlan plan) async {
     try {
-      final result = await channel.invokeMethod<Uint8List>(
-        'scaleJpeg',
-        <String, Object>{
-          'bytes': source,
-          'sourceWidth': plan.sourceWidth,
-          'sourceHeight': plan.sourceHeight,
-          'orientation': plan.orientation,
-          'targetWidth': plan.targetWidth,
-          'targetHeight': plan.targetHeight,
-          'maxPixels': plan.targetPixels,
-        },
-      );
+      final result = await channel
+          .invokeMethod<Uint8List>('scaleJpeg', <String, Object>{
+            'bytes': source,
+            'sourceWidth': plan.sourceWidth,
+            'sourceHeight': plan.sourceHeight,
+            'orientation': plan.orientation,
+            'targetWidth': plan.targetWidth,
+            'targetHeight': plan.targetHeight,
+            'maxPixels': plan.targetPixels,
+          });
       if (result == null) {
         throw const ValidationException('تعذر تصغير صورة JPEG بأمان.');
       }

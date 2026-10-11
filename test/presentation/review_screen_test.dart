@@ -13,42 +13,39 @@ DocumentRecord _record(
   String assetId, {
   String? processedAssetId,
   String? pairedWith,
-}) =>
-    DocumentRecord(
-      id: 'rec-$stem',
-      sourceImageId: assetId,
-      sides: [
-        DocumentSide(
-          id: 'side-$stem',
-          side: SideKind.unknown,
-          processedAsset: ProcessedAssetRef(
-            workingPath:
-                'projects/project1/assets/${processedAssetId ?? assetId}/working.png',
-            thumbnailPath:
-                'projects/project1/assets/${processedAssetId ?? assetId}/thumb.jpg',
-            width: 856,
-            height: 540,
-          ),
-        ),
-      ],
-      recognition: RecognitionResult(
-        documentKind: DocumentKind.unifiedNationalId,
-        status: RecognitionStatus.recognized,
-        confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
-        preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
+}) => DocumentRecord(
+  id: 'rec-$stem',
+  sourceImageId: assetId,
+  sides: [
+    DocumentSide(
+      id: 'side-$stem',
+      side: SideKind.unknown,
+      processedAsset: ProcessedAssetRef(
+        workingPath:
+            'projects/project1/assets/${processedAssetId ?? assetId}/working.png',
+        thumbnailPath:
+            'projects/project1/assets/${processedAssetId ?? assetId}/thumb.jpg',
+        width: 856,
+        height: 540,
       ),
-      pairing: pairedWith == null
-          ? PairingState.single
-          : PairingState.ambiguous,
-      pairedDocumentId: pairedWith,
-      pairingConfidence: pairedWith == null ? null : .85,
-      provenance: Provenance(
-        sourceImageId: assetId,
-        detectionIds: ['$assetId-d0'],
-        processedAssetVersion: 'smart-1',
-        pipelineVersion: 'smart-1',
-      ),
-    );
+    ),
+  ],
+  recognition: RecognitionResult(
+    documentKind: DocumentKind.unifiedNationalId,
+    status: RecognitionStatus.recognized,
+    confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
+    preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
+  ),
+  pairing: pairedWith == null ? PairingState.single : PairingState.ambiguous,
+  pairedDocumentId: pairedWith,
+  pairingConfidence: pairedWith == null ? null : .85,
+  provenance: Provenance(
+    sourceImageId: assetId,
+    detectionIds: ['$assetId-d0'],
+    processedAssetVersion: 'smart-1',
+    pipelineVersion: 'smart-1',
+  ),
+);
 
 DocumentItem _linkedItem(String stem, String assetId, {double y = 5}) =>
     DocumentItem(
@@ -137,10 +134,7 @@ void main() {
       await tapKey(tester, const Key('rb-review'));
       final dismissButton = find.byKey(const Key('review-dismiss-rec-front'));
       expect(
-        find.descendant(
-          of: dismissButton,
-          matching: find.text('ليس مستنداً'),
-        ),
+        find.descendant(of: dismissButton, matching: find.text('ليس مستنداً')),
         findsOneWidget,
       );
       expect(
@@ -172,7 +166,10 @@ void main() {
       expect(partner.pairedDocumentId, isNull);
       expect(partner.pairing, PairingState.single);
       expect(partner.overrides.last.pairing, PairingState.single);
-      expect(partner.overrides.any((override) => override.dismissed == true), isFalse);
+      expect(
+        partner.overrides.any((override) => override.dismissed == true),
+        isFalse,
+      );
       expect(
         recordsNeedingReview(editor.saved).map((record) => record.id),
         ['rec-back'],
@@ -190,17 +187,19 @@ void main() {
       expect(recordsNeedingReview(editor.saved), hasLength(2));
       await tapKey(tester, const Key('qa-redo'));
       expect(editor.saved.items.map((item) => item.id), ['back']);
-      expect(
-        recordsNeedingReview(editor.saved).map((record) => record.id),
-        ['rec-back'],
-      );
+      expect(recordsNeedingReview(editor.saved).map((record) => record.id), [
+        'rec-back',
+      ]);
     },
   );
 
   testWidgets(
     'a failed dismissal save leaves the candidate intact and can be retried',
     (tester) async {
-      final editor = await EditorHarness.pump(tester, project: _reviewProject());
+      final editor = await EditorHarness.pump(
+        tester,
+        project: _reviewProject(),
+      );
       await tapKey(tester, const Key('rb-review'));
       editor.repository.failNextSave = true;
 
@@ -217,10 +216,9 @@ void main() {
 
       await tapKey(tester, const Key('review-dismiss-rec-front'));
       expect(editor.saved.items, hasLength(1));
-      expect(
-        recordsNeedingReview(editor.saved).map((record) => record.id),
-        ['rec-back'],
-      );
+      expect(recordsNeedingReview(editor.saved).map((record) => record.id), [
+        'rec-back',
+      ]);
       expect(tester.takeException(), isNull);
     },
   );
@@ -251,7 +249,8 @@ void main() {
     expect(
       recordsNeedingReview(editor.saved),
       hasLength(2),
-      reason: 'pair rejection resolves pairing only, not each record’s other reasons',
+      reason:
+          'pair rejection resolves pairing only, not each record’s other reasons',
     );
     expect(tester.takeException(), isNull);
   });

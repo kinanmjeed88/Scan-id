@@ -196,7 +196,10 @@ void main() {
         overrides: [UserOverride(pairing: PairingState.single)],
       );
       expect(reviewReasons(rejectedPair), contains('ثقة منخفضة'));
-      expect(reviewReasons(rejectedPair), isNot(contains('اقتران وجهين غير مؤكد')));
+      expect(
+        reviewReasons(rejectedPair),
+        isNot(contains('اقتران وجهين غير مؤكد')),
+      );
     });
 
     test('kind correction resolves classification but not boundary review', () {
@@ -209,7 +212,9 @@ void main() {
       );
 
       expect(isUserResolved(record), isFalse);
-      expect(reviewReasons(record), ['حدود غير محسومة — يحتاج القص إلى مراجعة']);
+      expect(reviewReasons(record), [
+        'حدود غير محسومة — يحتاج القص إلى مراجعة',
+      ]);
       expect(recordNeedsReview(record), isTrue);
     });
 

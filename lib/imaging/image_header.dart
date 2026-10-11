@@ -6,12 +6,7 @@ import '../domain/validation.dart';
 enum ImageEncoding { jpeg, png }
 
 class ImageHeader {
-  ImageHeader(
-    this.encoding,
-    this.width,
-    this.height, {
-    this.orientation = 1,
-  }) {
+  ImageHeader(this.encoding, this.width, this.height, {this.orientation = 1}) {
     require(
       width > 0 && height > 0 && width <= 65535 && height <= 65535,
       'أبعاد الصورة خارج المجال المدعوم.',
@@ -143,8 +138,10 @@ ImageHeader inspectImageHeader(Uint8List bytes) {
 int? _exifOrientation(Uint8List bytes, int start, int end) {
   const signature = [0x45, 0x78, 0x69, 0x66, 0, 0];
   if (end - start < 14 ||
-      !List.generate(6, (index) => bytes[start + index] == signature[index])
-          .every((matches) => matches)) {
+      !List.generate(
+        6,
+        (index) => bytes[start + index] == signature[index],
+      ).every((matches) => matches)) {
     return null;
   }
   final tiff = start + 6;

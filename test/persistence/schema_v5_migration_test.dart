@@ -234,34 +234,37 @@ void main() {
   });
 
   group('bounds', () {
-    test('active records require an item; dismissed records retain provenance', () {
-      Project project({required DocumentRecord record}) => Project(
-        id: 'p1',
-        name: 'bounds',
-        createdAt: DateTime.utc(2026, 10, 6),
-        updatedAt: DateTime.utc(2026, 10, 6),
-        assets: [legacyAsset()],
-        items: const [],
-        documents: [record],
-      );
+    test(
+      'active records require an item; dismissed records retain provenance',
+      () {
+        Project project({required DocumentRecord record}) => Project(
+          id: 'p1',
+          name: 'bounds',
+          createdAt: DateTime.utc(2026, 10, 6),
+          updatedAt: DateTime.utc(2026, 10, 6),
+          assets: [legacyAsset()],
+          items: const [],
+          documents: [record],
+        );
 
-      expect(
-        () => project(record: _minimalRecord('rec-1')),
-        throwsA(isA<ValidationException>()),
-      );
-      final dismissed = _minimalRecord('rec-1').copyWith(
-        overrides: [
-          UserOverride(dismissed: true, fields: const ['dismissed']),
-        ],
-      );
-      final tombstone = project(record: dismissed);
-      expect(tombstone.items, isEmpty);
-      expect(tombstone.documents.single.overrides.single.dismissed, isTrue);
-      expect(
-        Project.fromJson(tombstone.toJson()).toJson(),
-        tombstone.toJson(),
-      );
-    });
+        expect(
+          () => project(record: _minimalRecord('rec-1')),
+          throwsA(isA<ValidationException>()),
+        );
+        final dismissed = _minimalRecord('rec-1').copyWith(
+          overrides: [
+            UserOverride(dismissed: true, fields: const ['dismissed']),
+          ],
+        );
+        final tombstone = project(record: dismissed);
+        expect(tombstone.items, isEmpty);
+        expect(tombstone.documents.single.overrides.single.dismissed, isTrue);
+        expect(
+          Project.fromJson(tombstone.toJson()).toJson(),
+          tombstone.toJson(),
+        );
+      },
+    );
 
     test('dismissed tombstones remain bounded by the existing item limit', () {
       final records = [

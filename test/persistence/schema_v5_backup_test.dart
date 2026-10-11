@@ -153,125 +153,148 @@ void main() {
     expect((await projects.get(restored.id)).toJson(), restored.toJson());
   });
 
-  test('a dismissed record and its shared derived asset survive backup restore', () async {
-    const prefix = 'projects/p1/assets/a2';
-    for (final entry in <String, String>{
-      '$prefix/original.png': 'derived original',
-      '$prefix/working.png': 'derived working',
-      '$prefix/thumb.jpg': 'derived thumbnail',
-    }.entries) {
-      final file = File('${root.path}/${entry.key}');
-      await file.parent.create(recursive: true);
-      await file.writeAsString(entry.value);
-    }
-    final base = v5Project(processedPrefix: prefix);
-    final dismissed = base.documents.single.copyWith(
-      overrides: [
-        ...base.documents.single.overrides,
-        UserOverride(dismissed: true, fields: const ['dismissed']),
-      ],
-    );
-    final project = base.copyWith(
-      assets: [
-        ...base.assets,
-        ImageAsset(
-          id: 'a2',
-          name: 'derived card.png',
-          originalPath: '$prefix/original.png',
-          workingPath: '$prefix/working.png',
-          thumbnailPath: '$prefix/thumb.jpg',
-          width: 400,
-          height: 250,
-          derivedFrom: 'a1',
-        ),
-      ],
-      items: const [],
-      documents: [dismissed],
-    );
-    final created = await projects.create(project);
-    final backup = await backups.create(created, root);
-    await Directory('${root.path}/projects/p1').delete(recursive: true);
-
-    final restored = await backups.restore(backup);
-    final record = restored.documents.single;
-    final restoredDerived = restored.assets.firstWhere((asset) => asset.id == 'a2');
-
-    expect(restored.items, isEmpty);
-    expect(record.overrides.last.dismissed, isTrue);
-    expect(record.sourceImageId, 'a1');
-    expect(record.sides.single.processedAsset.workingPath,
-        'projects/${restored.id}/assets/a2/working.png');
-    expect(restoredDerived.derivedFrom, 'a1');
-    expect(
-      await File('${root.path}/projects/${restored.id}/assets/a2/working.png')
-          .readAsString(),
-      'derived working',
-    );
-    expect((await projects.get(restored.id)).toJson(), restored.toJson());
-  });
-
-  test('a large-source sampling raster survives crop revisions and backup restore', () async {
-    const prefix = 'projects/p1/assets/a1';
-    final payloads = <String, List<int>>{
-      '$prefix/original.jpg': [7, 8, 9],
-      '$prefix/working.png': [1, 2, 3, 4],
-      '$prefix/edits/e1/working.png': [5, 6, 7, 8],
-      '$prefix/edits/e1/thumb.jpg': [9, 10],
-    };
-    for (final entry in payloads.entries) {
-      final file = File('${root.path}/${entry.key}');
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes(entry.value);
-    }
-    final large = ImageAsset(
-      id: 'a1',
-      name: 'large source.jpg',
-      originalPath: '$prefix/original.jpg',
-      workingPath: '$prefix/edits/e1/working.png',
-      thumbnailPath: '$prefix/edits/e1/thumb.jpg',
-      width: 800,
-      height: 640,
-      crop: CropGeometry(
-        corners: [
-          Point2(.1, .1),
-          Point2(.9, .1),
-          Point2(.9, .9),
-          Point2(.1, .9),
+  test(
+    'a dismissed record and its shared derived asset survive backup restore',
+    () async {
+      const prefix = 'projects/p1/assets/a2';
+      for (final entry in <String, String>{
+        '$prefix/original.png': 'derived original',
+        '$prefix/working.png': 'derived working',
+        '$prefix/thumb.jpg': 'derived thumbnail',
+      }.entries) {
+        final file = File('${root.path}/${entry.key}');
+        await file.parent.create(recursive: true);
+        await file.writeAsString(entry.value);
+      }
+      final base = v5Project(processedPrefix: prefix);
+      final dismissed = base.documents.single.copyWith(
+        overrides: [
+          ...base.documents.single.overrides,
+          UserOverride(dismissed: true, fields: const ['dismissed']),
         ],
-        outputWidth: 800,
-        outputHeight: 640,
-      ),
-      userAuthoredCrop: true,
-      transforms: const [
-        'exif-orientation',
-        'large-jpeg:5000x4000->2236x1788-exif1',
-        'perspective-edit:e1',
-      ],
-    );
-    final project = Project(
-      id: 'p1',
-      name: 'large source backup',
-      createdAt: DateTime.utc(2026, 10, 6),
-      updatedAt: DateTime.utc(2026, 10, 6),
-      assets: [large],
-    );
-    final created = await projects.create(project);
-    final backup = await backups.create(created, root);
-    await Directory('${root.path}/projects/p1').delete(recursive: true);
+      );
+      final project = base.copyWith(
+        assets: [
+          ...base.assets,
+          ImageAsset(
+            id: 'a2',
+            name: 'derived card.png',
+            originalPath: '$prefix/original.png',
+            workingPath: '$prefix/working.png',
+            thumbnailPath: '$prefix/thumb.jpg',
+            width: 400,
+            height: 250,
+            derivedFrom: 'a1',
+          ),
+        ],
+        items: const [],
+        documents: [dismissed],
+      );
+      final created = await projects.create(project);
+      final backup = await backups.create(created, root);
+      await Directory('${root.path}/projects/p1').delete(recursive: true);
 
-    final restored = await backups.restore(backup);
-    final restoredAsset = restored.assets.single;
+      final restored = await backups.restore(backup);
+      final record = restored.documents.single;
+      final restoredDerived = restored.assets.firstWhere(
+        (asset) => asset.id == 'a2',
+      );
 
-    expect(restoredAsset.hasScaledLargeSource, isTrue);
-    expect(restoredAsset.userAuthoredCrop, isTrue);
-    expect(restoredAsset.crop, isNotNull);
-    expect(restoredAsset.processingInputPath, 'projects/${restored.id}/assets/a1/working.png');
-    for (final entry in payloads.entries) {
-      final restoredPath = entry.key.replaceFirst('projects/p1/', 'projects/${restored.id}/');
-      expect(await File('${root.path}/$restoredPath').readAsBytes(), entry.value);
-    }
-    expect((await projects.get(restored.id)).assets.single.processingInputPath, restoredAsset.processingInputPath);
-  });
+      expect(restored.items, isEmpty);
+      expect(record.overrides.last.dismissed, isTrue);
+      expect(record.sourceImageId, 'a1');
+      expect(
+        record.sides.single.processedAsset.workingPath,
+        'projects/${restored.id}/assets/a2/working.png',
+      );
+      expect(restoredDerived.derivedFrom, 'a1');
+      expect(
+        await File(
+          '${root.path}/projects/${restored.id}/assets/a2/working.png',
+        ).readAsString(),
+        'derived working',
+      );
+      expect((await projects.get(restored.id)).toJson(), restored.toJson());
+    },
+  );
+
+  test(
+    'a large-source sampling raster survives crop revisions and backup restore',
+    () async {
+      const prefix = 'projects/p1/assets/a1';
+      final payloads = <String, List<int>>{
+        '$prefix/original.jpg': [7, 8, 9],
+        '$prefix/working.png': [1, 2, 3, 4],
+        '$prefix/edits/e1/working.png': [5, 6, 7, 8],
+        '$prefix/edits/e1/thumb.jpg': [9, 10],
+      };
+      for (final entry in payloads.entries) {
+        final file = File('${root.path}/${entry.key}');
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(entry.value);
+      }
+      final large = ImageAsset(
+        id: 'a1',
+        name: 'large source.jpg',
+        originalPath: '$prefix/original.jpg',
+        workingPath: '$prefix/edits/e1/working.png',
+        thumbnailPath: '$prefix/edits/e1/thumb.jpg',
+        width: 800,
+        height: 640,
+        crop: CropGeometry(
+          corners: [
+            Point2(.1, .1),
+            Point2(.9, .1),
+            Point2(.9, .9),
+            Point2(.1, .9),
+          ],
+          outputWidth: 800,
+          outputHeight: 640,
+        ),
+        userAuthoredCrop: true,
+        transforms: const [
+          'exif-orientation',
+          'large-jpeg:5000x4000->2236x1788-exif1',
+          'perspective-edit:e1',
+        ],
+      );
+      final project = Project(
+        id: 'p1',
+        name: 'large source backup',
+        createdAt: DateTime.utc(2026, 10, 6),
+        updatedAt: DateTime.utc(2026, 10, 6),
+        assets: [large],
+      );
+      final created = await projects.create(project);
+      final backup = await backups.create(created, root);
+      await Directory('${root.path}/projects/p1').delete(recursive: true);
+
+      final restored = await backups.restore(backup);
+      final restoredAsset = restored.assets.single;
+
+      expect(restoredAsset.hasScaledLargeSource, isTrue);
+      expect(restoredAsset.userAuthoredCrop, isTrue);
+      expect(restoredAsset.crop, isNotNull);
+      expect(
+        restoredAsset.processingInputPath,
+        'projects/${restored.id}/assets/a1/working.png',
+      );
+      for (final entry in payloads.entries) {
+        final restoredPath = entry.key.replaceFirst(
+          'projects/p1/',
+          'projects/${restored.id}/',
+        );
+        expect(
+          await File('${root.path}/$restoredPath').readAsBytes(),
+          entry.value,
+        );
+      }
+      expect(
+        (await projects.get(restored.id)).assets.single.processingInputPath,
+        restoredAsset.processingInputPath,
+      );
+    },
+  );
 
   test('a missing processed asset does not corrupt restore', () async {
     // The processed reference points under processed/ to a file that was never

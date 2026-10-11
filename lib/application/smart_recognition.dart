@@ -639,11 +639,7 @@ class SmartIntake {
     return project.assets.any(
       (asset) =>
           asset.userAuthoredCrop &&
-          (assetOwnsProjectPath(
-                project.id,
-                asset.id,
-                processed.workingPath,
-              ) ||
+          (assetOwnsProjectPath(project.id, asset.id, processed.workingPath) ||
               assetOwnsProjectPath(
                 project.id,
                 asset.id,
@@ -740,9 +736,7 @@ class SmartIntake {
     Uint8List? originalBytes;
     try {
       originalBytes = await readBoundedImage(
-        (await assets.resolve(
-          sourceAsset.processingInputPath,
-        )).openRead(),
+        (await assets.resolve(sourceAsset.processingInputPath)).openRead(),
       );
       var position = 0;
       for (final detection in analyzed.analysis.allRegions) {
@@ -755,8 +749,7 @@ class SmartIntake {
           final decisionMessage = isDismissed(existing)
               ? 'مستبعد بقرارك؛ لم يُعَد إدراجه.'
               : existing.overrides.any(
-                  (override) =>
-                      override.fields.contains(reviewConfirmedField),
+                  (override) => override.fields.contains(reviewConfirmedField),
                 )
               ? 'تُرِك كما أكّدته.'
               : 'حُفظ قرار المراجعة السابق.';
@@ -1031,8 +1024,10 @@ class SmartIntake {
         );
         return current;
       }
-      regenerated = (await editor.createRevision(target, output.recipe!))
-          .clearUserAuthoredCrop();
+      regenerated = (await editor.createRevision(
+        target,
+        output.recipe!,
+      )).clearUserAuthoredCrop();
     } else {
       final files = await assets.replaceImage(
         current.id,
@@ -1170,8 +1165,10 @@ class SmartIntake {
               adjustments: asset.adjustments,
               aspectRatio: size.width / size.height,
             ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-      final updated = (await editor.createRevision(asset, recipe))
-          .clearUserAuthoredCrop();
+      final updated = (await editor.createRevision(
+        asset,
+        recipe,
+      )).clearUserAuthoredCrop();
       // Deferred to the batch commit: a revision saved on its own, whose
       // document record then failed to be created, leaves the source asset
       // pointing at files nothing explains. The revision files themselves are
@@ -1273,9 +1270,7 @@ class SmartIntake {
     Uint8List? originalBytes;
     try {
       originalBytes = await readBoundedImage(
-        (await assets.resolve(
-          sourceAsset.processingInputPath,
-        )).openRead(),
+        (await assets.resolve(sourceAsset.processingInputPath)).openRead(),
       );
       var position = 0;
       for (final detection in detections) {

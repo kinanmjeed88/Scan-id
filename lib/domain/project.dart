@@ -289,10 +289,7 @@ class ImageAsset {
   /// space across those edits without changing the persisted schema.
   String get processingInputPath {
     if (!hasScaledLargeSource) return originalPath;
-    final directory = originalPath.substring(
-      0,
-      originalPath.lastIndexOf('/'),
-    );
+    final directory = originalPath.substring(0, originalPath.lastIndexOf('/'));
     return '$directory/working.png';
   }
 
@@ -399,8 +396,11 @@ bool _isDismissedRecord(DocumentRecord record) =>
 /// not merely whether it equals the asset's latest working/thumbnail path.
 /// Crops, replacements and historical recognition outputs all live beneath
 /// this prefix, so identity-based references survive a new revision.
-bool assetOwnsProjectPath(String projectId, String assetId, String storedPath) =>
-    storedPath.startsWith('projects/$projectId/assets/$assetId/');
+bool assetOwnsProjectPath(
+  String projectId,
+  String assetId,
+  String storedPath,
+) => storedPath.startsWith('projects/$projectId/assets/$assetId/');
 
 /// Bounds the audit trail while retaining the latest source-boundary marker.
 /// A large-source marker must survive ordinary edit/reprocess history, and a
@@ -413,8 +413,7 @@ List<String> boundedTransformLog(Iterable<String> entries) {
 
   final start = all.length - limit;
   final boundary = all.lastIndexWhere(
-    (entry) =>
-        entry.startsWith('large-jpeg:') || entry.startsWith('replaced:'),
+    (entry) => entry.startsWith('large-jpeg:') || entry.startsWith('replaced:'),
   );
   if (boundary < 0 || boundary >= start) {
     return List.unmodifiable(all.skip(start));

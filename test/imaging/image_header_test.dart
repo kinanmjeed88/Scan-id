@@ -26,19 +26,22 @@ Uint8List _jpegHeader(int width, int height) => Uint8List.fromList([
 ]);
 
 void main() {
-  test('direct Dart decoding rejects an oversized JPEG before a codec runs', () {
-    final bytes = _jpegHeader(4001, 4000);
-    expect(
-      () => decodeForProcessing(bytes),
-      throwsA(
-        isA<ValidationException>().having(
-          (e) => e.message,
-          'pixel guard',
-          contains('16'),
+  test(
+    'direct Dart decoding rejects an oversized JPEG before a codec runs',
+    () {
+      final bytes = _jpegHeader(4001, 4000);
+      expect(
+        () => decodeForProcessing(bytes),
+        throwsA(
+          isA<ValidationException>().having(
+            (e) => e.message,
+            'pixel guard',
+            contains('16'),
+          ),
         ),
-      ),
-    );
-  });
+      );
+    },
+  );
   test(
     'a source above the processing limit is admitted for bounded scaling',
     () {
@@ -53,24 +56,56 @@ void main() {
   test('JPEGs above the bounded source ceiling are rejected in the header', () {
     expect(
       () => inspectImageHeader(_jpegHeader(7000, 5000)),
-      throwsA(isA<ValidationException>().having(
-        (error) => error.message,
-        'source pixel guard',
-        contains('32'),
-      )),
+      throwsA(
+        isA<ValidationException>().having(
+          (error) => error.message,
+          'source pixel guard',
+          contains('32'),
+        ),
+      ),
     );
   });
 
   test('EXIF orientation is read without decoding the JPEG frame', () {
     final bytes = Uint8List.fromList([
-      0xff, 0xd8,
-      0xff, 0xe1, 0x00, 0x22,
-      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
-      0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
-      0x01, 0x00,
-      0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
-      0x06, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00,
+      0xff,
+      0xd8,
+      0xff,
+      0xe1,
+      0x00,
+      0x22,
+      0x45,
+      0x78,
+      0x69,
+      0x66,
+      0x00,
+      0x00,
+      0x49,
+      0x49,
+      0x2a,
+      0x00,
+      0x08,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
       ..._jpegHeader(4000, 5000).skip(2),
     ]);
     expect(inspectImageHeader(bytes).orientation, 6);
@@ -80,14 +115,44 @@ void main() {
     final frame = _jpegHeader(4000, 5000);
     final bytes = Uint8List.fromList([
       ...frame.take(frame.length - 2),
-      0xff, 0xe1, 0x00, 0x22,
-      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
-      0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
-      0x01, 0x00,
-      0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
-      0x06, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x00,
-      0xff, 0xd9,
+      0xff,
+      0xe1,
+      0x00,
+      0x22,
+      0x45,
+      0x78,
+      0x69,
+      0x66,
+      0x00,
+      0x00,
+      0x49,
+      0x49,
+      0x2a,
+      0x00,
+      0x08,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0xff,
+      0xd9,
     ]);
 
     final header = inspectImageHeader(bytes);

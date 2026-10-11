@@ -82,64 +82,75 @@ void main() {
     expect(() => project.items.add(itemFixture()), throwsUnsupportedError);
   });
 
-  test('legacy crop metadata stays unmarked unless the manual editor authored it', () {
-    final geometry = CropGeometry(
-      corners: [
-        Point2(.1, .1),
-        Point2(.9, .1),
-        Point2(.9, .9),
-        Point2(.1, .9),
-      ],
-      outputWidth: 320,
-      outputHeight: 200,
-    );
-    final legacyJson = assetFixture().toJson()
-      ..['crop'] = geometry.toJson()
-      ..remove('userAuthoredCrop');
+  test(
+    'legacy crop metadata stays unmarked unless the manual editor authored it',
+    () {
+      final geometry = CropGeometry(
+        corners: [
+          Point2(.1, .1),
+          Point2(.9, .1),
+          Point2(.9, .9),
+          Point2(.1, .9),
+        ],
+        outputWidth: 320,
+        outputHeight: 200,
+      );
+      final legacyJson = assetFixture().toJson()
+        ..['crop'] = geometry.toJson()
+        ..remove('userAuthoredCrop');
 
-    final legacy = ImageAsset.fromJson(legacyJson);
-    expect(legacy.userAuthoredCrop, isFalse);
-    expect(legacy.crop!.toJson(), geometry.toJson());
+      final legacy = ImageAsset.fromJson(legacyJson);
+      expect(legacy.userAuthoredCrop, isFalse);
+      expect(legacy.crop!.toJson(), geometry.toJson());
 
-    final manualJson = {...legacyJson, 'userAuthoredCrop': true};
-    final manual = ImageAsset.fromJson(manualJson);
-    expect(manual.userAuthoredCrop, isTrue);
-    expect(manual.toJson()['userAuthoredCrop'], isTrue);
-    expect(
-      () => ImageAsset.fromJson({...legacyJson, 'crop': null, 'userAuthoredCrop': true}),
-      invalid,
-    );
-  });
+      final manualJson = {...legacyJson, 'userAuthoredCrop': true};
+      final manual = ImageAsset.fromJson(manualJson);
+      expect(manual.userAuthoredCrop, isTrue);
+      expect(manual.toJson()['userAuthoredCrop'], isTrue);
+      expect(
+        () => ImageAsset.fromJson({
+          ...legacyJson,
+          'crop': null,
+          'userAuthoredCrop': true,
+        }),
+        invalid,
+      );
+    },
+  );
 
-  test('large-source processing state survives edits and follows replacements', () {
-    ImageAsset assetWithTransforms(List<String> transforms) => ImageAsset.fromJson(
-      assetFixture().toJson()..['transforms'] = transforms,
-    );
+  test(
+    'large-source processing state survives edits and follows replacements',
+    () {
+      ImageAsset assetWithTransforms(List<String> transforms) =>
+          ImageAsset.fromJson(
+            assetFixture().toJson()..['transforms'] = transforms,
+          );
 
-    final large = assetWithTransforms([
-      'exif-orientation',
-      'large-jpeg:5000x4000->2236x1788-exif1',
-    ]);
-    final manyEdits = boundedTransformLog([
-      ...large.transforms,
-      for (var i = 0; i < 501; i++) 'perspective-edit:$i',
-    ]);
-    expect(manyEdits, hasLength(500));
-    expect(assetWithTransforms(manyEdits).hasScaledLargeSource, isTrue);
+      final large = assetWithTransforms([
+        'exif-orientation',
+        'large-jpeg:5000x4000->2236x1788-exif1',
+      ]);
+      final manyEdits = boundedTransformLog([
+        ...large.transforms,
+        for (var i = 0; i < 501; i++) 'perspective-edit:$i',
+      ]);
+      expect(manyEdits, hasLength(500));
+      expect(assetWithTransforms(manyEdits).hasScaledLargeSource, isTrue);
 
-    final replacedWithOrdinary = assetWithTransforms(
-      boundedTransformLog([...manyEdits, 'replaced:ordinary']),
-    );
-    expect(replacedWithOrdinary.hasScaledLargeSource, isFalse);
-    final replacedWithLarge = assetWithTransforms(
-      boundedTransformLog([
-        ...replacedWithOrdinary.transforms,
-        'replaced:large',
-        'large-jpeg:6000x4000->2449x1632-exif1',
-      ]),
-    );
-    expect(replacedWithLarge.hasScaledLargeSource, isTrue);
-  });
+      final replacedWithOrdinary = assetWithTransforms(
+        boundedTransformLog([...manyEdits, 'replaced:ordinary']),
+      );
+      expect(replacedWithOrdinary.hasScaledLargeSource, isFalse);
+      final replacedWithLarge = assetWithTransforms(
+        boundedTransformLog([
+          ...replacedWithOrdinary.transforms,
+          'replaced:large',
+          'large-jpeg:6000x4000->2449x1632-exif1',
+        ]),
+      );
+      expect(replacedWithLarge.hasScaledLargeSource, isTrue);
+    },
+  );
 
   test('unknown schemas are not silently downgraded', () {
     final json = projectFixture().toJson()

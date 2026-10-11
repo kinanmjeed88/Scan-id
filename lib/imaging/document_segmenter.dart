@@ -222,10 +222,8 @@ SegmentationResult segmentDocumentBytes(Uint8List previewBytes) =>
     segmentDecoded(decodeForProcessing(previewBytes));
 
 SegmentationResult segmentDecoded(img.Image image) {
-  if (
-    image.width < minRecognitionPreviewSide ||
-    image.height < minRecognitionPreviewSide
-  ) {
+  if (image.width < minRecognitionPreviewSide ||
+      image.height < minRecognitionPreviewSide) {
     return const SegmentationResult(candidates: [], multi: false);
   }
   const workSide = 360;

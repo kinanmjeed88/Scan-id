@@ -98,8 +98,7 @@ class LocalAssetRepository implements AssetRepository {
         : plan.sourceHeight;
     final sourceAspect = orientedWidth / orientedHeight;
     final scaledAspect = scaledHeader.width / scaledHeader.height;
-    final roundingTolerance =
-        1 / scaledHeader.width + 1 / scaledHeader.height;
+    final roundingTolerance = 1 / scaledHeader.width + 1 / scaledHeader.height;
     require(
       scaledHeader.encoding == ImageEncoding.png &&
           scaledHeader.width * scaledHeader.height <= plan.targetPixels &&
@@ -145,12 +144,7 @@ Future<ImageAsset> _import(
   final relative = 'projects/$projectId/assets/$id';
   final staging = Directory(await _stagingDirectory(files, id));
   try {
-    await _writePrepared(
-      staging.path,
-      bytes,
-      prepared,
-      originalExtension,
-    );
+    await _writePrepared(staging.path, bytes, prepared, originalExtension);
     await _publish(files, staging, relative);
     return ImageAsset(
       id: id,
@@ -160,10 +154,7 @@ Future<ImageAsset> _import(
       thumbnailPath: '$relative/thumb.jpg',
       width: prepared.width,
       height: prepared.height,
-      transforms: [
-        'exif-orientation',
-        if (scaleNote != null) scaleNote,
-      ],
+      transforms: ['exif-orientation', if (scaleNote != null) scaleNote],
     );
   } finally {
     // Clean only the unique staging directory created by this operation.
@@ -194,12 +185,7 @@ Future<ReplacementFiles> _replace(
   final relative = 'projects/$projectId/assets/$assetId/replacements/$id';
   final staging = Directory(await _stagingDirectory(files, id));
   try {
-    await _writePrepared(
-      staging.path,
-      bytes,
-      prepared,
-      originalExtension,
-    );
+    await _writePrepared(staging.path, bytes, prepared, originalExtension);
     await _publish(files, staging, relative);
     return ReplacementFiles(
       revision: id,

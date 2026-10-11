@@ -655,6 +655,7 @@ void main() {
     final project = await repository.create(
       projectFixture(
         assets: [source, crop],
+        documents: [record],
         items: [
           itemFixture(id: 'own', assetId: 'asset1'),
           itemFixture(
@@ -662,7 +663,7 @@ void main() {
             assetId: 'crop1',
           ).copyWith(documentId: 'rec-1', sideId: 'side-1', x: 60),
         ],
-      ).copyWith(documents: [record]),
+      ),
     );
     final service = ProjectService(repository, _NoAssets());
     await tester.pumpWidget(

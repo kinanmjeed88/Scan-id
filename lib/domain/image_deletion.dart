@@ -7,7 +7,6 @@ library;
 
 import 'page_layout.dart';
 import 'project.dart';
-import 'recognition.dart';
 import 'recognition_routing.dart';
 import 'validation.dart';
 

@@ -78,6 +78,7 @@ class LocalProjectRepository implements ProjectRepository {
         asset.originalPath,
         asset.workingPath,
         asset.thumbnailPath,
+        asset.processingInputPath,
       ]) {
         await files.existingFile(path);
       }

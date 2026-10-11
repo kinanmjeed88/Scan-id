@@ -7,12 +7,49 @@ import 'package:path/path.dart' as p;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/domain/image_limits.dart';
+import 'package:scan_id/imaging/large_jpeg_plan.dart';
+import 'package:scan_id/persistence/large_jpeg_scaler.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
+
+Uint8List _jpegSofOnly(int width, int height) => Uint8List.fromList([
+  0xff,
+  0xd8,
+  0xff,
+  0xc0,
+  0,
+  11,
+  8,
+  (height >> 8) & 255,
+  height & 255,
+  (width >> 8) & 255,
+  width & 255,
+  1,
+  1,
+  0x11,
+  0,
+  0,
+  0xff,
+  0xd9,
+]);
+
+class _FakeLargeJpegScaler implements LargeJpegScaler {
+  _FakeLargeJpegScaler(this.workingPng);
+  final Uint8List workingPng;
+  LargeJpegPlan? lastPlan;
+
+  @override
+  Future<Uint8List> scaleJpeg(Uint8List source, LargeJpegPlan plan) async {
+    lastPlan = plan;
+    return Uint8List.fromList(workingPng);
+  }
+}
 
 void main() {
   late Directory root;
@@ -244,6 +281,132 @@ void main() {
     },
   );
 
+  test(
+    'a dismissed record continues to protect its source and derived assets',
+    () async {
+      final bytes = img.encodePng(img.Image(width: 40, height: 30));
+      var project = await service.create('أصول مستبعدة');
+      project = (await service.importImages(project, [
+        ImportSource('source.png', () => Stream.value(bytes)),
+      ])).project;
+      final source = project.assets.single;
+      final derived = (await assets.importImage(
+        project.id,
+        'مستند مشتق.png',
+        bytes,
+      )).asDerivedOf(source.id);
+      final historicalPrefix =
+          'projects/${project.id}/assets/${derived.id}/edits/old-output';
+      for (final path in [
+        '$historicalPrefix/working.png',
+        '$historicalPrefix/thumb.jpg',
+      ]) {
+        final file = File('${root.path}/$path');
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes([1, 2, 3]);
+      }
+      final record = DocumentRecord(
+        id: 'rec-dismissed',
+        sourceImageId: source.id,
+        sides: [
+          DocumentSide(
+            id: 'side-dismissed',
+            side: SideKind.unknown,
+            processedAsset: ProcessedAssetRef(
+              workingPath: '$historicalPrefix/working.png',
+              thumbnailPath: '$historicalPrefix/thumb.jpg',
+              width: derived.width,
+              height: derived.height,
+            ),
+          ),
+        ],
+        pairing: PairingState.single,
+        provenance: Provenance(
+          sourceImageId: source.id,
+          detectionIds: ['${source.id}-d0'],
+          processedAssetVersion: 'smart-1',
+          pipelineVersion: 'smart-1',
+        ),
+        overrides: [
+          UserOverride(dismissed: true, fields: const ['dismissed']),
+        ],
+      );
+      project = await projects.save(
+        project.copyWith(
+          assets: [...project.assets, derived],
+          documents: [record],
+        ),
+      );
+
+      await expectLater(
+        service.removeAsset(project, source.id),
+        throwsA(isA<ValidationException>()),
+      );
+      await expectLater(
+        service.removeAsset(project, derived.id),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        bytes,
+      );
+      expect(
+        await (await assets.resolve(derived.workingPath)).length(),
+        greaterThan(0),
+      );
+    },
+  );
+
+  test(
+    'automatic crop clears a stale manual-crop marker without changing the original',
+    () async {
+      final original = img.encodePng(img.Image(width: 40, height: 30));
+      var project = await service.create('مصدر القص');
+      project = (await service.importImages(project, [
+        ImportSource('photo.png', () => Stream.value(original)),
+      ])).project;
+
+      final manuallyCropped = await service.applyManualCrop(
+        project,
+        project.assets.single,
+        CropDraft(
+          corners: [
+            Point2(.1, .1),
+            Point2(.9, .1),
+            Point2(.9, .9),
+            Point2(.1, .9),
+          ],
+        ).toRecipe(40, 30),
+      );
+      final manualAsset = manuallyCropped.assets.single;
+      expect(manualAsset.userAuthoredCrop, isTrue);
+
+      final automaticallyCropped = await service.applyCrop(
+        manuallyCropped,
+        manualAsset,
+        CropDraft(
+          corners: [
+            Point2(.2, .2),
+            Point2(.8, .2),
+            Point2(.8, .8),
+            Point2(.2, .8),
+          ],
+        ).toRecipe(manualAsset.width, manualAsset.height),
+      );
+
+      expect(automaticallyCropped.assets.single.userAuthoredCrop, isFalse);
+      expect(
+        automaticallyCropped.assets.single.workingPath,
+        isNot(manualAsset.workingPath),
+      );
+      expect(
+        await (await assets.resolve(project.assets.single.originalPath))
+            .readAsBytes(),
+        original,
+      );
+    },
+  );
+
   test('library reorder is persisted and rejects unknown images', () async {
     final bytes = img.encodePng(img.Image(width: 8, height: 8));
     var project = await service.create('ترتيب');
@@ -305,6 +468,7 @@ void main() {
 
       final asset = report.project.assets.single;
       expect(report.aspectChanged, isTrue);
+      expect(report.scalingMessage, isNull);
       expect(asset.id, project.assets.single.id);
       expect(asset.name, 'new.png');
       expect(asset.crop, isNull);
@@ -331,6 +495,63 @@ void main() {
       expect(report.project.revision, project.revision + 1);
     },
   );
+
+  test('a large JPEG replacement reports its bounded working copy', () async {
+    final scaler = _FakeLargeJpegScaler(
+      Uint8List.fromList(img.encodePng(img.Image(width: 800, height: 640))),
+    );
+    assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+    service = ProjectService(
+      projects,
+      assets,
+      imageEditor: LocalImageEditor(projects.files),
+    );
+    final originalBytes = img.encodePng(img.Image(width: 40, height: 30));
+    var project = await service.create('استبدال بصورة كبيرة');
+    project = (await service.importImages(project, [
+      ImportSource('original.png', () => Stream.value(originalBytes)),
+    ])).project;
+    final asset = project.assets.single;
+    project = await projects.save(
+      project.copyWith(
+        items: [
+          DocumentItem(
+            id: 'placed-large-replacement',
+            assetId: asset.id,
+            x: 17,
+            y: 23,
+            width: 40,
+            height: 30,
+          ),
+        ],
+      ),
+    );
+    final beforeItem = project.items.single;
+    final replacementBytes = _jpegSofOnly(5000, 4000);
+
+    final report = await service.replaceImage(
+      project,
+      project.assets.single,
+      ImportSource('replacement.jpg', () => Stream.value(replacementBytes)),
+    );
+
+    final replaced = report.project.assets.single;
+    expect(scaler.lastPlan?.sourceWidth, 5000);
+    expect(scaler.lastPlan?.sourceHeight, 4000);
+    expect(scaler.lastPlan!.targetPixels, lessThanOrEqualTo(maxScaledWorkingPixels));
+    expect(report.scalingMessage, contains('الأصل كما هو'));
+    expect(report.scalingMessage, contains('800×640'));
+    expect(replaced.hasScaledLargeSource, isTrue);
+    expect(report.project.items.single.toJson(), beforeItem.toJson());
+    expect(
+      await (await assets.resolve(replaced.originalPath)).readAsBytes(),
+      replacementBytes,
+    );
+    expect(
+      await (await assets.resolve(asset.originalPath)).readAsBytes(),
+      originalBytes,
+    );
+  });
 
   test(
     'a corrupt replacement leaves the project and old files untouched',

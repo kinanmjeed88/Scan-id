@@ -53,6 +53,7 @@ class IntakeRun {
   final Object? error;
 
   List<ImportFailure> get failures => import.failures;
+  List<ImportNotice> get notices => import.notices;
   int get importedCount => import.imported;
 }
 
@@ -151,6 +152,14 @@ String intakeSummaryText(AutomaticLayoutReport report) {
   final refused = report.rejectedHeadline;
   return refused == null ? counts : '$counts\n$refused';
 }
+
+/// Per-source Arabic details shared by the project and editor import paths.
+String importReportDetails(ImportReport report) => [
+  if (report.notices.isNotEmpty)
+    'ملاحظات المعالجة:\n${report.notices.map((notice) => '${notice.name}: ${notice.message}').join('\n\n')}',
+  if (report.failures.isNotEmpty)
+    'تعذر استيراد بعض الصور:\n${report.failures.map((failure) => '${failure.name}: ${failure.message}').join('\n\n')}',
+].join('\n\n');
 
 /// Runs an intake inside a modal progress dialog with a cancel button.
 ///

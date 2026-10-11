@@ -51,10 +51,34 @@ layout, exportProfile, catalog, assets, items`.
 | `layout` | `horizontalGap, verticalGap, allowRotation, order, strategy` |
 | `exportProfile` | `format, dpi, jpegQuality` |
 | `catalog` | `residenceCard{width,height}, rationCard{width,height}` (National ID & Passport are code constants, not serialized) |
-| `ImageAsset` | `id, captureId, name, originalPath, workingPath, thumbnailPath, width, height, crop, adjustments, transforms` |
+| `ImageAsset` | `id, captureId, derivedFrom, userAuthoredCrop? (true only), name, originalPath, workingPath, thumbnailPath, width, height, crop, adjustments, transforms` |
 | `ImageAsset.crop` (CropGeometry) | `corners[{x,y}×4], outputWidth, outputHeight` |
 | `ImageAsset.adjustments` | `brightness, contrast, saturation, sharpness, quarterTurns` |
 | `DocumentItem` | `id, assetId, pageIndex, x, y, width, height, rotation, zIndex, locked, keepAspectRatio, documentKind, recognitionConfidence, sizeConfirmed` |
+
+`ImageAsset.transforms` remains the existing bounded audit list. Large JPEG imports
+append `large-jpeg:<source>-><work>-exif<n>`; a later `replaced:` marker identifies
+which source bytes are current, and the latest boundary is retained when the
+500-entry history is trimmed. `derivedFrom` records a proven source relationship.
+
+`userAuthoredCrop` is an additive v5 asset field serialized only when true. The
+manual crop editor sets it after a crop is accepted; automatic layout continues
+to use `applyCrop` and never sets it. When an automatic caller replaces a prior
+manual crop, it clears the now-stale authorship marker; the generic image editor
+preserves the marker until the caller establishes that intent. Reprocessing
+preserves a current user-authored asset revision instead of replacing it with
+detector output. The detector record remains its own evidence: an invalid quad
+stays null/untrusted. Projects written
+before this marker default to false. Earlier manual and automatic crops shared
+the same revision metadata, so their authorship cannot be reliably inferred;
+legacy files are not guessed or relabelled.
+
+While the large-JPEG marker is current, `ImageAsset.processingInputPath` is
+derived as `working.png` beside the current `originalPath`. It is the stable,
+bounded coordinate raster for recognition, manual crops and reprocessing;
+`workingPath` may later point to an edit/replacement revision. Repository
+validation, backups and orphan liveness include this raster. Replacements use
+their own sibling raster; the original bytes remain unchanged.
 
 **Do not re-add or rename any of these.** v5 only *adds* optional keys.
 
@@ -470,9 +494,9 @@ restore   → files extracted; processed refs remapped to the new project id
 missing   → project OPENS (metadata intact); pixel-needing ops (export/processing)
             fail safe with a typed reason; regeneration is a later phase
 regenerate→ (later phase) from immutable source + stored geometry/version
-GC        → never removes a ref that any DocumentSide references; only proven-
-            unreferenced processed files are collectable; project deletion
-            removes its whole folder
+GC        → keeps current and historical DocumentSide refs plus every stable
+            large-source raster; only proven-unreferenced revisions are
+            collectable; project deletion removes its whole folder
 ```
 
 Answers (deterministic): **included in backup** yes · **functions without it**
@@ -483,18 +507,23 @@ export path does **not** (it uses the asset working image exactly as v4).
 
 ### 8.4 V5 bounds (point 4) — reuse existing limits, invent none
 
-`image_limits.dart` already bounds a project at `maxProjectAssets = 200`,
-`maxProjectItems = 500` (plus 20 MiB / 16 MP per image). Every new count is
-realized through items, so the existing item bound already caps it — **no new
-arbitrary limit is introduced.**
+`image_limits.dart` bounds a project at `maxProjectAssets = 200` and
+`maxProjectItems = 500`. The per-file boundary is 20 MiB compressed: PNG and
+ordinary JPEG processing is capped at 16 MP; Android sampled JPEG decode and
+Windows WIC source-transform may accept JPEG sources up to 32 MP. Android's
+sampled Bitmap is capped at 8 MP before the aspect-preserving working raster is
+reduced to 4 MP; WIC is asked for a sampled size within that 4 MP target and
+fails closed if the codec cannot provide it. Larger PNG/JPEG input is rejected
+rather than fully decoded and resized. These pixel/byte caps are not an
+observed peak-RSS guarantee; device profiling remains outstanding.
 
 | Bound | Value | Basis |
 |---|---|---|
-| max `DocumentRecord`s / project | `≤ items.length` and `≤ maxProjectItems` (500) | each record is realized through ≥1 item |
+| max `DocumentRecord`s / project | `≤ maxProjectItems` (500); active records link to ≥1 item; dismissed tombstones link to none | retains explicit rejection evidence without orphaning active records |
 | max `LayoutGroup`s / project | `≤ items.length` and `≤ maxProjectItems` (500) | each group holds ≥1 item |
 | max sides per `DocumentInstance` | **2** (front + back) | ADR-008 (1–2 sides); enforced by record validation |
 | legacy synthesized records | `≤` items carrying a recognition signal `≤ items.length ≤ 500` | derived from the item bound |
-| max project size interaction | unchanged: 200 assets / 500 items / per-image budgets | new entities add no independent count |
+| max project size interaction | unchanged: 200 assets / 500 items / bounded per-image processing | new entities add no independent count |
 
 **Exceeding any bound** ⇒ deterministic `ValidationException` on load/construct;
 the project refuses to load rather than truncating; the original bytes are

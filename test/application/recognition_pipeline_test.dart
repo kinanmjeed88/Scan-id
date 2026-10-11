@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/ocr_engine.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
@@ -28,6 +29,61 @@ List<Point2> _quad() => [
   Point2(.9, .95),
   Point2(.1, .95),
 ];
+
+Uint8List _twoRoundRegions() {
+  final image = img.Image(width: 900, height: 700);
+  img.fill(image, color: img.ColorRgb8(45, 55, 70));
+  final documentColor = img.ColorRgb8(235, 233, 228);
+  for (final center in [(230, 210), (670, 490)]) {
+    for (var y = center.$2 - 100; y <= center.$2 + 100; y++) {
+      for (var x = center.$1 - 100; x <= center.$1 + 100; x++) {
+        final dx = x - center.$1, dy = y - center.$2;
+        if (dx * dx + dy * dy <= 100 * 100) {
+          image.setPixel(x, y, documentColor);
+        }
+      }
+    }
+  }
+  return Uint8List.fromList(img.encodePng(image));
+}
+
+Uint8List _oneRoundRegion() {
+  final image = img.Image(width: 900, height: 700);
+  img.fill(image, color: img.ColorRgb8(45, 55, 70));
+  const centerX = 450, centerY = 350, radius = 100;
+  for (var y = centerY - radius; y <= centerY + radius; y++) {
+    for (var x = centerX - radius; x <= centerX + radius; x++) {
+      final dx = x - centerX, dy = y - centerY;
+      if (dx * dx + dy * dy <= radius * radius) {
+        image.setPixel(x, y, img.ColorRgb8(235, 233, 228));
+      }
+    }
+  }
+  return Uint8List.fromList(img.encodePng(image));
+}
+
+Uint8List _cardAndRoundRegions() {
+  final image = img.Image(width: 900, height: 700);
+  img.fill(image, color: img.ColorRgb8(45, 55, 70));
+  img.fillRect(
+    image,
+    x1: 60,
+    y1: 60,
+    x2: 420,
+    y2: 290,
+    color: img.ColorRgb8(235, 233, 228),
+  );
+  const centerX = 670, centerY = 490, radius = 100;
+  for (var y = centerY - radius; y <= centerY + radius; y++) {
+    for (var x = centerX - radius; x <= centerX + radius; x++) {
+      final dx = x - centerX, dy = y - centerY;
+      if (dx * dx + dy * dy <= radius * radius) {
+        image.setPixel(x, y, img.ColorRgb8(235, 233, 228));
+      }
+    }
+  }
+  return Uint8List.fromList(img.encodePng(image));
+}
 
 Future<SegmentationResult> _noMulti(Uint8List bytes) async =>
     const SegmentationResult(candidates: [], multi: false);
@@ -224,6 +280,122 @@ void main() {
   });
 
   test(
+    'real segmentation preserves one measured cornerless region for manual recovery',
+    () async {
+      final bytes = _oneRoundRegion();
+      final segmentation = segmentDocumentBytes(bytes);
+      expect(segmentation.multi, isFalse);
+      expect(segmentation.candidates, hasLength(1));
+      expect(segmentation.candidates.single.corners, isNull);
+
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (preview) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: segmentDocumentBytes,
+      );
+      final analysis = await pipeline.analyze(
+        PipelineImageInput(
+          assetId: 'round-region',
+          name: 'حدود غير حاسمة.png',
+          previewBytes: bytes,
+          sourceWidth: 900,
+          sourceHeight: 700,
+          importIndex: 0,
+        ),
+      );
+
+      expect(singleCalled, isFalse);
+      expect(analysis.detections, isEmpty);
+      expect(analysis.unresolvedRegions, hasLength(1));
+      expect(analysis.unresolvedRegions.single.region, isNotNull);
+      expect(analysis.unresolvedRegions.single.corners, isNull);
+      expect(analysis.multi, isFalse);
+      expect(analysis.needsMultiIntake, isTrue);
+    },
+  );
+
+  test(
+    'real segmentation keeps a valid quad beside an unresolved measured region',
+    () async {
+      final bytes = _cardAndRoundRegions();
+      final segmentation = segmentDocumentBytes(bytes);
+      expect(segmentation.candidates, hasLength(2));
+      expect(segmentation.candidates.first.corners, isNotNull);
+      expect(segmentation.candidates.last.corners, isNull);
+
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (preview) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: segmentDocumentBytes,
+      );
+      final analysis = await pipeline.analyze(
+        PipelineImageInput(
+          assetId: 'mixed-regions',
+          name: 'مستندات مختلطة.png',
+          previewBytes: bytes,
+          sourceWidth: 900,
+          sourceHeight: 700,
+          importIndex: 0,
+        ),
+      );
+
+      expect(singleCalled, isFalse);
+      expect(analysis.detections, hasLength(1));
+      expect(analysis.detections.single.hasUsableQuad, isTrue);
+      expect(analysis.unresolvedRegions, hasLength(1));
+      expect(analysis.unresolvedRegions.single.corners, isNull);
+      expect(analysis.multi, isTrue);
+      expect(analysis.needsMultiIntake, isTrue);
+    },
+  );
+
+  test(
+    'real segmentation preserves two plausible cornerless regions through pipeline',
+    () async {
+      final bytes = _twoRoundRegions();
+      final segment = segmentDocumentBytes(bytes);
+      expect(segment.multi, isFalse);
+      expect(segment.candidates, hasLength(2));
+      expect(segment.candidates.every((candidate) => candidate.corners == null),
+          isTrue);
+
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (preview) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: (preview) async => segmentDocumentBytes(preview),
+      );
+      final analysis = await pipeline.analyze(
+        PipelineImageInput(
+          assetId: 'round-regions',
+          name: 'حدود غير حاسمة.png',
+          previewBytes: bytes,
+          sourceWidth: 900,
+          sourceHeight: 700,
+          importIndex: 0,
+        ),
+      );
+
+      expect(singleCalled, isFalse);
+      expect(analysis.detections, isEmpty);
+      expect(analysis.unresolvedRegions, hasLength(2));
+      expect(analysis.multi, isTrue);
+      expect(analysis.needsMultiIntake, isTrue);
+      expect(analysis.unresolvedRegions.every((region) => region.corners == null),
+          isTrue);
+      expect(analysis.allRegions.map((region) => region.regionIndex), [0, 1]);
+    },
+  );
+
+  test(
     'all measured candidates survive when the multi hint is false',
     () async {
       var singleCalled = false;
@@ -315,6 +487,70 @@ void main() {
         [.1, .1, .45, .45],
         [.55, .55, .9, .9],
       ]);
+    },
+  );
+
+  test(
+    'a valid measured quad is used even when the multi hint is false',
+    () async {
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: (bytes) async => SegmentationResult(
+          multi: false,
+          candidates: [
+            SegmentCandidate(
+              region: const [.08, .12, .92, .94],
+              corners: _quad(),
+              detectionConfidence: .75,
+              reason: 'component-support',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+
+      expect(singleCalled, isFalse);
+      expect(analysis.detections.single.corners, _quad());
+      expect(analysis.detections.single.region, [.08, .12, .92, .94]);
+      expect(analysis.unresolvedRegions, isEmpty);
+      expect(analysis.multi, isFalse);
+      expect(analysis.needsMultiIntake, isFalse);
+    },
+  );
+
+  test(
+    'one unresolved measured region uses manual recovery, not a full-frame guess',
+    () async {
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: (bytes) async => const SegmentationResult(
+          multi: false,
+          candidates: [
+            SegmentCandidate(
+              region: [.2, .2, .8, .8],
+              reason: 'no-trustworthy-quad',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+
+      expect(singleCalled, isFalse);
+      expect(analysis.detections, isEmpty);
+      expect(analysis.unresolvedRegions.single.region, [.2, .2, .8, .8]);
+      expect(analysis.unresolvedRegions.single.corners, isNull);
+      expect(analysis.needsMultiIntake, isTrue);
+      expect(analysis.multi, isFalse);
     },
   );
 
@@ -411,6 +647,47 @@ void main() {
       // Both regions are still present, so neither is silently lost.
       expect(analysis.regionCount, 2);
       expect(analysis.needsMultiIntake, isTrue);
+    },
+  );
+
+  test(
+    'one measured region with rejected corners uses the manual recovery intake',
+    () async {
+      final crossed = [
+        Point2(.1, .1),
+        Point2(.9, .9),
+        Point2(.9, .1),
+        Point2(.1, .9),
+      ];
+      var singleCalled = false;
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async {
+          singleCalled = true;
+          return _quad();
+        },
+        segment: (bytes) async => SegmentationResult(
+          multi: false,
+          candidates: [
+            SegmentCandidate(
+              region: const [.2, .15, .8, .85],
+              corners: crossed,
+              detectionConfidence: .6,
+              reason: 'component-support',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+      final detection = analysis.detections.single;
+
+      expect(singleCalled, isFalse);
+      expect(analysis.multi, isFalse);
+      expect(analysis.needsMultiIntake, isTrue);
+      expect(detection.region, [.2, .15, .8, .85]);
+      expect(detection.corners, isNull);
+      expect(detection.boundary, DetectionBoundary.rejected);
+      expect(detection.hasUsableQuad, isFalse);
     },
   );
 

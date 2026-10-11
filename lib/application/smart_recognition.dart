@@ -419,8 +419,9 @@ class SmartIntake {
     // or ambiguous assets is still perfectly usable when there is nothing to
     // backfill.
     final reconciliation = reconcileDerivedProvenance(current);
-    if (reconciliation.brokenChains.isNotEmpty) {
-      warnings.add(_brokenProvenanceMessage(current, reconciliation));
+    if (reconciliation.brokenChains.isNotEmpty ||
+        reconciliation.ambiguousAssetIds.isNotEmpty) {
+      warnings.add(_provenanceWarning(current, reconciliation));
     }
     if (reconciliation.changed) {
       current = await projects.save(reconciliation.project);
@@ -482,7 +483,7 @@ class SmartIntake {
         notDetected += imageNotDetected;
         // Reported honestly: a re-analysed photo can still hold several
         // documents, and the report must not claim otherwise.
-        if (analyzed.analysis.needsMultiIntake) multiImages++;
+        if (analyzed.analysis.multi) multiImages++;
       } on RevisionConflict {
         rethrow;
       } on OperationCancelled {
@@ -615,14 +616,40 @@ class SmartIntake {
         final processed = side.processedAsset;
         for (final asset in project.assets) {
           if (asset.id == record.sourceImageId) continue;
-          if (asset.workingPath == processed.workingPath ||
-              asset.thumbnailPath == processed.thumbnailPath) {
+          if (assetOwnsProjectPath(
+                project.id,
+                asset.id,
+                processed.workingPath,
+              ) ||
+              assetOwnsProjectPath(
+                project.id,
+                asset.id,
+                processed.thumbnailPath,
+              )) {
             derived.add(asset.id);
           }
         }
       }
     }
     return derived;
+  }
+
+  bool _hasUserAuthoredCrop(Project project, DocumentRecord record) {
+    final processed = record.sides.single.processedAsset;
+    return project.assets.any(
+      (asset) =>
+          asset.userAuthoredCrop &&
+          (assetOwnsProjectPath(
+                project.id,
+                asset.id,
+                processed.workingPath,
+              ) ||
+              assetOwnsProjectPath(
+                project.id,
+                asset.id,
+                processed.thumbnailPath,
+              )),
+    );
   }
 
   /// The committed asset list: replacements applied in place, newly derived
@@ -644,22 +671,31 @@ class SmartIntake {
     return [for (final asset in current) replaced[asset.id] ?? asset, ...added];
   }
 
-  /// One aggregated report for derived assets whose recorded source is gone.
+  /// One aggregated report for broken or ambiguous source/derived chains.
   ///
-  /// They are kept exactly as they are: an asset is still derived when its
-  /// source has been removed, and neither deleting it nor reclassifying it as
-  /// an original photograph would be a conservative recovery.
-  String _brokenProvenanceMessage(
+  /// Nothing is deleted or guessed: missing-source assets remain derived, and
+  /// a path shared by different sources is not assigned to either one.
+  String _provenanceWarning(
     Project project,
     DerivedProvenanceReport reconciliation,
   ) {
-    final names = <String>[];
-    for (final id in reconciliation.brokenChains) {
-      final asset = project.assets.where((a) => a.id == id).firstOrNull;
-      names.add(asset?.name ?? id);
-    }
-    return '${names.length} أصل مشتق يشير إلى صورة مصدر لم تعد موجودة '
-        '(${names.join('، ')})؛ حُفظ كما هو ولم يُعامل كصورة أصلية.';
+    final brokenNames = [
+      for (final id in reconciliation.brokenChains)
+        project.assets.where((asset) => asset.id == id).firstOrNull?.name ?? id,
+    ];
+    final ambiguousNames = [
+      for (final id in reconciliation.ambiguousAssetIds)
+        project.assets.where((asset) => asset.id == id).firstOrNull?.name ?? id,
+    ];
+    return [
+      if (brokenNames.isNotEmpty)
+        '${brokenNames.length} أصل مشتق يشير إلى صورة مصدر لم تعد موجودة '
+            '(${brokenNames.join('، ')})؛ حُفظ كما هو ولم يُعامل كصورة أصلية.',
+      if (ambiguousNames.isNotEmpty)
+        '${ambiguousNames.length} أصل مشتق مستخدم من أكثر من مصدر '
+            '(${ambiguousNames.join('، ')})؛ بقيت علاقته كما هي ولم يُنسب '
+            'إلى مصدر بالتخمين.',
+    ].join('\n');
   }
 
   /// Reconciles one re-analysed source image with its existing documents.
@@ -704,7 +740,9 @@ class SmartIntake {
     Uint8List? originalBytes;
     try {
       originalBytes = await readBoundedImage(
-        (await assets.resolve(sourceAsset.originalPath)).openRead(),
+        (await assets.resolve(
+          sourceAsset.processingInputPath,
+        )).openRead(),
       );
       var position = 0;
       for (final detection in analyzed.analysis.allRegions) {
@@ -712,11 +750,28 @@ class SmartIntake {
         position++;
         final existing = byDetectionId[detection.detectionId];
         if (existing != null && existing.overrides.isNotEmpty) {
-          // ADR-004: the user already decided about this document, so
-          // reprocessing reports it instead of overwriting the decision.
+          // Preserve the distinct decision: dismissal is not confirmation, and
+          // neither may be silently overwritten or reintroduced as a new item.
+          final decisionMessage = isDismissed(existing)
+              ? 'مستبعد بقرارك؛ لم يُعَد إدراجه.'
+              : existing.overrides.any(
+                  (override) =>
+                      override.fields.contains(reviewConfirmedField),
+                )
+              ? 'تُرِك كما أكّدته.'
+              : 'حُفظ قرار المراجعة السابق.';
           warnings.add(
-            '${sourceAsset.name} (مستند $position): تُرِك كما أكّدته؛ '
-            'ألغِ تأكيدك إذا أردت إعادة التعرف عليه.',
+            '${sourceAsset.name} (مستند $position): $decisionMessage '
+            'ألغِ قرارك إذا أردت إعادة التعرف عليه.',
+          );
+          continue;
+        }
+        if (existing != null && _hasUserAuthoredCrop(current, existing)) {
+          // The rejected detector geometry stays untrusted. The accepted crop
+          // belongs to the user and is not replaced by this automatic rerun.
+          warnings.add(
+            '${sourceAsset.name} (مستند $position): حُفظ القص اليدوي كما هو؛ '
+            'لم يُستبدل بنتيجة الكشف التلقائي.',
           );
           continue;
         }
@@ -940,7 +995,19 @@ class SmartIntake {
     final sourceAsset = analyzed.asset;
     final side = existing.sides.single;
     final target = current.assets
-        .where((asset) => asset.workingPath == side.processedAsset.workingPath)
+        .where(
+          (asset) =>
+              assetOwnsProjectPath(
+                current.id,
+                asset.id,
+                side.processedAsset.workingPath,
+              ) ||
+              assetOwnsProjectPath(
+                current.id,
+                asset.id,
+                side.processedAsset.thumbnailPath,
+              ),
+        )
         .firstOrNull;
     if (target == null) {
       // The derived file is gone: report it instead of inventing pixels or
@@ -964,7 +1031,8 @@ class SmartIntake {
         );
         return current;
       }
-      regenerated = await editor.createRevision(target, output.recipe!);
+      regenerated = (await editor.createRevision(target, output.recipe!))
+          .clearUserAuthoredCrop();
     } else {
       final files = await assets.replaceImage(
         current.id,
@@ -982,7 +1050,10 @@ class SmartIntake {
         thumbnailPath: files.thumbnailPath,
         width: files.width,
         height: files.height,
-        transforms: [...target.transforms, 'reprocessed:${files.revision}'],
+        transforms: boundedTransformLog([
+          ...target.transforms,
+          'reprocessed:${files.revision}',
+        ]),
       );
     }
     // Deferred to the reprocess commit boundary: the regenerated asset and the
@@ -1059,7 +1130,9 @@ class SmartIntake {
       // it found, which would make every other region of the photo
       // unrecoverable (ADR-003). Every region is preserved instead — resolved
       // ones as rectified crops, unresolved ones as reviewable region crops.
-      onMulti();
+      // A single unresolved region also needs this preservation path, but is
+      // not counted as a multi-document image in the report.
+      if (analysis.multi) onMulti();
       return _applyMultiDocument(
         current,
         analyzed,
@@ -1097,7 +1170,8 @@ class SmartIntake {
               adjustments: asset.adjustments,
               aspectRatio: size.width / size.height,
             ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-      final updated = await editor.createRevision(asset, recipe);
+      final updated = (await editor.createRevision(asset, recipe))
+          .clearUserAuthoredCrop();
       // Deferred to the batch commit: a revision saved on its own, whose
       // document record then failed to be created, leaves the source asset
       // pointing at files nothing explains. The revision files themselves are
@@ -1199,7 +1273,9 @@ class SmartIntake {
     Uint8List? originalBytes;
     try {
       originalBytes = await readBoundedImage(
-        (await assets.resolve(sourceAsset.originalPath)).openRead(),
+        (await assets.resolve(
+          sourceAsset.processingInputPath,
+        )).openRead(),
       );
       var position = 0;
       for (final detection in detections) {

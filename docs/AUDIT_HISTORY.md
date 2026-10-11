@@ -18,7 +18,7 @@
 ## 2. ما هو منفَّذ فعلاً (مثبت بالشيفرة)
 
 - **المشاريع:** إنشاء، تسمية، فت، إعادة تسمية، حذف بيانات؛ تخزين Sembast مع مراجعات متفائلة (`lib/persistence/local_project_repository.dart`).
-- **الاستيراد:** JPEG/PNG فقط، حد 20 MiB و16 MP، نسخة أصل مطابقة بايتياً + نسخة عمل PNG مصححة EXIF + مصغرة، والثقيل داخل isolate (`lib/persistence/local_asset_repository.dart`, `lib/imaging/`).
+- **الاستيراد:** حد 20 MiB. PNG وJPEG حتى 16 MP تُعالَج مباشرة؛ JPEG حتى 32 MP عبر sampled decode أصلي (Android BitmapFactory: ناتج sampled ≤8 MP ثم عمل ≤4 MP؛ Windows WIC source-transform: هدف عمل ≤4 MP). الأصل يبقى بايتياً كما وصل، والاتجاه يُخبز في نسخة العمل؛ الملفات غير المدعومة أو الأكبر تُرفض لكل صورة. هذه حدود مدخلات/راستر، وليست قياساً لـpeak RSS (`lib/persistence/local_asset_repository.dart`, `lib/imaging/`, `android/app/`, `windows/runner/`).
 - **القص:** أربع زوايا، اقتراح حدود heuristic، تصحيح منظور، دوران 90°، سطوع/تباين، نسبة أبعاد اختيارية، معاينة إلزامية قبل الاعتماد، تراجع/إعادة داخل الجلسة، وصفة محفوظة، عدم استبدال الأصل (`lib/presentation/crop_screen.dart`, `lib/imaging/perspective.dart`).
 - **محرر A4:** نموذج بالمليمتر، عمودي/أفقي، هوامش وفجوات، أدلة بصرية، تكبير/تحريك، سحب/تحجيم/تدوير، قفل، محاذاة وتوزيع، تحديد متعدد عبر chips، تراجع/إعادة محفوظان (`lib/domain/page_layout.dart`, `lib/presentation/layout_screen.dart`).
 - **الترتيب:** اقتراح حتمي MaxRects مع الفجوات والعناصر المثبتة وتقرير «غير موضوعة»، مع مراجعة/رفض قبل الاعتماد (`lib/domain/packing.dart`).

@@ -188,6 +188,12 @@ class _ReviewDialog extends StatelessWidget {
                   child: const Text('رفض الاقتران'),
                 ),
               ],
+              TextButton.icon(
+                key: Key('review-dismiss-${record.id}'),
+                icon: const Icon(Icons.not_interested_outlined),
+                label: const Text('ليس مستنداً'),
+                onPressed: busy ? null : () => c.dismissRecognition(record.id),
+              ),
               FilledButton.tonal(
                 key: Key('review-confirm-${record.id}'),
                 onPressed: busy ? null : () => c.confirmRecognition(record.id),

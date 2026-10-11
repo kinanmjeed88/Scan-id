@@ -44,11 +44,23 @@ class ImportFailure {
   final String message;
 }
 
+class ImportNotice {
+  const ImportNotice(this.name, this.message);
+  final String name;
+  final String message;
+}
+
 class ImportReport {
-  const ImportReport(this.project, this.imported, this.failures);
+  const ImportReport(
+    this.project,
+    this.imported,
+    this.failures, {
+    this.notices = const [],
+  });
   final Project project;
   final int imported;
   final List<ImportFailure> failures;
+  final List<ImportNotice> notices;
 }
 
 class AutomaticLayoutReport {
@@ -123,11 +135,19 @@ class AutomaticLayoutReport {
 
 /// A replaced source: the record is saved and the aspect warning is explicit.
 class ReplaceReport {
-  const ReplaceReport(this.project, this.aspectChanged);
+  const ReplaceReport(
+    this.project,
+    this.aspectChanged, {
+    this.scalingMessage,
+  });
   final Project project;
 
   /// The rectangle on the sheet no longer matches the new pixel proportions.
   final bool aspectChanged;
+
+  /// Discloses when the replacement's untouched original was sampled to a
+  /// bounded working raster before processing.
+  final String? scalingMessage;
 }
 
 /// Result of deleting a project: the record is gone, files normally too.
@@ -242,6 +262,7 @@ class ProjectService {
     var current = project;
     var imported = 0;
     final failures = <ImportFailure>[];
+    final notices = <ImportNotice>[];
 
     void report(int completed) => onProgress?.call(
       BatchProgress(
@@ -277,6 +298,16 @@ class ProjectService {
           current.copyWith(assets: [...current.assets, asset]),
         );
         imported++;
+        if (asset.hasScaledLargeSource) {
+          notices.add(
+            ImportNotice(
+              source.name,
+              'حُفظ الأصل كما هو؛ صُغّرت نسخة العمل إلى '
+              '${asset.width}×${asset.height} بحد أقصى 4 ملايين بكسل، '
+              'وقد تقل تفاصيل النسخة المعالجة.',
+            ),
+          );
+        }
       } on RevisionConflict catch (error) {
         failures.add(ImportFailure(source.name, error.message));
         // The in-memory project is stale; continuing would create more orphans.
@@ -297,7 +328,12 @@ class ProjectService {
         report(index + 1);
       }
     }
-    return ImportReport(current, imported, List.unmodifiable(failures));
+    return ImportReport(
+      current,
+      imported,
+      List.unmodifiable(failures),
+      notices: List.unmodifiable(notices),
+    );
   }
 
   /// The automatic intake pipeline for newly imported images:
@@ -539,12 +575,31 @@ class ProjectService {
     return editor!.createRevision(asset, recipe);
   }
 
+  /// Crop used by automatic layout. It deliberately does not mark a user
+  /// decision even though it shares the image-revision implementation.
   Future<Project> applyCrop(
     Project project,
     ImageAsset asset,
     ImageEditRecipe recipe,
-  ) async {
-    final updated = await createImageRevision(project, asset, recipe);
+  ) => _applyCrop(project, asset, recipe, userAuthored: false);
+
+  /// Crop explicitly accepted in the manual crop editor.
+  Future<Project> applyManualCrop(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) => _applyCrop(project, asset, recipe, userAuthored: true);
+
+  Future<Project> _applyCrop(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    required bool userAuthored,
+  }) async {
+    var updated = await createImageRevision(project, asset, recipe);
+    updated = userAuthored
+        ? updated.markUserAuthoredCrop()
+        : updated.clearUserAuthoredCrop();
     return projects.save(
       project.copyWith(
         assets: [
@@ -588,6 +643,7 @@ class ProjectService {
       final aspectChanged =
           (files.width / files.height) / (asset.width / asset.height) - 1;
       final log = [...asset.transforms, 'replaced:${files.revision}'];
+      if (files.sourceScaling != null) log.add(files.sourceScaling!);
       final updated = ImageAsset(
         id: asset.id,
         captureId: asset.captureId,
@@ -600,7 +656,7 @@ class ProjectService {
         thumbnailPath: files.thumbnailPath,
         width: files.width,
         height: files.height,
-        transforms: log.skip(math.max(0, log.length - 500)).toList(),
+        transforms: boundedTransformLog(log),
       );
       final saved = await projects.save(
         project.copyWith(
@@ -610,7 +666,15 @@ class ProjectService {
           ],
         ),
       );
-      return ReplaceReport(saved, aspectChanged.abs() > 0.01);
+      return ReplaceReport(
+        saved,
+        aspectChanged.abs() > 0.01,
+        scalingMessage: files.sourceScaling == null
+            ? null
+            : '${source.name}: حُفظ الأصل كما هو؛ صُغّرت نسخة العمل إلى '
+                  '${files.width}×${files.height} بحد أقصى 4 ملايين بكسل، '
+                  'وقد تقل تفاصيل النسخة المعالجة.',
+      );
     } finally {
       await _cleanupSource(source);
     }
@@ -628,9 +692,33 @@ class ProjectService {
       project.assets.any((asset) => asset.id == assetId),
       'الصورة ليست ضمن هذا المشروع.',
     );
+    final asset = project.assets.firstWhere((entry) => entry.id == assetId);
     require(
       !project.items.any((item) => item.assetId == assetId),
       'الصورة مستخدمة داخل الورقة؛ أزل العناصر المرتبطة أولاً.',
+    );
+    require(
+      !project.documents.any(
+            (record) =>
+                record.sourceImageId == assetId ||
+                record.sides.any(
+                  (side) =>
+                      assetOwnsProjectPath(
+                        project.id,
+                        assetId,
+                        side.processedAsset.workingPath,
+                      ) ||
+                      assetOwnsProjectPath(
+                        project.id,
+                        assetId,
+                        side.processedAsset.thumbnailPath,
+                      ),
+                ),
+          ) &&
+          !project.assets.any(
+            (candidate) => candidate.derivedFrom == assetId,
+          ),
+      'الصورة مرتبطة بسجل أو بأصل مشتق؛ لا يمكن إزالتها الآن.',
     );
     return projects.save(
       project.copyWith(

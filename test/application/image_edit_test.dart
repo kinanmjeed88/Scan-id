@@ -63,8 +63,9 @@ void main() {
       final preview = await editor.preview(asset, recipe);
       expect(img.decodePng(preview), isNotNull);
       expect((await projects.get(project.id)).toJson(), project.toJson());
-      final saved = await service.applyCrop(project, asset, recipe);
+      final saved = await service.applyManualCrop(project, asset, recipe);
       final changed = saved.assets.single;
+      expect(changed.userAuthoredCrop, isTrue);
       expect(changed.id, asset.id);
       expect(changed.originalPath, asset.originalPath);
       expect(changed.workingPath, isNot(asset.workingPath));

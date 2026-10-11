@@ -133,16 +133,18 @@ RoutingDecision routeRecognition({
 /// recognition result from the review queue.
 const reviewConfirmedField = 'review-confirmed';
 
-/// Whether the user explicitly resolved this record: confirmed it, overrode
-/// its kind/side/pairing, or dismissed the review entry.
-bool isUserResolved(DocumentRecord record) => record.overrides.any(
-  (o) =>
-      o.fields.contains(reviewConfirmedField) ||
-      o.documentKind != null ||
-      o.side != null ||
-      o.pairing != null ||
-      o.dismissed == true,
-);
+/// Whether the user explicitly dismissed this recognition candidate as not a
+/// document. The evidence and provenance stay on the record; its layout items
+/// are removed by the explicit dismissal command.
+bool isDismissed(DocumentRecord record) =>
+    record.overrides.any((override) => override.dismissed == true);
+
+/// Whether the user resolved the entire review record, rather than one field.
+/// Kind and pairing overrides are scoped to their own reasons; they must not
+/// hide an unresolved boundary or an independent recognition concern.
+bool isUserResolved(DocumentRecord record) =>
+    isDismissed(record) ||
+    record.overrides.any((o) => o.fields.contains(reviewConfirmedField));
 
 /// Why a record needs review, if it does. Derived state (never persisted):
 /// the queue is recomputed from evidence + overrides, so it can never drift.
@@ -154,42 +156,45 @@ List<String> reviewReasons(
   final recognition = record.recognition;
   if (recognition == null) return const [];
   final reasons = <String>[];
-  final finalConfidence = recognition.confidences.finalConfidence?.value;
-  if (finalConfidence == null) {
-    reasons.add('بلا ثقة نهائية');
-  } else {
-    switch (bandFor(finalConfidence, thresholds)) {
-      case RecognitionBand.autoCandidate:
-        if (automationMode == AutomationMode.reviewAll) {
-          reasons.add('مؤهل تلقائياً — بانتظار التأكيد');
-        }
-      case RecognitionBand.review:
-        reasons.add('ثقة متوسطة');
-      case RecognitionBand.unresolved:
-        reasons.add('ثقة منخفضة');
+  final kindWasOverridden = record.overrides.any(
+    (override) => override.documentKind != null,
+  );
+  if (!kindWasOverridden) {
+    final finalConfidence = recognition.confidences.finalConfidence?.value;
+    if (finalConfidence == null) {
+      reasons.add('بلا ثقة نهائية');
+    } else {
+      switch (bandFor(finalConfidence, thresholds)) {
+        case RecognitionBand.autoCandidate:
+          if (automationMode == AutomationMode.reviewAll) {
+            reasons.add('مؤهل تلقائياً — بانتظار التأكيد');
+          }
+        case RecognitionBand.review:
+          reasons.add('ثقة متوسطة');
+        case RecognitionBand.unresolved:
+          reasons.add('ثقة منخفضة');
+      }
+    }
+    if (recognition.status == RecognitionStatus.uncertain) {
+      reasons.add('تصنيف غير حاسم');
+    }
+    if (recognition.status == RecognitionStatus.unknown) {
+      reasons.add('نوع غير معروف');
+    }
+    if (recognition.preset.awaitingSize) {
+      reasons.add('بانتظار تحديد المقاس');
     }
   }
-  if (recognition.status == RecognitionStatus.uncertain) {
-    reasons.add('تصنيف غير حاسم');
-  }
-  if (recognition.status == RecognitionStatus.unknown) {
-    reasons.add('نوع غير معروف');
-  }
-  if (recognition.preset.awaitingSize) {
-    reasons.add('بانتظار تحديد المقاس');
-  }
-  // An unresolved boundary is a separate problem from an unknown category, and
-  // the two do not coincide: the preset is resolved from the KIND alone
-  // (`SmartIntake._variantFor` asks whether the catalog has a size for it),
-  // while the item's size is confirmed only from a TRUSTWORTHY boundary. A
-  // ration-card-shaped region whose outline could not be resolved therefore has
-  // a resolved preset and an unconfirmed size, and without this reason the
-  // queue would name only its confidence band — hiding the one thing the user
-  // has to act on.
+  // An unresolved boundary is independent of the selected category. Even
+  // after the user corrects the kind, an untrusted/missing polygon still needs
+  // a manual crop; a field-level override must not hide that action.
   if (hasUnresolvedBoundary(record)) {
     reasons.add('حدود غير محسومة — يحتاج القص إلى مراجعة');
   }
-  if (record.pairing == PairingState.ambiguous) {
+  final pairingWasOverridden = record.overrides.any(
+    (override) => override.pairing != null,
+  );
+  if (!pairingWasOverridden && record.pairing == PairingState.ambiguous) {
     reasons.add('اقتران وجهين غير مؤكد');
   }
   return List.unmodifiable(reasons);

@@ -7,6 +7,7 @@ DocumentRecord _record({
   double? finalValue,
   RecognitionStatus status = RecognitionStatus.recognized,
   bool awaitingSize = false,
+  bool unresolvedBoundary = false,
   PairingState pairing = PairingState.single,
   List<UserOverride> overrides = const [],
 }) => DocumentRecord(
@@ -22,6 +23,13 @@ DocumentRecord _record({
         width: 856,
         height: 540,
       ),
+      detection: unresolvedBoundary
+          ? DetectionRef(
+              detectionId: 'asset1-d0',
+              producer: 'test',
+              version: '1',
+            )
+          : null,
     ),
   ],
   recognition: RecognitionResult(
@@ -162,18 +170,47 @@ void main() {
       expect(recordNeedsReview(record), isFalse);
     });
 
-    test('kind/side/pairing overrides and dismissal also resolve', () {
+    test('confirmation and dismissal resolve the entire record', () {
       for (final override in [
-        UserOverride(documentKind: DocumentKind.passport),
-        UserOverride(side: SideKind.front),
-        UserOverride(pairing: PairingState.single),
+        UserOverride(fields: const [reviewConfirmedField]),
         UserOverride(dismissed: true),
       ]) {
-        expect(
-          recordNeedsReview(_record(finalValue: .5, overrides: [override])),
-          isFalse,
-        );
+        final record = _record(finalValue: .5, overrides: [override]);
+        expect(isUserResolved(record), isTrue);
+        expect(recordNeedsReview(record), isFalse);
       }
+    });
+
+    test('field overrides do not hide independent recognition concerns', () {
+      for (final override in [
+        UserOverride(side: SideKind.front),
+        UserOverride(pairing: PairingState.single),
+      ]) {
+        final record = _record(finalValue: .5, overrides: [override]);
+        expect(isUserResolved(record), isFalse);
+        expect(reviewReasons(record), contains('ثقة منخفضة'));
+      }
+      final rejectedPair = _record(
+        finalValue: .5,
+        pairing: PairingState.ambiguous,
+        overrides: [UserOverride(pairing: PairingState.single)],
+      );
+      expect(reviewReasons(rejectedPair), contains('ثقة منخفضة'));
+      expect(reviewReasons(rejectedPair), isNot(contains('اقتران وجهين غير مؤكد')));
+    });
+
+    test('kind correction resolves classification but not boundary review', () {
+      final record = _record(
+        finalValue: .5,
+        status: RecognitionStatus.unknown,
+        awaitingSize: true,
+        unresolvedBoundary: true,
+        overrides: [UserOverride(documentKind: DocumentKind.passport)],
+      );
+
+      expect(isUserResolved(record), isFalse);
+      expect(reviewReasons(record), ['حدود غير محسومة — يحتاج القص إلى مراجعة']);
+      expect(recordNeedsReview(record), isTrue);
     });
 
     test('reasons name every outstanding problem', () {

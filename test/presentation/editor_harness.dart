@@ -155,6 +155,7 @@ Future<void> tapKey(WidgetTester tester, Key key) async {
 
 class MemoryProjects implements ProjectRepository {
   final values = <String, Project>{};
+  bool failNextSave = false;
   @override
   Future<List<Project>> list() async => values.values.toList();
   @override
@@ -167,6 +168,10 @@ class MemoryProjects implements ProjectRepository {
 
   @override
   Future<Project> save(Project project) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw StateError('injected persistence failure');
+    }
     if (values[project.id]?.revision != project.revision) {
       throw const RevisionConflict();
     }
@@ -197,6 +202,9 @@ class NoAssets implements AssetRepository {
     String assetId,
     Uint8List bytes,
   ) => Future.error(StateError('No replacement expected in this test'));
+  @override
+  Future<Uint8List> previewImage(Uint8List source) =>
+      Future.error(StateError('Pictures are not previewed in this test'));
   @override
   Future<File> resolve(String relativePath) =>
       Future.error(StateError('Pictures are not loaded in this test'));

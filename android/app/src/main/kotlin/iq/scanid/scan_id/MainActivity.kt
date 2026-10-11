@@ -13,12 +13,14 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val camera by lazy { NativeCamera(this) }
+    private val largeJpegScaler by lazy { NativeLargeJpegScaler(this) }
     private var pending: MethodChannel.Result? = null
     private var source: File? = null
     private var pickLimit = 20L * 1024 * 1024
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
         camera.configure(engine)
+        largeJpegScaler.configure(engine)
         MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/local_documents")
             .setMethodCallHandler { call, result ->
                 if (call.method == "open") {

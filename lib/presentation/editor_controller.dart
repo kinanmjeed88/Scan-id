@@ -55,6 +55,9 @@ class LayoutEditorController extends ChangeNotifier {
   /// Shows a short confirmation or explanation to the user.
   void Function(String message)? onMessage;
 
+  /// Presents per-image import scaling notices and failures.
+  void Function(ImportReport report)? onImportReport;
+
   final selected = <String>{};
   bool busy = false;
   String? error;
@@ -418,6 +421,21 @@ class LayoutEditorController extends ChangeNotifier {
   Future<void> confirmRecognition(String documentId) =>
       edit((p) => rec.confirmRecognition(p, documentId), layout: false);
 
+  /// Explicitly rejects a review candidate while retaining its recognition
+  /// record, source assets and provenance for audit/reprocessing.
+  Future<void> dismissRecognition(String documentId) {
+    final record = recordOf(documentId);
+    if (record == null ||
+        routing.isDismissed(record) ||
+        !routing.recordNeedsReview(record)) {
+      return Future.value();
+    }
+    return edit(
+      (p) => rec.dismissRecognition(p, documentId),
+      layout: false,
+    );
+  }
+
   /// Confirms every queued record in one undoable step.
   Future<void> confirmAllRecognition() => edit((p) {
     var next = p;
@@ -646,6 +664,11 @@ class LayoutEditorController extends ChangeNotifier {
     final failures = outcome?.failures.length ?? 0;
     final failure = outcome?.error;
     if (failure != null) _say(userError(failure));
+    final importReport = outcome?.import;
+    if (importReport != null &&
+        (importReport.failures.isNotEmpty || importReport.notices.isNotEmpty)) {
+      onImportReport?.call(importReport);
+    }
     final r = outcome?.layout;
     if (r != null) {
       // Refused regions are named here, with the categories the gates actually

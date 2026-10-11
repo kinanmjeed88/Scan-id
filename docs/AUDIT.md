@@ -63,7 +63,7 @@ mm/point conversions); `crop_draft.dart` (`CropDraft`, `ImageEditRecipe`);
 `document_edits.dart` (`DocumentEdits`); `edit_history.dart` (`EditHistory`,
 session undo/redo); `validation.dart` (`require`, typed readers, `validId`,
 `validName`, `validAssetPath`, reserved-Windows-name guard); `image_limits.dart`
-(20 MiB / 16 MP / 200 assets / 500 items); `export_plan.dart`,
+(20 MiB; 16 MP direct, JPEG sampled-source ceiling 32 MP / 4 MP work / 200 assets / 500 items); `export_plan.dart`,
 `export_naming.dart`,
 `image_adjustments.dart`.
 

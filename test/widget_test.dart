@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:scan_id/application/output_service.dart';
 import 'package:scan_id/domain/export_naming.dart';
 import 'package:scan_id/export/document_exporter.dart';
@@ -527,6 +528,10 @@ class _NoAssets implements AssetRepository {
     Uint8List bytes,
   ) => Future.error(
     StateError('No asset operation expected in this widget test'),
+  );
+  @override
+  Future<Uint8List> previewImage(Uint8List source) => Future.error(
+    StateError('No preview expected in this widget test'),
   );
   @override
   Future<File> resolve(String relativePath) => Future.error(

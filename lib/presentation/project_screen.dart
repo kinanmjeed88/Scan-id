@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../application/contracts.dart';
 import '../application/backup_transfer.dart';
 import '../application/project_service.dart';
+import '../application/image_reader.dart';
 import '../domain/project.dart';
 import 'app.dart';
 import 'shared.dart';
@@ -65,18 +67,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (failure != null && mounted) {
         showMessage(context, userError(failure));
       }
-      if (result.failures.isNotEmpty) {
+      if (result.failures.isNotEmpty || result.notices.isNotEmpty) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text('تم حفظ ${result.imported} صورة'),
-            content: SingleChildScrollView(
-              child: Text(
-                result.failures
-                    .map((f) => '${f.name}: ${f.message}')
-                    .join('\n\n'),
+              title: Text('تم حفظ ${result.imported} صورة'),
+              content: SingleChildScrollView(
+                child: Text(importReportDetails(result)),
               ),
-            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -115,13 +113,18 @@ class _ProjectScreenState extends State<ProjectScreen> {
 
   Future<void> _camera() async {
     setState(() => _busy = true);
+    final before = _project;
     try {
       final saved = await widget.service.camera!.capture(_project.id);
       if (mounted && saved != null) {
         setState(() => _project = saved);
         showMessage(
           context,
-          'حُفظ الالتقاط والأصل محلياً. يمكنك الآن القص والتصحيح.',
+          _captureSuccessMessage(
+            saved,
+            before,
+            fallback: 'حُفظ الالتقاط والأصل محلياً. يمكنك الآن القص والتصحيح.',
+          ),
         );
       }
     } catch (error) {
@@ -135,8 +138,26 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  String _captureSuccessMessage(
+    Project saved,
+    Project before, {
+    required String fallback,
+  }) {
+    final previousIds = before.assets.map((asset) => asset.id).toSet();
+    final scaled = saved.assets
+        .where(
+          (asset) =>
+              !previousIds.contains(asset.id) && asset.hasScaledLargeSource,
+        )
+        .firstOrNull;
+    if (scaled == null) return fallback;
+    return '${scaled.name}: حُفظ الأصل كما هو، وصُغّرت نسخة العمل إلى '
+        '${scaled.width}×${scaled.height} بحد أقصى 4 ملايين بكسل.';
+  }
+
   Future<void> _recoverCapture() async {
     setState(() => _busy = true);
+    final before = _project;
     try {
       final camera = widget.service.camera!;
       final photo = await camera.port.pending();
@@ -147,6 +168,15 @@ class _ProjectScreenState extends State<ProjectScreen> {
         showMessage(context, 'لا يوجد التقاط معلق.');
         return;
       }
+      Uint8List? preview;
+      String? previewError;
+      try {
+        final source = await readBoundedImage(photo.file.openRead());
+        preview = await widget.service.assets.previewImage(source);
+      } catch (error) {
+        previewError = userError(error);
+      }
+      if (!mounted) return;
       final action = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
@@ -154,12 +184,16 @@ class _ProjectScreenState extends State<ProjectScreen> {
           content: SizedBox(
             width: 360,
             height: 260,
-            child: Image.file(
-              photo.file,
-              cacheWidth: 1200,
-              errorBuilder: (_, _, _) =>
-                  const Text('تعذر عرض الالتقاط؛ قد يكون ناقصاً أو مفقوداً.'),
-            ),
+            child: preview == null
+                ? Text(
+                    'تعذر إنشاء معاينة آمنة؛ قد يكون الملف ناقصاً أو غير مدعوم.'
+                    '${previewError == null ? '' : '\n$previewError'}',
+                  )
+                : Image.memory(
+                    preview,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Text('تعذر عرض المعاينة.'),
+                  ),
           ),
           actions: [
             TextButton(
@@ -186,7 +220,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
           setState(() => _project = saved);
           showMessage(
             context,
-            'تم حفظ الالتقاط دون تكرار صورة سبق حفظها في المشروع.',
+            _captureSuccessMessage(
+              saved,
+              before,
+              fallback: 'تم حفظ الالتقاط دون تكرار صورة سبق حفظها في المشروع.',
+            ),
           );
         }
       } else if (action == 'discard' &&
@@ -473,11 +511,15 @@ class _ProjectScreenState extends State<ProjectScreen> {
       await widget.service.discardSources(sources.skip(1));
       if (mounted) {
         setState(() => _project = report.project);
+        final replacementMessage = report.aspectChanged
+            ? 'استُبدلت الصورة. نسبة الأبعاد تغيّرت؛ راجع مقاس المستطيل في محرر A4 قبل التصدير.'
+            : 'استُبدلت الصورة، وبقيت مواضعها في ورقة A4 كما هي.';
         showMessage(
           context,
-          report.aspectChanged
-              ? 'استُبدلت الصورة. نسبة الأبعاد تغيّرت؛ راجع مقاس المستطيل في محرر A4 قبل التصدير.'
-              : 'استُبدلت الصورة، وبقيت مواضعها في ورقة A4 كما هي.',
+          [
+            if (report.scalingMessage != null) report.scalingMessage!,
+            replacementMessage,
+          ].join('\n'),
         );
       }
     } catch (error) {
@@ -558,7 +600,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
                         ),
                       const SizedBox(height: 16),
                       Text(
-                        '${_project.assets.length} صور · JPEG / PNG · حتى 16 مليون بكسل للصورة',
+                        '${_project.assets.length} صور · JPEG / PNG · 16 مليون بكسل مباشرة؛ JPEG حتى 32 مليوناً بنسخة عمل مصغّرة',
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -684,19 +726,28 @@ class _AssetViewerState extends State<AssetViewer> {
         Padding(
           padding: const EdgeInsets.all(12),
           child: SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: false, label: Text('نسخة العمل')),
-              ButtonSegment(value: true, label: Text('الأصل المحفوظ')),
+            segments: [
+              const ButtonSegment(value: false, label: Text('نسخة العمل')),
+              ButtonSegment(
+                value: true,
+                label: Text(
+                  widget.asset.hasScaledLargeSource
+                      ? 'معاينة المصدر الآمنة'
+                      : 'الأصل المحفوظ',
+                ),
+              ),
             ],
             selected: {_original},
             onSelectionChanged: (value) =>
                 setState(() => _original = value.single),
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            'معاينة فقط؛ نسخة العمل تصحح اتجاه EXIF دون تعديل الأصل. التكبير لا يضيف تفاصيل للصورة.',
+            widget.asset.hasScaledLargeSource
+                ? 'الأصل محفوظ كما وصل. لمنع فك صورة كبيرة كاملة، تعرض معاينة المصدر نسخة عمل مصغّرة وموجّهة؛ التكبير لا يضيف تفاصيل.'
+                : 'معاينة فقط؛ نسخة العمل تصحح اتجاه EXIF دون تعديل الأصل. التكبير لا يضيف تفاصيل للصورة.',
             textAlign: TextAlign.center,
           ),
         ),
@@ -708,7 +759,7 @@ class _AssetViewerState extends State<AssetViewer> {
               child: LocalImage(
                 repository: widget.repository,
                 path: _original
-                    ? widget.asset.originalPath
+                    ? widget.asset.processingInputPath
                     : widget.asset.workingPath,
                 cacheWidth: 1800,
               ),

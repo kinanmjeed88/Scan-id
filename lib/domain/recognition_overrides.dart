@@ -88,6 +88,54 @@ Project confirmRecognition(Project project, String documentId) {
   ]);
 }
 
+/// Dismisses a review candidate as not a document.
+///
+/// The recognition record, original/derived assets, evidence and provenance
+/// remain as an auditable tombstone. All layout items for the candidate are
+/// removed in the same immutable project change; an unresolved pair is
+/// dissolved without disturbing the other document's placement. Missing,
+/// already-dismissed, or otherwise stale review actions are safe no-ops.
+Project dismissRecognition(Project project, String documentId) {
+  final record = project.documents
+      .where((entry) => entry.id == documentId)
+      .firstOrNull;
+  if (record == null || isDismissed(record) || !recordNeedsReview(record)) {
+    return project;
+  }
+  final linkedItems = project.items
+      .where((item) => item.documentId == documentId)
+      .toList();
+  require(linkedItems.isNotEmpty, 'المستند لا يملك عنصراً يمكن استبعاده.');
+  require(
+    linkedItems.every((item) => !item.locked),
+    'ألغِ تثبيت عناصر المستند قبل استبعاده.',
+  );
+
+  var next = project;
+  if (record.pairing != PairingState.single ||
+      record.pairedDocumentId != null) {
+    next = rejectPair(next, documentId);
+  }
+  final currentRecord = _record(next, documentId);
+  final updated = currentRecord.copyWith(
+    overrides: [
+      ...currentRecord.overrides,
+      UserOverride(dismissed: true, fields: const ['dismissed']),
+    ],
+  );
+  final updatedRecords = [
+    for (final record in next.documents)
+      if (record.id == documentId) updated else record,
+  ];
+  // The tombstone and removal of its layout item must validate atomically;
+  // an intermediate project with a dismissed record and a live item is invalid.
+  return PageLayout.remove(
+    next,
+    {for (final item in linkedItems) item.id},
+    documentsOverride: updatedRecords,
+  );
+}
+
 /// Records the user's front/back choice for a document.
 Project setSideOverride(Project project, String documentId, SideKind side) {
   final record = _record(project, documentId);

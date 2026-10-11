@@ -148,6 +148,11 @@ void main() {
       expect(report.cropped, 1);
       expect(report.project.assets.single.crop, isNotNull);
       expect(
+        report.project.assets.single.userAuthoredCrop,
+        isFalse,
+        reason: 'automatic layout must not mark its crop as user-authored',
+      );
+      expect(
         report.project.assets.single.workingPath,
         isNot(project.assets.single.workingPath),
       );

@@ -35,6 +35,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import '../domain/geometry.dart';
+import '../domain/image_limits.dart';
 import 'document_detector.dart';
 import 'prepare_image.dart';
 
@@ -196,9 +197,10 @@ class SegmentationResult {
     this.rejected = const [],
   });
 
-  /// With [multi] true: one candidate per segmented document. With [multi]
-  /// false: segmentation found no reliable multi-document structure and the
-  /// caller should use the single-document path on the whole image.
+  /// A hint that the segmentation looks multi-document, not a filter on
+  /// [candidates]. It can be false when every measured region is unresolved;
+  /// callers must preserve every candidate regardless of this hint. An empty
+  /// candidate list is the signal to try the single-document path.
   ///
   /// Every entry here is a PLAUSIBLE document region: either it carries a
   /// trustworthy quadrilateral, or it is an explicitly unresolved region the
@@ -220,7 +222,10 @@ SegmentationResult segmentDocumentBytes(Uint8List previewBytes) =>
     segmentDecoded(decodeForProcessing(previewBytes));
 
 SegmentationResult segmentDecoded(img.Image image) {
-  if (image.width < 40 || image.height < 40) {
+  if (
+    image.width < minRecognitionPreviewSide ||
+    image.height < minRecognitionPreviewSide
+  ) {
     return const SegmentationResult(candidates: [], multi: false);
   }
   const workSide = 360;
@@ -297,8 +302,8 @@ SegmentationResult segmentDecoded(img.Image image) {
   // before any corner is searched for and long before a derived file, a
   // document record or a layout item exists — because this is the earliest
   // point where the measurements that decide it are all available. A region
-  // refused here costs nothing; the same region accepted costs a derived file
-  // and an editor item the user has to delete by hand.
+  // refused here costs nothing; a candidate retained for review creates a
+  // record/item that the user can explicitly dismiss if it is not a document.
   final measured = [
     for (final box in merged) _measure(box, w, h, image.width, image.height),
   ];
@@ -314,10 +319,11 @@ SegmentationResult segmentDecoded(img.Image image) {
   }
   _applyCandidateCap(accepted, rejected, total);
 
-  if (accepted.length < 2) {
-    // One plausible document (or none) is the single-document path's job: the
-    // precise detector sees the whole frame and the rejections above are
-    // reported, so this is never a silent loss of a measured region.
+  if (accepted.isEmpty) {
+    // No plausible region was measured; an empty candidate list is the only
+    // signal that lets the pipeline try its whole-frame single-document path.
+    // A lone plausible region must still be inspected below: if its outline is
+    // unresolved, its measured bounds are the only safe manual-recovery context.
     return SegmentationResult(
       candidates: const [],
       multi: false,
@@ -382,6 +388,20 @@ SegmentationResult segmentDecoded(img.Image image) {
     );
   }
   final deduplicated = _suppressDuplicates(candidates);
+  if (accepted.length == 1 &&
+      deduplicated.length == 1 &&
+      deduplicated.single.corners != null) {
+    // Preserve the established single-document route when the one measured
+    // region already has a quad: the pipeline's precise whole-frame detector
+    // remains authoritative for that case. Keep the candidate only when its
+    // measured outline is unresolved, because that bounds-only evidence is
+    // otherwise lost before manual recovery.
+    return SegmentationResult(
+      candidates: const [],
+      multi: false,
+      rejected: List.unmodifiable(rejected),
+    );
+  }
   final quads = deduplicated.where((c) => c.corners != null).length;
   return SegmentationResult(
     candidates: deduplicated,

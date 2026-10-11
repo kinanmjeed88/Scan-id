@@ -5,6 +5,8 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
@@ -152,6 +154,62 @@ void main() {
       expect(orphans.paths, isNot(contains('staging/leftover')));
     },
   );
+
+  test('historical processed paths keep referenced edit revisions live', () async {
+    var project = await create('مرجع تاريخي', images: 1);
+    final source = project.assets.single;
+    final assetDirectory = source.originalPath.split('/').take(4).join('/');
+    const historical = 'edits/recognition-v1';
+    final historicalDirectory = '$assetDirectory/$historical';
+    final historicalWorking = '$historicalDirectory/working.png';
+    final historicalThumb = '$historicalDirectory/thumb.jpg';
+    for (final path in [historicalWorking, historicalThumb]) {
+      final file = File('${root.path}/$path');
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes([1, 2, 3]);
+    }
+    final record = DocumentRecord(
+      id: 'rec-dismissed-history',
+      sourceImageId: source.id,
+      sides: [
+        DocumentSide(
+          id: 'side-dismissed-history',
+          side: SideKind.unknown,
+          processedAsset: ProcessedAssetRef(
+            workingPath: historicalWorking,
+            thumbnailPath: historicalThumb,
+            width: source.width,
+            height: source.height,
+          ),
+        ),
+      ],
+      pairing: PairingState.single,
+      provenance: Provenance(
+        sourceImageId: source.id,
+        detectionIds: ['${source.id}-d0'],
+        processedAssetVersion: 'smart-1',
+        pipelineVersion: 'smart-1',
+      ),
+      overrides: [
+        UserOverride(dismissed: true, fields: const ['dismissed']),
+      ],
+    );
+    project = await projects.save(project.copyWith(documents: [record]));
+
+    final orphan = '$assetDirectory/edits/unreferenced';
+    await Directory('${root.path}/$orphan').create(recursive: true);
+    await File('${root.path}/$orphan/working.png').writeAsBytes([4, 5, 6]);
+    final old = DateTime.now().toUtc().subtract(_stale);
+    await ageTree(historicalDirectory, old);
+    await ageTree(orphan, old);
+
+    final orphans = await maintenance.findOrphans([project]);
+
+    expect(orphans.paths, contains(orphan));
+    expect(orphans.paths, isNot(contains(historicalDirectory)));
+    expect(await exists(historicalWorking), isTrue);
+    expect(await exists(historicalThumb), isTrue);
+  });
 
   test('fresh work is protected from the orphan scan', () async {
     final project = await create('حديث', images: 1);

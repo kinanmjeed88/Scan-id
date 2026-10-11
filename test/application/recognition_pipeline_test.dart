@@ -520,7 +520,8 @@ void main() {
 
       expect(singleCalled, isFalse);
       expect(
-        analysis.detections.single.corners?.map((point) => [point.x, point.y])
+        analysis.detections.single.corners
+            ?.map((point) => [point.x, point.y])
             .toList(),
         _quad().map((point) => [point.x, point.y]).toList(),
       );

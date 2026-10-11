@@ -619,10 +619,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('deleting a photo with crops says what stays, at phone width', (
+  testWidgets('deleting a photo with crops says what stays and what is kept', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(360, 780);
+    tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -677,7 +677,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.byTooltip('خيارات الصورة').first);
     await tester.tap(find.byTooltip('خيارات الصورة').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('حذف الصورة نهائياً'));

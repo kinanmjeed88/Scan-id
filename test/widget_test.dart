@@ -534,46 +534,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a stale recovery copy is named on home and project screen at phone width', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(360, 780);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final repository = _MemoryProjects();
-    final project = await repository.create(
-      projectFixture(assets: [assetFixture()], items: [itemFixture()]),
-    );
-    final recovery = _StaleRecovery({project.id});
-    final service = ProjectService(
-      repository,
-      _NoAssets(),
-      recovery: recovery,
-    );
-    await tester.pumpWidget(
-      AppShell(
-        home: ProjectsScreen(service: service, pickImages: () async => []),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('نقاط استرداد متأخرة (1)'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-
-    await tester.pumpWidget(
-      AppShell(
-        home: ProjectScreen(
-          project: project,
-          service: service,
-          pickImages: () async => [],
+  testWidgets(
+    'a stale recovery copy is named on home and project screen at phone width',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 780);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(assets: [assetFixture()], items: [itemFixture()]),
+      );
+      final recovery = _StaleRecovery({project.id});
+      final service = ProjectService(
+        repository,
+        _NoAssets(),
+        recovery: recovery,
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: ProjectsScreen(service: service, pickImages: () async => []),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('نقطة الاستعادة متأخرة'), findsOneWidget);
-    expect(find.text('تحديث نقطة الاستعادة'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('نقاط استرداد متأخرة (1)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        AppShell(
+          home: ProjectScreen(
+            project: project,
+            service: service,
+            pickImages: () async => [],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('نقطة الاستعادة متأخرة'), findsOneWidget);
+      expect(find.text('تحديث نقطة الاستعادة'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('refreshing a stale recovery copy reports failure as failure', (
     tester,
@@ -587,11 +588,7 @@ void main() {
       projectFixture(assets: [assetFixture()], items: [itemFixture()]),
     );
     final recovery = _StaleRecovery({project.id}, failRefresh: true);
-    final service = ProjectService(
-      repository,
-      _NoAssets(),
-      recovery: recovery,
-    );
+    final service = ProjectService(repository, _NoAssets(), recovery: recovery);
     await tester.pumpWidget(
       AppShell(
         home: ProjectScreen(
@@ -660,11 +657,10 @@ void main() {
         assets: [source, crop],
         items: [
           itemFixture(id: 'own', assetId: 'asset1'),
-          itemFixture(id: 'crop-item', assetId: 'crop1').copyWith(
-            documentId: 'rec-1',
-            sideId: 'side-1',
-            x: 60,
-          ),
+          itemFixture(
+            id: 'crop-item',
+            assetId: 'crop1',
+          ).copyWith(documentId: 'rec-1', sideId: 'side-1', x: 60),
         ],
       ).copyWith(documents: [record]),
     );

@@ -750,9 +750,11 @@ void main() {
         final other = await service.create('ملف آخر');
         // Occupy this project's copy path with a directory: the rename of the
         // new copy over it fails, while the other project's copy still works.
-        final blocked = Directory(
-          p.join(root.path, 'checkpoints', '${stale.id}.json'),
-        );
+        // The existing copy file must go first: a directory cannot be created
+        // on top of a file.
+        final copy = File(p.join(root.path, 'checkpoints', '${stale.id}.json'));
+        await copy.delete();
+        final blocked = Directory(copy.path);
         await blocked.create(recursive: true);
         try {
           await projects.save(stale.copyWith(name: 'مستمسكات بعد التعديل'));

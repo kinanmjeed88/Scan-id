@@ -19,7 +19,7 @@ void main() {
   late LocalProjectRepository projects;
   late ProjectService service;
 
-  String get checkpointsPath => p.join(root.path, 'checkpoints');
+  String checkpointsPath() => p.join(root.path, 'checkpoints');
 
   Future<void> reopen() async {
     await projects.close();
@@ -30,7 +30,7 @@ void main() {
   Future<void> setWritable({required bool writable}) async {
     final result = await Process.run('chmod', [
       writable ? '755' : '555',
-      checkpointsPath,
+      checkpointsPath(),
     ]);
     expect(result.exitCode, 0, reason: 'chmod failed: ${result.stderr}');
   }
@@ -52,7 +52,7 @@ void main() {
     addTearDown(() => fresh.delete(recursive: true));
     final target = Directory(p.join(fresh.path, 'checkpoints'));
     await target.create(recursive: true);
-    await for (final entity in Directory(checkpointsPath).list()) {
+    await for (final entity in Directory(checkpointsPath()).list()) {
       if (entity is File) {
         await entity.copy(p.join(target.path, p.basename(entity.path)));
       }
@@ -68,8 +68,8 @@ void main() {
 
   tearDown(() async {
     // Restore write access first, or the temporary tree cannot be removed.
-    if (await Directory(checkpointsPath).exists()) {
-      await Process.run('chmod', ['755', checkpointsPath]);
+    if (await Directory(checkpointsPath()).exists()) {
+      await Process.run('chmod', ['755', checkpointsPath()]);
     }
     await projects.close();
     await root.delete(recursive: true);
@@ -196,7 +196,7 @@ void main() {
     () async {
       final project = await service.create('تالف');
       await File(
-        p.join(checkpointsPath, '${project.id}.json'),
+        p.join(checkpointsPath(), '${project.id}.json'),
       ).writeAsString('{not json');
       await reopen();
 

@@ -30,12 +30,22 @@ class LocalStorageMaintenance implements StorageMaintenance {
   @override
   Future<OrphanFiles> findOrphans(List<Project> projects) async {
     final referenced = <String>{
-      for (final project in projects)
+      for (final project in projects) ...[
         for (final asset in project.assets) ...[
           asset.originalPath,
           asset.workingPath,
           asset.thumbnailPath,
+          asset.processingInputPath,
         ],
+        // Recognition references may name an older revision after a later
+        // crop/replacement. Keep that file alive while any document record,
+        // including a dismissed tombstone, still refers to it.
+        for (final record in project.documents)
+          for (final side in record.sides) ...[
+            side.processedAsset.workingPath,
+            side.processedAsset.thumbnailPath,
+          ],
+      ],
     };
     final knownProjects = {for (final project in projects) project.id};
     // Files being written right now are not orphans. An asset directory exists

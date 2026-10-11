@@ -30,6 +30,7 @@ class ReplacementFiles {
     required this.thumbnailPath,
     required this.width,
     required this.height,
+    this.sourceScaling,
   });
   final String revision;
   final String originalPath;
@@ -37,6 +38,9 @@ class ReplacementFiles {
   final String thumbnailPath;
   final int width;
   final int height;
+
+  /// Source-size reduction applied before preparing a large replacement.
+  final String? sourceScaling;
 }
 
 abstract interface class AssetRepository {
@@ -52,6 +56,11 @@ abstract interface class AssetRepository {
     String assetId,
     Uint8List bytes,
   );
+
+  /// Returns a small display image without decoding an over-budget source in
+  /// Dart. Large JPEGs use the same sampled native path as imports.
+  Future<Uint8List> previewImage(Uint8List source);
+
   Future<File> resolve(String relativePath);
 }
 

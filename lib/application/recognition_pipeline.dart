@@ -165,11 +165,17 @@ class ImageAnalysis {
 
   /// Whether this source needs the multi-document intake path.
   ///
-  /// True as soon as more than one region was measured: routing a
-  /// multi-region photo through the single-document path would crop the
-  /// SOURCE asset to one quad and make every other region unrecoverable
-  /// (ADR-003).
-  bool get needsMultiIntake => multi || regionCount > 1;
+  /// True when multiple regions were measured, regardless of the segmenter's
+  /// `multi` hint, or when one measured candidate has no usable boundary and
+  /// must be retained as a measured crop for manual recovery. A full-frame
+  /// fallback with no measured region remains on the single-image path.
+  bool get needsMultiIntake =>
+      multi ||
+      regionCount > 1 ||
+      unresolvedRegions.isNotEmpty ||
+      allRegions.any(
+        (region) => region.region != null && region.needsManualBoundary,
+      );
 }
 
 /// Default segmentation seam: the real classical segmenter off the UI
@@ -228,7 +234,10 @@ class RecognitionPipeline {
 
     final detections = <DetectionAnalysis>[];
     final unresolved = <DetectionAnalysis>[];
-    if (segmentation.multi) {
+    // `multi` is only a hint; candidates are measured evidence in their own
+    // right. In particular, all-unresolved multi-region results legitimately
+    // carry `multi: false` because none has a trustworthy quadrilateral.
+    if (segmentation.candidates.isNotEmpty) {
       var index = 0;
       for (final candidate in segmentation.candidates) {
         token?.throwIfCancelled();
@@ -278,10 +287,11 @@ class RecognitionPipeline {
         );
       }
     }
-    // Only fall back to the whole frame when NOTHING was measured. Once the
-    // segmenter has produced regions — even unresolved ones — a full-frame
-    // detection would describe a DIFFERENT document spanning those regions,
-    // duplicating them instead of recovering them.
+    // The production segmenter returns no candidates when none is plausible,
+    // or when one measured region already has a trustworthy quad and should use
+    // the established precise whole-frame detector. A measured unresolved
+    // singleton and every multi-region result stay in `candidates`, so this
+    // fallback can never replace bounds needed for recovery or duplicate them.
     if (detections.isEmpty && unresolved.isEmpty) {
       List<Point2>? corners;
       try {
@@ -314,7 +324,9 @@ class RecognitionPipeline {
       importIndex: input.importIndex,
       detections: detections,
       issues: issues,
-      multi: segmentation.multi && detections.length > 1,
+      // Report the measured region count, not the segmenter's hint: the hint
+      // can be false when every candidate is unresolved.
+      multi: detections.length + unresolved.length > 1,
       unresolvedRegions: unresolved,
       rejectedRegions: segmentation.rejected,
     );

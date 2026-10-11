@@ -11,6 +11,7 @@ import '../domain/project.dart';
 import 'crop_screen.dart';
 import 'editor_controller.dart';
 import 'export_screen.dart';
+import 'intake.dart';
 import 'review_screen.dart';
 import 'ribbon.dart';
 import 'shared.dart';
@@ -59,8 +60,30 @@ class _LayoutScreenState extends State<LayoutScreen> {
           )
           ..onMessage = (message) {
             if (mounted) showMessage(context, message);
+          }
+          ..onImportReport = (report) {
+            if (mounted) unawaited(_showImportReport(report));
           };
     _c.addListener(_changed);
+  }
+
+  Future<void> _showImportReport(ImportReport report) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('نتيجة استيراد ${report.imported} صورة'),
+        content: SingleChildScrollView(
+          child: Text(importReportDetails(report)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('حسناً'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

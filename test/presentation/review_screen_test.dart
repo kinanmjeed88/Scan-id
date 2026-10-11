@@ -8,40 +8,44 @@ import 'package:scan_id/domain/recognition_overrides.dart';
 import 'editor_harness.dart';
 import '../fixtures.dart';
 
-DocumentRecord _record(String stem, String assetId, {String? pairedWith}) =>
-    DocumentRecord(
-      id: 'rec-$stem',
-      sourceImageId: assetId,
-      sides: [
-        DocumentSide(
-          id: 'side-$stem',
-          side: SideKind.unknown,
-          processedAsset: ProcessedAssetRef(
-            workingPath: 'projects/project1/assets/$assetId/working.png',
-            thumbnailPath: 'projects/project1/assets/$assetId/thumb.jpg',
-            width: 856,
-            height: 540,
-          ),
-        ),
-      ],
-      recognition: RecognitionResult(
-        documentKind: DocumentKind.unifiedNationalId,
-        status: RecognitionStatus.recognized,
-        confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
-        preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
+DocumentRecord _record(
+  String stem,
+  String assetId, {
+  String? processedAssetId,
+  String? pairedWith,
+}) => DocumentRecord(
+  id: 'rec-$stem',
+  sourceImageId: assetId,
+  sides: [
+    DocumentSide(
+      id: 'side-$stem',
+      side: SideKind.unknown,
+      processedAsset: ProcessedAssetRef(
+        workingPath:
+            'projects/project1/assets/${processedAssetId ?? assetId}/working.png',
+        thumbnailPath:
+            'projects/project1/assets/${processedAssetId ?? assetId}/thumb.jpg',
+        width: 856,
+        height: 540,
       ),
-      pairing: pairedWith == null
-          ? PairingState.single
-          : PairingState.ambiguous,
-      pairedDocumentId: pairedWith,
-      pairingConfidence: pairedWith == null ? null : .85,
-      provenance: Provenance(
-        sourceImageId: assetId,
-        detectionIds: ['$assetId-d0'],
-        processedAssetVersion: 'smart-1',
-        pipelineVersion: 'smart-1',
-      ),
-    );
+    ),
+  ],
+  recognition: RecognitionResult(
+    documentKind: DocumentKind.unifiedNationalId,
+    status: RecognitionStatus.recognized,
+    confidences: ConfidenceSet(finalConfidence: Confidence(value: .78)),
+    preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
+  ),
+  pairing: pairedWith == null ? PairingState.single : PairingState.ambiguous,
+  pairedDocumentId: pairedWith,
+  pairingConfidence: pairedWith == null ? null : .85,
+  provenance: Provenance(
+    sourceImageId: assetId,
+    detectionIds: ['$assetId-d0'],
+    processedAssetVersion: 'smart-1',
+    pipelineVersion: 'smart-1',
+  ),
+);
 
 DocumentItem _linkedItem(String stem, String assetId, {double y = 5}) =>
     DocumentItem(
@@ -66,12 +70,27 @@ Project _reviewProject() => Project(
   paper: PaperSettings(margins: Margins.all(5)),
   assets: [
     assetFixture(id: 'asset1'),
+    assetFixture(id: 'derived-front').asDerivedOf('asset1'),
     assetFixture(id: 'asset2'),
+    assetFixture(id: 'derived-back').asDerivedOf('asset2'),
   ],
-  items: [_linkedItem('front', 'asset1'), _linkedItem('back', 'asset2', y: 70)],
+  items: [
+    _linkedItem('front', 'derived-front'),
+    _linkedItem('back', 'derived-back', y: 70),
+  ],
   documents: [
-    _record('front', 'asset1', pairedWith: 'rec-back'),
-    _record('back', 'asset2', pairedWith: 'rec-front'),
+    _record(
+      'front',
+      'asset1',
+      processedAssetId: 'derived-front',
+      pairedWith: 'rec-back',
+    ),
+    _record(
+      'back',
+      'asset2',
+      processedAssetId: 'derived-back',
+      pairedWith: 'rec-front',
+    ),
   ],
 );
 
@@ -97,6 +116,113 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'review lets the user dismiss a false candidate as not a document',
+    (tester) async {
+      final editor = await EditorHarness.pump(
+        tester,
+        project: _reviewProject(),
+      );
+      final targetBefore = editor.saved.documents.firstWhere(
+        (record) => record.id == 'rec-front',
+      );
+      final sourceAssetIds = [
+        for (final asset in editor.saved.assets) asset.id,
+      ];
+      final backBefore = itemIn(editor.saved, 'back');
+
+      await tapKey(tester, const Key('rb-review'));
+      final dismissButton = find.byKey(const Key('review-dismiss-rec-front'));
+      expect(
+        find.descendant(of: dismissButton, matching: find.text('ليس مستنداً')),
+        findsOneWidget,
+      );
+      expect(
+        Directionality.of(tester.element(dismissButton)),
+        TextDirection.rtl,
+      );
+      await tapKey(tester, const Key('review-dismiss-rec-front'));
+
+      final dismissed = editor.saved.documents.firstWhere(
+        (record) => record.id == 'rec-front',
+      );
+      expect(dismissed.overrides.last.dismissed, isTrue);
+      expect(dismissed.recognition, same(targetBefore.recognition));
+      expect(dismissed.sourceImageId, 'asset1');
+      expect(dismissed.pairing, PairingState.single);
+      expect(dismissed.pairedDocumentId, isNull);
+      expect(
+        dismissed.sides.single.processedAsset.workingPath,
+        'projects/project1/assets/derived-front/working.png',
+      );
+      expect(assetIn(editor.saved, 'derived-front').derivedFrom, 'asset1');
+      expect(editor.saved.items.map((item) => item.id), ['back']);
+      expect(itemIn(editor.saved, 'back').toJson(), backBefore.toJson());
+      expect(editor.saved.assets.map((asset) => asset.id), sourceAssetIds);
+      expect(editor.saved.layoutGroups, isEmpty);
+      final partner = editor.saved.documents.firstWhere(
+        (record) => record.id == 'rec-back',
+      );
+      expect(partner.pairedDocumentId, isNull);
+      expect(partner.pairing, PairingState.single);
+      expect(partner.overrides.last.pairing, PairingState.single);
+      expect(
+        partner.overrides.any((override) => override.dismissed == true),
+        isFalse,
+      );
+      expect(
+        recordsNeedingReview(editor.saved).map((record) => record.id),
+        ['rec-back'],
+        reason: 'the active partner remains reviewable for independent reasons',
+      );
+      expect(
+        Project.fromJson(editor.saved.toJson()).toJson(),
+        editor.saved.toJson(),
+      );
+      expect(tester.takeException(), isNull);
+
+      await tapKey(tester, const Key('review-close'));
+      await tapKey(tester, const Key('qa-undo'));
+      expect(editor.saved.items, hasLength(2));
+      expect(recordsNeedingReview(editor.saved), hasLength(2));
+      await tapKey(tester, const Key('qa-redo'));
+      expect(editor.saved.items.map((item) => item.id), ['back']);
+      expect(recordsNeedingReview(editor.saved).map((record) => record.id), [
+        'rec-back',
+      ]);
+    },
+  );
+
+  testWidgets(
+    'a failed dismissal save leaves the candidate intact and can be retried',
+    (tester) async {
+      final editor = await EditorHarness.pump(
+        tester,
+        project: _reviewProject(),
+      );
+      await tapKey(tester, const Key('rb-review'));
+      editor.repository.failNextSave = true;
+
+      await tapKey(tester, const Key('review-dismiss-rec-front'));
+
+      expect(editor.saved.items, hasLength(2));
+      expect(editor.saved.documents, hasLength(2));
+      expect(recordsNeedingReview(editor.saved), hasLength(2));
+      expect(
+        editor.saved.documents.firstWhere((d) => d.id == 'rec-front').overrides,
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tapKey(tester, const Key('review-dismiss-rec-front'));
+      expect(editor.saved.items, hasLength(1));
+      expect(recordsNeedingReview(editor.saved).map((record) => record.id), [
+        'rec-back',
+      ]);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('accepting a proposed pair groups both items', (tester) async {
     final editor = await EditorHarness.pump(tester, project: _reviewProject());
     await tapKey(tester, const Key('rb-review'));
@@ -119,6 +245,12 @@ void main() {
     expect(
       editor.saved.documents.every((d) => d.pairedDocumentId == null),
       isTrue,
+    );
+    expect(
+      recordsNeedingReview(editor.saved),
+      hasLength(2),
+      reason:
+          'pair rejection resolves pairing only, not each record’s other reasons',
     );
     expect(tester.takeException(), isNull);
   });

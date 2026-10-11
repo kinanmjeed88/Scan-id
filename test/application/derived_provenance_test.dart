@@ -75,6 +75,10 @@ class _FailingAssets implements AssetRepository {
   ) => inner.replaceImage(projectId, assetId, bytes);
 
   @override
+  Future<Uint8List> previewImage(Uint8List source) =>
+      inner.previewImage(source);
+
+  @override
   Future<File> resolve(String relativePath) => inner.resolve(relativePath);
 }
 
@@ -164,10 +168,10 @@ DocumentRecord _record({
 
 /// A project holding [assets] and [documents].
 ///
-/// `Project` requires `documents.length <= items.length` — every record is
-/// realized through a layout item — and every item reference must resolve, so
-/// one off-sheet item per record is built here. These tests are about
-/// provenance, not placement, so the items carry no meaningful geometry.
+/// Active `Project` records require a matching layout item and every item
+/// reference must resolve, so one off-sheet item per record is built here.
+/// These tests are about provenance, not placement, so the items carry no
+/// meaningful geometry.
 Project _project(List<ImageAsset> assets, List<DocumentRecord> documents) {
   final items = <DocumentItem>[
     for (var index = 0; index < documents.length; index++)
@@ -294,6 +298,70 @@ void main() {
             result.assets.firstWhere((a) => a.id == sourceId).originalPath,
           )).readAsBytes(),
           bytes,
+        );
+      },
+    );
+
+    test(
+      'a historical record path keeps a revised legacy crop out of reprocessing',
+      () async {
+        final s = service();
+        final bytes = _twoCardPhoto();
+        var project = await s.create('مرجع نسخة مشتقة قديمة');
+        project = (await s.importImages(project, [
+          ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+        ])).project;
+        final sourceId = project.assets.single.id;
+        project = (await s.arrangeImportedImages(project, [sourceId])).project;
+        final crop = project.assets.firstWhere((asset) => asset.id != sourceId);
+        final editor = LocalImageEditor(projects.files);
+        final revised = await editor.createRevision(
+          crop,
+          CropDraft.fullImage().toRecipe(crop.width, crop.height),
+        );
+        final legacyRevision = ImageAsset(
+          id: revised.id,
+          name: revised.name,
+          originalPath: revised.originalPath,
+          workingPath: revised.workingPath,
+          thumbnailPath: revised.thumbnailPath,
+          width: revised.width,
+          height: revised.height,
+          crop: revised.crop,
+          adjustments: revised.adjustments,
+          transforms: revised.transforms,
+        );
+        final legacy = await projects.save(
+          project.copyWith(
+            assets: [
+              for (final asset in project.assets)
+                asset.id == crop.id ? legacyRevision : asset,
+            ],
+          ),
+        );
+        expect(
+          legacy.documents.first.sides.single.processedAsset.workingPath,
+          isNot(legacyRevision.workingPath),
+        );
+        expect(legacyRevision.derivedFrom, isNull);
+
+        final report = await s.reprocessImages(legacy, [legacyRevision.id]);
+        final result = report!.project;
+
+        expect(result.assets, hasLength(3));
+        expect(result.items, hasLength(2));
+        expect(result.documents, hasLength(2));
+        expect(
+          result.assets.firstWhere((asset) => asset.id == crop.id).derivedFrom,
+          sourceId,
+        );
+        expect(
+          result.documents.map((record) => record.id),
+          legacy.documents.map((record) => record.id),
+        );
+        expect(
+          result.items.map((item) => item.id),
+          legacy.items.map((item) => item.id),
         );
       },
     );
@@ -475,6 +543,87 @@ void main() {
   });
 
   group('reconcileDerivedProvenance', () {
+    test(
+      'a historical processed revision still proves one source relationship',
+      () {
+        final source = _asset('src1', 'p1');
+        final crop = ImageAsset(
+          id: 'crop1',
+          name: 'crop1.png',
+          originalPath: 'projects/p1/assets/crop1/original.png',
+          workingPath:
+              'projects/p1/assets/crop1/replacements/current/working.png',
+          thumbnailPath:
+              'projects/p1/assets/crop1/replacements/current/thumb.jpg',
+          width: 400,
+          height: 250,
+        );
+        const oldWorking = 'projects/p1/assets/crop1/edits/old/working.png';
+        const oldThumb = 'projects/p1/assets/crop1/edits/old/thumb.jpg';
+        final project = _project(
+          [source, crop],
+          [
+            _record(
+              id: 'doc1',
+              sourceImageId: 'src1',
+              sideId: 'side1',
+              workingPath: oldWorking,
+              thumbnailPath: oldThumb,
+            ),
+          ],
+        );
+
+        final report = reconcileDerivedProvenance(project);
+
+        expect(report.backfilled, ['crop1']);
+        expect(report.ambiguousAssetIds, isEmpty);
+        expect(report.project.assets.last.derivedFrom, 'src1');
+        expect(report.project.assets.last.workingPath, crop.workingPath);
+      },
+    );
+
+    test('multiple source records do not guess a shared asset provenance', () {
+      final crop = ImageAsset(
+        id: 'crop1',
+        name: 'shared.png',
+        originalPath: 'projects/p1/assets/crop1/original.png',
+        workingPath:
+            'projects/p1/assets/crop1/replacements/current/working.png',
+        thumbnailPath:
+            'projects/p1/assets/crop1/replacements/current/thumb.jpg',
+        width: 400,
+        height: 250,
+      );
+      const oldWorking = 'projects/p1/assets/crop1/edits/old/working.png';
+      const oldThumb = 'projects/p1/assets/crop1/edits/old/thumb.jpg';
+      final project = _project(
+        [_asset('src1', 'p1'), _asset('src2', 'p1'), crop],
+        [
+          _record(
+            id: 'doc1',
+            sourceImageId: 'src1',
+            sideId: 'side1',
+            workingPath: oldWorking,
+            thumbnailPath: oldThumb,
+          ),
+          _record(
+            id: 'doc2',
+            sourceImageId: 'src2',
+            sideId: 'side2',
+            workingPath: oldWorking,
+            thumbnailPath: oldThumb,
+          ),
+        ],
+      );
+
+      final report = reconcileDerivedProvenance(project);
+
+      expect(report.project, same(project));
+      expect(report.backfilled, isEmpty);
+      expect(report.ambiguousAssetIds, ['crop1']);
+      expect(report.project.assets.last.derivedFrom, isNull);
+    });
+
     test('backfills only what the records prove', () {
       final source = _asset('src1', 'p1');
       final crop = _asset('crop1', 'p1');

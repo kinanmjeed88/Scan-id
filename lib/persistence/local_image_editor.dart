@@ -10,6 +10,7 @@ import '../application/ids.dart';
 import '../application/image_reader.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
+import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/document_detector.dart';
@@ -20,20 +21,22 @@ import 'safe_files.dart';
 class LocalImageEditor implements ImageEditor {
   const LocalImageEditor(this.files);
   final SafeFiles files;
-  Future<Uint8List> _original(ImageAsset asset) async => readBoundedImage(
-    (await files.existingFile(asset.originalPath)).openRead(),
+  Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
+    (await files.existingFile(asset.processingInputPath)).openRead(),
   );
 
   @override
   Future<EditorSource> open(ImageAsset asset) async {
-    final bytes = await _original(asset);
+    final bytes = await _source(asset);
     return Isolate.run(() {
       final image = decodeForProcessing(bytes);
       final reduced = img.copyResize(
         image,
-        width: image.width >= image.height ? math.min(1200, image.width) : null,
+        width: image.width >= image.height
+            ? math.min(maxRecognitionPreviewLongEdge, image.width)
+            : null,
         height: image.height > image.width
-            ? math.min(1200, image.height)
+            ? math.min(maxRecognitionPreviewLongEdge, image.height)
             : null,
       );
       return EditorSource(img.encodePng(reduced), image.width, image.height);
@@ -46,7 +49,7 @@ class LocalImageEditor implements ImageEditor {
 
   @override
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
-    final bytes = await _original(asset);
+    final bytes = await _source(asset);
     return Isolate.run(
       () => renderPerspective(bytes, recipe, previewLongEdge: 1200),
     );
@@ -57,7 +60,7 @@ class LocalImageEditor implements ImageEditor {
     ImageAsset asset,
     ImageEditRecipe recipe,
   ) async {
-    final bytes = await _original(asset);
+    final bytes = await _source(asset);
     final root = files.root.path;
     return Isolate.run(() => _saveRevision(root, asset, recipe, bytes));
   }
@@ -104,9 +107,11 @@ Future<ImageAsset> _saveRevision(
     return ImageAsset(
       id: asset.id,
       captureId: asset.captureId,
-      // A revision changes pixels, never provenance: dropping this would turn a
-      // derived crop back into an apparent original photograph.
+      // A revision changes pixels, never provenance or crop authorship: dropping
+      // either would turn a derived or manually cropped asset into an apparent
+      // original / automatic crop.
       derivedFrom: asset.derivedFrom,
+      userAuthoredCrop: asset.userAuthoredCrop,
       name: asset.name,
       originalPath: asset.originalPath,
       workingPath: '$relative/working.png',
@@ -115,7 +120,7 @@ Future<ImageAsset> _saveRevision(
       height: rendered.height,
       crop: recipe.geometry,
       adjustments: recipe.adjustments,
-      transforms: log.skip(math.max(0, log.length - 500)).toList(),
+      transforms: boundedTransformLog(log),
     );
   } finally {
     if (await staging.exists()) {

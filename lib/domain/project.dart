@@ -4,6 +4,7 @@ import 'image_adjustments.dart';
 import 'validation.dart';
 import 'image_limits.dart';
 import 'recognition.dart';
+import 'recognition_routing.dart' show isDismissalTombstone;
 
 enum PaperOrientation { portrait, landscape }
 
@@ -192,6 +193,7 @@ class ImageAsset {
     this.crop,
     this.captureId,
     this.derivedFrom,
+    this.userAuthoredCrop = false,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
   }) : adjustments = adjustments ?? ImageAdjustments(),
@@ -222,6 +224,10 @@ class ImageAsset {
       'أبعاد الصورة غير صالحة أو تتجاوز حد الاستيراد.',
     );
     require(
+      !userAuthoredCrop || crop != null,
+      'القص اليدوي يحتاج إلى وصف هندسي محفوظ.',
+    );
+    require(
       transforms.length <= 500 && transforms.every((t) => t.length <= 200),
       'سجل تحويلات الصورة كبير جداً.',
     );
@@ -246,6 +252,12 @@ class ImageAsset {
   /// or backup without the key reads exactly as before, so no schema bump and
   /// no migration are needed.
   final String? derivedFrom;
+
+  /// True only when the crop recipe was accepted in the manual crop editor.
+  /// Automatic-layout crops use the same revision service but must not acquire
+  /// this marker merely because they share that implementation path.
+  final bool userAuthoredCrop;
+
   final String originalPath;
   final String workingPath;
   final String thumbnailPath;
@@ -254,6 +266,33 @@ class ImageAsset {
   final CropGeometry? crop;
   final ImageAdjustments adjustments;
   final List<String> transforms;
+
+  /// Whether this JPEG's current source bytes use the bounded sampling path.
+  /// Pixel operations must use [processingInputPath], never decode the full
+  /// [originalPath] raster.
+  bool get hasScaledLargeSource {
+    // Transformation history also records source replacements. The most recent
+    // source boundary decides which bytes are current; later crop/reprocess
+    // entries do not erase that decision.
+    for (final entry in transforms.reversed) {
+      if (entry.startsWith('large-jpeg:')) return true;
+      if (entry.startsWith('replaced:')) return false;
+    }
+    return false;
+  }
+
+  /// Stable, bounded raster to use for every pixel operation on this asset.
+  ///
+  /// Ordinary sources stay on [originalPath]. For a sampled large JPEG the
+  /// safe PNG working copy lives beside the current [originalPath], while
+  /// [workingPath] may later point to an edited crop/revision. Deriving this
+  /// path keeps recognition and manual cropping tied to the same coordinate
+  /// space across those edits without changing the persisted schema.
+  String get processingInputPath {
+    if (!hasScaledLargeSource) return originalPath;
+    final directory = originalPath.substring(0, originalPath.lastIndexOf('/'));
+    return '$directory/working.png';
+  }
 
   /// This asset with [source] recorded as the asset it was derived from.
   ///
@@ -264,6 +303,7 @@ class ImageAsset {
     id: id,
     captureId: captureId,
     derivedFrom: source,
+    userAuthoredCrop: userAuthoredCrop,
     name: name,
     originalPath: originalPath,
     workingPath: workingPath,
@@ -275,10 +315,39 @@ class ImageAsset {
     transforms: transforms,
   );
 
+  /// Return this revision marked as explicitly accepted by the user in the
+  /// manual crop editor. Automatic-layout calls never use this method.
+  ImageAsset markUserAuthoredCrop() => _withCropAuthorship(true);
+
+  /// Clears authorship when an automatic operation replaces the current crop.
+  /// The crop recipe remains as geometry for the new revision; it is simply no
+  /// longer a user decision and must not suppress a later automatic review.
+  ImageAsset clearUserAuthoredCrop() => _withCropAuthorship(false);
+
+  ImageAsset _withCropAuthorship(bool value) {
+    if (userAuthoredCrop == value) return this;
+    return ImageAsset(
+      id: id,
+      captureId: captureId,
+      derivedFrom: derivedFrom,
+      userAuthoredCrop: value,
+      name: name,
+      originalPath: originalPath,
+      workingPath: workingPath,
+      thumbnailPath: thumbnailPath,
+      width: width,
+      height: height,
+      crop: crop,
+      adjustments: adjustments,
+      transforms: transforms,
+    );
+  }
+
   Map<String, Object?> toJson() => {
     'id': id,
     'captureId': captureId,
     'derivedFrom': derivedFrom,
+    if (userAuthoredCrop) 'userAuthoredCrop': true,
     'name': name,
     'originalPath': originalPath,
     'workingPath': workingPath,
@@ -301,6 +370,9 @@ class ImageAsset {
       derivedFrom: m['derivedFrom'] == null
           ? null
           : text(m['derivedFrom'], 'derivedFrom'),
+      userAuthoredCrop: m['userAuthoredCrop'] == null
+          ? false
+          : boolean(m['userAuthoredCrop'], 'userAuthoredCrop'),
       name: text(m['name'], 'name'),
       originalPath: text(m['originalPath'], 'originalPath'),
       workingPath: text(m['workingPath'], 'workingPath'),
@@ -316,6 +388,38 @@ class ImageAsset {
       ).map((v) => text(v, 'transform')).toList(),
     );
   }
+}
+
+bool _isDismissedRecord(DocumentRecord record) =>
+    record.overrides.any((override) => override.dismissed == true);
+
+/// Whether [storedPath] belongs to the stable app-owned folder for [assetId],
+/// not merely whether it equals the asset's latest working/thumbnail path.
+/// Crops, replacements and historical recognition outputs all live beneath
+/// this prefix, so identity-based references survive a new revision.
+bool assetOwnsProjectPath(
+  String projectId,
+  String assetId,
+  String storedPath,
+) => storedPath.startsWith('projects/$projectId/assets/$assetId/');
+
+/// Bounds the audit trail while retaining the latest source-boundary marker.
+/// A large-source marker must survive ordinary edit/reprocess history, and a
+/// later replacement marker must survive too so an older large import does not
+/// get mistaken for the current original after the log is trimmed.
+List<String> boundedTransformLog(Iterable<String> entries) {
+  const limit = 500;
+  final all = entries.toList();
+  if (all.length <= limit) return List.unmodifiable(all);
+
+  final start = all.length - limit;
+  final boundary = all.lastIndexWhere(
+    (entry) => entry.startsWith('large-jpeg:') || entry.startsWith('replaced:'),
+  );
+  if (boundary < 0 || boundary >= start) {
+    return List.unmodifiable(all.skip(start));
+  }
+  return List.unmodifiable([all[boundary], ...all.skip(start + 1)]);
 }
 
 class DocumentItem {
@@ -419,6 +523,7 @@ class DocumentItem {
     String? sideId,
     PresetSnapshot? presetSnapshot,
     String? groupId,
+    bool clearGroupId = false,
   }) => DocumentItem(
     id: id ?? this.id,
     pageIndex: unplaced ? null : (pageIndex ?? this.pageIndex),
@@ -437,7 +542,7 @@ class DocumentItem {
     documentId: documentId ?? this.documentId,
     sideId: sideId ?? this.sideId,
     presetSnapshot: presetSnapshot ?? this.presetSnapshot,
-    groupId: groupId ?? this.groupId,
+    groupId: clearGroupId ? null : (groupId ?? this.groupId),
   );
 
   Map<String, Object?> toJson() => {
@@ -556,15 +661,17 @@ class Project {
           asset.originalPath,
           asset.workingPath,
           asset.thumbnailPath,
+          asset.processingInputPath,
         ].every((p) => p.startsWith(prefix)),
         'الصورة ليست مملوكة لهذا المشروع.',
       );
     }
-    // v5: recognition records and layout groups are bounded by the item limit
-    // (each is realized through items); no new arbitrary limit is introduced.
+    // v5 records and groups use the existing item bound. `dismissed` was
+    // already a persisted v5 review override before explicit dismissal detached
+    // the record from layout. Preserve those legacy records (including their
+    // item/pair links); only the current marker denotes a detached tombstone.
     require(
-      documents.length <= items.length &&
-          documents.length <= maxProjectItems &&
+      documents.length <= maxProjectItems &&
           layoutGroups.length <= items.length &&
           layoutGroups.length <= maxProjectItems,
       'المشروع يتجاوز حدود المستندات أو المجموعات.',
@@ -603,6 +710,25 @@ class Project {
       );
     }
     for (final record in documents) {
+      final hasLayoutItem = items.any((item) => item.documentId == record.id);
+      final isTombstone = isDismissalTombstone(record);
+      if (isTombstone) {
+        require(!hasLayoutItem, 'سجل الاستبعاد المنفصل لا يملك عنصر تخطيط.');
+        require(
+          record.pairing == PairingState.single &&
+              record.pairedDocumentId == null,
+          'سجل الاستبعاد المنفصل لا يمكن أن يبقى مقترناً.',
+        );
+      } else {
+        // Before tombstones were introduced, v5 allowed `dismissed: true` on
+        // an ordinary linked record (including a paired one). Keep accepting
+        // that serialized state; a non-dismissed active record still needs an
+        // item.
+        require(
+          hasLayoutItem || _isDismissedRecord(record),
+          'المستند النشط يجب أن يرتبط بعنصر تخطيط.',
+        );
+      }
       require(
         assetIds.contains(record.sourceImageId),
         'مستند يشير إلى صورة مصدر مفقودة.',
@@ -943,6 +1069,7 @@ class DerivedProvenanceReport {
     required this.project,
     required this.backfilled,
     required this.brokenChains,
+    required this.ambiguousAssetIds,
   });
 
   /// The project with every PROVEN source/derived relationship recorded. The
@@ -958,6 +1085,11 @@ class DerivedProvenanceReport {
   /// derived, its source is simply gone, and neither fact is a reason to guess
   /// or to delete.
   final List<String> brokenChains;
+
+  /// Legacy assets referenced as processed output by records with multiple
+  /// different source ids. Such evidence is shared/ambiguous, so no source is
+  /// selected or written back.
+  final List<String> ambiguousAssetIds;
 
   /// Whether [project] differs from the reconciliation input.
   bool get changed => backfilled.isNotEmpty;
@@ -985,19 +1117,40 @@ class DerivedProvenanceReport {
 ///   precondition for using it.
 DerivedProvenanceReport reconcileDerivedProvenance(Project project) {
   final known = {for (final asset in project.assets) asset.id};
-  final proven = <String, String>{};
+  final sourcesByAsset = <String, Set<String>>{};
   for (final record in project.documents) {
     for (final side in record.sides) {
       final processed = side.processedAsset;
       for (final asset in project.assets) {
         if (asset.id == record.sourceImageId) continue;
-        if (asset.workingPath != processed.workingPath &&
-            asset.thumbnailPath != processed.thumbnailPath) {
+        if (!assetOwnsProjectPath(
+              project.id,
+              asset.id,
+              processed.workingPath,
+            ) &&
+            !assetOwnsProjectPath(
+              project.id,
+              asset.id,
+              processed.thumbnailPath,
+            )) {
           continue;
         }
-        proven.putIfAbsent(asset.id, () => record.sourceImageId);
+        sourcesByAsset
+            .putIfAbsent(asset.id, () => <String>{})
+            .add(record.sourceImageId);
       }
     }
+  }
+  final proven = <String, String>{};
+  final ambiguous = <String>[];
+  for (final asset in project.assets) {
+    final sources = sourcesByAsset[asset.id];
+    if (sources == null || sources.isEmpty) continue;
+    if (sources.length > 1) {
+      ambiguous.add(asset.id);
+      continue;
+    }
+    if (asset.derivedFrom == null) proven[asset.id] = sources.single;
   }
   final assets = <ImageAsset>[];
   final backfilled = <String>[];
@@ -1020,11 +1173,13 @@ DerivedProvenanceReport reconcileDerivedProvenance(Project project) {
       project: project,
       backfilled: const [],
       brokenChains: List.unmodifiable(broken),
+      ambiguousAssetIds: List.unmodifiable(ambiguous),
     );
   }
   return DerivedProvenanceReport(
     project: project.copyWith(assets: assets),
     backfilled: List.unmodifiable(backfilled),
     brokenChains: List.unmodifiable(broken),
+    ambiguousAssetIds: List.unmodifiable(ambiguous),
   );
 }

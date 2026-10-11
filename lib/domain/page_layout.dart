@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'geometry.dart';
 import 'project.dart';
+import 'recognition.dart';
+import 'recognition_routing.dart';
 import 'validation.dart';
 
 enum PageAlignment { left, centerX, right, top, centerY, bottom }
@@ -152,13 +154,106 @@ class PageLayout {
       for (final e in p.items) e.id == id ? e.copyWith(locked: locked) : e,
     ],
   );
-  static Project remove(Project p, Set<String> ids) {
+  static Project remove(
+    Project p,
+    Set<String> ids, {
+    List<DocumentRecord>? documentsOverride,
+  }) {
+    final sourceDocuments = documentsOverride ?? p.documents;
+    final removed = p.items.where((item) => ids.contains(item.id)).toList();
     require(
-      !p.items.any((e) => ids.contains(e.id) && e.locked),
+      removed.every((item) => !item.locked),
       'ألغِ تثبيت العناصر قبل حذفها.',
     );
+    if (removed.isEmpty) return p;
+
+    final removedIds = removed.map((item) => item.id).toSet();
+    final items = p.items
+        .where((item) => !removedIds.contains(item.id))
+        .toList();
+    final remainingDocumentIds = {
+      for (final item in items)
+        if (item.documentId != null) item.documentId!,
+    };
+    // A normal deletion cascades the recognition record only when its last
+    // layout item is gone. New detached-dismissal tombstones survive without
+    // items; legacy v5 `dismissed` overrides on linked records do not change
+    // ordinary item-deletion behavior.
+    final removedDocumentIds = {
+      for (final record in sourceDocuments)
+        if (removed.any((item) => item.documentId == record.id) &&
+            !remainingDocumentIds.contains(record.id) &&
+            !isDismissalTombstone(record))
+          record.id,
+    };
+
+    final dissolvedPairGroups = <String>{};
+    for (final record in sourceDocuments) {
+      final partnerId = record.pairedDocumentId;
+      if (removedDocumentIds.contains(record.id) &&
+          partnerId != null &&
+          !removedDocumentIds.contains(partnerId)) {
+        final first = record.id.compareTo(partnerId) <= 0
+            ? record.id
+            : partnerId;
+        dissolvedPairGroups.add('pair-$first');
+      }
+    }
+    final documents = <DocumentRecord>[];
+    for (final record in sourceDocuments) {
+      if (removedDocumentIds.contains(record.id)) continue;
+      if (record.pairedDocumentId != null &&
+          removedDocumentIds.contains(record.pairedDocumentId)) {
+        documents.add(
+          record.copyWith(
+            pairing: PairingState.single,
+            clearPairing: true,
+            overrides: [
+              ...record.overrides,
+              UserOverride(
+                pairing: PairingState.single,
+                fields: const ['pairing'],
+              ),
+            ],
+          ),
+        );
+      } else {
+        documents.add(record);
+      }
+    }
+
+    final groups = <LayoutGroup>[];
+    for (final group in p.layoutGroups) {
+      final remainingIds = group.itemIds
+          .where((id) => !removedIds.contains(id))
+          .toList();
+      if (dissolvedPairGroups.contains(group.id) ||
+          remainingIds.isEmpty ||
+          (group.itemIds.length > 1 && remainingIds.length < 2)) {
+        continue;
+      }
+      groups.add(
+        LayoutGroup(
+          id: group.id,
+          itemIds: remainingIds,
+          arrangement: group.arrangement,
+          keepTogether: group.keepTogether,
+        ),
+      );
+    }
+    final groupsById = {for (final group in groups) group.id: group};
+    final consistentItems = [
+      for (final item in items)
+        if (item.groupId != null &&
+            !(groupsById[item.groupId]?.itemIds.contains(item.id) ?? false))
+          item.copyWith(clearGroupId: true)
+        else
+          item,
+    ];
     return p.copyWith(
-      items: p.items.where((e) => !ids.contains(e.id)).toList(),
+      items: consistentItems,
+      documents: documents,
+      layoutGroups: groups,
     );
   }
 

@@ -6,15 +6,35 @@ import '../domain/validation.dart';
 enum ImageEncoding { jpeg, png }
 
 class ImageHeader {
-  ImageHeader(this.encoding, this.width, this.height) {
-    require(
-      withinImageBudget(width, height),
-      'الصورة تتجاوز حد المعالجة (16 مليون بكسل).',
-    );
+  ImageHeader(this.encoding, this.width, this.height, {this.orientation = 1}) {
+    require(width > 0 && height > 0, 'أبعاد الصورة غير صالحة.');
+    require(orientation >= 1 && orientation <= 8, 'اتجاه JPEG غير صالح.');
+    if (encoding == ImageEncoding.jpeg) {
+      // JPEG SOF dimensions are 16-bit by format definition.
+      require(
+        width <= 65535 && height <= 65535,
+        'أبعاد JPEG خارج المجال المدعوم.',
+      );
+      require(
+        width * height <= maxScalableJpegSourcePixels,
+        'صورة JPEG تتجاوز حد المصدر الآمن (32 مليون بكسل).',
+      );
+    } else {
+      // Preserve the pre-existing PNG acceptance rule; PNG dimensions are
+      // 32-bit and do not share JPEG's 16-bit side limit.
+      require(
+        withinImageBudget(width, height),
+        'صورة PNG تتجاوز حد المعالجة (16 مليون بكسل).',
+      );
+    }
   }
   final ImageEncoding encoding;
   final int width;
   final int height;
+
+  /// EXIF orientation; large-image native decoders bake it into the working
+  /// image before returning pixels. One means no transform.
+  final int orientation;
 }
 
 /// Inspect only bounded header fields, before calling image's codecs.
@@ -46,6 +66,9 @@ ImageHeader inspectImageHeader(Uint8List bytes) {
     'الصيغ المدعومة حالياً هي JPEG وPNG فقط.',
   );
   var offset = 2;
+  var orientation = 1;
+  int? frameWidth;
+  int? frameHeight;
   while (offset < bytes.length) {
     require(bytes[offset] == 0xff, 'علامة JPEG غير صالحة.');
     while (offset < bytes.length && bytes[offset] == 0xff) {
@@ -66,6 +89,10 @@ ImageHeader inspectImageHeader(Uint8List bytes) {
       length >= 2 && offset + length <= bytes.length,
       'طول مقطع JPEG غير صالح.',
     );
+    if (marker == 0xe1) {
+      orientation =
+          _exifOrientation(bytes, offset + 2, offset + length) ?? orientation;
+    }
     final isFrame =
         marker >= 0xc0 &&
         marker <= 0xcf &&
@@ -78,11 +105,9 @@ ImageHeader inspectImageHeader(Uint8List bytes) {
         'نوع ترميز JPEG غير مدعوم.',
       );
       require(length >= 8, 'ترويسة أبعاد JPEG ناقصة.');
-      final header = ImageHeader(
-        ImageEncoding.jpeg,
-        bytes[offset + 5] * 256 + bytes[offset + 6],
-        bytes[offset + 3] * 256 + bytes[offset + 4],
-      );
+      require(frameWidth == null, 'ترويسة JPEG تحتوي أكثر من إطار.');
+      frameWidth = bytes[offset + 5] * 256 + bytes[offset + 6];
+      frameHeight = bytes[offset + 3] * 256 + bytes[offset + 4];
       final channels = bytes[offset + 7];
       require(
         bytes[offset + 2] == 8 &&
@@ -102,9 +127,74 @@ ImageHeader inspectImageHeader(Uint8List bytes) {
         blocks += horizontal * vertical;
       }
       require(blocks <= 10, 'ترميز JPEG يتجاوز حد العينات المدعوم.');
-      return header;
     }
     offset += length;
   }
+  if (frameWidth != null && frameHeight != null) {
+    return ImageHeader(
+      ImageEncoding.jpeg,
+      frameWidth,
+      frameHeight,
+      orientation: orientation,
+    );
+  }
   throw const ValidationException('لم يُعثر على أبعاد JPEG صالحة.');
+}
+
+/// Reads the bounded TIFF Orientation tag inside one APP1 segment. Malformed
+/// EXIF is ignored like the image decoder does: it never changes the source
+/// dimensions or creates an orientation guess.
+int? _exifOrientation(Uint8List bytes, int start, int end) {
+  const signature = [0x45, 0x78, 0x69, 0x66, 0, 0];
+  if (end - start < 14 ||
+      !List.generate(
+        6,
+        (index) => bytes[start + index] == signature[index],
+      ).every((matches) => matches)) {
+    return null;
+  }
+  final tiff = start + 6;
+  final littleEndian = bytes[tiff] == 0x49 && bytes[tiff + 1] == 0x49;
+  if (!littleEndian && !(bytes[tiff] == 0x4d && bytes[tiff + 1] == 0x4d)) {
+    return null;
+  }
+
+  int read16(int offset) {
+    if (offset < tiff || offset + 2 > end) return -1;
+    return littleEndian
+        ? bytes[offset] | (bytes[offset + 1] << 8)
+        : (bytes[offset] << 8) | bytes[offset + 1];
+  }
+
+  int read32(int offset) {
+    if (offset < tiff || offset + 4 > end) return -1;
+    return littleEndian
+        ? bytes[offset] |
+              (bytes[offset + 1] << 8) |
+              (bytes[offset + 2] << 16) |
+              (bytes[offset + 3] << 24)
+        : (bytes[offset] << 24) |
+              (bytes[offset + 1] << 16) |
+              (bytes[offset + 2] << 8) |
+              bytes[offset + 3];
+  }
+
+  if (read16(tiff + 2) != 42) return null;
+  final relativeIfd = read32(tiff + 4);
+  if (relativeIfd < 8) return null;
+  final ifd = tiff + relativeIfd;
+  final entries = read16(ifd);
+  if (entries < 0) return null;
+  for (var index = 0; index < entries; index++) {
+    final entry = ifd + 2 + index * 12;
+    if (entry + 12 > end) return null;
+    if (read16(entry) != 0x0112 ||
+        read16(entry + 2) != 3 ||
+        read32(entry + 4) != 1) {
+      continue;
+    }
+    final value = read16(entry + 8);
+    return value >= 1 && value <= 8 ? value : null;
+  }
+  return null;
 }

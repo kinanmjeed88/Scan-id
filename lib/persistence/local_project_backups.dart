@@ -59,7 +59,12 @@ class LocalProjectBackups implements ProjectBackups {
 }
 
 Set<String> _references(Project p) => {
-  for (final a in p.assets) ...[a.originalPath, a.workingPath, a.thumbnailPath],
+  for (final a in p.assets) ...[
+    a.originalPath,
+    a.workingPath,
+    a.thumbnailPath,
+    a.processingInputPath,
+  ],
 };
 
 Future<void> _writeBackup(Project project, String root, String output) async {

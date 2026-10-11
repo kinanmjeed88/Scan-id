@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import '../domain/geometry.dart';
+import '../domain/image_limits.dart';
 import '../domain/validation.dart';
 import 'prepare_image.dart';
 
@@ -59,7 +60,7 @@ List<Point2>? detectDocumentCorners(img.Image image) {
 }
 
 const _coarseSide = 480;
-const _fineSide = 1200;
+const _fineSide = maxRecognitionPreviewLongEdge;
 
 class _P {
   const _P(this.x, this.y);

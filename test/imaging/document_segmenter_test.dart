@@ -51,6 +51,31 @@ void main() {
     _card(image, 150, 150, 740, 540);
     final result = segmentDecoded(image);
     expect(result.multi, isFalse);
+    expect(
+      result.candidates,
+      isEmpty,
+      reason: 'a resolved singleton stays on the established full-frame path',
+    );
+  });
+
+  test('one plausible region with unresolved corners is retained', () {
+    final image = _background(900, 700);
+    const centerX = 450, centerY = 350, radius = 100;
+    for (var y = centerY - radius; y <= centerY + radius; y++) {
+      for (var x = centerX - radius; x <= centerX + radius; x++) {
+        final dx = x - centerX, dy = y - centerY;
+        if (dx * dx + dy * dy <= radius * radius) {
+          image.setPixel(x, y, img.ColorRgb8(235, 233, 228));
+        }
+      }
+    }
+
+    final result = segmentDecoded(image);
+
+    expect(result.multi, isFalse);
+    expect(result.candidates, hasLength(1));
+    expect(result.candidates.single.corners, isNull);
+    expect(result.candidates.single.region, isNotEmpty);
   });
 
   test('a blank image reports no structure at all', () {

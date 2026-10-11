@@ -248,7 +248,7 @@ class _CropScreenState extends State<CropScreen> {
     }
     setState(() => _busy = true);
     try {
-      final saved = await widget.service.applyCrop(
+      final saved = await widget.service.applyManualCrop(
         widget.project,
         widget.asset,
         _recipe(),

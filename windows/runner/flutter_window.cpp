@@ -25,6 +25,11 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  platform_task_dispatcher_ =
+      std::make_unique<PlatformTaskDispatcher>(GetHandle());
+  large_jpeg_scaler_channel_ = std::make_unique<LargeJpegScalerChannel>(
+      flutter_controller_->engine()->messenger(),
+      platform_task_dispatcher_->GetWakeCallback());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +45,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  large_jpeg_scaler_channel_.reset();
+  if (platform_task_dispatcher_) platform_task_dispatcher_->Close();
+  platform_task_dispatcher_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -51,6 +59,21 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == PlatformTaskDispatcher::kDispatchMessage) {
+    if (platform_task_dispatcher_) platform_task_dispatcher_->OnWakeMessage();
+    if (large_jpeg_scaler_channel_) {
+      large_jpeg_scaler_channel_->DrainCompletions();
+    }
+    return 0;
+  }
+
+  // Also drain in case PostMessage could not enqueue a wake while the window's
+  // message queue was temporarily saturated. Results remain bounded in the
+  // channel until this next platform-thread dispatch or shutdown cancellation.
+  if (large_jpeg_scaler_channel_) {
+    large_jpeg_scaler_channel_->DrainCompletions();
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

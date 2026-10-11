@@ -24,7 +24,7 @@ class ImageHeader {
       // 32-bit and do not share JPEG's 16-bit side limit.
       require(
         withinImageBudget(width, height),
-        'الصورة تتجاوز حد المعالجة (16 مليون بكسل).',
+        'صورة PNG تتجاوز حد المعالجة (16 مليون بكسل).',
       );
     }
   }

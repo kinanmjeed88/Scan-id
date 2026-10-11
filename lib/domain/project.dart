@@ -713,10 +713,7 @@ class Project {
       final hasLayoutItem = items.any((item) => item.documentId == record.id);
       final isTombstone = isDismissalTombstone(record);
       if (isTombstone) {
-        require(
-          !hasLayoutItem,
-          'سجل الاستبعاد المنفصل لا يملك عنصر تخطيط.',
-        );
+        require(!hasLayoutItem, 'سجل الاستبعاد المنفصل لا يملك عنصر تخطيط.');
         require(
           record.pairing == PairingState.single &&
               record.pairedDocumentId == null,

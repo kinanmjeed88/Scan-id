@@ -7,10 +7,7 @@ enum ImageEncoding { jpeg, png }
 
 class ImageHeader {
   ImageHeader(this.encoding, this.width, this.height, {this.orientation = 1}) {
-    require(
-      width > 0 && height > 0,
-      'أبعاد الصورة غير صالحة.',
-    );
+    require(width > 0 && height > 0, 'أبعاد الصورة غير صالحة.');
     require(orientation >= 1 && orientation <= 8, 'اتجاه JPEG غير صالح.');
     if (encoding == ImageEncoding.jpeg) {
       // JPEG SOF dimensions are 16-bit by format definition.

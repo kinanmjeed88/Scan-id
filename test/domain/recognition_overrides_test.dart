@@ -233,10 +233,7 @@ void main() {
       expect(isDismissalTombstone(target), isFalse);
       expect(target.pairing, PairingState.paired);
       expect(target.pairedDocumentId, 'rec-item-b');
-      expect(
-        Project.fromJson(restored.toJson()).toJson(),
-        restored.toJson(),
-      );
+      expect(Project.fromJson(restored.toJson()).toJson(), restored.toJson());
       expect(
         recordsNeedingReview(restored).map((record) => record.id),
         isNot(contains('rec-item-a')),

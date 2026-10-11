@@ -34,7 +34,6 @@ Uint8List _jpegSofOnly(int width, int height) => Uint8List.fromList([
   1,
   0x11,
   0,
-  0,
   0xff,
   0xd9,
 ]);

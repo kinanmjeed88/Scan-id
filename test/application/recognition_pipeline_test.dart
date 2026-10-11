@@ -519,7 +519,11 @@ void main() {
       final analysis = await pipeline.analyze(_input());
 
       expect(singleCalled, isFalse);
-      expect(analysis.detections.single.corners, _quad());
+      expect(
+        analysis.detections.single.corners?.map((point) => [point.x, point.y])
+            .toList(),
+        _quad().map((point) => [point.x, point.y]).toList(),
+      );
       expect(analysis.detections.single.region, [.08, .12, .92, .94]);
       expect(analysis.unresolvedRegions, isEmpty);
       expect(analysis.multi, isFalse);

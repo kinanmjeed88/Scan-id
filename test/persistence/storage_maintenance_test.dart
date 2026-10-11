@@ -201,8 +201,9 @@ void main() {
       await Directory('${root.path}/$orphan').create(recursive: true);
       await File('${root.path}/$orphan/working.png').writeAsBytes([4, 5, 6]);
       final old = DateTime.now().toUtc().subtract(_stale);
-      await ageTree(historicalDirectory, old);
-      await ageTree(orphan, old);
+      // The asset's files must also age past the grace window; import wrote
+      // its source files only moments ago.
+      await ageTree(assetDirectory, old);
 
       final orphans = await maintenance.findOrphans([project]);
 

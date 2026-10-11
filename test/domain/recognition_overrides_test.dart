@@ -271,10 +271,14 @@ void main() {
 
     test('a stale dismissal cannot break a confirmed pair or its group', () {
       final paired = acceptPair(_project(), 'rec-item-a', 'rec-item-b');
+      final confirmed = confirmRecognition(
+        confirmRecognition(paired, 'rec-item-a'),
+        'rec-item-b',
+      );
 
-      final stale = dismissRecognition(paired, 'rec-item-a');
+      final stale = dismissRecognition(confirmed, 'rec-item-a');
 
-      expect(stale, same(paired));
+      expect(stale, same(confirmed));
       expect(stale.items, hasLength(2));
       expect(stale.layoutGroups, hasLength(1));
       expect(

@@ -450,7 +450,14 @@ void main() {
         // own recognition truth stays exactly as recognition recorded it.
         expect(rec.effectiveKind(kept), DocumentKind.passport);
         expect(kept.recognition!.documentKind, DocumentKind.unifiedNationalId);
-        expect(report.warnings.join('\n'), contains('تُرِك'));
+        expect(
+          report.warnings.join('\n'),
+          contains('حُفظ قرار المراجعة السابق'),
+        );
+        expect(
+          report.warnings.join('\n'),
+          isNot(contains('تُرِك كما أكّدته')),
+        );
         // Still no duplicates.
         expect(report.project.documents, hasLength(2));
         expect(report.project.items, hasLength(2));

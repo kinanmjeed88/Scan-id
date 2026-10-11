@@ -8,7 +8,6 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
-import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/persistence/local_project_backups.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 

@@ -294,7 +294,7 @@ void main() {
           singleCalled = true;
           return _quad();
         },
-        segment: segmentDocumentBytes,
+        segment: (preview) async => segmentDocumentBytes(preview),
       );
       final analysis = await pipeline.analyze(
         PipelineImageInput(
@@ -332,7 +332,7 @@ void main() {
           singleCalled = true;
           return _quad();
         },
-        segment: segmentDocumentBytes,
+        segment: (preview) async => segmentDocumentBytes(preview),
       );
       final analysis = await pipeline.analyze(
         PipelineImageInput(

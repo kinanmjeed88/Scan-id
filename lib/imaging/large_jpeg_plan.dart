@@ -75,5 +75,7 @@ class LargeJpegPlan {
 
   /// Short audit text stored alongside the untouched original bytes.
   String get transformNote =>
-      'large-jpeg:${sourceWidth}x${sourceHeight}->${targetWidth}x${targetHeight}-exif$orientation';
+      'large-jpeg:$sourceWidth'
+      'x$sourceHeight->$targetWidth'
+      'x$targetHeight-exif$orientation';
 }

@@ -692,7 +692,6 @@ class ProjectService {
       project.assets.any((asset) => asset.id == assetId),
       'الصورة ليست ضمن هذا المشروع.',
     );
-    final asset = project.assets.firstWhere((entry) => entry.id == assetId);
     require(
       !project.items.any((item) => item.assetId == assetId),
       'الصورة مستخدمة داخل الورقة؛ أزل العناصر المرتبطة أولاً.',

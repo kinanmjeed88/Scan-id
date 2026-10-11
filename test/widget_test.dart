@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:scan_id/application/output_service.dart';
 import 'package:scan_id/domain/export_naming.dart';
 import 'package:scan_id/export/document_exporter.dart';

@@ -706,7 +706,9 @@ void main() {
     }
   });
 
-  testWidgets('the crop screen has no overflow on narrow phones', (tester) async {
+  testWidgets('the crop screen has no overflow on narrow phones', (
+    tester,
+  ) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);

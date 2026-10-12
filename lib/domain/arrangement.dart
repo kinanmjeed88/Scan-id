@@ -309,7 +309,46 @@ Map<String, DocumentItem> _ordered(
     }
   }
   closeRow();
+  // Center the entire group of placed items on each page.
+  if (project.layout.centerCaptures && placed.isNotEmpty) {
+    _centerPageItems(placed, area, gx, gy, obstacles);
+  }
   return placed;
+}
+
+/// Centers the group of placed items on each page within the printable area.
+void _centerPageItems(
+  Map<String, DocumentItem> placed,
+  RectMm area,
+  double gx,
+  double gy,
+  Map<int, List<RectMm>> obstacles,
+) {
+  final pages = placed.values.map((item) => item.pageIndex).toSet();
+  for (final page in pages) {
+    final pageItems = placed.values
+        .where((item) => item.pageIndex == page)
+        .toList();
+    if (pageItems.isEmpty) continue;
+    final bounds = _groupBounds(pageItems);
+    if (bounds == null) continue;
+    // Check that centering won't cause overlap with obstacles.
+    final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
+    final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
+    final shifted = pageItems.map(
+      (item) =>
+          RectMm(item.x + shiftX, item.y + shiftY, item.width, item.height),
+    );
+    final others = obstacles[page] ?? const <RectMm>[];
+    final clear = shifted.every(
+      (r) => others.every((o) => !_gapOverlap(r, o, gx, gy)),
+    );
+    if (clear && (shiftX.abs() > _eps || shiftY.abs() > _eps)) {
+      for (final item in pageItems) {
+        placed[item.id] = item.copyWith(x: item.x + shiftX, y: item.y + shiftY);
+      }
+    }
+  }
 }
 
 /// Densest packing per page (MaxRects); whatever does not fit flows on.
@@ -357,5 +396,38 @@ Map<String, DocumentItem> _compact(
     if (!progress && pageWasEmpty) break;
     page++;
   }
+  // Center the group of placed items within the printable area, preserving
+  // relative positions from the packing algorithm.
+  if (project.layout.centerCaptures && placed.isNotEmpty) {
+    final placedItems = placed.values.toList();
+    final bounds = _groupBounds(placedItems);
+    if (bounds != null) {
+      final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
+      final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
+      if (shiftX.abs() > _eps || shiftY.abs() > _eps) {
+        for (final item in placedItems) {
+          placed[item.id] = item.copyWith(
+            x: item.x + shiftX,
+            y: item.y + shiftY,
+          );
+        }
+      }
+    }
+  }
   return placed;
+}
+
+/// Computes the bounding box of a group of items.
+RectMm? _groupBounds(List<DocumentItem> items) {
+  if (items.isEmpty) return null;
+  double left = double.infinity, top = double.infinity;
+  double right = double.negativeInfinity, bottom = double.negativeInfinity;
+  for (final item in items) {
+    final b = item.bounds;
+    left = math.min(left, b.x);
+    top = math.min(top, b.y);
+    right = math.max(right, b.right);
+    bottom = math.max(bottom, b.bottom);
+  }
+  return RectMm(left, top, right - left, bottom - top);
 }

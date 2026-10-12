@@ -704,6 +704,18 @@ class _LayoutScreenState extends State<LayoutScreen> {
                           ),
                   ),
                   RibbonButton(
+                    key: const Key('rb-center-captures'),
+                    icon: Icons.center_focus_strong_outlined,
+                    label: 'توسيط المستمسكات',
+                    selected: project.layout.centerCaptures,
+                    tooltip: 'توسيط مجموعة المستمسكات داخل مساحة الطباعة',
+                    onPressed: busy
+                        ? null
+                        : () => c.setCenterCaptures(
+                            !project.layout.centerCaptures,
+                          ),
+                  ),
+                  RibbonButton(
                     key: const Key('rb-overlap'),
                     icon: Icons.layers_outlined,
                     label: 'السماح بالتراكب',

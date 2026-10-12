@@ -10,7 +10,6 @@ import '../application/project_service.dart';
 import '../application/image_reader.dart';
 import '../domain/image_deletion.dart';
 import '../domain/project.dart';
-import 'app.dart';
 import 'shared.dart';
 import 'crop_screen.dart';
 import 'export_screen.dart';

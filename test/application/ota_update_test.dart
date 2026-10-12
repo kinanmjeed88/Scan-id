@@ -41,28 +41,23 @@ void main() {
 
   group('GitHubUpdateSource', () {
     test('extracts version from tag with v prefix', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source.extractVersion('v1.2.3'), equals('1.2.3'));
+      expect(GitHubUpdateSource.extractVersion('v1.2.3'), equals('1.2.3'));
     });
 
     test('extracts version from tag without prefix', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source.extractVersion('1.2.3'), equals('1.2.3'));
+      expect(GitHubUpdateSource.extractVersion('1.2.3'), equals('1.2.3'));
     });
 
     test('extracts version from release- prefix', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source.extractVersion('release-1.2.3'), equals('1.2.3'));
+      expect(GitHubUpdateSource.extractVersion('release-1.2.3'), equals('1.2.3'));
     });
 
     test('returns null for invalid version', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source.extractVersion('invalid'), isNull);
-      expect(source.extractVersion('1.2'), isNull);
+      expect(GitHubUpdateSource.extractVersion('invalid'), isNull);
+      expect(GitHubUpdateSource.extractVersion('1.2'), isNull);
     });
 
     test('parses release JSON correctly', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
       final json = '''
       {
         "tag_name": "v1.0.0",
@@ -76,22 +71,20 @@ void main() {
         ]
       }
       ''';
-      final result = source.parseReleaseJson(json);
+      final result = GitHubUpdateSource.parseReleaseJson(json);
       expect(result, isNotNull);
-      expect(result!['tagName'], equals('v1.0.0'));
-      expect(result!['body'], equals('Release notes'));
-      expect(result!['assets'], isA<List>());
+      expect(result['tagName'], equals('v1.0.0'));
+      expect(result['body'], equals('Release notes'));
+      expect(result['assets'], isA<List<dynamic>>());
     });
 
     test('returns null for invalid JSON', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source.parseReleaseJson('invalid json'), isNull);
+      expect(GitHubUpdateSource.parseReleaseJson('invalid json'), isNull);
     });
 
     test('returns null when tag_name is missing', () {
-      final source = GitHubUpdateSource(owner: 'test', repo: 'test');
       final json = '{"body": "no tag"}';
-      expect(source.parseReleaseJson(json), isNull);
+      expect(GitHubUpdateSource.parseReleaseJson(json), isNull);
     });
   });
 

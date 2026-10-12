@@ -255,6 +255,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
   Future<void> _openSettings() async {
     if (_busy || !mounted) return;
     final projects = await _projects;
+    if (!mounted) return;
     if (projects.isEmpty) {
       showMessage(context, 'أنشئ مشروعاً أولاً للوصول إلى الإعدادات.');
       return;

@@ -1,11 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../application/backup_transfer.dart';
-import '../application/contracts.dart';
 import '../application/image_reader.dart';
 import '../application/project_service.dart';
 import '../domain/project.dart';
@@ -90,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) {
         setState(() => _busy = false);
-        _checkRecoveryPoint();
+        await _checkRecoveryPoint();
       }
     }
   }
@@ -243,11 +241,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
-    if (mounted) {
-      setState(() {
-        _project = widget.service.projects.get(_project.id);
-      });
-    }
   }
 
   Future<void> _openExport() async {
@@ -625,7 +618,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             currentVersion: updateInfo.currentVersion,
             newVersion: updateInfo.newVersion,
             summary: updateInfo.summary,
-            size: updateInfo.size?.toString(),
+            size: updateInfo.size.toString(),
             onDownload: () {
               Navigator.pop(context, true);
             },
@@ -659,10 +652,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     // التحقق من التوقيع/البصمة قبل التثبيت
     final verified = await _verifyUpdateFile(url);
-    if (!verified || !mounted) {
-      showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
+    if (!verified) {
+      if (mounted) showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
       return;
     }
+    if (!mounted) return;
 
     showMessage(context, 'تم التحقق من ملف التحديث. سيتم تثبيته الآن.');
     // on Android: use the package_installer or similar
@@ -671,7 +665,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<bool> _verifyUpdateFile(String url) async {
     // التحقق من سلامة الملف (SHA256، التوقيع، إلخ)
-    await Future.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 1));
     return true;
   }
 }

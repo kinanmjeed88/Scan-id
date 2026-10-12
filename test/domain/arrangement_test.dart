@@ -405,12 +405,12 @@ void main() {
           'strategy': 'compact',
           // no centerCaptures key
         },
-        'exportProfile': {'format': 'pdf', 'dpi': 300, 'jpegQuality': 95},
-        'catalog': {},
-        'assets': [],
-        'items': [],
-        'documents': [],
-        'layoutGroups': [],
+        'exportProfile': <String, dynamic>{'format': 'pdf', 'dpi': 300, 'jpegQuality': 95},
+        'catalog': <String, dynamic>{},
+        'assets': <Map<String, dynamic>>[],
+        'items': <Map<String, dynamic>>[],
+        'documents': <Map<String, dynamic>>[],
+        'layoutGroups': <Map<String, dynamic>>[],
       };
       final project = Project.fromJson(json);
       expect(project.layout.centerCaptures, isTrue);
@@ -501,9 +501,7 @@ void main() {
         if (bounds != null) {
           final area = r.paper.printable;
           final centerX = area.x + area.width / 2;
-          final centerY = area.y + area.height / 2;
           final groupCenterX = bounds.x + bounds.width / 2;
-          final groupCenterY = bounds.y + bounds.height / 2;
 
           // Each page's group should be centered
           expect((groupCenterX - centerX).abs(), lessThan(2.0));

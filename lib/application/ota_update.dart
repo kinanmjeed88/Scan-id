@@ -133,7 +133,7 @@ class GitHubUpdateSource implements UpdateSource {
     }
   }
 
-  Map<String, dynamic>? _parseJson(String json) {
+  static Map<String, dynamic>? _parseJson(String json) {
     try {
       return jsonDecode(json) as Map<String, dynamic>?;
     } catch (e) {
@@ -141,7 +141,7 @@ class GitHubUpdateSource implements UpdateSource {
     }
   }
 
-  _AssetInfo? _parseAsset(dynamic a) {
+  static _AssetInfo? _parseAsset(dynamic a) {
     if (a is! Map<String, dynamic>) return null;
     return _AssetInfo(
       url: a['browser_download_url'] as String?,
@@ -351,35 +351,36 @@ class UpdateService {
 enum UpdatePlatform { android, windows }
 
 class DownloadResult {
-  DownloadResult._();
+  DownloadResult._({this.filePath, this.error});
 
   final String? filePath;
   final String? error;
 
   factory DownloadResult.success(String path) =>
-      DownloadResult._()..filePath = path;
+      DownloadResult._(filePath: path);
 
   factory DownloadResult.error(String message) =>
-      DownloadResult._()..error = message;
+      DownloadResult._(error: message);
 
   bool get isSuccess => error == null && filePath != null;
 }
 
 class InstallResult {
-  InstallResult._();
+  InstallResult._({this.message, this.error, this.isPending = false});
 
   final String? message;
   final String? error;
   final bool isPending;
 
   factory InstallResult.success(String message) =>
-      InstallResult._()..message = message;
+      InstallResult._(message: message);
 
-  factory InstallResult.error(String error) => InstallResult._()..error = error;
+  factory InstallResult.error(String error) => InstallResult._(error: error);
 
-  factory InstallResult.pending(String message) => InstallResult._()
-    ..message = message
-    ..isPending = true;
+  factory InstallResult.pending(String message) => InstallResult._(
+    message: message,
+    isPending: true,
+  );
 
   bool get isSuccess => error == null && !isPending;
 }

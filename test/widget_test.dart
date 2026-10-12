@@ -795,18 +795,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The image list is a scrollable grid below the fold on a phone; scroll
-    // the page to the menu instead of tapping an off-screen point.
-    await tester.scrollUntilVisible(
-      find.byTooltip('خيارات الصورة').first,
-      200,
-      scrollable: find
-          .descendant(
-            of: find.byType(CustomScrollView),
-            matching: find.byType(Scrollable),
-          )
-          .first,
+    // The image grid sits below the fold on a phone. scrollUntilVisible only
+    // checks that the widget exists, not that it is on screen, so drag the
+    // page up explicitly before tapping the menu.
+    await tester.drag(
+      find.byType(CustomScrollView).first,
+      const Offset(0, -500),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('خيارات الصورة').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('حذف الصورة نهائياً'));

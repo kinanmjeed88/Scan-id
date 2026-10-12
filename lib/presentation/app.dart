@@ -234,6 +234,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           service: widget.service,
           pickImages: widget.pickImages,
           startWithImagePicker: startWithImagePicker,
+          recoverStorage: widget.recoverStorage,
         ),
       ),
     );

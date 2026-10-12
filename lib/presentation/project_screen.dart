@@ -16,6 +16,7 @@ import 'crop_screen.dart';
 import 'export_screen.dart';
 import 'intake.dart';
 import 'layout_screen.dart';
+import 'settings_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
   const ProjectScreen({
@@ -23,12 +24,14 @@ class ProjectScreen extends StatefulWidget {
     required this.service,
     required this.pickImages,
     this.startWithImagePicker = false,
+    this.recoverStorage,
     super.key,
   });
   final Project project;
   final ProjectService service;
   final PickImages pickImages;
   final bool startWithImagePicker;
+  final Future<void> Function()? recoverStorage;
   @override
   State<ProjectScreen> createState() => _ProjectScreenState();
 }
@@ -904,8 +907,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
       ),
     );
     if (mounted) {
+      final project = await widget.service.projects.get(_project.id);
       setState(() {
-        _project = widget.service.projects.get(_project.id);
+        _project = project;
       });
     }
   }

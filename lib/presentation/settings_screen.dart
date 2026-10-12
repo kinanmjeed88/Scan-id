@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../application/backup_transfer.dart';
 import '../application/contracts.dart';
+import '../application/image_reader.dart';
 import '../application/project_service.dart';
 import '../domain/project.dart';
 import 'shared.dart';
@@ -11,6 +14,24 @@ import 'export_screen.dart';
 import 'layout_screen.dart';
 
 typedef PickImages = Future<List<ImportSource>> Function();
+
+class UpdateInfo {
+  final String currentVersion;
+  final String newVersion;
+  final String summary;
+  final int size;
+  final String downloadUrl;
+
+  UpdateInfo({
+    required this.currentVersion,
+    required this.newVersion,
+    required this.summary,
+    required this.size,
+    required this.downloadUrl,
+  });
+
+  bool get isNewer => newVersion != currentVersion;
+}
 
 /// صفحة الإعدادات المستقلة التي تجمع إدارة البيانات والمعلومات والصيانة.
 class SettingsScreen extends StatefulWidget {
@@ -162,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: preview == null
                 ? Text(
                     'تعذر إنشاء معاينة آمنة؛ قد يكون الملف ناقصاً أو غير مدعوم.'
-                    '${previewError == null ? '' : '\\n$previewError''}',
+                    '${previewError == null ? '' : '\\n$previewError'}',
                   )
                 : Image.memory(
                     preview,

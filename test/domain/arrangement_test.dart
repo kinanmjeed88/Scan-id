@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 

@@ -1,18 +1,68 @@
 import 'package:flutter/material.dart';
 
-class FoundationNotice extends StatelessWidget {
-  const FoundationNotice({super.key});
+/// Tone of an [InfoBanner]. [caution] is for facts the user must know before
+/// an irreversible or external step (printing, backups, deletion).
+enum BannerTone { info, caution }
+
+/// A contextual message card. Used where a warning belongs to the task it
+/// concerns, instead of a permanent banner on every screen.
+class InfoBanner extends StatelessWidget {
+  const InfoBanner({
+    required this.message,
+    this.title,
+    this.tone = BannerTone.info,
+    super.key,
+  });
+
+  final String message;
+  final String? title;
+  final BannerTone tone;
+
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: const Color(0xfffff3dc),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: const Text(
-      'نسخة تطوير محلية: قص ومحرر A4 وترتيب وتصدير مع مراجعة نهائية. احفظ نسخة احتياطية قبل إزالة التطبيق؛ الطباعة الفعلية تحتاج تحققاً بالمسطرة.',
-    ),
-  );
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final caution = tone == BannerTone.caution;
+    final foreground = caution
+        ? scheme.onTertiaryContainer
+        : scheme.onSecondaryContainer;
+    final style = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: caution ? scheme.tertiaryContainer : scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            caution ? Icons.warning_amber_outlined : Icons.info_outline,
+            color: foreground,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (title != null) ...[
+                  Text(
+                    title!,
+                    style: style.titleSmall?.copyWith(color: foreground),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                Text(
+                  message,
+                  style: style.bodyMedium?.copyWith(color: foreground),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class EmptyState extends StatelessWidget {
@@ -92,27 +142,41 @@ void showMessage(BuildContext context, String message) {
   );
 }
 
+/// Asks before a consequential step. [confirmLabel] names the action itself
+/// ("حذف الصورة", "متابعة"), so the button never claims more or less than it
+/// does. [destructive] paints the confirm button as an error action.
 Future<bool> confirm(
   BuildContext context,
   String title,
-  String message,
-) async =>
+  String message, {
+  String confirmLabel = 'متابعة',
+  bool destructive = false,
+}) async =>
     await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('تأكيد الحذف'),
-          ),
-        ],
-      ),
+      builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(child: Text(message)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              style: destructive
+                  ? FilledButton.styleFrom(
+                      backgroundColor: scheme.error,
+                      foregroundColor: scheme.onError,
+                    )
+                  : null,
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
     ) ??
     false;
 

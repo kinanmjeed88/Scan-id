@@ -8,6 +8,7 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
@@ -401,6 +402,84 @@ void main() {
     expect(report.warnings.join('\n'), contains('أُلغيت'));
     expect((await projects.get(first.id)).toJson(), first.toJson());
   });
+
+  test(
+    'a derived crop whose source was deleted is never reprocessed as a photo',
+    () async {
+      final bytes = _photo();
+      final s = service(segmenter: _bothResolved);
+      var project = await s.create('مشتق بلا أصل');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final source = project.assets.single;
+      project = (await s.arrangeImportedImages(project, [source.id])).project;
+      // The automatic crops the arrangement made from the photo.
+      final autoCrops = [
+        for (final a in project.assets)
+          if (a.derivedFrom == source.id) a.id,
+      ];
+      expect(autoCrops, isNotEmpty);
+
+      // A crop made by hand from the photo: its own element, no record.
+      final crop = (await assets.importImage(
+        project.id,
+        'قصّ يدوي.png',
+        bytes,
+      )).asDerivedOf(source.id);
+      final manual = DocumentItem(
+        id: 'manual1',
+        assetId: crop.id,
+        x: 10,
+        y: 10,
+        width: 50,
+        height: 40,
+      );
+      project = await projects.save(
+        project.copyWith(
+          assets: [...project.assets, crop],
+          items: [...project.items, manual],
+        ),
+      );
+
+      // No maintenance is wired here, so the photo's folder is reported, not
+      // removed. The assertions below are about the project, not the folder.
+      await s.deleteImage(project, source.id);
+      final after = await projects.get(project.id);
+      // The photo's own records and elements go with it. Every derived image
+      // stays as an independent image, with its lineage (the confirmation
+      // says so), and the element made by hand survives.
+      final derivedIds = [...autoCrops, crop.id];
+      expect(after.documents, isEmpty);
+      expect(after.items.map((i) => i.id), ['manual1']);
+      expect(after.assets.map((a) => a.id), unorderedEquals(derivedIds));
+
+      // Asking to reprocess the crop must not turn it into a source photo.
+      final report = await s.reprocessImages(after, [crop.id]);
+      final result = report!.project;
+      expect(report.cropped, 0);
+      expect(result.documents, isEmpty);
+      expect(result.assets.map((a) => a.id), unorderedEquals(derivedIds));
+      expect(result.items.map((i) => i.id), ['manual1']);
+      expect(
+        result.assets.every((a) => a.derivedFrom == source.id),
+        isTrue,
+        reason: 'no derived image was re-classified as an original',
+      );
+      expect(
+        reconcileDerivedProvenance(result).brokenChains,
+        unorderedEquals(derivedIds),
+      );
+      expect(report.warnings, isNotEmpty, reason: 'the broken chain is named');
+      for (final asset in result.assets) {
+        expect(
+          await (await assets.resolve(asset.workingPath)).exists(),
+          isTrue,
+          reason: '${asset.name} keeps its pixels',
+        );
+      }
+    },
+  );
 
   test('reprocessing an empty selection changes nothing', () async {
     final bytes = _photo();

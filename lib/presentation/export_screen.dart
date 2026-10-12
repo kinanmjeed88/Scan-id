@@ -8,6 +8,7 @@ import '../domain/export_plan.dart';
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
 import 'page_canvas.dart';
+import 'shared.dart';
 
 class ExportScreen extends StatefulWidget {
   const ExportScreen({
@@ -209,7 +210,13 @@ class _ExportScreenState extends State<ExportScreen> {
                         ],
                       ),
                       const Text(
-                        'تُصدّر الصفحات المختارة. JPG/PNG ملف لكل صفحة. اختر حفظاً محلياً. للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
+                        'تُصدّر الصفحات المختارة. PDF ملف واحد يضم الصفحات، وPNG وJPG ملف لكل صفحة. اختر حفظاً محلياً.',
+                      ),
+                      const InfoBanner(
+                        tone: BannerTone.caution,
+                        title: 'قبل الطباعة',
+                        message:
+                            'للطباعة استخدم A4 والحجم الفعلي 100% دون Fit to page، وتحقق بالمسطرة.',
                       ),
                       if (plan != null)
                         Text(

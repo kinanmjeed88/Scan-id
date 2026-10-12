@@ -5,9 +5,10 @@ import 'dart:typed_data';
 import '../domain/arrangement.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/image_deletion.dart';
+import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
-import '../domain/image_limits.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
 import 'project_backups.dart';
@@ -149,6 +150,16 @@ class ReplaceReport {
 /// Result of deleting a project: the record is gone, files normally too.
 class ProjectDeletion {
   const ProjectDeletion({this.warning});
+  final String? warning;
+}
+
+/// Result of deleting one image: the saved project, what was planned, and a
+/// warning when the metadata was saved but the image's files could not be
+/// removed right away.
+class ImageDeletion {
+  const ImageDeletion(this.project, this.plan, {this.warning});
+  final Project project;
+  final ImageDeletionPlan plan;
   final String? warning;
 }
 
@@ -683,41 +694,54 @@ class ProjectService {
     }
   }
 
-  Future<Project> removeAsset(Project project, String assetId) async {
-    require(
-      project.assets.any((asset) => asset.id == assetId),
-      'الصورة ليست ضمن هذا المشروع.',
-    );
-    require(
-      !project.items.any((item) => item.assetId == assetId),
-      'الصورة مستخدمة داخل الورقة؛ أزل العناصر المرتبطة أولاً.',
-    );
-    require(
-      !project.documents.any(
-            (record) =>
-                record.sourceImageId == assetId ||
-                record.sides.any(
-                  (side) =>
-                      assetOwnsProjectPath(
-                        project.id,
-                        assetId,
-                        side.processedAsset.workingPath,
-                      ) ||
-                      assetOwnsProjectPath(
-                        project.id,
-                        assetId,
-                        side.processedAsset.thumbnailPath,
-                      ),
-                ),
-          ) &&
-          !project.assets.any((candidate) => candidate.derivedFrom == assetId),
-      'الصورة مرتبطة بسجل أو بأصل مشتق؛ لا يمكن إزالتها الآن.',
-    );
-    return projects.save(
-      project.copyWith(
-        assets: project.assets.where((a) => a.id != assetId).toList(),
-      ),
-    );
+  /// Takes an image off the sheet and keeps it in the project. Reversible by
+  /// placing the image again; the image and its files are untouched.
+  Future<Project> removeImageFromSheet(Project project, String assetId) async =>
+      projects.save(detachImageFromSheet(project, assetId));
+
+  /// Deletes an image from the project together with everything that depends
+  /// on it, as one decision computed by [planImageDeletion]:
+  ///
+  /// 1. the image's sheet elements and the recognition records that describe
+  ///    it leave the project (their cascade is the editor's own rule);
+  /// 2. derived crops made from it stay in the project as independent images;
+  /// 3. the project metadata is committed in ONE save, guarded by the revision,
+  ///    so a second tap or a stale window fails instead of applying twice;
+  /// 4. only then is the image's folder removed. If that fails, or if the
+  ///    recovery copy has not been rewritten yet and still names the folder,
+  ///    the image is still gone from the project and the folder is kept. The
+  ///    result carries a warning. Maintenance removes the folder later, once
+  ///    nothing names it. Nothing points at it.
+  ///
+  /// Backups made earlier keep their own copies and are never touched.
+  Future<ImageDeletion> deleteImage(Project project, String assetId) async {
+    final plan = planImageDeletion(project, assetId);
+    final saved = await projects.save(applyImageDeletion(project, plan));
+    final store = maintenance;
+    if (store == null) {
+      return ImageDeletion(
+        saved,
+        plan,
+        warning:
+            'حُذفت الصورة من المشروع. صيانة الملفات غير متاحة في هذا البناء؛ '
+            'ستبقى ملفاتها حتى تُنظّف لاحقاً.',
+      );
+    }
+    try {
+      await store.deleteFiles([plan.assetDirectory]);
+      return ImageDeletion(saved, plan);
+    } catch (error) {
+      // The metadata is already committed, so this must be reported as a
+      // warning rather than thrown: a thrown error would leave the screen
+      // showing an image that no longer exists. The cause is kept.
+      return ImageDeletion(
+        saved,
+        plan,
+        warning:
+            'حُذفت الصورة من المشروع، لكن ملفاتها بقيت على الجهاز. ${_deleteFailure(error)} '
+            'لن تتأثر الصور الأخرى؛ أعد التنظيف من «البيانات والصيانة» بعد ذلك.',
+      );
+    }
   }
 
   /// Metadata is removed first, then the app-owned files of that project, so a
@@ -735,10 +759,12 @@ class ProjectService {
     try {
       await store.deleteProjectFiles(project.id);
       return const ProjectDeletion();
-    } catch (_) {
-      return const ProjectDeletion(
+    } catch (error) {
+      // Same reasoning as [deleteImage]: the removal is already committed.
+      return ProjectDeletion(
         warning:
-            'حُذف المشروع من القائمة، وتعذر حذف ملفاته الآن. لن تتأثر المشاريع الأخرى؛ أعد المحاولة من «صيانة المساحة».',
+            'حُذف المشروع من القائمة، لكن ملفاته بقيت على الجهاز. ${_deleteFailure(error)} '
+            'لن تتأثر المشاريع الأخرى؛ أعد التنظيف من «البيانات والصيانة».',
       );
     }
   }
@@ -757,6 +783,18 @@ class ProjectService {
     return store.findOrphans(projects);
   }
 
+  /// Projects whose recovery copy does not match their saved data. Read from
+  /// the copies, so it is still true after a restart.
+  Future<Set<String>> staleRecoveryPoints() =>
+      _recovery().staleRecoveryPoints();
+
+  /// Rewrites one project's recovery copy. Fails if the copy cannot be written,
+  /// so the caller can say so instead of showing a false success.
+  Future<void> refreshRecoveryPoint(String projectId) {
+    validId(projectId);
+    return _recovery().refreshRecoveryPoint(projectId);
+  }
+
   /// Deletes exactly the paths [findOrphans] reported, after re-reading the
   /// project list so a concurrent import cannot be mistaken for an orphan.
   Future<int> deleteOrphans() async {
@@ -772,6 +810,12 @@ class ProjectService {
 
   Future<int> pruneStaging() => _maintenance().pruneStaging();
 
+  ProjectRecovery _recovery() {
+    final store = recovery;
+    require(store != null, 'استعادة نقاط الحفظ غير متاحة في هذا البناء.');
+    return store!;
+  }
+
   StorageMaintenance _maintenance() {
     final store = maintenance;
     require(store != null, 'صيانة الملفات غير متاحة في هذا البناء.');
@@ -780,6 +824,14 @@ class ProjectService {
 }
 
 /// Never expose absolute filesystem paths / personal filenames from IO errors.
+/// Why file removal failed, in words that fit a deletion: the storage layer's
+/// own sentences are kept, anything else gets a deletion-specific hint.
+String _deleteFailure(Object error) => switch (error) {
+  ValidationException(:final message) => message,
+  StorageException(:final message) => message,
+  _ => 'تعذر حذف الملفات الآن؛ تحقق من الصلاحيات والمساحة.',
+};
+
 String userError(Object error) {
   if (error is ValidationException) {
     return error.message;

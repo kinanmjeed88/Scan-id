@@ -13,6 +13,13 @@ class LocalProjectRecovery implements ProjectRecovery {
   Future<Project> metadata(String id) => projects.metadata(id);
   @override
   String? get warning => projects.checkpoints.warning;
+
+  @override
+  Future<Set<String>> staleRecoveryPoints() => projects.staleRecoveryPoints();
+
+  @override
+  Future<void> refreshRecoveryPoint(String projectId) =>
+      projects.refreshRecoveryPoint(projectId);
   @override
   Future<Project> rebuildDerived(Project project) async {
     final restored = <ImageAsset>[];

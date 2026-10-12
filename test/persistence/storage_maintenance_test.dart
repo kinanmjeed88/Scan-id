@@ -322,6 +322,8 @@ void main() {
       final link = Link('${root.path}/projects/${project.id}/assets/link');
       await link.create(target.path);
 
+      // Same order as ProjectService.deleteProject: metadata first, then files.
+      await projects.remove(project);
       await maintenance.deleteProjectFiles(project.id);
 
       expect(await target.readAsString(), 'keep me');

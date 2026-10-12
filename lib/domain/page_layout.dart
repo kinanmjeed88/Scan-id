@@ -154,15 +154,22 @@ class PageLayout {
       for (final e in p.items) e.id == id ? e.copyWith(locked: locked) : e,
     ],
   );
+
+  /// Removes layout elements and cascades to the recognition records and pair
+  /// links they alone supported. [allowLocked] is for deliberate removals that
+  /// the user confirmed from a surface that is not the sheet editor (deleting
+  /// an image from the project), where the lock belongs to the element that is
+  /// being removed on purpose.
   static Project remove(
     Project p,
     Set<String> ids, {
     List<DocumentRecord>? documentsOverride,
+    bool allowLocked = false,
   }) {
     final sourceDocuments = documentsOverride ?? p.documents;
     final removed = p.items.where((item) => ids.contains(item.id)).toList();
     require(
-      removed.every((item) => !item.locked),
+      allowLocked || removed.every((item) => !item.locked),
       'ألغِ تثبيت العناصر قبل حذفها.',
     );
     if (removed.isEmpty) return p;

@@ -100,6 +100,15 @@ class LocalProjectRepository implements ProjectRepository {
     return saved;
   }
 
+  /// Commit order, and what a caller is told when each step fails:
+  ///
+  /// 1. the file check (read-only; a failure changes nothing);
+  /// 2. the database transaction, which is durable on success. A rejected
+  ///    revision or a failed pre-upgrade snapshot throws and changes nothing;
+  /// 3. the recovery copy, written after the commit. If this write fails, the
+  ///    save still succeeds: the data is committed and a retry would only hit
+  ///    a revision conflict. The copy stays outdated, which is reported by
+  ///    [staleRecoveryPoints] and repaired by [refreshRecoveryPoint].
   @override
   Future<Project> save(Project project) async {
     await _checkAssets(project);
@@ -173,19 +182,52 @@ class LocalProjectRepository implements ProjectRepository {
     }
   }
 
+  /// Removal writes the recovery tombstone FIRST and requires it to succeed.
+  /// If the tombstone cannot be written, nothing has changed and the removal
+  /// fails. Written the other way round, a failed tombstone would leave the
+  /// project in the copies, and a later recovery would bring it back after the
+  /// user had deleted it. If the record delete itself fails, the live copy is
+  /// written again, so the copies never claim a removal that did not happen.
+  ///
+  /// Intentional metadata-only deletion. Never recursively delete a path
+  /// derived from a project file; GC and backup retention need a later design.
   @override
   Future<void> remove(Project project) async {
-    await _database.transaction((txn) async {
-      final value = await _projects.record(project.id).get(txn);
-      if (value == null ||
-          Project.fromJson(value).revision != project.revision) {
-        throw const RevisionConflict();
-      }
-      await _projects.record(project.id).delete(txn);
-    });
-    await checkpoints.save(project, deleted: true);
-    // Intentional metadata-only deletion. Never recursively delete a path
-    // derived from a project file; GC and backup retention need a later design.
+    final current = await _projects.record(project.id).get(_database);
+    if (current == null) {
+      throw const RevisionConflict();
+    }
+    final live = Project.fromJson(current);
+    if (live.revision != project.revision) {
+      throw const RevisionConflict();
+    }
+    await checkpoints.saveRequired(project, deleted: true);
+    try {
+      await _database.transaction((txn) async {
+        final value = await _projects.record(project.id).get(txn);
+        if (value == null ||
+            Project.fromJson(value).revision != project.revision) {
+          throw const RevisionConflict();
+        }
+        await _projects.record(project.id).delete(txn);
+      });
+    } catch (_) {
+      // The record is still there, so the copies must describe it again. If
+      // this write fails too, the stale state is reported, not hidden.
+      await checkpoints.save(live);
+      rethrow;
+    }
+  }
+
+  /// Projects whose recovery copy does not match the saved data. Durable.
+  Future<Set<String>> staleRecoveryPoints() async =>
+      checkpoints.staleAgainst(await list());
+
+  /// Rewrites one project's recovery copy from the committed record. Throws
+  /// if the copy still cannot be written.
+  Future<void> refreshRecoveryPoint(String projectId) async {
+    final project = await metadata(projectId);
+    await checkpoints.saveRequired(project);
   }
 
   /// Explicit recovery only: the previous database is never overwritten/deleted.

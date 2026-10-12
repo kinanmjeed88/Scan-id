@@ -1,9 +1,11 @@
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 
 Project projectFixture({
   String id = 'project1',
   List<ImageAsset> assets = const [],
   List<DocumentItem> items = const [],
+  List<DocumentRecord> documents = const [],
 }) => Project(
   id: id,
   name: 'مستمسكات العائلة',
@@ -11,6 +13,7 @@ Project projectFixture({
   updatedAt: DateTime.utc(2026, 10, 6),
   assets: assets,
   items: items,
+  documents: documents,
 );
 
 ImageAsset assetFixture({String id = 'asset1', String projectId = 'project1'}) {

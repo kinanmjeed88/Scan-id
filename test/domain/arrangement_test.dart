@@ -357,7 +357,7 @@ void main() {
 
     // Calculate the center of the placed documents
     final pageItems = r.items.where((e) => e.pageIndex == 0).toList();
-    final bounds = pageItems.fold<RectMm>(null, (acc, item) {
+    final bounds = pageItems.fold<RectMm?>(null, (acc, item) {
       if (acc == null) return item.bounds;
       return RectMm(
         math.min(acc.x, item.x),
@@ -429,7 +429,7 @@ void main() {
 
     // Items should NOT be centered (they stay at packed positions)
     final pageItems = r.items.where((e) => e.pageIndex == 0).toList();
-    final bounds = pageItems.fold<RectMm>(null, (acc, item) {
+    final bounds = pageItems.fold<RectMm?>(null, (acc, item) {
       if (acc == null) return item.bounds;
       return RectMm(
         math.min(acc.x, item.x),
@@ -488,7 +488,7 @@ void main() {
         final pageItems = r.items.where((e) => e.pageIndex == page).toList();
         if (pageItems.isEmpty) continue;
 
-        final bounds = pageItems.fold<RectMm>(null, (acc, item) {
+        final bounds = pageItems.fold<RectMm?>(null, (acc, item) {
           if (acc == null) return item.bounds;
           return RectMm(
             math.min(acc.x, item.x),

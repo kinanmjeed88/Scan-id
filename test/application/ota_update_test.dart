@@ -4,11 +4,11 @@ import 'package:scan_id/application/ota_update.dart';
 void main() {
   group('UpdateInfo', () {
     test('compares versions correctly', () {
-      expect(UpdateInfo._compareVersions('1.0.0', '0.9.9'), greaterThan(0));
-      expect(UpdateInfo._compareVersions('1.0.0', '1.0.0'), equals(0));
-      expect(UpdateInfo._compareVersions('0.9.9', '1.0.0'), lessThan(0));
-      expect(UpdateInfo._compareVersions('2.0.0', '1.9.9'), greaterThan(0));
-      expect(UpdateInfo._compareVersions('1.2.3', '1.2.2'), greaterThan(0));
+      expect(UpdateInfo.compareVersions('1.0.0', '0.9.9'), greaterThan(0));
+      expect(UpdateInfo.compareVersions('1.0.0', '1.0.0'), equals(0));
+      expect(UpdateInfo.compareVersions('0.9.9', '1.0.0'), lessThan(0));
+      expect(UpdateInfo.compareVersions('2.0.0', '1.9.9'), greaterThan(0));
+      expect(UpdateInfo.compareVersions('1.2.3', '1.2.2'), greaterThan(0));
     });
 
     test('isNewer returns true for newer versions', () {
@@ -42,23 +42,23 @@ void main() {
   group('GitHubUpdateSource', () {
     test('extracts version from tag with v prefix', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source._extractVersion('v1.2.3'), equals('1.2.3'));
+      expect(source.extractVersion('v1.2.3'), equals('1.2.3'));
     });
 
     test('extracts version from tag without prefix', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source._extractVersion('1.2.3'), equals('1.2.3'));
+      expect(source.extractVersion('1.2.3'), equals('1.2.3'));
     });
 
     test('extracts version from release- prefix', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source._extractVersion('release-1.2.3'), equals('1.2.3'));
+      expect(source.extractVersion('release-1.2.3'), equals('1.2.3'));
     });
 
     test('returns null for invalid version', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source._extractVersion('invalid'), isNull);
-      expect(source._extractVersion('1.2'), isNull);
+      expect(source.extractVersion('invalid'), isNull);
+      expect(source.extractVersion('1.2'), isNull);
     });
 
     test('parses release JSON correctly', () {
@@ -76,7 +76,7 @@ void main() {
         ]
       }
       ''';
-      final result = source._parseReleaseJson(json);
+      final result = source.parseReleaseJson(json);
       expect(result, isNotNull);
       expect(result!['tagName'], equals('v1.0.0'));
       expect(result!['body'], equals('Release notes'));
@@ -85,13 +85,13 @@ void main() {
 
     test('returns null for invalid JSON', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
-      expect(source._parseReleaseJson('invalid json'), isNull);
+      expect(source.parseReleaseJson('invalid json'), isNull);
     });
 
     test('returns null when tag_name is missing', () {
       final source = GitHubUpdateSource(owner: 'test', repo: 'test');
       final json = '{"body": "no tag"}';
-      expect(source._parseReleaseJson(json), isNull);
+      expect(source.parseReleaseJson(json), isNull);
     });
   });
 

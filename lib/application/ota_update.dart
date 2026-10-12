@@ -24,10 +24,10 @@ class UpdateInfo {
   final String? sha256;
 
   /// Whether this update is newer than the current version.
-  bool get isNewer => _compareVersions(newVersion, currentVersion) > 0;
+  bool get isNewer => compareVersions(newVersion, currentVersion) > 0;
 
   /// Compares two version strings in the format "major.minor.patch".
-  static int _compareVersions(String a, String b) {
+  static int compareVersions(String a, String b) {
     final partsA = a.split('.').map(int.parse).toList();
     final partsB = b.split('.').map(int.parse).toList();
     for (var i = 0; i < 3; i++) {
@@ -77,10 +77,10 @@ class GitHubUpdateSource implements UpdateSource {
       if (release == null) return null;
 
       final tag = release.tagName;
-      final version = _extractVersion(tag);
+      final version = extractVersion(tag);
       if (version == null) return null;
 
-      if (!UpdateInfo._compareVersions(version, currentVersion) > 0) {
+      if (!UpdateInfo.compareVersions(version, currentVersion) > 0) {
         return null;
       }
 
@@ -111,7 +111,7 @@ class GitHubUpdateSource implements UpdateSource {
     }
   }
 
-  Map<String, dynamic>? _parseReleaseJson(String json) {
+  static Map<String, dynamic>? parseReleaseJson(String json) {
     try {
       final data = _parseJson(json);
       if (data == null || data['tag_name'] == null) return null;
@@ -151,7 +151,7 @@ class GitHubUpdateSource implements UpdateSource {
     );
   }
 
-  String? _extractVersion(String tag) {
+  static String? extractVersion(String tag) {
     var version = tag;
     if (version.startsWith('v')) {
       version = version.substring(1);

@@ -13,8 +13,6 @@ import 'shared.dart';
 import 'export_screen.dart';
 import 'layout_screen.dart';
 
-typedef PickImages = Future<List<ImportSource>> Function();
-
 class UpdateInfo {
   final String currentVersion;
   final String newVersion;

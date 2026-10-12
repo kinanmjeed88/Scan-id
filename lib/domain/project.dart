@@ -508,6 +508,9 @@ class DocumentItem {
   /// v5 frozen preset decision this item was sized from (write-once).
   final PresetSnapshot? presetSnapshot;
 
+  double get right => x + width;
+  double get bottom => y + height;
+
   /// v5 link to a keep-together [LayoutGroup]; null when ungrouped.
   final String? groupId;
   RectMm get bounds => RectMm(x, y, width, height).rotatedBounds(rotation);

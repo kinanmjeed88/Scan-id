@@ -289,6 +289,9 @@ class LayoutEditorController extends ChangeNotifier {
   Future<void> setOrder(LayoutOrder order) =>
       edit((p) => p.copyWith(layout: p.layout.copyWith(order: order)));
 
+  Future<void> setCenterCaptures(bool value) =>
+      edit((p) => p.copyWith(layout: p.layout.copyWith(centerCaptures: value)));
+
   void setAllowOverlap(bool value) {
     allowOverlap = value;
     _notify();

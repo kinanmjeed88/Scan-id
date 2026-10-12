@@ -102,7 +102,8 @@ class LayoutSettings {
     this.verticalGap = 5,
     this.allowRotation = false,
     this.order = LayoutOrder.input,
-    this.strategy = ArrangementStrategy.ordered,
+    this.strategy = ArrangementStrategy.compact,
+    this.centerCaptures = true,
   }) {
     require(
       [horizontalGap, verticalGap].every((v) => v.isFinite && v >= 0),
@@ -114,6 +115,7 @@ class LayoutSettings {
   final bool allowRotation;
   final LayoutOrder order;
   final ArrangementStrategy strategy;
+  final bool centerCaptures;
 
   LayoutSettings copyWith({
     double? horizontalGap,
@@ -121,12 +123,14 @@ class LayoutSettings {
     bool? allowRotation,
     LayoutOrder? order,
     ArrangementStrategy? strategy,
+    bool? centerCaptures,
   }) => LayoutSettings(
     horizontalGap: horizontalGap ?? this.horizontalGap,
     verticalGap: verticalGap ?? this.verticalGap,
     allowRotation: allowRotation ?? this.allowRotation,
     order: order ?? this.order,
     strategy: strategy ?? this.strategy,
+    centerCaptures: centerCaptures ?? this.centerCaptures,
   );
 
   Map<String, Object?> toJson() => {
@@ -135,6 +139,7 @@ class LayoutSettings {
     'allowRotation': allowRotation,
     'order': order.name,
     'strategy': strategy.name,
+    'centerCaptures': centerCaptures,
   };
   factory LayoutSettings.fromJson(Object? json) {
     final m = objectMap(json);
@@ -144,8 +149,11 @@ class LayoutSettings {
       allowRotation: boolean(m['allowRotation'], 'allowRotation'),
       order: readEnum(LayoutOrder.values, m['order']),
       strategy: m['strategy'] == null
-          ? ArrangementStrategy.ordered
+          ? ArrangementStrategy.compact
           : readEnum(ArrangementStrategy.values, m['strategy']),
+      centerCaptures: m['centerCaptures'] == null
+          ? true
+          : boolean(m['centerCaptures'], 'centerCaptures'),
     );
   }
 }

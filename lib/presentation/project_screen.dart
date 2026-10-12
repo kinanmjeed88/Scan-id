@@ -695,7 +695,12 @@ class _ProjectScreenState extends State<ProjectScreen> {
     child: Scaffold(
       appBar: AppBar(
         title: Text(_project.name),
-        actions: [
+          actions: [
+          IconButton(
+            tooltip: 'الإعدادات',
+            onPressed: _busy ? null : _openSettings,
+            icon: const Icon(Icons.settings_outlined),
+          ),
           IconButton(
             tooltip: 'إعادة تسمية المشروع',
             onPressed: _busy ? null : _rename,
@@ -885,6 +890,25 @@ class _ProjectScreenState extends State<ProjectScreen> {
       ),
     ),
   );
+
+  Future<void> _openSettings() async {
+    if (_busy || !mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          project: _project,
+          service: widget.service,
+          pickImages: widget.pickImages,
+          recoverStorage: widget.recoverStorage,
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _project = widget.service.projects.get(_project.id);
+      });
+    }
+  }
 }
 
 enum _AssetAction { replace, moveUp, moveDown, removeFromSheet, delete }

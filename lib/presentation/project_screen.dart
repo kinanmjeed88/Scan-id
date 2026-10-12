@@ -698,7 +698,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
     child: Scaffold(
       appBar: AppBar(
         title: Text(_project.name),
-          actions: [
+        actions: [
           IconButton(
             tooltip: 'الإعدادات',
             onPressed: _busy ? null : _openSettings,

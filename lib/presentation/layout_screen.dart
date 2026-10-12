@@ -711,7 +711,9 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     tooltip: 'توسيط مجموعة المستمسكات داخل مساحة الطباعة',
                     onPressed: busy
                         ? null
-                        : () => c.setCenterCaptures(!project.layout.centerCaptures),
+                        : () => c.setCenterCaptures(
+                            !project.layout.centerCaptures,
+                          ),
                   ),
                   RibbonButton(
                     key: const Key('rb-overlap'),

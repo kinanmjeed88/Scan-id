@@ -86,7 +86,8 @@ class GitHubUpdateSource implements UpdateSource {
 
       final downloadUrl = release.assets
           .where((a) => a.name.endsWith('.apk') || a.name.endsWith('.exe'))
-          .firstOrNull?.url;
+          .firstOrNull
+          ?.url;
 
       if (downloadUrl == null) return null;
 
@@ -97,7 +98,8 @@ class GitHubUpdateSource implements UpdateSource {
         summary: release.body,
         size: release.assets
             .where((a) => a.url == downloadUrl)
-            .firstOrNull?.size,
+            .firstOrNull
+            ?.size,
         // Note: GitHub API does not provide SHA-256 for release assets by default.
         // For production, use a separate trusted source or GitHub's attestation.
         sha256: null,
@@ -114,7 +116,8 @@ class GitHubUpdateSource implements UpdateSource {
       final data = _parseJson(json);
       if (data == null || data['tag_name'] == null) return null;
 
-      final assets = (data['assets'] as List<dynamic>?)
+      final assets =
+          (data['assets'] as List<dynamic>?)
               ?.map((a) => _parseAsset(a))
               .whereType<_AssetInfo>()
               .toList() ??
@@ -164,12 +167,7 @@ class GitHubUpdateSource implements UpdateSource {
 }
 
 class _AssetInfo {
-  _AssetInfo({
-    this.url,
-    this.name,
-    this.size,
-    this.sha256,
-  });
+  _AssetInfo({this.url, this.name, this.size, this.sha256});
 
   final String? url;
   final String? name;
@@ -192,7 +190,8 @@ class UpdateService {
   Future<UpdateInfo?> checkForUpdate() => source.checkForUpdate(currentVersion);
 
   /// تنزيل ملف التحديث مع دعم الإلغاء والتنظيف.
-  Future<DownloadResult> downloadUpdate(UpdateInfo update, {
+  Future<DownloadResult> downloadUpdate(
+    UpdateInfo update, {
     required void Function(int received, int total) onProgress,
     required void Function() onCancel,
   }) async {
@@ -298,7 +297,10 @@ class UpdateService {
 
   /// تثبيت التحديث المنزّل (يعتمد على المنصة).
   /// لا تثبّت إلا بعد التحقق من المصدر والسلامة.
-  Future<InstallResult> installUpdate(UpdateInfo update, String filePath) async {
+  Future<InstallResult> installUpdate(
+    UpdateInfo update,
+    String filePath,
+  ) async {
     // التحقق من المصدر قبل التثبيت
     final verified = await verifyUpdateSource(update, filePath);
     if (!verified) {
@@ -335,9 +337,7 @@ class UpdateService {
       // التحقق من أن الملف هو ملف تنفيذي صحيح
       final extension = p.extension(filePath).toLowerCase();
       if (extension != '.exe' && extension != '.msi') {
-        return InstallResult.error(
-          'نوع الملف غير معتمد للتثبيت: $extension',
-        );
+        return InstallResult.error('نوع الملف غير معتمد للتثبيت: $extension');
       }
 
       await Process.run('cmd', ['/c', 'start', filePath]);
@@ -356,11 +356,11 @@ class DownloadResult {
   final String? filePath;
   final String? error;
 
-  factory DownloadResult.success(String path) => DownloadResult._()
-    ..filePath = path;
+  factory DownloadResult.success(String path) =>
+      DownloadResult._()..filePath = path;
 
-  factory DownloadResult.error(String message) => DownloadResult._()
-    ..error = message;
+  factory DownloadResult.error(String message) =>
+      DownloadResult._()..error = message;
 
   bool get isSuccess => error == null && filePath != null;
 }
@@ -372,11 +372,10 @@ class InstallResult {
   final String? error;
   final bool isPending;
 
-  factory InstallResult.success(String message) => InstallResult._()
-    ..message = message;
+  factory InstallResult.success(String message) =>
+      InstallResult._()..message = message;
 
-  factory InstallResult.error(String error) => InstallResult._()
-    ..error = error;
+  factory InstallResult.error(String error) => InstallResult._()..error = error;
 
   factory InstallResult.pending(String message) => InstallResult._()
     ..message = message

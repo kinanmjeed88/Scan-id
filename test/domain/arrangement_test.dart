@@ -312,22 +312,35 @@ void main() {
   });
 
   // Compact packs more documents per page than ordered
-  test('compact packs more documents per page than ordered for same documents', () {
-    final project = _project([
-      for (var i = 0; i < 10; i++) _doc('c$i', DocumentKind.unifiedNationalId),
-    ]);
+  test(
+    'compact packs more documents per page than ordered for same documents',
+    () {
+      final project = _project([
+        for (var i = 0; i < 10; i++)
+          _doc('c$i', DocumentKind.unifiedNationalId),
+      ]);
 
-    final orderedResult = arrangeDocuments(
-      project.copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.ordered)),
-    );
-    final compactResult = arrangeDocuments(project);
+      final orderedResult = arrangeDocuments(
+        project.copyWith(
+          layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
+        ),
+      );
+      final compactResult = arrangeDocuments(project);
 
-    // Compact should use fewer or equal pages
-    expect(compactResult.result.pageCount, lessThanOrEqualTo(orderedResult.result.pageCount));
-    expect(compactResult.result.items.every((e) =>
-      compactResult.result.paper.printable.contains(e.bounds)), isTrue);
-    expect(compactResult.unplaced, isEmpty);
-  });
+      // Compact should use fewer or equal pages
+      expect(
+        compactResult.result.pageCount,
+        lessThanOrEqualTo(orderedResult.result.pageCount),
+      );
+      expect(
+        compactResult.result.items.every(
+          (e) => compactResult.result.paper.printable.contains(e.bounds),
+        ),
+        isTrue,
+      );
+      expect(compactResult.unplaced, isEmpty);
+    },
+  );
 
   // Center captures centers the group on the page
   test('centerCaptures centers document group on the page', () {
@@ -341,18 +354,15 @@ void main() {
 
     // Calculate the center of the placed documents
     final pageItems = r.items.where((e) => e.pageIndex == 0).toList();
-    final bounds = pageItems.fold<RectMm>(
-      null,
-      (acc, item) {
-        if (acc == null) return item.bounds;
-        return RectMm(
-          math.min(acc.x, item.x),
-          math.min(acc.y, item.y),
-          math.max(acc.right, item.right) - math.min(acc.x, item.x),
-          math.max(acc.bottom, item.bottom) - math.min(acc.y, item.y),
-        );
-      },
-    );
+    final bounds = pageItems.fold<RectMm>(null, (acc, item) {
+      if (acc == null) return item.bounds;
+      return RectMm(
+        math.min(acc.x, item.x),
+        math.min(acc.y, item.y),
+        math.max(acc.right, item.right) - math.min(acc.x, item.x),
+        math.max(acc.bottom, item.bottom) - math.min(acc.y, item.y),
+      );
+    });
 
     if (bounds != null) {
       final area = r.paper.printable;
@@ -368,35 +378,41 @@ void main() {
   });
 
   // Center captures off by default for old projects
-  test('centerCaptures defaults to true for new projects, false for old ones without the setting', () {
-    // For projects with JSON missing centerCaptures, it should default to true
-    final json = {
-      'schemaVersion': 5,
-      'id': 'test',
-      'name': 'Test',
-      'createdAt': '2024-01-01T00:00:00Z',
-      'updatedAt': '2024-01-01T00:00:00Z',
-      'revision': 0,
-      'pageCount': 1,
-      'paper': {'orientation': 'portrait', 'margins': {'top': 5, 'right': 5, 'bottom': 5, 'left': 5}},
-      'layout': {
-        'horizontalGap': 5,
-        'verticalGap': 5,
-        'allowRotation': false,
-        'order': 'input',
-        'strategy': 'compact',
-        // no centerCaptures key
-      },
-      'exportProfile': {'format': 'pdf', 'dpi': 300, 'jpegQuality': 95},
-      'catalog': {},
-      'assets': [],
-      'items': [],
-      'documents': [],
-      'layoutGroups': [],
-    };
-    final project = Project.fromJson(json);
-    expect(project.layout.centerCaptures, isTrue);
-  });
+  test(
+    'centerCaptures defaults to true for new projects, false for old ones without the setting',
+    () {
+      // For projects with JSON missing centerCaptures, it should default to true
+      final json = {
+        'schemaVersion': 5,
+        'id': 'test',
+        'name': 'Test',
+        'createdAt': '2024-01-01T00:00:00Z',
+        'updatedAt': '2024-01-01T00:00:00Z',
+        'revision': 0,
+        'pageCount': 1,
+        'paper': {
+          'orientation': 'portrait',
+          'margins': {'top': 5, 'right': 5, 'bottom': 5, 'left': 5},
+        },
+        'layout': {
+          'horizontalGap': 5,
+          'verticalGap': 5,
+          'allowRotation': false,
+          'order': 'input',
+          'strategy': 'compact',
+          // no centerCaptures key
+        },
+        'exportProfile': {'format': 'pdf', 'dpi': 300, 'jpegQuality': 95},
+        'catalog': {},
+        'assets': [],
+        'items': [],
+        'documents': [],
+        'layoutGroups': [],
+      };
+      final project = Project.fromJson(json);
+      expect(project.layout.centerCaptures, isTrue);
+    },
+  );
 
   // Turning off center captures disables centering
   test('disabling centerCaptures leaves items at their packed positions', () {
@@ -410,18 +426,15 @@ void main() {
 
     // Items should NOT be centered (they stay at packed positions)
     final pageItems = r.items.where((e) => e.pageIndex == 0).toList();
-    final bounds = pageItems.fold<RectMm>(
-      null,
-      (acc, item) {
-        if (acc == null) return item.bounds;
-        return RectMm(
-          math.min(acc.x, item.x),
-          math.min(acc.y, item.y),
-          math.max(acc.right, item.right) - math.min(acc.x, item.x),
-          math.max(acc.bottom, item.bottom) - math.min(acc.y, item.y),
-        );
-      },
-    );
+    final bounds = pageItems.fold<RectMm>(null, (acc, item) {
+      if (acc == null) return item.bounds;
+      return RectMm(
+        math.min(acc.x, item.x),
+        math.min(acc.y, item.y),
+        math.max(acc.right, item.right) - math.min(acc.x, item.x),
+        math.max(acc.bottom, item.bottom) - math.min(acc.y, item.y),
+      );
+    });
 
     if (bounds != null) {
       final area = r.paper.printable;
@@ -432,8 +445,11 @@ void main() {
 
       // Without centering, the group is NOT necessarily at center
       // (packed position is usually right-aligned or top-aligned)
-      expect((groupCenterX - centerX).abs() > 5 || (groupCenterY - centerY).abs() > 5,
-        isTrue);
+      expect(
+        (groupCenterX - centerX).abs() > 5 ||
+            (groupCenterY - centerY).abs() > 5,
+        isTrue,
+      );
     }
   });
 
@@ -451,25 +467,25 @@ void main() {
   });
 
   // Multiple pages each centered independently
-  test('centerCaptures works on each page independently for multi-page layouts', () {
-    final project = _project([
-      for (var i = 0; i < 20; i++) _doc('m$i', DocumentKind.passport),
-    ]).copyWith(layout: LayoutSettings(centerCaptures: true));
+  test(
+    'centerCaptures works on each page independently for multi-page layouts',
+    () {
+      final project = _project([
+        for (var i = 0; i < 20; i++) _doc('m$i', DocumentKind.passport),
+      ]).copyWith(layout: LayoutSettings(centerCaptures: true));
 
-    final result = arrangeDocuments(project);
-    final r = result.result;
+      final result = arrangeDocuments(project);
+      final r = result.result;
 
-    expect(result.unplaced, isEmpty);
-    expect(inspectLayout(r), isEmpty);
+      expect(result.unplaced, isEmpty);
+      expect(inspectLayout(r), isEmpty);
 
-    // Each page should have its items centered
-    for (var page = 0; page < r.pageCount; page++) {
-      final pageItems = r.items.where((e) => e.pageIndex == page).toList();
-      if (pageItems.isEmpty) continue;
+      // Each page should have its items centered
+      for (var page = 0; page < r.pageCount; page++) {
+        final pageItems = r.items.where((e) => e.pageIndex == page).toList();
+        if (pageItems.isEmpty) continue;
 
-      final bounds = pageItems.fold<RectMm>(
-        null,
-        (acc, item) {
+        final bounds = pageItems.fold<RectMm>(null, (acc, item) {
           if (acc == null) return item.bounds;
           return RectMm(
             math.min(acc.x, item.x),
@@ -477,21 +493,21 @@ void main() {
             math.max(acc.right, item.right) - math.min(acc.x, item.x),
             math.max(acc.bottom, item.bottom) - math.min(acc.y, item.y),
           );
-        },
-      );
+        });
 
-      if (bounds != null) {
-        final area = r.paper.printable;
-        final centerX = area.x + area.width / 2;
-        final centerY = area.y + area.height / 2;
-        final groupCenterX = bounds.x + bounds.width / 2;
-        final groupCenterY = bounds.y + bounds.height / 2;
+        if (bounds != null) {
+          final area = r.paper.printable;
+          final centerX = area.x + area.width / 2;
+          final centerY = area.y + area.height / 2;
+          final groupCenterX = bounds.x + bounds.width / 2;
+          final groupCenterY = bounds.y + bounds.height / 2;
 
-        // Each page's group should be centered
-        expect((groupCenterX - centerX).abs(), lessThan(2.0));
+          // Each page's group should be centered
+          expect((groupCenterX - centerX).abs(), lessThan(2.0));
+        }
       }
-    }
-  });
+    },
+  );
 
   // Centering respects fixed/locked items
   test('centerCaptures does not move locked items', () {
@@ -504,8 +520,10 @@ void main() {
       y: 50,
     );
 
-    final project = _project([locked, _doc('a', DocumentKind.unifiedNationalId)])
-        .copyWith(layout: LayoutSettings(centerCaptures: true));
+    final project = _project([
+      locked,
+      _doc('a', DocumentKind.unifiedNationalId),
+    ]).copyWith(layout: LayoutSettings(centerCaptures: true));
 
     final result = arrangeDocuments(project);
     final r = result.result;
@@ -524,16 +542,21 @@ void main() {
 
     final result = arrangeDocuments(project);
     expect(result.unplaced, isEmpty);
-    expect(result.result.pageCount, lessThan(50)); // Should pack multiple per page
-    expect(result.result.pageCount, greaterThan(1)); // But more than one page for 50 docs
+    expect(
+      result.result.pageCount,
+      lessThan(50),
+    ); // Should pack multiple per page
+    expect(
+      result.result.pageCount,
+      greaterThan(1),
+    ); // But more than one page for 50 docs
     expect(inspectLayout(result.result), isEmpty);
   });
 
   // Items are not duplicated or lost after rearrangement
   test('no items lost or duplicated after compact arrangement', () {
     final items = [
-      for (var i = 0; i < 10; i++)
-        _doc('item-$i', DocumentKind.values[i % 4]),
+      for (var i = 0; i < 10; i++) _doc('item-$i', DocumentKind.values[i % 4]),
     ];
 
     final project = _project(items);

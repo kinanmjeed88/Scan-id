@@ -214,10 +214,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final saved = await camera.accept(photo, _project.id);
         if (mounted) {
           setState(() => _project = saved);
-          showMessage(
-            context,
-            'تم حفظ الالتقاط.',
-          );
+          showMessage(context, 'تم حفظ الالتقاط.');
         }
       } else if (action == 'discard' &&
           await confirm(
@@ -260,10 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_busy || !mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => ExportScreen(
-          project: _project,
-          service: widget.service,
-        ),
+        builder: (_) =>
+            ExportScreen(project: _project, service: widget.service),
       ),
     );
   }
@@ -334,20 +329,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-            child: _projectSection(),
-          ),
-          SliverToBoxAdapter(
-            child: _dataAndMaintenanceSection(),
-          ),
-          SliverToBoxAdapter(
-            child: _developerSection(),
-          ),
-          SliverToBoxAdapter(
-            child: _updateSection(),
-          ),
-          if (_busy)
-            const SliverToBoxAdapter(child: LinearProgressIndicator()),
+          SliverToBoxAdapter(child: _projectSection()),
+          SliverToBoxAdapter(child: _dataAndMaintenanceSection()),
+          SliverToBoxAdapter(child: _developerSection()),
+          SliverToBoxAdapter(child: _updateSection()),
+          if (_busy) const SliverToBoxAdapter(child: LinearProgressIndicator()),
         ],
       ),
     ),
@@ -361,10 +347,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'مشروع حالي',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            Text('مشروع حالي', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 4),
             Text('${_project.name} · ${_project.assets.length} صور'),
             const SizedBox(height: 12),
@@ -432,7 +415,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 12),
             const InfoBanner(
               tone: BannerTone.caution,
-              message: 'احفظ نسخة احتياطية قبل إزالة التطبيق أو تغيير الجهاز. النسخ غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
+              message:
+                  'احفظ نسخة احتياطية قبل إزالة التطبيق أو تغيير الجهاز. النسخ غير مشفرة وتحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -500,7 +484,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text(
                         'البيانات الشخصية',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       Text(
                         'مطور التطبيق',
@@ -527,7 +514,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 8),
             const InfoBanner(
               tone: BannerTone.info,
-              message: 'يمكنك فتح هذه الروابط خارج التطبيق. لا يشترط الاتصال لاستخدام التطبيق.',
+              message:
+                  'يمكنك فتح هذه الروابط خارج التطبيق. لا يشترط الاتصال لاستخدام التطبيق.',
             ),
           ],
         ),
@@ -553,7 +541,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text(
                         'تحديث التطبيق',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       Text(
                         'فحص التحديثات المتاحة',
@@ -582,10 +573,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final saved = await widget.service.camera!.capture(_project.id);
       if (mounted && saved != null) {
         setState(() => _project = saved);
-        showMessage(
-          context,
-          'حُفظ الالتقاط والأصل محلياً.',
-        );
+        showMessage(context, 'حُفظ الالتقاط والأصل محلياً.');
       }
     } catch (error) {
       if (mounted) {
@@ -729,12 +717,13 @@ class _DeveloperInfo extends StatelessWidget {
       const Divider(height: 24),
       Row(
         children: [
-          const Icon(Icons.cloud_done_outlined, size: 18, color: Color(0xFF12685e)),
-          const SizedBox(width: 8),
-          Text(
-            status,
-            style: const TextStyle(fontSize: 13),
+          const Icon(
+            Icons.cloud_done_outlined,
+            size: 18,
+            color: Color(0xFF12685e),
           ),
+          const SizedBox(width: 8),
+          Text(status, style: const TextStyle(fontSize: 13)),
         ],
       ),
     ],
@@ -804,10 +793,7 @@ class _ContactCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -928,14 +914,8 @@ class _UpdateDialog extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 12),
-          _UpdateInfoRow(
-            label: 'الإصدار الحالي',
-            value: currentVersion,
-          ),
-          _UpdateInfoRow(
-            label: 'الإصدار الجديد',
-            value: newVersion,
-          ),
+          _UpdateInfoRow(label: 'الإصدار الحالي', value: currentVersion),
+          _UpdateInfoRow(label: 'الإصدار الجديد', value: newVersion),
           if (summary != null) ...[
             const Divider(),
             Text(
@@ -943,17 +923,11 @@ class _UpdateDialog extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 4),
-            Text(
-              summary!,
-              style: const TextStyle(fontSize: 13),
-            ),
+            Text(summary!, style: const TextStyle(fontSize: 13)),
           ],
           if (size != null) ...[
             const Divider(),
-            _UpdateInfoRow(
-              label: 'حجم الملف',
-              value: size!,
-            ),
+            _UpdateInfoRow(label: 'حجم الملف', value: size!),
           ],
         ],
       ),
@@ -963,19 +937,13 @@ class _UpdateDialog extends StatelessWidget {
         onPressed: () => Navigator.pop(context, false),
         child: const Text('إلغاء'),
       ),
-      FilledButton(
-        onPressed: onDownload,
-        child: const Text('تحميل التحديث'),
-      ),
+      FilledButton(onPressed: onDownload, child: const Text('تحميل التحديث')),
     ],
   );
 }
 
 class _UpdateInfoRow extends StatelessWidget {
-  const _UpdateInfoRow({
-    required this.label,
-    required this.value,
-  });
+  const _UpdateInfoRow({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -985,15 +953,9 @@ class _UpdateInfoRow extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: Row(
       children: [
-        Text(
-          label,
-          style: const TextStyle(color: Color(0xFF666666)),
-        ),
+        Text(label, style: const TextStyle(color: Color(0xFF666666))),
         const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
       ],
     ),
   );

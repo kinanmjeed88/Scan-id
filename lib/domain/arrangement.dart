@@ -326,15 +326,18 @@ void _centerPageItems(
 ) {
   final pages = placed.values.map((item) => item.pageIndex).toSet();
   for (final page in pages) {
-    final pageItems = placed.values.where((item) => item.pageIndex == page).toList();
+    final pageItems = placed.values
+        .where((item) => item.pageIndex == page)
+        .toList();
     if (pageItems.isEmpty) continue;
     final bounds = _groupBounds(pageItems);
     if (bounds == null) continue;
     // Check that centering won't cause overlap with obstacles.
     final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
     final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
-    final shifted = pageItems.map((item) =>
-      RectMm(item.x + shiftX, item.y + shiftY, item.width, item.height)
+    final shifted = pageItems.map(
+      (item) =>
+          RectMm(item.x + shiftX, item.y + shiftY, item.width, item.height),
     );
     final others = obstacles[page] ?? const <RectMm>[];
     final clear = shifted.every(
@@ -342,10 +345,7 @@ void _centerPageItems(
     );
     if (clear && (shiftX.abs() > _eps || shiftY.abs() > _eps)) {
       for (final item in pageItems) {
-        placed[item.id] = item.copyWith(
-          x: item.x + shiftX,
-          y: item.y + shiftY,
-        );
+        placed[item.id] = item.copyWith(x: item.x + shiftX, y: item.y + shiftY);
       }
     }
   }

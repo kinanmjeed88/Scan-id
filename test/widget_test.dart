@@ -17,6 +17,7 @@ import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/imaging/perspective.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 import 'fixtures.dart';
+import 'presentation/editor_harness.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
@@ -695,6 +696,122 @@ void main() {
     expect(stored.assets.single.derivedFrom, 'asset1');
     expect(stored.items, isEmpty);
     expect(stored.documents, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the A4 editor has no overflow on narrow phones', (tester) async {
+    for (final size in const [Size(320, 640), Size(360, 780)]) {
+      await EditorHarness.pump(tester, size: size);
+      expect(tester.takeException(), isNull, reason: 'at $size');
+    }
+  });
+
+  testWidgets('the crop screen has no overflow on narrow phones', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final size in const [Size(320, 640), Size(360, 780)]) {
+      tester.view.physicalSize = size;
+      final repository = _MemoryProjects();
+      final project = await repository.create(
+        projectFixture(assets: [assetFixture()]),
+      );
+      final service = ProjectService(
+        repository,
+        _NoAssets(),
+        imageEditor: _TestEditor(),
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: CropScreen(
+            project: project,
+            asset: project.assets.single,
+            service: service,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'at $size');
+    }
+  });
+
+  testWidgets('the deletion confirmation with crops fits a 360 pixel phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final source = assetFixture(id: 'asset1');
+    final crop = assetFixture(id: 'crop1').asDerivedOf('asset1');
+    final record = DocumentRecord(
+      id: 'rec-1',
+      sourceImageId: 'asset1',
+      sides: [
+        DocumentSide(
+          id: 'side-1',
+          side: SideKind.unknown,
+          processedAsset: ProcessedAssetRef(
+            workingPath: crop.workingPath,
+            thumbnailPath: crop.thumbnailPath,
+            width: crop.width,
+            height: crop.height,
+          ),
+        ),
+      ],
+      pairing: PairingState.single,
+      provenance: Provenance(
+        sourceImageId: 'asset1',
+        detectionIds: const ['rec-1-d0'],
+        processedAssetVersion: 'smart-1',
+        pipelineVersion: 'smart-1',
+      ),
+    );
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(
+        assets: [source, crop],
+        documents: [record],
+        items: [
+          itemFixture(id: 'own', assetId: 'asset1'),
+          itemFixture(
+            id: 'crop-item',
+            assetId: 'crop1',
+          ).copyWith(documentId: 'rec-1', sideId: 'side-1', x: 60),
+        ],
+      ),
+    );
+    final service = ProjectService(repository, _NoAssets());
+    await tester.pumpWidget(
+      AppShell(
+        home: ProjectScreen(
+          project: project,
+          service: service,
+          pickImages: () async => [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The image list is a scrollable grid below the fold on a phone; scroll
+    // the page to the menu instead of tapping an off-screen point.
+    await tester.scrollUntilVisible(
+      find.byTooltip('خيارات الصورة').first,
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.byTooltip('خيارات الصورة').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حذف الصورة نهائياً'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('ستُزال 2 من عناصر ورقة A4'), findsOneWidget);
+    expect(find.textContaining('الصور المشتقة منها (1) تبقى'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -35,8 +35,9 @@ class EditorHarness {
     Future<List<ImportSource>> Function()? pickImages,
     String? intakeSummary,
     List<String> intakeWarnings = const [],
+    Size size = const Size(1400, 900),
   }) async {
-    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);

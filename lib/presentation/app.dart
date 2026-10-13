@@ -5,9 +5,8 @@ import '../application/project_service.dart';
 import '../application/backup_transfer.dart';
 import '../domain/project.dart';
 import 'project_screen.dart';
+import 'settings_screen.dart';
 import 'shared.dart';
-
-typedef PickImages = Future<List<ImportSource>> Function();
 
 class AppShell extends StatelessWidget {
   const AppShell({required this.home, super.key});
@@ -233,6 +232,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           service: widget.service,
           pickImages: widget.pickImages,
           startWithImagePicker: startWithImagePicker,
+          recoverStorage: widget.recoverStorage,
         ),
       ),
     );
@@ -250,6 +250,28 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     )) {
       await widget.recoverStorage?.call();
     }
+  }
+
+  Future<void> _openSettings() async {
+    if (_busy || !mounted) return;
+    final projects = await _projects;
+    if (!mounted) return;
+    if (projects.isEmpty) {
+      showMessage(context, 'أنشئ مشروعاً أولاً للوصول إلى الإعدادات.');
+      return;
+    }
+    final project = projects.first;
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          project: project,
+          service: widget.service,
+          pickImages: widget.pickImages,
+          recoverStorage: widget.recoverStorage,
+        ),
+      ),
+    );
   }
 
   Future<void> _delete(Project project) async {
@@ -379,6 +401,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'الإعدادات',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: _openSettings,
+          ),
           IconButton(
             tooltip: 'عن التطبيق والتراخيص',
             icon: const Icon(Icons.info_outline),

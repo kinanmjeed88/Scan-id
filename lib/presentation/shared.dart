@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../application/project_service.dart';
 
 /// Tone of an [InfoBanner]. [caution] is for facts the user must know before
 /// an irreversible or external step (printing, backups, deletion).
@@ -239,3 +240,6 @@ class _NameDialogState extends State<_NameDialog> {
     ],
   );
 }
+
+/// A function that produces a list of image sources to import.
+typedef PickImages = Future<List<ImportSource>> Function();

@@ -375,7 +375,7 @@ void main() {
 
   test('toggling autoFlow preserves an absent legacy strategy choice', () {
     final json = projectFixture(assets: [assetFixture()]).toJson();
-    final layout = json['layout']! as Map<String, Object?>
+    (json['layout']! as Map<String, Object?>)
       ..remove('strategy')
       ..remove('autoFlow');
     final legacy = Project.fromJson(jsonDecode(jsonEncode(json)));
@@ -393,6 +393,10 @@ void main() {
           .layout
           .arrangementStrategy,
       ArrangementStrategy.ordered,
+    );
+    expect(
+      legacy.layout.copyWith(strategy: ArrangementStrategy.compact).strategyChosen,
+      isTrue,
     );
   });
 

@@ -30,14 +30,21 @@ class UpdateInfo {
 
   /// Compares two version strings in the format "major.minor.patch".
   static int compareVersions(String a, String b) {
-    final partsA = a.split('.').map(int.parse).toList();
-    final partsB = b.split('.').map(int.parse).toList();
+    final partsA = a.split('.').map(_numericPrefix).toList();
+    final partsB = b.split('.').map(_numericPrefix).toList();
     for (var i = 0; i < 3; i++) {
       final va = i < partsA.length ? partsA[i] : 0;
       final vb = i < partsB.length ? partsB[i] : 0;
       if (va != vb) return va.compareTo(vb);
     }
     return 0;
+  }
+
+  /// Parses the leading integer of a version part; pre-release suffixes are
+  /// not versioned here ('0-alpha' counts as 0), so comparisons never throw.
+  static int _numericPrefix(String raw) {
+    final match = RegExp(r'^\d+').firstMatch(raw);
+    return match == null ? 0 : int.parse(match.group(0)!);
   }
 }
 

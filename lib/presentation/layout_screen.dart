@@ -495,7 +495,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     key: const Key('rb-strategy'),
                     icon: Icons.view_quilt_outlined,
                     label:
-                        project.layout.strategy == ArrangementStrategy.ordered
+                        project.layout.arrangementStrategy ==
+                            ArrangementStrategy.ordered
                         ? 'حسب النوع'
                         : 'مضغوط',
                     tooltip: 'طريقة الترتيب',
@@ -506,14 +507,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
                         ArrangementStrategy.ordered,
                         'حسب النوع (صف لكل نوع)',
                         checked:
-                            project.layout.strategy ==
+                            project.layout.arrangementStrategy ==
                             ArrangementStrategy.ordered,
                       ),
                       RibbonMenuEntry(
                         ArrangementStrategy.compact,
                         'مضغوط (أكبر عدد في الصفحة)',
                         checked:
-                            project.layout.strategy ==
+                            project.layout.arrangementStrategy ==
                             ArrangementStrategy.compact,
                       ),
                     ],
@@ -704,6 +705,20 @@ class _LayoutScreenState extends State<LayoutScreen> {
                           ),
                   ),
                   RibbonButton(
+                    key: const Key('rb-overlap'),
+                    icon: Icons.layers_outlined,
+                    label: 'السماح بالتراكب',
+                    selected: c.allowOverlap,
+                    tooltip: 'السماح بتراكب العناصر عند الترتيب اليدوي',
+                    onPressed: () => c.setAllowOverlap(!c.allowOverlap),
+                  ),
+                ],
+              ),
+              // A separate stack keeps each column at three commands or
+              // fewer, so the ribbon row never overflows its height.
+              RibbonStack(
+                children: [
+                  RibbonButton(
                     key: const Key('rb-center-captures'),
                     icon: Icons.center_focus_strong_outlined,
                     label: 'توسيط المستمسكات',
@@ -714,14 +729,6 @@ class _LayoutScreenState extends State<LayoutScreen> {
                         : () => c.setCenterCaptures(
                             !project.layout.centerCaptures,
                           ),
-                  ),
-                  RibbonButton(
-                    key: const Key('rb-overlap'),
-                    icon: Icons.layers_outlined,
-                    label: 'السماح بالتراكب',
-                    selected: c.allowOverlap,
-                    tooltip: 'السماح بتراكب العناصر عند الترتيب اليدوي',
-                    onPressed: () => c.setAllowOverlap(!c.allowOverlap),
                   ),
                 ],
               ),

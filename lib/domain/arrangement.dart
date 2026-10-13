@@ -138,7 +138,7 @@ ArrangementResult arrangeDocuments(
     return inputOrder[a.id]!.compareTo(inputOrder[b.id]!);
   });
 
-  final placed = switch (strategy ?? source.layout.strategy) {
+  final placed = switch (strategy ?? source.layout.arrangementStrategy) {
     ArrangementStrategy.ordered => _ordered(source, fixed, movable, rotate),
     ArrangementStrategy.compact => _compact(source, movable, rotate),
   };
@@ -396,23 +396,24 @@ Map<String, DocumentItem> _compact(
     if (!progress && pageWasEmpty) break;
     page++;
   }
-  // Center the group of placed items within the printable area, preserving
-  // relative positions from the packing algorithm.
+  // Center the group of placed items on each page, preserving relative
+  // positions from the packing algorithm and never colliding with items
+  // that stayed put (locked or keep-placed).
   if (project.layout.centerCaptures && placed.isNotEmpty) {
-    final placedItems = placed.values.toList();
-    final bounds = _groupBounds(placedItems);
-    if (bounds != null) {
-      final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
-      final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
-      if (shiftX.abs() > _eps || shiftY.abs() > _eps) {
-        for (final item in placedItems) {
-          placed[item.id] = item.copyWith(
-            x: item.x + shiftX,
-            y: item.y + shiftY,
-          );
-        }
+    final obstacles = <int, List<RectMm>>{};
+    for (final item in project.items) {
+      final pageIndex = item.pageIndex;
+      if (pageIndex != null && !placed.containsKey(item.id)) {
+        obstacles.putIfAbsent(pageIndex, () => []).add(item.bounds);
       }
     }
+    _centerPageItems(
+      placed,
+      area,
+      project.layout.horizontalGap,
+      project.layout.verticalGap,
+      obstacles,
+    );
   }
   return placed;
 }

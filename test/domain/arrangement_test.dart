@@ -64,10 +64,7 @@ Project _project(
   double margin = 5,
   List<LayoutGroup> layoutGroups = const [],
   List<DocumentRecord> documents = const [],
-}) => projectFixture(
-  assets: [assetFixture()],
-  documents: documents,
-).copyWith(
+}) => projectFixture(assets: [assetFixture()], documents: documents).copyWith(
   paper: PaperSettings(margins: Margins.all(margin)),
   items: items,
   layoutGroups: layoutGroups,
@@ -95,9 +92,7 @@ DocumentRecord _linkedRecord({
       ),
     ),
   ],
-  pairing: pairedDocumentId == null
-      ? PairingState.single
-      : PairingState.paired,
+  pairing: pairedDocumentId == null ? PairingState.single : PairingState.paired,
   pairedDocumentId: pairedDocumentId,
   provenance: Provenance(
     sourceImageId: 'asset1',
@@ -382,23 +377,21 @@ void main() {
 
   test('group packing is deterministic in saved item order', () {
     for (final strategy in ArrangementStrategy.values) {
-      final groupA = LayoutGroup(
-        id: 'group-a',
-        itemIds: ['a-front', 'a-back'],
-      );
-      final groupB = LayoutGroup(
-        id: 'group-b',
-        itemIds: ['b-front', 'b-back'],
-      );
+      final groupA = LayoutGroup(id: 'group-a', itemIds: ['a-front', 'a-back']);
+      final groupB = LayoutGroup(id: 'group-b', itemIds: ['b-front', 'b-back']);
       final items = [
         _sizedDoc('b-front', 40, 30, groupId: groupB.id),
         _sizedDoc('b-back', 40, 30, groupId: groupB.id),
-        _sizedDoc('passport', 60, 40).copyWith(
-          documentKind: DocumentKind.passport,
-        ),
-        _sizedDoc('national-id', 50, 30).copyWith(
-          documentKind: DocumentKind.unifiedNationalId,
-        ),
+        _sizedDoc(
+          'passport',
+          60,
+          40,
+        ).copyWith(documentKind: DocumentKind.passport),
+        _sizedDoc(
+          'national-id',
+          50,
+          30,
+        ).copyWith(documentKind: DocumentKind.unifiedNationalId),
         _sizedDoc('a-front', 40, 30, groupId: groupA.id),
         _sizedDoc('a-back', 40, 30, groupId: groupA.id),
       ];
@@ -451,10 +444,7 @@ void main() {
         const groupId = 'pair-rec-back';
         const frontId = 'front-item';
         const backId = 'back-item';
-        final group = LayoutGroup(
-          id: groupId,
-          itemIds: [frontId, backId],
-        );
+        final group = LayoutGroup(id: groupId, itemIds: [frontId, backId]);
         final front = _sizedDoc(
           frontId,
           80,
@@ -469,17 +459,13 @@ void main() {
           page: null,
           groupId: groupId,
         ).copyWith(documentId: 'rec-back', sideId: 'side-back');
-        final obstacle = _sizedDoc(
-          'linked-obstacle',
-          40,
-          40,
-          locked: true,
-        ).copyWith(
-          x: 5,
-          y: 5,
-          documentId: 'rec-obstacle',
-          sideId: 'side-obstacle',
-        );
+        final obstacle = _sizedDoc('linked-obstacle', 40, 40, locked: true)
+            .copyWith(
+              x: 5,
+              y: 5,
+              documentId: 'rec-obstacle',
+              sideId: 'side-obstacle',
+            );
         final project = _project(
           [front, back, obstacle],
           layoutGroups: [group],
@@ -513,10 +499,7 @@ void main() {
         expect(result.unplaced, isEmpty, reason: '$strategy');
         expect(arrangedFront.pageIndex, arrangedBack.pageIndex);
         expect(arrangedBack.bounds.y - arrangedFront.bounds.bottom, 5);
-        expect(
-          PageLayout.item(result.result, 'linked-obstacle').x,
-          obstacle.x,
-        );
+        expect(PageLayout.item(result.result, 'linked-obstacle').x, obstacle.x);
         expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
       }
     },

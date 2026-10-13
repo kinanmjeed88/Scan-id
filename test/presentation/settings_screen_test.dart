@@ -104,11 +104,7 @@ void main() {
       AppShell(
         home: SettingsScreen(
           project: project,
-          service: ProjectService(
-            repository,
-            NoAssets(),
-            recovery: recovery,
-          ),
+          service: ProjectService(repository, NoAssets(), recovery: recovery),
           pickImages: () async => [],
           recoverStorage: null,
         ),

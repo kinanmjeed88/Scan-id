@@ -6,6 +6,7 @@ Project projectFixture({
   List<ImageAsset> assets = const [],
   List<DocumentItem> items = const [],
   List<DocumentRecord> documents = const [],
+  List<LayoutGroup> layoutGroups = const [],
 }) => Project(
   id: id,
   name: 'مستمسكات العائلة',
@@ -14,6 +15,7 @@ Project projectFixture({
   assets: assets,
   items: items,
   documents: documents,
+  layoutGroups: layoutGroups,
 );
 
 ImageAsset assetFixture({String id = 'asset1', String projectId = 'project1'}) {

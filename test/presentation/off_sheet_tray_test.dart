@@ -18,7 +18,11 @@ void main() {
   testWidgets(
     'the tray and status bar say why each document is out of the arrangement',
     (tester) async {
-      final editor = await EditorHarness.pump(tester, project: _mixed());
+      final editor = await EditorHarness.pump(
+        tester,
+        project: _mixed(),
+        size: const Size(2200, 900),
+      );
 
       expect(_reason(tester, 'unknown'), 'sizeUnconfirmed');
       expect(_reason(tester, 'huge'), 'tooLarge');

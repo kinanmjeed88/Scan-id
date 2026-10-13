@@ -69,6 +69,7 @@ Project _project(
       assets: [assetFixture()],
       items: items,
       documents: documents,
+      layoutGroups: layoutGroups,
     ).copyWith(
       paper: PaperSettings(margins: Margins.all(margin)),
       items: items,

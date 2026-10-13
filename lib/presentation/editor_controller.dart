@@ -286,12 +286,14 @@ class LayoutEditorController extends ChangeNotifier {
 
   Future<void> setAutoFlow(bool value) async {
     if (value == autoFlow) return;
-    final saved = await run(() => session.apply((project) {
-      final changed = project.copyWith(
-        layout: project.layout.copyWith(autoFlow: value),
-      );
-      return value ? arrangeDocuments(changed).result : changed;
-    }));
+    final saved = await run(
+      () => session.apply((project) {
+        final changed = project.copyWith(
+          layout: project.layout.copyWith(autoFlow: value),
+        );
+        return value ? arrangeDocuments(changed).result : changed;
+      }),
+    );
     if (saved && value) {
       _say('أُعيد تشغيل «الترتيب المستمر» وحُفظ الاختيار لهذا المشروع.');
     }
@@ -1066,20 +1068,14 @@ class LayoutEditorController extends ChangeNotifier {
       return;
     }
     final pausesAutoFlow = autoFlow;
-    final saved = await _guard(() => session.apply((project) {
-      final changed = pausesAutoFlow
-          ? project.copyWith(
-              layout: project.layout.copyWith(autoFlow: false),
-            )
-          : project;
-      return PageLayout.move(
-        changed,
-        id,
-        dx,
-        dy,
-        allowOverlap: allowOverlap,
-      );
-    }));
+    final saved = await _guard(
+      () => session.apply((project) {
+        final changed = pausesAutoFlow
+            ? project.copyWith(layout: project.layout.copyWith(autoFlow: false))
+            : project;
+        return PageLayout.move(changed, id, dx, dy, allowOverlap: allowOverlap);
+      }),
+    );
     if (saved && pausesAutoFlow) {
       _say(
         'أُوقف «الترتيب المستمر» لأنك رتّبت يدوياً؛ أعد تشغيله من تبويب «الرئيسية» متى شئت.',

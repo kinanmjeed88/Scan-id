@@ -413,7 +413,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: const Icon(Icons.backup_outlined),
                     label: const Text('نسخة احتياطية كاملة'),
                   ),
-                if (widget.service.backups != null || widget.restoreBackup != null)
+                if (widget.service.backups != null ||
+                    widget.restoreBackup != null)
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _restoreBackup,
                     icon: const Icon(Icons.restore),
@@ -522,10 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Expanded(
                   child: Text(
                     'تحديث التطبيق',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -586,7 +584,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
-
 }
 
 class _DeveloperInfo extends StatelessWidget {

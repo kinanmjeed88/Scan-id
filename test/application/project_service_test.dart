@@ -79,18 +79,21 @@ void main() {
     return [for (final entity in entries) p.basename(entity.path)];
   }
 
-  test('new projects select and persist the effective compact strategy', () async {
-    final project = await service.create('ترتيب مضغوط');
+  test(
+    'new projects select and persist the effective compact strategy',
+    () async {
+      final project = await service.create('ترتيب مضغوط');
 
-    expect(project.layout.strategy, ArrangementStrategy.compact);
-    expect(project.layout.arrangementStrategy, ArrangementStrategy.compact);
-    expect(project.layout.autoFlow, isTrue);
+      expect(project.layout.strategy, ArrangementStrategy.compact);
+      expect(project.layout.arrangementStrategy, ArrangementStrategy.compact);
+      expect(project.layout.autoFlow, isTrue);
 
-    final reopened = await projects.get(project.id);
-    expect(reopened.layout.arrangementStrategy, ArrangementStrategy.compact);
-    expect(reopened.layout.autoFlow, isTrue);
-    expect(reopened.toJson(), project.toJson());
-  });
+      final reopened = await projects.get(project.id);
+      expect(reopened.layout.arrangementStrategy, ArrangementStrategy.compact);
+      expect(reopened.layout.autoFlow, isTrue);
+      expect(reopened.toJson(), project.toJson());
+    },
+  );
 
   test(
     'import pipeline commits original, normalized copy and thumbnail then reopens',

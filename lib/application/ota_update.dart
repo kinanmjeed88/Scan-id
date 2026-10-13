@@ -198,7 +198,6 @@ class UpdateService {
     required void Function() onCancel,
   }) async {
     HttpClient? client;
-    bool cancelled = false;
     File? tempFile;
 
     try {

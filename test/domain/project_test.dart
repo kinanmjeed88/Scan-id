@@ -346,13 +346,13 @@ void main() {
     expect(restored.toJson(), project.toJson());
   });
 
-  test('schema three opens with default sizes and the ordered strategy', () {
+  test('schema three opens with default sizes and the compact strategy', () {
     final json = projectFixture(assets: [assetFixture()]).toJson()
       ..['schemaVersion'] = 3
       ..remove('catalog');
     (json['layout']! as Map<String, Object?>).remove('strategy');
     final migrated = Project.fromJson(jsonDecode(jsonEncode(json)));
-    expect(migrated.layout.strategy, ArrangementStrategy.ordered);
+    expect(migrated.layout.strategy, ArrangementStrategy.compact);
     expect(
       migrated.catalog.residenceCard.width,
       DocumentSizeCatalog.defaultResidenceCard.width,

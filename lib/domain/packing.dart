@@ -19,13 +19,16 @@ class PackingProposal {
 /// [onlyUnplaced] leaves every placed item exactly where the user put it and
 /// turns those items into obstacles, which is how a hand-made arrangement
 /// survives a later proposal. Without it the free arrangement is re-packed and
-/// only locked items are treated as immovable.
+/// only locked items are treated as immovable. [orderOverride] is a bounded
+/// strategy-level override used to compare deterministic compact heuristics; it
+/// does not mutate the saved project preference.
 PackingProposal proposePacking(
   Project project, {
   required bool includeLocked,
   required bool allowRotation,
   bool onlyUnplaced = false,
   int pageIndex = 0,
+  LayoutOrder? orderOverride,
 }) {
   require(
     pageIndex >= 0 && pageIndex < project.pageCount,
@@ -84,7 +87,7 @@ PackingProposal proposePacking(
   pending.sort((a, b) {
     final kind = a.documentKind.order.compareTo(b.documentKind.order);
     if (kind != 0) return kind;
-    if (project.layout.order == LayoutOrder.area) {
+    if ((orderOverride ?? project.layout.order) == LayoutOrder.area) {
       final size = (b.bounds.width * b.bounds.height).compareTo(
         a.bounds.width * a.bounds.height,
       );

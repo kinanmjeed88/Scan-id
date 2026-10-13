@@ -515,6 +515,11 @@ class _OffSheetReason extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final (text, hint, color) = switch (status) {
+      AutoLayoutStatus.locked => (
+        'مثبت · خارج الترتيب التلقائي',
+        'لا ينقله الترتيب التلقائي؛ أزل القفل قبل إعادته إلى الورقة',
+        scheme.error,
+      ),
       AutoLayoutStatus.sizeUnconfirmed => (
         'مقاس غير مؤكد · خارج الترتيب التلقائي',
         'لا يدخل الترتيب التلقائي حتى تختار نوعه أو تكتب مقاسه من «المستمسك»',

@@ -56,11 +56,13 @@ class ProjectsScreen extends StatefulWidget {
     required this.service,
     required this.pickImages,
     this.recoverStorage,
+    this.restoreBackup,
     super.key,
   });
   final ProjectService service;
   final PickImages pickImages;
   final Future<void> Function()? recoverStorage;
+  final Future<Project?> Function()? restoreBackup;
   @override
   State<ProjectsScreen> createState() => _ProjectsScreenState();
 }
@@ -269,9 +271,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           service: widget.service,
           pickImages: widget.pickImages,
           recoverStorage: widget.recoverStorage,
+          restoreBackup: widget.restoreBackup,
         ),
       ),
     );
+    if (mounted) _refresh();
   }
 
   Future<void> _delete(Project project) async {

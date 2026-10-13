@@ -22,6 +22,16 @@ void main() {
       expect(_reason(tester, 'huge'), 'tooLarge');
       // A copy that only lacked room fits on a page: it is not "too large".
       expect(_reason(tester, 'copy'), 'eligible');
+      expect(_reason(tester, 'locked'), 'locked');
+      const lockedText = 'مثبت · خارج الترتيب التلقائي';
+      expect(find.text(lockedText), findsOneWidget);
+      final lockedTooltip = tester.widget<Tooltip>(
+        find.ancestor(
+          of: find.text(lockedText),
+          matching: find.byType(Tooltip),
+        ),
+      );
+      expect(lockedTooltip.message, contains('أزل القفل'));
       // Counted by state, wherever the document is: the off-sheet unknown
       // one and the placed one without a confirmed size. Only the 250 mm
       // document is too large; the copy that merely lacked room is not.
@@ -84,6 +94,11 @@ Project _mixed() => editorProject(
       width: 70,
       height: 45,
     ),
+    placedDocument(
+      'locked',
+      'asset4',
+      DocumentKind.unifiedNationalId,
+    ).copyWith(unplaced: true, locked: true),
   ],
 );
 

@@ -209,6 +209,7 @@ class ProjectService {
         createdAt: now,
         updatedAt: now,
         paper: PaperSettings(margins: Margins.all(5)),
+        layout: LayoutSettings(strategy: ArrangementStrategy.compact),
         catalog: catalog,
       ),
     );

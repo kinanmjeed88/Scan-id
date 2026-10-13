@@ -73,7 +73,7 @@ transforms, original/working/thumb, paper/layout/export, catalog).
 
 | From | Action | Preserved | Added (defaults) | Validation | Failure behavior |
 |---|---|---|---|---|---|
-| v1 | read w/ defaults → v5 | all v1 fields verbatim | `adjustments`=neutral, `pageCount`=1, `pageIndex` per item, `captureId`=null, `documentKind`=unknown, `recognitionConfidence`=0, `sizeConfirmed`=false (⇒ off-sheet), `catalog`=defaults, `strategy`=ordered, `documents`=[], `groups`=[], item refs=null | full v5 invariants | abort; original + snapshot intact |
+| v1 | read w/ defaults → v5 | all v1 fields verbatim | `adjustments`=neutral, `pageCount`=1, `pageIndex` per item, `captureId`=null, `documentKind`=unknown, `recognitionConfidence`=0, `sizeConfirmed`=false (⇒ off-sheet), `catalog`=defaults, `strategy`=ordered, `autoFlow`=true, `documents`=[], `groups`=[], item refs=null | full v5 invariants | abort; original + snapshot intact |
 | v2 | + carry `adjustments` | v2 + adjustments | as v1 for the rest | same | same |
 | v3a | + carry `pageCount`/`pageIndex` | v3a | as above for recognition/catalog | same | same |
 | v3b | + carry `captureId` | v3b | as above | same | same |

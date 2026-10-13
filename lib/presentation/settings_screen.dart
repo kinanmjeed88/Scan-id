@@ -642,7 +642,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<UpdateInfo?> _fetchUpdateInfo() async {
     // في بيئة الإنتاج، يستخدم هذا GitHub Releases
     // للتطبيق التجريبي، نرجع null لمحاكاة "لا يوجد تحديث"
-    await Future.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 1));
     return null;
   }
 

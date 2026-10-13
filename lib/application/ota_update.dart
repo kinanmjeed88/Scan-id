@@ -211,7 +211,7 @@ class UpdateService {
         return DownloadResult.error('HTTP ${response.statusCode}');
       }
 
-      final total = response.contentLength ?? 0;
+      final total = response.contentLength;
       var received = 0;
       final chunks = <Uint8List>[];
 

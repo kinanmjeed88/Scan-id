@@ -8,6 +8,15 @@ import 'package:scan_id/presentation/settings_screen.dart';
 
 import 'editor_harness.dart';
 
+Future<void> _scrollTo(WidgetTester tester, Finder target) async {
+  await tester.dragUntilVisible(
+    target,
+    find.byType(CustomScrollView),
+    const Offset(0, -400),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('settings contacts wrap at 320 and 360 dp in RTL and LTR', (
     tester,
@@ -36,7 +45,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text('تواصل مع المطور'));
+        await _scrollTo(tester, find.text('تواصل مع المطور'));
         await tester.pumpAndSettle();
 
         expect(find.text('YouTube'), findsOneWidget);
@@ -73,10 +82,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.textContaining('التحديث الهوائي غير متاح'),
-      );
-      await tester.pumpAndSettle();
+      await _scrollTo(tester, find.textContaining('التحديث الهوائي غير متاح'));
 
       expect(find.textContaining('التحديث الهوائي غير متاح'), findsOneWidget);
       expect(find.text('فحص التحديثات'), findsNothing);
@@ -111,7 +117,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('YouTube'));
+    await _scrollTo(tester, find.text('YouTube'));
     await tester.tap(find.text('YouTube'));
     await tester.pumpAndSettle();
 
@@ -147,7 +153,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('مراسلة المطور'));
+    await _scrollTo(tester, find.text('مراسلة المطور'));
     await tester.tap(find.text('مراسلة المطور'));
     await tester.pumpAndSettle();
 
@@ -198,7 +204,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('نسخة احتياطية كاملة'));
+    await _scrollTo(tester, find.text('نسخة احتياطية كاملة'));
     await tester.tap(find.text('نسخة احتياطية كاملة'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('متابعة إلى الحفظ'));
@@ -246,7 +252,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
     expect(find.text('الإعدادات'), findsOneWidget);
-    await tester.ensureVisible(find.text('استعادة نسخة احتياطية'));
+    await _scrollTo(tester, find.text('استعادة نسخة احتياطية'));
     await tester.tap(find.text('استعادة نسخة احتياطية'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('اختيار ملف'));

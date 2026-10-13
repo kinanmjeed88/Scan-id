@@ -37,7 +37,14 @@ void main() {
     () async {
       final bytes = img.encodePng(img.Image(width: 860, height: 540));
       final created = await service.create('معاملة');
-      final imported = await service.importImages(created, [
+      final orderedProject = await projects.save(
+        created.copyWith(
+          layout: created.layout.copyWith(
+            strategy: ArrangementStrategy.ordered,
+          ),
+        ),
+      );
+      final imported = await service.importImages(orderedProject, [
         ImportSource('جواز السفر.png', () => Stream.value(bytes)),
         ImportSource('بطاقة السكن.png', () => Stream.value(bytes)),
         ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),

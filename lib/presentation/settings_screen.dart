@@ -653,7 +653,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // التحقق من التوقيع/البصمة قبل التثبيت
     final verified = await _verifyUpdateFile(url);
     if (!verified) {
-      if (mounted) showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
+      if (mounted)
+        showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
       return;
     }
     if (!mounted) return;

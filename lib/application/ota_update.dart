@@ -377,10 +377,8 @@ class InstallResult {
 
   factory InstallResult.error(String error) => InstallResult._(error: error);
 
-  factory InstallResult.pending(String message) => InstallResult._(
-    message: message,
-    isPending: true,
-  );
+  factory InstallResult.pending(String message) =>
+      InstallResult._(message: message, isPending: true);
 
   bool get isSuccess => error == null && !isPending;
 }

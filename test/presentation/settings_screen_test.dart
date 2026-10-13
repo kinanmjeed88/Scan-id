@@ -195,6 +195,8 @@ void main() {
     await tester.pumpAndSettle();
     await tapKey(tester, const Key('rb-autoflow'));
     expect(repository.values[project.id]!.layout.autoFlow, isFalse);
+    await tester.tap(find.byKey(const Key('ribbon-tab-file')));
+    await tester.pumpAndSettle();
     await tapKey(tester, const Key('rb-close'));
 
     await tester.tap(find.text('تصدير وطباعة'));

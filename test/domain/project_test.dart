@@ -373,6 +373,29 @@ void main() {
     expect(migrated.toJson()['schemaVersion'], Project.schemaVersion);
   });
 
+  test('toggling autoFlow preserves an absent legacy strategy choice', () {
+    final json = projectFixture(assets: [assetFixture()]).toJson();
+    final layout = json['layout']! as Map<String, Object?>
+      ..remove('strategy')
+      ..remove('autoFlow');
+    final legacy = Project.fromJson(jsonDecode(jsonEncode(json)));
+
+    expect(legacy.layout.strategyChosen, isFalse);
+    expect(legacy.layout.arrangementStrategy, ArrangementStrategy.ordered);
+    final paused = legacy.copyWith(
+      layout: legacy.layout.copyWith(autoFlow: false),
+    );
+    expect(paused.layout.autoFlow, isFalse);
+    expect(paused.layout.strategyChosen, isFalse);
+    expect(paused.layout.arrangementStrategy, ArrangementStrategy.ordered);
+    expect(
+      Project.fromJson(jsonDecode(jsonEncode(paused.toJson())))
+          .layout
+          .arrangementStrategy,
+      ArrangementStrategy.ordered,
+    );
+  });
+
   test('impossible catalog sizes are rejected', () {
     expect(
       () => const DocumentSizeCatalog().copyWith(

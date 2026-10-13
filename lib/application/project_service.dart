@@ -19,7 +19,7 @@ import 'image_reader.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 import 'smart_recognition.dart';
-import 'smart_recognition_flag.dart';
+import 'smart_recognition_flag.dart' as smart_recognition_flag;
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
 import '../imaging/document_segmenter.dart';
@@ -173,6 +173,8 @@ class ProjectService {
     this.recovery,
     this.maintenance,
     this.segmenter,
+    this.smartRecognitionEnabled =
+        smart_recognition_flag.smartRecognitionEnabled,
   });
   final ProjectBackups? backups;
   final CameraCapture? camera;
@@ -185,6 +187,10 @@ class ProjectService {
   /// Test seam for the multi-document segmentation stage; null means the
   /// real classical segmenter (off the UI isolate).
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
+
+  /// App-level Phase 1B gate. Production defaults to the disabled build flag;
+  /// tests can explicitly opt in to exercise the implementation behind it.
+  final bool smartRecognitionEnabled;
 
   /// New projects use 5 mm margins (so a 287 mm ration card fits an A4
   /// height) and inherit the editable document sizes of the most recently
@@ -507,7 +513,8 @@ class ProjectService {
     current = await projects.save(arrangement.result);
     if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
-        '${arrangement.unplaced.length} مستمسك أكبر من المساحة القابلة للطباعة؛ صغّر الهوامش أو غيّر اتجاه الورقة.',
+        '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+        'راجع الحالة الفردية وتأكد من وجود مساحة كافية لكل مجموعة.',
       );
     }
     return AutomaticLayoutReport(

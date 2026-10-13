@@ -155,7 +155,9 @@ class LayoutSettings {
     allowRotation: allowRotation ?? this.allowRotation,
     order: order ?? this.order,
     strategy: strategy ?? this.strategy,
-    strategyChosen: strategy != null || strategyChosen,
+    strategyChosen: strategy != null
+        ? true
+        : strategyChosen ?? this.strategyChosen,
     centerCaptures: centerCaptures ?? this.centerCaptures,
     autoFlow: autoFlow ?? this.autoFlow,
   );

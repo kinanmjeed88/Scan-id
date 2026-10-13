@@ -282,8 +282,8 @@ class SmartIntake {
     current = await projects.save(arrangement.result);
     if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
-        '${arrangement.unplaced.length} مستمسك أكبر من المساحة القابلة للطباعة؛ '
-        'صغّر الهوامش أو غيّر اتجاه الورقة.',
+        '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+        'راجع حالة العناصر والمساحة المتاحة لكل مجموعة.',
       );
     }
     return AutomaticLayoutReport(
@@ -543,8 +543,8 @@ class SmartIntake {
     current = await projects.save(arrangement.result);
     if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
-        '${arrangement.unplaced.length} مستمسك أكبر من المساحة القابلة للطباعة؛ '
-        'صغّر الهوامش أو غيّر اتجاه الورقة.',
+        '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+        'راجع حالة العناصر والمساحة المتاحة لكل مجموعة.',
       );
     }
     return AutomaticLayoutReport(

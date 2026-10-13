@@ -71,6 +71,7 @@ Project editorProject({
   List<DocumentItem>? items,
   int pageCount = 1,
   List<DocumentRecord>? documents,
+  List<LayoutGroup> layoutGroups = const [],
 }) => Project(
   id: 'project1',
   name: 'مستمسكات العائلة',
@@ -83,6 +84,7 @@ Project editorProject({
       assetFixture(id: id),
   ],
   documents: documents ?? const [],
+  layoutGroups: layoutGroups,
   items:
       items ??
       [

@@ -63,10 +63,49 @@ Project _project(
   List<DocumentItem> items, {
   double margin = 5,
   List<LayoutGroup> layoutGroups = const [],
-}) => projectFixture(assets: [assetFixture()]).copyWith(
+  List<DocumentRecord> documents = const [],
+}) => projectFixture(
+  assets: [assetFixture()],
+  documents: documents,
+).copyWith(
   paper: PaperSettings(margins: Margins.all(margin)),
   items: items,
   layoutGroups: layoutGroups,
+);
+
+DocumentRecord _linkedRecord({
+  required String id,
+  required String sideId,
+  required String itemId,
+  required SideKind side,
+  String? pairedDocumentId,
+}) => DocumentRecord(
+  id: id,
+  sourceImageId: 'asset1',
+  sides: [
+    DocumentSide(
+      id: sideId,
+      side: side,
+      processedAsset: ProcessedAssetRef(
+        workingPath: 'projects/project1/assets/asset1/processed/$id.png',
+        thumbnailPath:
+            'projects/project1/assets/asset1/processed/$id-thumb.jpg',
+        width: 80,
+        height: 50,
+      ),
+    ),
+  ],
+  pairing: pairedDocumentId == null
+      ? PairingState.single
+      : PairingState.paired,
+  pairedDocumentId: pairedDocumentId,
+  provenance: Provenance(
+    sourceImageId: 'asset1',
+    detectionIds: ['detection-$id'],
+    processedAssetVersion: 'test-v1',
+    pipelineVersion: 'test-v1',
+    layoutItemIds: [itemId],
+  ),
 );
 
 void main() {
@@ -337,6 +376,148 @@ void main() {
             reason: '$strategy, $arrangement',
           );
         }
+      }
+    },
+  );
+
+  test('group packing is deterministic in saved item order', () {
+    for (final strategy in ArrangementStrategy.values) {
+      final groupA = LayoutGroup(
+        id: 'group-a',
+        itemIds: ['a-front', 'a-back'],
+      );
+      final groupB = LayoutGroup(
+        id: 'group-b',
+        itemIds: ['b-front', 'b-back'],
+      );
+      final items = [
+        _sizedDoc('b-front', 40, 30, groupId: groupB.id),
+        _sizedDoc('b-back', 40, 30, groupId: groupB.id),
+        _sizedDoc('passport', 60, 40).copyWith(
+          documentKind: DocumentKind.passport,
+        ),
+        _sizedDoc('national-id', 50, 30).copyWith(
+          documentKind: DocumentKind.unifiedNationalId,
+        ),
+        _sizedDoc('a-front', 40, 30, groupId: groupA.id),
+        _sizedDoc('a-back', 40, 30, groupId: groupA.id),
+      ];
+      Project arrange(List<LayoutGroup> groups) => _project(
+        items,
+        layoutGroups: groups,
+      ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+      final groupsInMetadataOrder = arrange([groupA, groupB]);
+      final groupsReversed = arrange([groupB, groupA]);
+      final first = arrangeDocuments(groupsInMetadataOrder).result;
+      final second = arrangeDocuments(groupsReversed).result;
+      final firstPositions = {
+        for (final item in first.items)
+          item.id: [item.x, item.y, item.pageIndex, item.rotation],
+      };
+
+      expect(
+        {
+          for (final item in second.items)
+            item.id: [item.x, item.y, item.pageIndex, item.rotation],
+        },
+        firstPositions,
+        reason: '$strategy: group storage order must not change placement',
+      );
+      if (strategy == ArrangementStrategy.ordered) {
+        expect(
+          PageLayout.item(first, 'national-id').y,
+          lessThan(PageLayout.item(first, 'passport').y),
+          reason: 'ordered mode preserves ungrouped category order',
+        );
+      }
+      expect(
+        PageLayout.item(first, 'b-back').bounds.y,
+        greaterThan(PageLayout.item(first, 'b-front').bounds.y),
+        reason: '$strategy: members retain their saved input order',
+      );
+      expect(
+        PageLayout.item(first, 'a-back').bounds.y,
+        greaterThan(PageLayout.item(first, 'a-front').bounds.y),
+        reason: '$strategy: members retain their saved input order',
+      );
+    }
+  });
+
+  test(
+    'linked recognition records remain valid while a keep-together pair is packed',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        const groupId = 'pair-rec-back';
+        const frontId = 'front-item';
+        const backId = 'back-item';
+        final group = LayoutGroup(
+          id: groupId,
+          itemIds: [frontId, backId],
+        );
+        final front = _sizedDoc(
+          frontId,
+          80,
+          50,
+          page: null,
+          groupId: groupId,
+        ).copyWith(documentId: 'rec-front', sideId: 'side-front');
+        final back = _sizedDoc(
+          backId,
+          80,
+          50,
+          page: null,
+          groupId: groupId,
+        ).copyWith(documentId: 'rec-back', sideId: 'side-back');
+        final obstacle = _sizedDoc(
+          'linked-obstacle',
+          40,
+          40,
+          locked: true,
+        ).copyWith(
+          x: 5,
+          y: 5,
+          documentId: 'rec-obstacle',
+          sideId: 'side-obstacle',
+        );
+        final project = _project(
+          [front, back, obstacle],
+          layoutGroups: [group],
+          documents: [
+            _linkedRecord(
+              id: 'rec-front',
+              sideId: 'side-front',
+              itemId: frontId,
+              side: SideKind.front,
+              pairedDocumentId: 'rec-back',
+            ),
+            _linkedRecord(
+              id: 'rec-back',
+              sideId: 'side-back',
+              itemId: backId,
+              side: SideKind.back,
+              pairedDocumentId: 'rec-front',
+            ),
+            _linkedRecord(
+              id: 'rec-obstacle',
+              sideId: 'side-obstacle',
+              itemId: 'linked-obstacle',
+              side: SideKind.unknown,
+            ),
+          ],
+        ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+        final result = arrangeDocuments(project);
+        final arrangedFront = PageLayout.item(result.result, frontId);
+        final arrangedBack = PageLayout.item(result.result, backId);
+        expect(result.unplaced, isEmpty, reason: '$strategy');
+        expect(arrangedFront.pageIndex, arrangedBack.pageIndex);
+        expect(arrangedBack.bounds.y - arrangedFront.bounds.bottom, 5);
+        expect(
+          PageLayout.item(result.result, 'linked-obstacle').x,
+          obstacle.x,
+        );
+        expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
       }
     },
   );

@@ -120,21 +120,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'إعادة إنشاء النسخ المعالجة؟',
           'ستنشأ نسخ جديدة من الأصول باستخدام وصفات القص المحفوظة. تبقى النسخ القديمة والأصول ومقاسات الورقة؛ راجع الصور الناتجة. إذا كان الأصل مفقوداً أو فاسداً فاستعد نسختك الاحتياطية.',
           confirmLabel: 'إعادة إنشاء النسخ',
-        ) &&
-        mounted) {
-      setState(() => _busy = true);
-      try {
-        await widget.service.recovery!.rebuildDerived(_project);
-        if (mounted) {
-          showMessage(context, 'حُدّثت النسخ المعالجة.');
-        }
-      } catch (error) {
-        if (mounted) {
-          showMessage(context, userError(error));
-        }
-      } finally {
-        if (mounted) setState(() => _busy = false);
+        ) ||
+        !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.service.recovery!.rebuildDerived(_project);
+      if (mounted) {
+        showMessage(context, 'حُدّثت النسخ المعالجة.');
       }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

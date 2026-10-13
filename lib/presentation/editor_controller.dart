@@ -273,13 +273,13 @@ class LayoutEditorController extends ChangeNotifier {
     if (!ok || outcome == null) return;
     final result = outcome!;
     final parts = [
-      'رُتّبت المستمسكات على ${result.pageCount} صفحة',
+      'نتيجة الترتيب: ${result.pageCount} صفحة',
       if (result.takenOffSheet.isNotEmpty)
         '${result.takenOffSheet.length} أُبعد عن الورقة لأن مقاسه غير مؤكد',
       if (result.awaitingSize.isNotEmpty)
         '${result.awaitingSize.length} بانتظار تحديد النوع',
       if (result.unplaced.isNotEmpty)
-        '${result.unplaced.length} أكبر من مساحة الطباعة',
+        '${result.unplaced.length} مستمسك بقي خارج الورقة؛ راجع حالة كل عنصر',
     ];
     _say(parts.join(' · '));
   }

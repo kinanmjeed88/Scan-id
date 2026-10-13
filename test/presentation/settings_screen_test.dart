@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/project_recovery.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
@@ -89,6 +90,48 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('repair confirmation never repairs on cancel', (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = MemoryProjects();
+    final project = await repository.create(editorProject(items: []));
+    final recovery = _TestRecovery(project);
+    await tester.pumpWidget(
+      AppShell(
+        home: SettingsScreen(
+          project: project,
+          service: ProjectService(
+            repository,
+            NoAssets(),
+            recovery: recovery,
+          ),
+          pickImages: () async => [],
+          recoverStorage: null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.text('إصلاح النسخ من الأصول'));
+
+    await tester.tap(find.text('إصلاح النسخ من الأصول'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إلغاء'));
+    await tester.pumpAndSettle();
+    expect(recovery.rebuildCount, 0);
+    expect(find.text('حُدّثت النسخ المعالجة.'), findsNothing);
+
+    await tester.tap(find.text('إصلاح النسخ من الأصول'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إعادة إنشاء النسخ'));
+    await tester.pumpAndSettle();
+    expect(recovery.rebuildCount, 1);
+    expect(find.text('حُدّثت النسخ المعالجة.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('a failed external-link launch is reported to the user', (
     tester,
@@ -264,4 +307,29 @@ void main() {
     expect(find.text('مشروع قبل الاستعادة'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _TestRecovery implements ProjectRecovery {
+  _TestRecovery(this.project);
+
+  final Project project;
+  int rebuildCount = 0;
+
+  @override
+  Future<Project> metadata(String id) async => project;
+
+  @override
+  Future<Project> rebuildDerived(Project value) async {
+    rebuildCount++;
+    return value;
+  }
+
+  @override
+  String? get warning => null;
+
+  @override
+  Future<Set<String>> staleRecoveryPoints() async => const <String>{};
+
+  @override
+  Future<void> refreshRecoveryPoint(String projectId) async {}
 }

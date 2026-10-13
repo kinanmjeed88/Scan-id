@@ -13,9 +13,9 @@ const _eps = 1e-7;
 
 /// Whether automatic arrangement may place a document and, if not, why.
 ///
-/// A state of the document itself, not of where it currently is: the editor
-/// shows it for every document that automatic arrangement leaves out, so the
-/// user sees the reason instead of a document that merely sits off the sheet.
+/// The reason automatic arrangement cannot place an item or leaves it out;
+/// the editor shows the status on off-sheet items so the user sees more than
+/// just their current location.
 enum AutoLayoutStatus {
   /// It is locked and automatic arrangement will not move it.
   locked,
@@ -33,6 +33,10 @@ enum AutoLayoutStatus {
   /// page, even when turned (where turning is allowed). Documents are never
   /// scaled to fit.
   tooLarge,
+
+  /// The item belongs to a multi-item keep-together group and is still off-sheet.
+  /// The arranger will only place the complete group when it fits.
+  groupNeedsSpace,
 }
 
 /// The [AutoLayoutStatus] of [item] in [project]; [allowRotation] defaults
@@ -45,9 +49,19 @@ AutoLayoutStatus autoLayoutStatus(
   if (item.locked) return AutoLayoutStatus.locked;
   if (!item.sizeConfirmed) return AutoLayoutStatus.sizeUnconfirmed;
   final rotate = allowRotation ?? project.layout.allowRotation;
-  return _fitting(item, project.paper.printable, rotate) == null
-      ? AutoLayoutStatus.tooLarge
-      : AutoLayoutStatus.eligible;
+  if (_fitting(item, project.paper.printable, rotate) == null) {
+    return AutoLayoutStatus.tooLarge;
+  }
+  if (item.pageIndex == null &&
+      project.layoutGroups.any(
+        (group) =>
+            group.keepTogether &&
+            group.itemIds.length > 1 &&
+            group.itemIds.contains(item.id),
+      )) {
+    return AutoLayoutStatus.groupNeedsSpace;
+  }
+  return AutoLayoutStatus.eligible;
 }
 
 /// Outcome of [arrangeDocuments]. Sizes never change; only positions, page
@@ -66,8 +80,9 @@ class ArrangementResult {
   final Project original;
   final Project result;
 
-  /// Documents with a size that cannot fit inside the printable area of an
-  /// empty page, even when turned.
+  /// Documents that did not receive a page in this pass. This can be because
+  /// an item is larger than a blank printable area, available pages are full,
+  /// or its keep-together group could not be placed as a whole.
   final List<String> unplaced;
 
   /// Documents left aside because their category/size is not set yet
@@ -257,6 +272,36 @@ class _GroupMemberPlacement {
   final double y;
 }
 
+/// Temporary packing projects contain only geometry, not v5 ownership links.
+/// Their real records and groups stay on the source project and are retained
+/// when the accepted positions are expanded back into member items.
+DocumentItem _packingProxy(
+  DocumentItem item, {
+  required double x,
+  required double y,
+  required double width,
+  required double height,
+  required double rotation,
+  required int? pageIndex,
+  required bool locked,
+  required bool sizeConfirmed,
+}) => DocumentItem(
+  id: item.id,
+  assetId: item.assetId,
+  x: x,
+  y: y,
+  width: width,
+  height: height,
+  rotation: rotation,
+  pageIndex: pageIndex,
+  zIndex: item.zIndex,
+  locked: locked,
+  keepAspectRatio: item.keepAspectRatio,
+  documentKind: item.documentKind,
+  recognitionConfidence: item.recognitionConfidence,
+  sizeConfirmed: sizeConfirmed,
+);
+
 class _GroupShape {
   const _GroupShape(this.width, this.height, this.members);
 
@@ -317,23 +362,35 @@ void _placeTogetherGroups(
           continue;
         }
         final first = members.first;
-        final composite = first.copyWith(
+        final composite = _packingProxy(
+          first,
           x: area.x,
           y: area.y,
           width: shape.width,
           height: shape.height,
           rotation: 0,
-          unplaced: true,
+          pageIndex: null,
           sizeConfirmed: true,
           locked: false,
-          clearGroupId: true,
         );
         final obstacles = <DocumentItem>[];
         for (final item in project.items) {
           if (groupIds.contains(item.id)) continue;
           final current = placed[item.id] ?? item;
           if (current.pageIndex != null) {
-            obstacles.add(current.copyWith(clearGroupId: true));
+            obstacles.add(
+              _packingProxy(
+                current,
+                x: current.x,
+                y: current.y,
+                width: current.width,
+                height: current.height,
+                rotation: current.rotation,
+                pageIndex: current.pageIndex,
+                sizeConfirmed: current.sizeConfirmed,
+                locked: current.locked,
+              ),
+            );
           }
         }
         final temporaryProject = project.copyWith(

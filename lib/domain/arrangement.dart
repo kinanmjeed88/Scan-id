@@ -495,6 +495,10 @@ void _placeTogetherGroups(
   final area = project.paper.printable;
   final horizontalGap = project.layout.horizontalGap;
   final verticalGap = project.layout.verticalGap;
+  final allGroupedIds = {
+    for (final group in groups)
+      for (final id in group.itemIds) id,
+  };
 
   for (final group in groups) {
     final groupIds = group.itemIds.toSet();
@@ -546,7 +550,9 @@ void _placeTogetherGroups(
         final obstacles = <DocumentItem>[];
         for (final item in project.items) {
           if (groupIds.contains(item.id)) continue;
-          final current = placed[item.id] ?? item;
+          final arranged = placed[item.id];
+          if (allGroupedIds.contains(item.id) && arranged == null) continue;
+          final current = arranged ?? item;
           if (current.pageIndex != null) {
             obstacles.add(
               _packingProxy(

@@ -64,15 +64,16 @@ Project _project(
   double margin = 5,
   List<LayoutGroup> layoutGroups = const [],
   List<DocumentRecord> documents = const [],
-}) => projectFixture(
-  assets: [assetFixture()],
-  items: items,
-  documents: documents,
-).copyWith(
-  paper: PaperSettings(margins: Margins.all(margin)),
-  items: items,
-  layoutGroups: layoutGroups,
-);
+}) =>
+    projectFixture(
+      assets: [assetFixture()],
+      items: items,
+      documents: documents,
+    ).copyWith(
+      paper: PaperSettings(margins: Margins.all(margin)),
+      items: items,
+      layoutGroups: layoutGroups,
+    );
 
 DocumentRecord _linkedRecord({
   required String id,
@@ -453,9 +454,7 @@ void main() {
       );
       final groupKind = kinds.$1;
       final itemKind = kinds.$2;
-      final plain = _sizedDoc('plain', 40, 30).copyWith(
-        documentKind: itemKind,
-      );
+      final plain = _sizedDoc('plain', 40, 30).copyWith(documentKind: itemKind);
       final front = _sizedDoc(
         'pair-front',
         30,

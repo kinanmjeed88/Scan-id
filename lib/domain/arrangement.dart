@@ -432,19 +432,22 @@ Map<String, DocumentItem> _orderedWithGroups(
     for (final item in regularMovable) item.id: inputOrder[item.id]!,
     for (final group in orderedGroups) group.proxy.id: group.inputOrder,
   };
-  final units = <DocumentItem>[
-    ...orientedRegular,
-    for (final group in orderedGroups) group.proxy,
-  ]..sort((a, b) {
-    final kind = a.documentKind.order.compareTo(b.documentKind.order);
-    if (kind != 0) return kind;
-    if (project.layout.order == LayoutOrder.area) {
-      final size = (b.width * b.height).compareTo(a.width * a.height);
-      if (size != 0) return size;
-    }
-    final order = inputOrderByUnit[a.id]!.compareTo(inputOrderByUnit[b.id]!);
-    return order != 0 ? order : a.id.compareTo(b.id);
-  });
+  final units =
+      <DocumentItem>[
+        ...orientedRegular,
+        for (final group in orderedGroups) group.proxy,
+      ]..sort((a, b) {
+        final kind = a.documentKind.order.compareTo(b.documentKind.order);
+        if (kind != 0) return kind;
+        if (project.layout.order == LayoutOrder.area) {
+          final size = (b.width * b.height).compareTo(a.width * a.height);
+          if (size != 0) return size;
+        }
+        final order = inputOrderByUnit[a.id]!.compareTo(
+          inputOrderByUnit[b.id]!,
+        );
+        return order != 0 ? order : a.id.compareTo(b.id);
+      });
   final packed = _ordered(project, fixed, units, false);
   final placed = <String, DocumentItem>{
     for (final item in regularMovable)

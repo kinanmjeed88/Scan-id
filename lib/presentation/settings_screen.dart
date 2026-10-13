@@ -629,9 +629,7 @@ class _DeveloperInfo extends StatelessWidget {
             color: Color(0xFF12685e),
           ),
           const SizedBox(width: 8),
-          Expanded(
-            child: Text(status, style: const TextStyle(fontSize: 13)),
-          ),
+          Expanded(child: Text(status, style: const TextStyle(fontSize: 13))),
         ],
       ),
     ],

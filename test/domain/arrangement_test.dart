@@ -63,9 +63,7 @@ Project _project(
   List<DocumentItem> items, {
   double margin = 5,
   List<LayoutGroup> layoutGroups = const [],
-}) => projectFixture(
-  assets: [assetFixture()],
-).copyWith(
+}) => projectFixture(assets: [assetFixture()]).copyWith(
   paper: PaperSettings(margins: Margins.all(margin)),
   items: items,
   layoutGroups: layoutGroups,
@@ -311,14 +309,13 @@ void main() {
             itemIds: ['front-$suffix', 'back-$suffix'],
             arrangement: arrangement,
           );
-          final project =
-              _project(
-                [
-                  _sizedDoc('front-$suffix', 80, 50, groupId: groupId),
-                  _sizedDoc('back-$suffix', 80, 50, groupId: groupId),
-                ],
-                layoutGroups: [group],
-              ).copyWith(layout: LayoutSettings(strategy: strategy));
+          final project = _project(
+            [
+              _sizedDoc('front-$suffix', 80, 50, groupId: groupId),
+              _sizedDoc('back-$suffix', 80, 50, groupId: groupId),
+            ],
+            layoutGroups: [group],
+          ).copyWith(layout: LayoutSettings(strategy: strategy));
 
           final result = arrangeDocuments(project);
           final front = PageLayout.item(result.result, 'front-$suffix');
@@ -359,15 +356,14 @@ void main() {
           287,
           locked: true,
         ).copyWith(x: 5, y: 5);
-        final project =
-            _project(
-              [
-                fullPage,
-                _sizedDoc('crowded-front', 80, 50, groupId: group.id),
-                _sizedDoc('crowded-back', 80, 50, groupId: group.id),
-              ],
-              layoutGroups: [group],
-            ).copyWith(layout: LayoutSettings(strategy: strategy));
+        final project = _project(
+          [
+            fullPage,
+            _sizedDoc('crowded-front', 80, 50, groupId: group.id),
+            _sizedDoc('crowded-back', 80, 50, groupId: group.id),
+          ],
+          layoutGroups: [group],
+        ).copyWith(layout: LayoutSettings(strategy: strategy));
 
         final result = arrangeDocuments(project);
         final front = PageLayout.item(result.result, 'crowded-front');
@@ -388,14 +384,13 @@ void main() {
         itemIds: ['large-a', 'large-b'],
         arrangement: GroupArrangement.stacked,
       );
-      final project =
-          _project(
-            [
-              _sizedDoc('large-a', 200, 200, groupId: group.id),
-              _sizedDoc('large-b', 200, 200, groupId: group.id),
-            ],
-            layoutGroups: [group],
-          ).copyWith(layout: LayoutSettings(strategy: strategy));
+      final project = _project(
+        [
+          _sizedDoc('large-a', 200, 200, groupId: group.id),
+          _sizedDoc('large-b', 200, 200, groupId: group.id),
+        ],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: strategy));
 
       final result = arrangeDocuments(project);
       expect(result.unplaced.toSet(), {
@@ -425,13 +420,10 @@ void main() {
         locked: true,
         groupId: group.id,
       ).copyWith(x: 20, y: 30);
-      final project =
-          _project(
-            [pinned, _sizedDoc('movable-back', 80, 50, groupId: group.id)],
-            layoutGroups: [group],
-          ).copyWith(
-            layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-          );
+      final project = _project(
+        [pinned, _sizedDoc('movable-back', 80, 50, groupId: group.id)],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
       final result = arrangeDocuments(project);
       expect(PageLayout.item(result.result, 'locked-front').x, 20);

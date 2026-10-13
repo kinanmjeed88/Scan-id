@@ -379,7 +379,10 @@ class _IoUpdateTransport implements UpdateTransport {
       }
       final next = current.resolve(location);
       if (!_isAllowedUpdateUri(next)) {
-        throw HttpException('Update redirect target is not trusted.', uri: next);
+        throw HttpException(
+          'Update redirect target is not trusted.',
+          uri: next,
+        );
       }
       current = next;
     }

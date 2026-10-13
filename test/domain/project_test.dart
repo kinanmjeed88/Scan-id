@@ -389,9 +389,9 @@ void main() {
     expect(paused.layout.strategyChosen, isFalse);
     expect(paused.layout.arrangementStrategy, ArrangementStrategy.ordered);
     expect(
-      Project.fromJson(jsonDecode(jsonEncode(paused.toJson())))
-          .layout
-          .arrangementStrategy,
+      Project.fromJson(
+        jsonDecode(jsonEncode(paused.toJson())),
+      ).layout.arrangementStrategy,
       ArrangementStrategy.ordered,
     );
   });

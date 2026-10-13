@@ -533,7 +533,7 @@ class _OffSheetReason extends StatelessWidget {
       AutoLayoutStatus.groupNeedsSpace => (
         'بانتظار ترتيب المجموعة',
         'لا تُقسَّم المجموعة؛ إذا تعذر وضعها كاملةً '
-        'تبقى عناصرها القابلة للتحريك خارج الورقة',
+            'تبقى عناصرها القابلة للتحريك خارج الورقة',
         scheme.error,
       ),
       AutoLayoutStatus.eligible => (

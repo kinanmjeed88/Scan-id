@@ -11,6 +11,18 @@ import 'ids.dart';
 
 const int maxUpdateMetadataBytes = 2 * 1024 * 1024;
 const int maxUpdateDownloadBytes = 512 * 1024 * 1024;
+const Set<String> _trustedUpdateHosts = {
+  'github.com',
+  'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com',
+};
+
+bool _isAllowedUpdateUri(Uri uri) =>
+    uri.scheme == 'https' &&
+    _trustedUpdateHosts.contains(uri.host.toLowerCase()) &&
+    uri.userInfo.isEmpty &&
+    (!uri.hasPort || uri.port == 443) &&
+    !uri.hasFragment;
 
 /// Metadata for one platform-specific release asset.
 class UpdateInfo {
@@ -161,6 +173,7 @@ class GitHubUpdateSource implements UpdateSource {
     final client = HttpClient();
     try {
       final request = await client.getUrl(uri);
+      request.followRedirects = false;
       request.headers
         ..set('Accept', 'application/vnd.github+json')
         ..set('User-Agent', 'Scan-id-update-check')
@@ -239,8 +252,7 @@ class GitHubUpdateSource implements UpdateSource {
           final url = Uri.tryParse(asset.url ?? '');
           final extension = p.extension(url?.path ?? '').toLowerCase();
           return url != null &&
-              url.scheme == 'https' &&
-              url.host.isNotEmpty &&
+              _isAllowedUpdateUri(url) &&
               _extensionsFor(platform).contains(extension);
         }).toList()..sort((a, b) {
           final aExtension = p
@@ -345,13 +357,32 @@ class _IoUpdateTransport implements UpdateTransport {
 
   @override
   Future<UpdateResponse> get(Uri uri) async {
-    final request = await _client.getUrl(uri);
-    final response = await request.close();
-    return UpdateResponse(
-      statusCode: response.statusCode,
-      contentLength: response.contentLength,
-      body: response,
-    );
+    var current = uri;
+    for (var redirects = 0; ; redirects++) {
+      if (!_isAllowedUpdateUri(current)) {
+        throw HttpException('Update URL is not trusted.', uri: current);
+      }
+      final request = await _client.getUrl(current);
+      request.followRedirects = false;
+      final response = await request.close();
+      if (!response.isRedirect) {
+        return UpdateResponse(
+          statusCode: response.statusCode,
+          contentLength: response.contentLength,
+          body: response,
+        );
+      }
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      await response.drain<void>();
+      if (redirects >= 5 || location == null) {
+        throw HttpException('Update redirect limit exceeded.', uri: current);
+      }
+      final next = current.resolve(location);
+      if (!_isAllowedUpdateUri(next)) {
+        throw HttpException('Update redirect target is not trusted.', uri: next);
+      }
+      current = next;
+    }
   }
 
   @override
@@ -522,11 +553,7 @@ class UpdateService {
 
   bool _matchesPlatform(UpdateInfo update) {
     final uri = Uri.tryParse(update.downloadUrl);
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasFragment) {
+    if (uri == null || !_isAllowedUpdateUri(uri)) {
       return false;
     }
     return _extensionsFor(

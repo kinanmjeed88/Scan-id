@@ -157,6 +157,21 @@ void main() {
       expect(update.size, 1024);
     });
 
+    test('rejects release assets outside trusted GitHub hosts', () {
+      final untrusted = releaseJson.replaceFirst(
+        'https://github.com/example/app/releases/download/v2.1.0/app.apk',
+        'https://github.com.evil.example/app.apk',
+      );
+      expect(
+        GitHubUpdateSource.updateFromReleaseJson(
+          untrusted,
+          currentVersion: '2.0.0',
+          platform: UpdatePlatform.android,
+        ),
+        isNull,
+      );
+    });
+
     test('selects Windows EXE before MSI and never an APK', () {
       final update = GitHubUpdateSource.updateFromReleaseJson(
         releaseJson,
@@ -411,6 +426,14 @@ void main() {
         onCancel: () {},
       );
       expect(insecure.isSuccess, isFalse);
+      expect(responseTransport.requestedUri, isNull);
+
+      final untrustedHost = await service.downloadUpdate(
+        _update(url: 'https://example.com/app.apk'),
+        onProgress: (_, _) {},
+        onCancel: () {},
+      );
+      expect(untrustedHost.isSuccess, isFalse);
       expect(responseTransport.requestedUri, isNull);
 
       final httpFailure = await service.downloadUpdate(

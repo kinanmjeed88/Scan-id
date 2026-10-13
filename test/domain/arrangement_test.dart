@@ -64,7 +64,11 @@ Project _project(
   double margin = 5,
   List<LayoutGroup> layoutGroups = const [],
   List<DocumentRecord> documents = const [],
-}) => projectFixture(assets: [assetFixture()], documents: documents).copyWith(
+}) => projectFixture(
+  assets: [assetFixture()],
+  items: items,
+  documents: documents,
+).copyWith(
   paper: PaperSettings(margins: Margins.all(margin)),
   items: items,
   layoutGroups: layoutGroups,
@@ -434,6 +438,56 @@ void main() {
         greaterThan(PageLayout.item(first, 'a-front').bounds.y),
         reason: '$strategy: members retain their saved input order',
       );
+    }
+  });
+
+  test('ordered mode sorts a group with ordinary category items', () {
+    for (final kinds in [
+      (DocumentKind.unifiedNationalId, DocumentKind.passport),
+      (DocumentKind.passport, DocumentKind.unifiedNationalId),
+    ]) {
+      const groupId = 'category-pair';
+      final group = LayoutGroup(
+        id: groupId,
+        itemIds: const ['pair-front', 'pair-back'],
+      );
+      final groupKind = kinds.$1;
+      final itemKind = kinds.$2;
+      final plain = _sizedDoc('plain', 40, 30).copyWith(
+        documentKind: itemKind,
+      );
+      final front = _sizedDoc(
+        'pair-front',
+        30,
+        20,
+        groupId: groupId,
+      ).copyWith(documentKind: groupKind);
+      final back = _sizedDoc(
+        'pair-back',
+        30,
+        20,
+        groupId: groupId,
+      ).copyWith(documentKind: groupKind);
+      final project = _project(
+        [plain, back, front],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.ordered));
+      final result = arrangeDocuments(project).result;
+      final plainBounds = PageLayout.item(result, 'plain').bounds;
+      final groupTop = math.min(
+        PageLayout.item(result, 'pair-front').bounds.y,
+        PageLayout.item(result, 'pair-back').bounds.y,
+      );
+      final groupBottom = math.max(
+        PageLayout.item(result, 'pair-front').bounds.bottom,
+        PageLayout.item(result, 'pair-back').bounds.bottom,
+      );
+
+      if (groupKind.order < itemKind.order) {
+        expect(groupBottom, lessThan(plainBounds.y));
+      } else {
+        expect(plainBounds.bottom, lessThan(groupTop));
+      }
     }
   });
 

@@ -98,9 +98,10 @@ class ArrangementResult {
 
 /// Arranges documents over as many A4 pages as needed.
 ///
-/// Documents are taken in category order (unified card, residence card,
-/// passport, ration card, others) and, within a category, by the project's
-/// [LayoutOrder]. Locked documents never move and act as obstacles; with
+/// In ordered mode, documents and keep-together groups are taken in category
+/// order (unified card, residence card, passport, ration card, others) and,
+/// within a category, by the project's [LayoutOrder]. Compact mode prioritizes
+/// dense placement. Locked documents never move and act as obstacles; with
 /// [keepPlaced] every document already on a page stays where it is and only
 /// off-sheet documents are arranged. A document whose size is not confirmed
 /// is not eligible for automatic arrangement ([AutoLayoutStatus]): it is
@@ -210,16 +211,43 @@ ArrangementResult arrangeDocuments(
             !blockedGroupIds.contains(item.id),
       )
       .toList();
-  final placed = switch (strategy ?? source.layout.arrangementStrategy) {
-    ArrangementStrategy.ordered => _ordered(
+  final selectedStrategy = strategy ?? source.layout.arrangementStrategy;
+  // In compact mode groups are packed after regular items. Clear their old
+  // page assignments during that first pass so stale positions cannot become
+  // locked obstacles or make a valid sheet fail bounds validation.
+  final regularIds = {for (final item in regularMovable) item.id};
+  final deferredIds = {
+    for (final item in movable)
+      if (!regularIds.contains(item.id)) item.id,
+  };
+  final compactSource = selectedStrategy == ArrangementStrategy.compact
+      ? source.copyWith(
+          items: [
+            for (final item in source.items)
+              if (deferredIds.contains(item.id))
+                item.copyWith(unplaced: true)
+              else
+                item,
+          ],
+        )
+      : source;
+  final placed = switch (selectedStrategy) {
+    ArrangementStrategy.ordered => _orderedWithGroups(
       source,
       fixed,
       regularMovable,
+      groupsToPlace,
       rotate,
     ),
-    ArrangementStrategy.compact => _compact(source, regularMovable, rotate),
+    ArrangementStrategy.compact => _compact(
+      compactSource,
+      regularMovable,
+      rotate,
+    ),
   };
-  _placeTogetherGroups(source, groupsToPlace, placed, rotate);
+  if (selectedStrategy == ArrangementStrategy.compact) {
+    _placeTogetherGroups(source, groupsToPlace, placed, rotate);
+  }
   if (source.layout.centerCaptures && placed.isNotEmpty) {
     final obstacles = <int, List<RectMm>>{};
     for (final item in source.items) {
@@ -277,6 +305,8 @@ class _GroupMemberPlacement {
 /// when the accepted positions are expanded back into member items.
 DocumentItem _packingProxy(
   DocumentItem item, {
+  String? id,
+  DocumentKind? documentKind,
   required double x,
   required double y,
   required double width,
@@ -286,7 +316,7 @@ DocumentItem _packingProxy(
   required bool locked,
   required bool sizeConfirmed,
 }) => DocumentItem(
-  id: item.id,
+  id: id ?? item.id,
   assetId: item.assetId,
   x: x,
   y: y,
@@ -297,7 +327,7 @@ DocumentItem _packingProxy(
   zIndex: item.zIndex,
   locked: locked,
   keepAspectRatio: item.keepAspectRatio,
-  documentKind: item.documentKind,
+  documentKind: documentKind ?? item.documentKind,
   recognitionConfidence: item.recognitionConfidence,
   sizeConfirmed: sizeConfirmed,
 );
@@ -308,6 +338,144 @@ class _GroupShape {
   final double width;
   final double height;
   final List<_GroupMemberPlacement> members;
+}
+
+class _OrderedGroup {
+  const _OrderedGroup(this.proxy, this.shape, this.inputOrder);
+
+  final DocumentItem proxy;
+  final _GroupShape shape;
+  final int inputOrder;
+}
+
+/// Packs group rectangles as category-ordered units, then restores real items.
+/// A group inherits its highest-priority member category so grouping cannot
+/// demote an earlier category behind an ordinary item.
+Map<String, DocumentItem> _orderedWithGroups(
+  Project project,
+  List<DocumentItem> fixed,
+  List<DocumentItem> regularMovable,
+  List<LayoutGroup> groups,
+  bool allowRotation,
+) {
+  final area = project.paper.printable;
+  final horizontalGap = project.layout.horizontalGap;
+  final verticalGap = project.layout.verticalGap;
+  final inputOrder = {
+    for (var i = 0; i < project.items.length; i++) project.items[i].id: i,
+  };
+  final usedIds = {for (final item in project.items) item.id};
+  final orderedGroups = <_OrderedGroup>[];
+  for (final group in groups) {
+    final members = [
+      for (final id in group.itemIds)
+        project.items.firstWhere((item) => item.id == id),
+    ];
+    final category = members
+        .map((item) => item.documentKind)
+        .reduce((a, b) => a.order <= b.order ? a : b);
+    final turns = [0, if (allowRotation) 90];
+    final shapes = [
+      for (final turn in turns)
+        _shapeGroup(
+          members,
+          group.arrangement,
+          turn,
+          horizontalGap,
+          verticalGap,
+        ),
+    ];
+    final shape = shapes.firstWhere(
+      (candidate) =>
+          candidate.width <= area.width + _eps &&
+          candidate.height <= area.height + _eps,
+      orElse: () => shapes.first,
+    );
+    final firstIndex = members
+        .map((item) => inputOrder[item.id]!)
+        .reduce((a, b) => a < b ? a : b);
+    final stem = 'group-${group.id}';
+    var suffix = 0;
+    String nextProxyId() {
+      final suffixText = suffix == 0 ? '' : '-$suffix';
+      suffix++;
+      final limit = 80 - suffixText.length;
+      final prefixLength = stem.length < limit ? stem.length : limit;
+      return '${stem.substring(0, prefixLength)}$suffixText';
+    }
+
+    var proxyId = nextProxyId();
+    while (!usedIds.add(proxyId)) {
+      proxyId = nextProxyId();
+    }
+    final proxy = _packingProxy(
+      members.first,
+      id: proxyId,
+      documentKind: category,
+      x: area.x,
+      y: area.y,
+      width: shape.width,
+      height: shape.height,
+      rotation: 0,
+      pageIndex: null,
+      locked: false,
+      sizeConfirmed: true,
+    );
+    orderedGroups.add(_OrderedGroup(proxy, shape, firstIndex));
+  }
+
+  final orientedRegular = [
+    for (final item in regularMovable)
+      _fitting(item, area, allowRotation) ?? item,
+  ];
+  final inputOrderByUnit = {
+    for (final item in regularMovable) item.id: inputOrder[item.id]!,
+    for (final group in orderedGroups) group.proxy.id: group.inputOrder,
+  };
+  final units = <DocumentItem>[
+    ...orientedRegular,
+    for (final group in orderedGroups) group.proxy,
+  ]..sort((a, b) {
+    final kind = a.documentKind.order.compareTo(b.documentKind.order);
+    if (kind != 0) return kind;
+    if (project.layout.order == LayoutOrder.area) {
+      final size = (b.width * b.height).compareTo(a.width * a.height);
+      if (size != 0) return size;
+    }
+    final order = inputOrderByUnit[a.id]!.compareTo(inputOrderByUnit[b.id]!);
+    return order != 0 ? order : a.id.compareTo(b.id);
+  });
+  final packed = _ordered(project, fixed, units, false);
+  final placed = <String, DocumentItem>{
+    for (final item in regularMovable)
+      if (packed.containsKey(item.id)) item.id: packed[item.id]!,
+  };
+  for (final group in orderedGroups) {
+    final box = packed[group.proxy.id];
+    if (box == null || box.pageIndex == null) continue;
+    _expandGroupPlacement(group.shape, box, placed);
+  }
+  return placed;
+}
+
+void _expandGroupPlacement(
+  _GroupShape shape,
+  DocumentItem box,
+  Map<String, DocumentItem> placed,
+) {
+  final page = box.pageIndex;
+  if (page == null) return;
+  for (final member in shape.members) {
+    final originalBounds = member.item
+        .copyWith(rotation: member.rotation)
+        .bounds;
+    placed[member.item.id] = member.item.copyWith(
+      x: box.x + member.x + (originalBounds.width - member.item.width) / 2,
+      y: box.y + member.y + (originalBounds.height - member.item.height) / 2,
+      rotation: member.rotation,
+      pageIndex: page,
+    );
+  }
 }
 
 /// Reserves a composite rectangle for each keep-together group, then expands
@@ -346,7 +514,6 @@ void _placeTogetherGroups(
     );
     var acceptedShape = _GroupShape(0, 0, const []);
     DocumentItem? acceptedBox;
-    var acceptedPage = -1;
 
     for (var page = 0; page <= lastPageToTry && acceptedBox == null; page++) {
       for (final turn in turns) {
@@ -412,7 +579,6 @@ void _placeTogetherGroups(
         if (box.pageIndex == page) {
           acceptedShape = shape;
           acceptedBox = box;
-          acceptedPage = page;
           break;
         }
       }
@@ -420,17 +586,7 @@ void _placeTogetherGroups(
 
     final box = acceptedBox;
     if (box == null) continue;
-    for (final member in acceptedShape.members) {
-      final originalBounds = member.item
-          .copyWith(rotation: member.rotation)
-          .bounds;
-      placed[member.item.id] = member.item.copyWith(
-        x: box.x + member.x + (originalBounds.width - member.item.width) / 2,
-        y: box.y + member.y + (originalBounds.height - member.item.height) / 2,
-        rotation: member.rotation,
-        pageIndex: acceptedPage,
-      );
-    }
+    _expandGroupPlacement(acceptedShape, box, placed);
   }
 }
 

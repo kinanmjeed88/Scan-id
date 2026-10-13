@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -24,7 +25,10 @@ void main() {
       // A copy that only lacked room fits on a page: it is not "too large".
       expect(_reason(tester, 'copy'), 'eligible');
       expect(_reason(tester, 'pair-a'), 'groupNeedsSpace');
-      expect(_reason(tester, 'pair-b'), 'groupNeedsSpace');
+      expect(
+        autoLayoutStatus(editor.saved, itemIn(editor.saved, 'pair-b')),
+        AutoLayoutStatus.groupNeedsSpace,
+      );
       final pairTooltip = tester.widget<Tooltip>(
         find.descendant(
           of: find.byKey(const Key('offsheet-pair-a')),

@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'cancellation.dart';
+
 /// معلومات عن تحديث متاح.
 class UpdateInfo {
   UpdateInfo({
@@ -28,14 +30,21 @@ class UpdateInfo {
 
   /// Compares two version strings in the format "major.minor.patch".
   static int compareVersions(String a, String b) {
-    final partsA = a.split('.').map(int.parse).toList();
-    final partsB = b.split('.').map(int.parse).toList();
+    final partsA = a.split('.').map(_numericPrefix).toList();
+    final partsB = b.split('.').map(_numericPrefix).toList();
     for (var i = 0; i < 3; i++) {
       final va = i < partsA.length ? partsA[i] : 0;
       final vb = i < partsB.length ? partsB[i] : 0;
       if (va != vb) return va.compareTo(vb);
     }
     return 0;
+  }
+
+  /// Parses the leading integer of a version part; pre-release suffixes are
+  /// not versioned here ('0-alpha' counts as 0), so comparisons never throw.
+  static int _numericPrefix(String raw) {
+    final match = RegExp(r'^\d+').firstMatch(raw);
+    return match == null ? 0 : int.parse(match.group(0)!);
   }
 }
 
@@ -73,19 +82,24 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final body = await response.transform(Utf8Decoder()).join();
-      final release = _parseReleaseJson(body);
+      final release = GitHubUpdateSource.parseReleaseJson(body);
       if (release == null) return null;
 
-      final tag = release.tagName;
+      final tag = release['tagName'] as String;
       final version = extractVersion(tag);
       if (version == null) return null;
 
-      if (!UpdateInfo.compareVersions(version, currentVersion) > 0) {
+      if (UpdateInfo.compareVersions(version, currentVersion) <= 0) {
         return null;
       }
 
-      final downloadUrl = release.assets
-          .where((a) => a.name.endsWith('.apk') || a.name.endsWith('.exe'))
+      final assets = release['assets'] as List<_AssetInfo>;
+      final downloadUrl = assets
+          .where(
+            (a) =>
+                (a.name?.endsWith('.apk') ?? false) ||
+                (a.name?.endsWith('.exe') ?? false),
+          )
           .firstOrNull
           ?.url;
 
@@ -95,11 +109,8 @@ class GitHubUpdateSource implements UpdateSource {
         currentVersion: currentVersion,
         newVersion: version,
         downloadUrl: downloadUrl,
-        summary: release.body,
-        size: release.assets
-            .where((a) => a.url == downloadUrl)
-            .firstOrNull
-            ?.size,
+        summary: release['body'] as String?,
+        size: assets.where((a) => a.url == downloadUrl).firstOrNull?.size,
         // Note: GitHub API does not provide SHA-256 for release assets by default.
         // For production, use a separate trusted source or GitHub's attestation.
         sha256: null,
@@ -190,13 +201,16 @@ class UpdateService {
   Future<UpdateInfo?> checkForUpdate() => source.checkForUpdate(currentVersion);
 
   /// تنزيل ملف التحديث مع دعم الإلغاء والتنظيف.
+  ///
+  /// الإلغاء تعاوني (ADR-009): يُفحص [cancellation] بين قطع البيانات،
+  /// ويُستدعى [onCancel] عند الإلغاء ثم تُنظف الملفات المؤقتة.
   Future<DownloadResult> downloadUpdate(
     UpdateInfo update, {
     required void Function(int received, int total) onProgress,
     required void Function() onCancel,
+    CancellationToken? cancellation,
   }) async {
     HttpClient? client;
-    bool cancelled = false;
     File? tempFile;
 
     try {
@@ -209,14 +223,15 @@ class UpdateService {
         return DownloadResult.error('HTTP ${response.statusCode}');
       }
 
-      final total = response.contentLength ?? 0;
+      final total = response.contentLength;
       var received = 0;
       final chunks = <Uint8List>[];
 
       await for (final chunk in response) {
-        if (cancelled) {
+        if (cancellation?.isCancelled ?? false) {
           // تنظيف عند الإلغاء
           await _cleanupTempFile(tempFile);
+          onCancel();
           return DownloadResult.error('تم إلغاء التنزيل');
         }
         chunks.add(chunk as Uint8List);
@@ -377,10 +392,8 @@ class InstallResult {
 
   factory InstallResult.error(String error) => InstallResult._(error: error);
 
-  factory InstallResult.pending(String message) => InstallResult._(
-    message: message,
-    isPending: true,
-  );
+  factory InstallResult.pending(String message) =>
+      InstallResult._(message: message, isPending: true);
 
   bool get isSuccess => error == null && !isPending;
 }

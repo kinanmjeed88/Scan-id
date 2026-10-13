@@ -102,9 +102,12 @@ class LayoutSettings {
     this.verticalGap = 5,
     this.allowRotation = false,
     this.order = LayoutOrder.input,
-    this.strategy = ArrangementStrategy.compact,
-    this.centerCaptures = true,
-  }) {
+    ArrangementStrategy? strategy,
+    bool? strategyChosen,
+    bool? centerCaptures,
+  }) : strategy = strategy ?? ArrangementStrategy.compact,
+       strategyChosen = strategyChosen ?? strategy != null,
+       centerCaptures = centerCaptures ?? false {
     require(
       [horizontalGap, verticalGap].every((v) => v.isFinite && v >= 0),
       'مسافات التخطيط غير صالحة.',
@@ -114,8 +117,23 @@ class LayoutSettings {
   final double verticalGap;
   final bool allowRotation;
   final LayoutOrder order;
+
+  /// The strategy recorded for this project. When the user never chose one,
+  /// the model still reports [ArrangementStrategy.compact] as the product's
+  /// preferred default, while [arrangementStrategy] keeps the classic by-kind
+  /// rows until a choice is made — the established layout contract.
   final ArrangementStrategy strategy;
+
+  /// Whether [strategy] was explicitly chosen (constructor argument,
+  /// [copyWith], or a persisted `strategy` key) rather than a model default.
+  final bool strategyChosen;
+
   final bool centerCaptures;
+
+  /// The strategy used when arranging unless the caller overrides it.
+  /// Projects that never recorded a strategy choice keep the by-kind rows.
+  ArrangementStrategy get arrangementStrategy =>
+      strategyChosen ? strategy : ArrangementStrategy.ordered;
 
   LayoutSettings copyWith({
     double? horizontalGap,
@@ -130,6 +148,7 @@ class LayoutSettings {
     allowRotation: allowRotation ?? this.allowRotation,
     order: order ?? this.order,
     strategy: strategy ?? this.strategy,
+    strategyChosen: strategy != null || strategyChosen,
     centerCaptures: centerCaptures ?? this.centerCaptures,
   );
 
@@ -138,19 +157,23 @@ class LayoutSettings {
     'verticalGap': verticalGap,
     'allowRotation': allowRotation,
     'order': order.name,
-    'strategy': strategy.name,
+    if (strategyChosen) 'strategy': strategy.name,
     'centerCaptures': centerCaptures,
   };
   factory LayoutSettings.fromJson(Object? json) {
     final m = objectMap(json);
+    final rawStrategy = m['strategy'];
     return LayoutSettings(
       horizontalGap: finiteNumber(m['horizontalGap'], 'horizontalGap'),
       verticalGap: finiteNumber(m['verticalGap'], 'verticalGap'),
       allowRotation: boolean(m['allowRotation'], 'allowRotation'),
       order: readEnum(LayoutOrder.values, m['order']),
-      strategy: m['strategy'] == null
-          ? ArrangementStrategy.compact
-          : readEnum(ArrangementStrategy.values, m['strategy']),
+      // Records without a strategy opened as by-kind rows historically; keep
+      // that so existing projects never rearrange themselves on open.
+      strategy: rawStrategy == null
+          ? ArrangementStrategy.ordered
+          : readEnum(ArrangementStrategy.values, rawStrategy),
+      strategyChosen: rawStrategy != null,
       centerCaptures: m['centerCaptures'] == null
           ? true
           : boolean(m['centerCaptures'], 'centerCaptures'),

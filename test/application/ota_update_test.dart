@@ -49,7 +49,10 @@ void main() {
     });
 
     test('extracts version from release- prefix', () {
-      expect(GitHubUpdateSource.extractVersion('release-1.2.3'), equals('1.2.3'));
+      expect(
+        GitHubUpdateSource.extractVersion('release-1.2.3'),
+        equals('1.2.3'),
+      );
     });
 
     test('returns null for invalid version', () {
@@ -71,8 +74,9 @@ void main() {
         ]
       }
       ''';
-      final result = GitHubUpdateSource.parseReleaseJson(json);
-      expect(result, isNotNull);
+      final parsed = GitHubUpdateSource.parseReleaseJson(json);
+      expect(parsed, isNotNull);
+      final result = parsed!;
       expect(result['tagName'], equals('v1.0.0'));
       expect(result['body'], equals('Release notes'));
       expect(result['assets'], isA<List<dynamic>>());

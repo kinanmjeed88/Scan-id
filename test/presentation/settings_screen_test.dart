@@ -1,5 +1,3 @@
-import 'dart:ui' show TextDirection;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/project_service.dart';

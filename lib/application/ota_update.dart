@@ -526,16 +526,26 @@ class UpdateService {
   /// is corruption detection only; it is not an independent publisher
   /// signature and is not sufficient authorization to install the package.
   Future<bool> verifyUpdateSource(UpdateInfo update, String filePath) async {
-    if (!_matchesPlatform(update) || !_isSha256(update.sha256)) return false;
+    if (!_matchesPlatform(update) || !_isSha256(update.sha256)) {
+      return false;
+    }
     try {
       final uri = Uri.parse(update.downloadUrl);
       final expectedExtension = p.extension(uri.path).toLowerCase();
-      if (p.extension(filePath).toLowerCase() != expectedExtension) return false;
+      if (p.extension(filePath).toLowerCase() != expectedExtension) {
+        return false;
+      }
       final file = File(filePath);
-      if (!await file.exists()) return false;
+      if (!await file.exists()) {
+        return false;
+      }
       final length = await file.length();
-      if (length == 0 || length > maxDownloadBytes) return false;
-      if (update.size != null && length != update.size) return false;
+      if (length == 0 || length > maxDownloadBytes) {
+        return false;
+      }
+      if (update.size != null && length != update.size) {
+        return false;
+      }
       final actualDigest = await sha256.bind(file.openRead()).first;
       return actualDigest.toString() == update.sha256;
     } on Object {
@@ -566,9 +576,13 @@ class UpdateService {
   }
 
   Future<bool> _cleanupTempFile(File? file) async {
-    if (file == null) return true;
+    if (file == null) {
+      return true;
+    }
     try {
-      if (await file.exists()) await file.delete();
+      if (await file.exists()) {
+        await file.delete();
+      }
       return !await file.exists();
     } on Object {
       return false;

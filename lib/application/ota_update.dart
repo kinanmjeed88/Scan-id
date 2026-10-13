@@ -73,14 +73,14 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final body = await response.transform(Utf8Decoder()).join();
-      final release = _parseReleaseJson(body);
+      final release = GitHubUpdateSource._parseReleaseJson(body);
       if (release == null) return null;
 
       final tag = release.tagName;
       final version = extractVersion(tag);
       if (version == null) return null;
 
-      if (!UpdateInfo.compareVersions(version, currentVersion) > 0) {
+      if (UpdateInfo.compareVersions(version, currentVersion) <= 0) {
         return null;
       }
 

@@ -76,9 +76,9 @@ void main() {
       ''';
       final result = GitHubUpdateSource.parseReleaseJson(json);
       expect(result, isNotNull);
-      expect(result['tagName'], equals('v1.0.0'));
-      expect(result['body'], equals('Release notes'));
-      expect(result['assets'], isA<List<dynamic>>());
+      expect(result!['tagName'], equals('v1.0.0'));
+      expect(result!['body'], equals('Release notes'));
+      expect(result!['assets'], isA<List<dynamic>>());
     });
 
     test('returns null for invalid JSON', () {

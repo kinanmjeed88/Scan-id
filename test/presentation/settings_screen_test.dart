@@ -203,7 +203,7 @@ void main() {
     await tester.pumpAndSettle();
     final export = tester.widget<ExportScreen>(find.byType(ExportScreen));
     expect(export.project.layout.autoFlow, isFalse);
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
 
     await _scrollTo(tester, find.text('نسخة احتياطية كاملة'));

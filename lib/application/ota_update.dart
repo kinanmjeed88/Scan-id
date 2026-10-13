@@ -73,7 +73,7 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final body = await response.transform(Utf8Decoder()).join();
-      final release = GitHubUpdateSource._parseReleaseJson(body);
+      final release = GitHubUpdateSource.parseReleaseJson(body);
       if (release == null) return null;
 
       final tag = release.tagName;
@@ -85,7 +85,7 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final downloadUrl = release.assets
-          .where((a) => a.name.endsWith('.apk') || a.name.endsWith('.exe'))
+          .where((a) => (a.name?.endsWith('.apk') ?? false) || (a.name?.endsWith('.exe') ?? false))
           .firstOrNull
           ?.url;
 

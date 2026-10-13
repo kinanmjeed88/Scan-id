@@ -147,16 +147,17 @@ ArrangementResult arrangeDocuments(
   // A partial/locked group is not silently split by the automatic arranger:
   // its movable members stay off-sheet until the whole group can be handled.
   final itemById = {for (final item in source.items) item.id: item};
-  final keptGroups = source.layoutGroups
-      .where((group) => group.keepTogether && group.itemIds.length > 1)
-      .toList()
-    ..sort((a, b) {
-      int firstIndex(LayoutGroup group) => source.items.indexWhere(
-        (item) => group.itemIds.contains(item.id),
-      );
-      final order = firstIndex(a).compareTo(firstIndex(b));
-      return order != 0 ? order : a.id.compareTo(b.id);
-    });
+  final keptGroups =
+      source.layoutGroups
+          .where((group) => group.keepTogether && group.itemIds.length > 1)
+          .toList()
+        ..sort((a, b) {
+          int firstIndex(LayoutGroup group) => source.items.indexWhere(
+            (item) => group.itemIds.contains(item.id),
+          );
+          final order = firstIndex(a).compareTo(firstIndex(b));
+          return order != 0 ? order : a.id.compareTo(b.id);
+        });
   final movableIds = {for (final item in movable) item.id};
   final groupedMovableIds = <String>{};
   final blockedGroupIds = <String>{};
@@ -168,7 +169,11 @@ ArrangementResult arrangeDocuments(
     );
     if (!ownershipIsConsistent ||
         members.any((item) => groupedMovableIds.contains(item.id))) {
-      blockedGroupIds.addAll(members.where((item) => movableIds.contains(item.id)).map((item) => item.id));
+      blockedGroupIds.addAll(
+        members
+            .where((item) => movableIds.contains(item.id))
+            .map((item) => item.id),
+      );
       continue;
     }
     if (members.every((item) => movableIds.contains(item.id))) {
@@ -176,7 +181,9 @@ ArrangementResult arrangeDocuments(
       groupedMovableIds.addAll(group.itemIds);
     } else {
       blockedGroupIds.addAll(
-        members.where((item) => movableIds.contains(item.id)).map((item) => item.id),
+        members
+            .where((item) => movableIds.contains(item.id))
+            .map((item) => item.id),
       );
     }
   }
@@ -189,8 +196,12 @@ ArrangementResult arrangeDocuments(
       )
       .toList();
   final placed = switch (strategy ?? source.layout.arrangementStrategy) {
-    ArrangementStrategy.ordered =>
-      _ordered(source, fixed, regularMovable, rotate),
+    ArrangementStrategy.ordered => _ordered(
+      source,
+      fixed,
+      regularMovable,
+      rotate,
+    ),
     ArrangementStrategy.compact => _compact(source, regularMovable, rotate),
   };
   _placeTogetherGroups(source, groupsToPlace, placed, rotate);
@@ -353,7 +364,9 @@ void _placeTogetherGroups(
     final box = acceptedBox;
     if (box == null) continue;
     for (final member in acceptedShape.members) {
-      final originalBounds = member.item.copyWith(rotation: member.rotation).bounds;
+      final originalBounds = member.item
+          .copyWith(rotation: member.rotation)
+          .bounds;
       placed[member.item.id] = member.item.copyWith(
         x: box.x + member.x + (originalBounds.width - member.item.width) / 2,
         y: box.y + member.y + (originalBounds.height - member.item.height) / 2,
@@ -618,12 +631,12 @@ Map<String, DocumentItem> _compact(
     orderOverride: LayoutOrder.area,
   );
   return _compactResultIsBetter(
-    largestFirst,
-    preferred,
-    movable,
-    project.paper.printable,
-    rotate,
-  )
+        largestFirst,
+        preferred,
+        movable,
+        project.paper.printable,
+        rotate,
+      )
       ? largestFirst
       : preferred;
 }

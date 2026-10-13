@@ -244,114 +244,136 @@ void main() {
     expect(r.items.every((e) => r.paper.printable.contains(e.bounds)), isTrue);
   });
 
-  test('compact retries mixed sizes only when the largest-first pass improves packing', () {
-    final project = _project([
-      _sizedDoc('small-tall', 60, 90, page: null),
-      _sizedDoc('medium-wide', 90, 60, page: null),
-      _sizedDoc('full-width', 180, 60, page: null),
-    ]).copyWith(
-      paper: PaperSettings(
-        margins: Margins(top: 58.5, right: 15, bottom: 58.5, left: 15),
-      ),
-      layout: LayoutSettings(
-        strategy: ArrangementStrategy.compact,
-        horizontalGap: 0,
-        verticalGap: 0,
-      ),
-    );
+  test(
+    'compact retries mixed sizes only when the largest-first pass improves packing',
+    () {
+      final project =
+          _project([
+            _sizedDoc('small-tall', 60, 90, page: null),
+            _sizedDoc('medium-wide', 90, 60, page: null),
+            _sizedDoc('full-width', 180, 60, page: null),
+          ]).copyWith(
+            paper: PaperSettings(
+              margins: Margins(top: 58.5, right: 15, bottom: 58.5, left: 15),
+            ),
+            layout: LayoutSettings(
+              strategy: ArrangementStrategy.compact,
+              horizontalGap: 0,
+              verticalGap: 0,
+            ),
+          );
 
-    final inputOrder = proposePacking(
-      project,
-      includeLocked: false,
-      allowRotation: false,
-      pageIndex: 0,
-    );
-    final largestFirst = proposePacking(
-      project,
-      includeLocked: false,
-      allowRotation: false,
-      pageIndex: 0,
-      orderOverride: LayoutOrder.area,
-    );
-    expect(inputOrder.result.items.where((item) => item.pageIndex == 0), hasLength(2));
-    expect(largestFirst.result.items.where((item) => item.pageIndex == 0), hasLength(3));
-
-    final result = arrangeDocuments(project);
-    expect(result.unplaced, isEmpty);
-    expect(result.result.pageCount, 1);
-    expect(result.result.items.every((item) => item.pageIndex == 0), isTrue);
-    expect(inspectLayout(result.result), isEmpty);
-  });
-
-  test('keep-together groups occupy one valid page in ordered and compact modes', () {
-    for (final strategy in ArrangementStrategy.values) {
-      for (final arrangement in GroupArrangement.values) {
-        final suffix = '${strategy.name}-${arrangement.name}';
-        final groupId = 'pair-$suffix';
-        final group = LayoutGroup(
-          id: groupId,
-          itemIds: ['front-$suffix', 'back-$suffix'],
-          arrangement: arrangement,
-        );
-        final project = _project([
-          _sizedDoc('front-$suffix', 80, 50, groupId: groupId),
-          _sizedDoc('back-$suffix', 80, 50, groupId: groupId),
-        ]).copyWith(
-          layout: LayoutSettings(strategy: strategy),
-          layoutGroups: [group],
-        );
-
-        final result = arrangeDocuments(project);
-        final front = PageLayout.item(result.result, 'front-$suffix');
-        final back = PageLayout.item(result.result, 'back-$suffix');
-        expect(result.unplaced, isEmpty, reason: '$strategy, $arrangement');
-        expect(front.pageIndex, back.pageIndex, reason: '$strategy, $arrangement');
-        if (arrangement == GroupArrangement.stacked) {
-          expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
-        } else {
-          expect(back.bounds.x - front.bounds.right, closeTo(5, 1e-6));
-        }
-        expect(
-          inspectLayout(result.result),
-          isEmpty,
-          reason: '$strategy, $arrangement',
-        );
-      }
-    }
-  });
-
-  test('a group with no room on the first page flows together to a new page', () {
-    for (final strategy in ArrangementStrategy.values) {
-      final group = LayoutGroup(
-        id: 'crowded-pair-${strategy.name}',
-        itemIds: ['crowded-front', 'crowded-back'],
-        arrangement: GroupArrangement.stacked,
+      final inputOrder = proposePacking(
+        project,
+        includeLocked: false,
+        allowRotation: false,
+        pageIndex: 0,
       );
-      final fullPage = _sizedDoc(
-        'full-page',
-        200,
-        287,
-        locked: true,
-      ).copyWith(x: 5, y: 5);
-      final project = _project([
-        fullPage,
-        _sizedDoc('crowded-front', 80, 50, groupId: group.id),
-        _sizedDoc('crowded-back', 80, 50, groupId: group.id),
-      ]).copyWith(
-        layout: LayoutSettings(strategy: strategy),
-        layoutGroups: [group],
+      final largestFirst = proposePacking(
+        project,
+        includeLocked: false,
+        allowRotation: false,
+        pageIndex: 0,
+        orderOverride: LayoutOrder.area,
+      );
+      expect(
+        inputOrder.result.items.where((item) => item.pageIndex == 0),
+        hasLength(2),
+      );
+      expect(
+        largestFirst.result.items.where((item) => item.pageIndex == 0),
+        hasLength(3),
       );
 
       final result = arrangeDocuments(project);
-      final front = PageLayout.item(result.result, 'crowded-front');
-      final back = PageLayout.item(result.result, 'crowded-back');
-      expect(front.pageIndex, 1, reason: '$strategy');
-      expect(back.pageIndex, 1, reason: '$strategy');
-      expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
-      expect(result.result.pageCount, 2);
-      expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
-    }
-  });
+      expect(result.unplaced, isEmpty);
+      expect(result.result.pageCount, 1);
+      expect(result.result.items.every((item) => item.pageIndex == 0), isTrue);
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
+
+  test(
+    'keep-together groups occupy one valid page in ordered and compact modes',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        for (final arrangement in GroupArrangement.values) {
+          final suffix = '${strategy.name}-${arrangement.name}';
+          final groupId = 'pair-$suffix';
+          final group = LayoutGroup(
+            id: groupId,
+            itemIds: ['front-$suffix', 'back-$suffix'],
+            arrangement: arrangement,
+          );
+          final project =
+              _project([
+                _sizedDoc('front-$suffix', 80, 50, groupId: groupId),
+                _sizedDoc('back-$suffix', 80, 50, groupId: groupId),
+              ]).copyWith(
+                layout: LayoutSettings(strategy: strategy),
+                layoutGroups: [group],
+              );
+
+          final result = arrangeDocuments(project);
+          final front = PageLayout.item(result.result, 'front-$suffix');
+          final back = PageLayout.item(result.result, 'back-$suffix');
+          expect(result.unplaced, isEmpty, reason: '$strategy, $arrangement');
+          expect(
+            front.pageIndex,
+            back.pageIndex,
+            reason: '$strategy, $arrangement',
+          );
+          if (arrangement == GroupArrangement.stacked) {
+            expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
+          } else {
+            expect(back.bounds.x - front.bounds.right, closeTo(5, 1e-6));
+          }
+          expect(
+            inspectLayout(result.result),
+            isEmpty,
+            reason: '$strategy, $arrangement',
+          );
+        }
+      }
+    },
+  );
+
+  test(
+    'a group with no room on the first page flows together to a new page',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        final group = LayoutGroup(
+          id: 'crowded-pair-${strategy.name}',
+          itemIds: ['crowded-front', 'crowded-back'],
+          arrangement: GroupArrangement.stacked,
+        );
+        final fullPage = _sizedDoc(
+          'full-page',
+          200,
+          287,
+          locked: true,
+        ).copyWith(x: 5, y: 5);
+        final project =
+            _project([
+              fullPage,
+              _sizedDoc('crowded-front', 80, 50, groupId: group.id),
+              _sizedDoc('crowded-back', 80, 50, groupId: group.id),
+            ]).copyWith(
+              layout: LayoutSettings(strategy: strategy),
+              layoutGroups: [group],
+            );
+
+        final result = arrangeDocuments(project);
+        final front = PageLayout.item(result.result, 'crowded-front');
+        final back = PageLayout.item(result.result, 'crowded-back');
+        expect(front.pageIndex, 1, reason: '$strategy');
+        expect(back.pageIndex, 1, reason: '$strategy');
+        expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
+        expect(result.result.pageCount, 2);
+        expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
+      }
+    },
+  );
 
   test('an indivisible group that cannot fit stays wholly off-sheet', () {
     for (final strategy in ArrangementStrategy.values) {
@@ -360,77 +382,87 @@ void main() {
         itemIds: ['large-a', 'large-b'],
         arrangement: GroupArrangement.stacked,
       );
-      final project = _project([
-        _sizedDoc('large-a', 200, 200, groupId: group.id),
-        _sizedDoc('large-b', 200, 200, groupId: group.id),
-      ]).copyWith(
-        layout: LayoutSettings(strategy: strategy),
-        layoutGroups: [group],
-      );
+      final project =
+          _project([
+            _sizedDoc('large-a', 200, 200, groupId: group.id),
+            _sizedDoc('large-b', 200, 200, groupId: group.id),
+          ]).copyWith(
+            layout: LayoutSettings(strategy: strategy),
+            layoutGroups: [group],
+          );
 
       final result = arrangeDocuments(project);
-      expect(result.unplaced.toSet(), {'large-a', 'large-b'}, reason: '$strategy');
-      expect(result.result.items.every((item) => item.pageIndex == null), isTrue);
+      expect(result.unplaced.toSet(), {
+        'large-a',
+        'large-b',
+      }, reason: '$strategy');
+      expect(
+        result.result.items.every((item) => item.pageIndex == null),
+        isTrue,
+      );
       expect(result.result.pageCount, 1);
       expect(inspectLayout(result.result), isEmpty);
     }
   });
 
-  test('a pinned group member is preserved and its movable partner is not split in', () {
-    final group = LayoutGroup(
-      id: 'locked-pair',
-      itemIds: ['locked-front', 'movable-back'],
-    );
-    final pinned = _sizedDoc(
-      'locked-front',
-      80,
-      50,
-      locked: true,
-      groupId: group.id,
-    ).copyWith(x: 20, y: 30);
-    final project = _project([
-      pinned,
-      _sizedDoc('movable-back', 80, 50, groupId: group.id),
-    ]).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-      layoutGroups: [group],
-    );
+  test(
+    'a pinned group member is preserved and its movable partner is not split in',
+    () {
+      final group = LayoutGroup(
+        id: 'locked-pair',
+        itemIds: ['locked-front', 'movable-back'],
+      );
+      final pinned = _sizedDoc(
+        'locked-front',
+        80,
+        50,
+        locked: true,
+        groupId: group.id,
+      ).copyWith(x: 20, y: 30);
+      final project =
+          _project([
+            pinned,
+            _sizedDoc('movable-back', 80, 50, groupId: group.id),
+          ]).copyWith(
+            layout: LayoutSettings(strategy: ArrangementStrategy.compact),
+            layoutGroups: [group],
+          );
 
-    final result = arrangeDocuments(project);
-    expect(PageLayout.item(result.result, 'locked-front').x, 20);
-    expect(PageLayout.item(result.result, 'locked-front').y, 30);
-    expect(PageLayout.item(result.result, 'movable-back').pageIndex, isNull);
-    expect(result.unplaced, ['movable-back']);
-    expect(inspectLayout(result.result), isEmpty);
-  });
+      final result = arrangeDocuments(project);
+      expect(PageLayout.item(result.result, 'locked-front').x, 20);
+      expect(PageLayout.item(result.result, 'locked-front').y, 30);
+      expect(PageLayout.item(result.result, 'movable-back').pageIndex, isNull);
+      expect(result.unplaced, ['movable-back']);
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
 
-  test('centering tests a rotated item bounds, not its unrotated rectangle', () {
-    final locked = _sizedDoc('obstacle', 10, 10, locked: true).copyWith(
-      x: 80,
-      y: 110,
-      documentKind: DocumentKind.passport,
-    );
-    final rotated = _sizedDoc(
-      'rotated',
-      100,
-      20,
-      rotation: 45,
-    );
-    final project = _project([locked, rotated]).copyWith(
-      layout: LayoutSettings(
-        centerCaptures: true,
-        horizontalGap: 0,
-        verticalGap: 0,
-      ),
-    );
+  test(
+    'centering tests a rotated item bounds, not its unrotated rectangle',
+    () {
+      final locked = _sizedDoc(
+        'obstacle',
+        10,
+        10,
+        locked: true,
+      ).copyWith(x: 80, y: 110, documentKind: DocumentKind.passport);
+      final rotated = _sizedDoc('rotated', 100, 20, rotation: 45);
+      final project = _project([locked, rotated]).copyWith(
+        layout: LayoutSettings(
+          centerCaptures: true,
+          horizontalGap: 0,
+          verticalGap: 0,
+        ),
+      );
 
-    final result = arrangeDocuments(project).result;
-    final moved = PageLayout.item(result, 'rotated');
-    final obstacle = PageLayout.item(result, 'obstacle');
-    expect(moved.bounds.overlaps(obstacle.bounds), isFalse);
-    expect(result.paper.printable.contains(moved.bounds), isTrue);
-    expect(inspectLayout(result), isEmpty);
-  });
+      final result = arrangeDocuments(project).result;
+      final moved = PageLayout.item(result, 'rotated');
+      final obstacle = PageLayout.item(result, 'obstacle');
+      expect(moved.bounds.overlaps(obstacle.bounds), isFalse);
+      expect(result.paper.printable.contains(moved.bounds), isTrue);
+      expect(inspectLayout(result), isEmpty);
+    },
+  );
 
   test('arrangement is deterministic', () {
     final project = _project([
@@ -519,37 +551,46 @@ void main() {
     expect(PageLayout.item(turned.result, 'wide').width, 250);
   });
 
-  test('an unchosen layout records compact but remains effectively ordered', () {
-    final project = _project([
-      _doc('passport', DocumentKind.passport),
-      _doc('id', DocumentKind.unifiedNationalId),
-    ]);
-    expect(project.layout.strategy, ArrangementStrategy.compact);
-    expect(project.layout.strategyChosen, isFalse);
-    expect(project.layout.arrangementStrategy, ArrangementStrategy.ordered);
+  test(
+    'an unchosen layout records compact but remains effectively ordered',
+    () {
+      final project = _project([
+        _doc('passport', DocumentKind.passport),
+        _doc('id', DocumentKind.unifiedNationalId),
+      ]);
+      expect(project.layout.strategy, ArrangementStrategy.compact);
+      expect(project.layout.strategyChosen, isFalse);
+      expect(project.layout.arrangementStrategy, ArrangementStrategy.ordered);
 
-    final actual = arrangeDocuments(project).result;
-    final ordered = arrangeDocuments(
-      project.copyWith(
-        layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
-      ),
-    ).result;
-    expect(
-      {for (final item in actual.items) item.id: (item.x, item.y, item.pageIndex)},
-      {for (final item in ordered.items) item.id: (item.x, item.y, item.pageIndex)},
-    );
-  });
+      final actual = arrangeDocuments(project).result;
+      final ordered = arrangeDocuments(
+        project.copyWith(
+          layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
+        ),
+      ).result;
+      expect(
+        {
+          for (final item in actual.items)
+            item.id: (item.x, item.y, item.pageIndex),
+        },
+        {
+          for (final item in ordered.items)
+            item.id: (item.x, item.y, item.pageIndex),
+        },
+      );
+    },
+  );
 
   // Compact packs more documents per page than ordered
   test(
     'compact packs more documents per page than ordered for same documents',
     () {
-      final project = _project([
-        for (var i = 0; i < 10; i++)
-          _doc('c$i', DocumentKind.unifiedNationalId),
-      ]).copyWith(
-        layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-      );
+      final project = _project(
+        [
+          for (var i = 0; i < 10; i++)
+            _doc('c$i', DocumentKind.unifiedNationalId),
+        ],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
       final orderedResult = arrangeDocuments(
         project.copyWith(
@@ -771,9 +812,7 @@ void main() {
   test('compact reduces page count for many documents', () {
     final project = _project([
       for (var i = 0; i < 50; i++) _doc('x$i', DocumentKind.unifiedNationalId),
-    ]).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-    );
+    ]).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
     final result = arrangeDocuments(project);
     expect(result.unplaced, isEmpty);
@@ -794,9 +833,9 @@ void main() {
       for (var i = 0; i < 10; i++) _doc('item-$i', DocumentKind.values[i % 4]),
     ];
 
-    final project = _project(items).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-    );
+    final project = _project(
+      items,
+    ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
     final result = arrangeDocuments(project);
 
     final resultIds = result.result.items.map((e) => e.id).toSet();

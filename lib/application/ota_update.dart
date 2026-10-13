@@ -177,7 +177,9 @@ class GitHubUpdateSource implements UpdateSource {
       await for (final chunk in response) {
         received += chunk.length;
         if (received > maxUpdateMetadataBytes) {
-          throw const FormatException('Release metadata exceeds its size limit.');
+          throw const FormatException(
+            'Release metadata exceeds its size limit.',
+          );
         }
         builder.add(chunk);
       }
@@ -232,26 +234,27 @@ class GitHubUpdateSource implements UpdateSource {
 
     final rawAssets = release['assets'];
     if (rawAssets is! List<_AssetInfo>) return null;
-    final candidates = rawAssets.where((asset) {
-      final url = Uri.tryParse(asset.url ?? '');
-      final extension = p.extension(url?.path ?? '').toLowerCase();
-      return url != null &&
-          url.scheme == 'https' &&
-          url.host.isNotEmpty &&
-          _extensionsFor(platform).contains(extension);
-    }).toList()..sort((a, b) {
-      final aExtension = p
-          .extension(Uri.tryParse(a.url ?? '')?.path ?? '')
-          .toLowerCase();
-      final bExtension = p
-          .extension(Uri.tryParse(b.url ?? '')?.path ?? '')
-          .toLowerCase();
-      final order = _extensionPriority(
-        platform,
-        aExtension,
-      ).compareTo(_extensionPriority(platform, bExtension));
-      return order != 0 ? order : (a.name ?? '').compareTo(b.name ?? '');
-    });
+    final candidates =
+        rawAssets.where((asset) {
+          final url = Uri.tryParse(asset.url ?? '');
+          final extension = p.extension(url?.path ?? '').toLowerCase();
+          return url != null &&
+              url.scheme == 'https' &&
+              url.host.isNotEmpty &&
+              _extensionsFor(platform).contains(extension);
+        }).toList()..sort((a, b) {
+          final aExtension = p
+              .extension(Uri.tryParse(a.url ?? '')?.path ?? '')
+              .toLowerCase();
+          final bExtension = p
+              .extension(Uri.tryParse(b.url ?? '')?.path ?? '')
+              .toLowerCase();
+          final order = _extensionPriority(
+            platform,
+            aExtension,
+          ).compareTo(_extensionPriority(platform, bExtension));
+          return order != 0 ? order : (a.name ?? '').compareTo(b.name ?? '');
+        });
     final asset = candidates.firstOrNull;
     final downloadUrl = asset?.url;
     if (downloadUrl == null) return null;
@@ -424,7 +427,9 @@ class UpdateService {
       return DownloadResult.error('إصدار التحديث ليس SemVer صالحاً.');
     }
     if (!update.isNewer) {
-      return DownloadResult.error('الإصدار المعروض ليس أحدث من الإصدار الحالي.');
+      return DownloadResult.error(
+        'الإصدار المعروض ليس أحدث من الإصدار الحالي.',
+      );
     }
     if (!_isSha256(update.sha256)) {
       return DownloadResult.error('لا توجد بصمة SHA-256 صالحة؛ رُفض التنزيل.');
@@ -439,16 +444,21 @@ class UpdateService {
       transport = _transportFactory();
       final response = await transport.get(uri);
       if (response.statusCode != HttpStatus.ok) {
-        return DownloadResult.error('فشل تنزيل التحديث: HTTP ${response.statusCode}.');
+        return DownloadResult.error(
+          'فشل تنزيل التحديث: HTTP ${response.statusCode}.',
+        );
       }
       if (response.contentLength == 0 ||
           response.contentLength > maxDownloadBytes ||
           (update.size != null &&
               response.contentLength >= 0 &&
               response.contentLength != update.size)) {
-        return DownloadResult.error('حجم ملف التحديث لا يطابق الحدود أو بيانات الإصدار.');
+        return DownloadResult.error(
+          'حجم ملف التحديث لا يطابق الحدود أو بيانات الإصدار.',
+        );
       }
-      final total = update.size ??
+      final total =
+          update.size ??
           (response.contentLength >= 0 ? response.contentLength : 0);
       final directory = await _temporaryDirectory();
       await directory.create(recursive: true);
@@ -519,7 +529,9 @@ class UpdateService {
         uri.hasFragment) {
       return false;
     }
-    return _extensionsFor(platform).contains(p.extension(uri.path).toLowerCase());
+    return _extensionsFor(
+      platform,
+    ).contains(p.extension(uri.path).toLowerCase());
   }
 
   /// Confirms the downloaded file's extension, declared size and digest. This
@@ -565,14 +577,12 @@ class UpdateService {
         'تعذر التحقق من ملف التحديث؛ لم يُشغَّل أي مثبت.',
       );
     }
-    return InstallResult.error(
-      switch (platform) {
-        UpdatePlatform.android =>
-          'تثبيت Android الهوائي غير مهيأ لهذا البناء؛ لم يبدأ مثبت النظام.',
-        UpdatePlatform.windows =>
-          'تثبيت Windows الهوائي غير مهيأ دون حزمة ومُثبّت موثوقين؛ لم يُشغَّل أي ملف.',
-      },
-    );
+    return InstallResult.error(switch (platform) {
+      UpdatePlatform.android =>
+        'تثبيت Android الهوائي غير مهيأ لهذا البناء؛ لم يبدأ مثبت النظام.',
+      UpdatePlatform.windows =>
+        'تثبيت Windows الهوائي غير مهيأ دون حزمة ومُثبّت موثوقين؛ لم يُشغَّل أي ملف.',
+    });
   }
 
   Future<bool> _cleanupTempFile(File? file) async {
@@ -607,9 +617,9 @@ class _UpdateFailure implements Exception {
 
 int _extensionPriority(UpdatePlatform platform, String extension) =>
     switch (platform) {
-  UpdatePlatform.android => 0,
-  UpdatePlatform.windows => extension == '.exe' ? 0 : 1,
-};
+      UpdatePlatform.android => 0,
+      UpdatePlatform.windows => extension == '.exe' ? 0 : 1,
+    };
 
 List<String> _extensionsFor(UpdatePlatform platform) => switch (platform) {
   UpdatePlatform.android => const ['.apk'],

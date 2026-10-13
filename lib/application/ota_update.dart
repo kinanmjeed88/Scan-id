@@ -591,9 +591,8 @@ class _UpdateFailure implements Exception {
   final String message;
 }
 
-int _extensionPriority(UpdatePlatform platform, String extension) => switch (
-  platform,
-) {
+int _extensionPriority(UpdatePlatform platform, String extension) =>
+    switch (platform) {
   UpdatePlatform.android => 0,
   UpdatePlatform.windows => extension == '.exe' ? 0 : 1,
 };

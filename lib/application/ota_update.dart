@@ -216,11 +216,6 @@ class UpdateService {
       final chunks = <Uint8List>[];
 
       await for (final chunk in response) {
-        if (cancelled) {
-          // تنظيف عند الإلغاء
-          await _cleanupTempFile(tempFile);
-          return DownloadResult.error('تم إلغاء التنزيل');
-        }
         chunks.add(chunk as Uint8List);
         received += chunk.length;
         onProgress(received, total);

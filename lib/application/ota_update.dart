@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'cancellation.dart';
+
 /// معلومات عن تحديث متاح.
 class UpdateInfo {
   UpdateInfo({
@@ -192,13 +194,16 @@ class UpdateService {
   Future<UpdateInfo?> checkForUpdate() => source.checkForUpdate(currentVersion);
 
   /// تنزيل ملف التحديث مع دعم الإلغاء والتنظيف.
+  ///
+  /// الإلغاء تعاوني (ADR-009): يُفحص [cancellation] بين قطع البيانات،
+  /// ويُستدعى [onCancel] عند الإلغاء ثم تُنظف الملفات المؤقتة.
   Future<DownloadResult> downloadUpdate(
     UpdateInfo update, {
     required void Function(int received, int total) onProgress,
     required void Function() onCancel,
+    CancellationToken? cancellation,
   }) async {
     HttpClient? client;
-    bool cancelled = false;
     File? tempFile;
 
     try {
@@ -216,9 +221,10 @@ class UpdateService {
       final chunks = <Uint8List>[];
 
       await for (final chunk in response) {
-        if (cancelled) {
+        if (cancellation?.isCancelled ?? false) {
           // تنظيف عند الإلغاء
           await _cleanupTempFile(tempFile);
+          onCancel();
           return DownloadResult.error('تم إلغاء التنزيل');
         }
         chunks.add(chunk as Uint8List);

@@ -85,7 +85,11 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final downloadUrl = release.assets
-          .where((a) => (a.name?.endsWith('.apk') ?? false) || (a.name?.endsWith('.exe') ?? false))
+          .where(
+            (a) =>
+                (a.name?.endsWith('.apk') ?? false) ||
+                (a.name?.endsWith('.exe') ?? false),
+          )
           .firstOrNull
           ?.url;
 

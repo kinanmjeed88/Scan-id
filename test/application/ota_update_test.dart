@@ -49,8 +49,10 @@ void main() {
     });
 
     test('extracts version from release- prefix', () {
-      expect(GitHubUpdateSource.extractVersion('release-1.2.3'),
-          equals('1.2.3'));
+      expect(
+        GitHubUpdateSource.extractVersion('release-1.2.3'),
+        equals('1.2.3'),
+      );
     });
 
     test('returns null for invalid version', () {

@@ -101,10 +101,7 @@ class GitHubUpdateSource implements UpdateSource {
         newVersion: version,
         downloadUrl: downloadUrl,
         summary: release['body'] as String?,
-        size: assets
-            .where((a) => a.url == downloadUrl)
-            .firstOrNull
-            ?.size,
+        size: assets.where((a) => a.url == downloadUrl).firstOrNull?.size,
         // Note: GitHub API does not provide SHA-256 for release assets by default.
         // For production, use a separate trusted source or GitHub's attestation.
         sha256: null,

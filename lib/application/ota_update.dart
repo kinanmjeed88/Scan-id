@@ -76,7 +76,7 @@ class GitHubUpdateSource implements UpdateSource {
       final release = GitHubUpdateSource.parseReleaseJson(body);
       if (release == null) return null;
 
-      final tag = release.tagName;
+      final tag = release['tagName'] as String;
       final version = extractVersion(tag);
       if (version == null) return null;
 
@@ -84,7 +84,8 @@ class GitHubUpdateSource implements UpdateSource {
         return null;
       }
 
-      final downloadUrl = release.assets
+      final assets = release['assets'] as List<_AssetInfo>;
+      final downloadUrl = assets
           .where(
             (a) =>
                 (a.name?.endsWith('.apk') ?? false) ||
@@ -99,8 +100,8 @@ class GitHubUpdateSource implements UpdateSource {
         currentVersion: currentVersion,
         newVersion: version,
         downloadUrl: downloadUrl,
-        summary: release.body,
-        size: release.assets
+        summary: release['body'] as String?,
+        size: assets
             .where((a) => a.url == downloadUrl)
             .firstOrNull
             ?.size,

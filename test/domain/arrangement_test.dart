@@ -405,7 +405,11 @@ void main() {
           'strategy': 'compact',
           // no centerCaptures key
         },
-        'exportProfile': <String, dynamic>{'format': 'pdf', 'dpi': 300, 'jpegQuality': 95},
+        'exportProfile': <String, dynamic>{
+          'format': 'pdf',
+          'dpi': 300,
+          'jpegQuality': 95,
+        },
         'catalog': <String, dynamic>{},
         'assets': <Map<String, dynamic>>[],
         'items': <Map<String, dynamic>>[],

@@ -73,19 +73,24 @@ class GitHubUpdateSource implements UpdateSource {
       }
 
       final body = await response.transform(Utf8Decoder()).join();
-      final release = _parseReleaseJson(body);
+      final release = GitHubUpdateSource.parseReleaseJson(body);
       if (release == null) return null;
 
-      final tag = release.tagName;
+      final tag = release['tagName'] as String;
       final version = extractVersion(tag);
       if (version == null) return null;
 
-      if (!UpdateInfo.compareVersions(version, currentVersion) > 0) {
+      if (UpdateInfo.compareVersions(version, currentVersion) <= 0) {
         return null;
       }
 
-      final downloadUrl = release.assets
-          .where((a) => a.name.endsWith('.apk') || a.name.endsWith('.exe'))
+      final assets = release['assets'] as List<_AssetInfo>;
+      final downloadUrl = assets
+          .where(
+            (a) =>
+                (a.name?.endsWith('.apk') ?? false) ||
+                (a.name?.endsWith('.exe') ?? false),
+          )
           .firstOrNull
           ?.url;
 
@@ -95,11 +100,8 @@ class GitHubUpdateSource implements UpdateSource {
         currentVersion: currentVersion,
         newVersion: version,
         downloadUrl: downloadUrl,
-        summary: release.body,
-        size: release.assets
-            .where((a) => a.url == downloadUrl)
-            .firstOrNull
-            ?.size,
+        summary: release['body'] as String?,
+        size: assets.where((a) => a.url == downloadUrl).firstOrNull?.size,
         // Note: GitHub API does not provide SHA-256 for release assets by default.
         // For production, use a separate trusted source or GitHub's attestation.
         sha256: null,
@@ -209,7 +211,7 @@ class UpdateService {
         return DownloadResult.error('HTTP ${response.statusCode}');
       }
 
-      final total = response.contentLength ?? 0;
+      final total = response.contentLength;
       var received = 0;
       final chunks = <Uint8List>[];
 
@@ -377,10 +379,8 @@ class InstallResult {
 
   factory InstallResult.error(String error) => InstallResult._(error: error);
 
-  factory InstallResult.pending(String message) => InstallResult._(
-    message: message,
-    isPending: true,
-  );
+  factory InstallResult.pending(String message) =>
+      InstallResult._(message: message, isPending: true);
 
   bool get isSuccess => error == null && !isPending;
 }

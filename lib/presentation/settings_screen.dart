@@ -642,7 +642,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<UpdateInfo?> _fetchUpdateInfo() async {
     // في بيئة الإنتاج، يستخدم هذا GitHub Releases
     // للتطبيق التجريبي، نرجع null لمحاكاة "لا يوجد تحديث"
-    await Future.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 1));
     return null;
   }
 
@@ -653,7 +653,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // التحقق من التوقيع/البصمة قبل التثبيت
     final verified = await _verifyUpdateFile(url);
     if (!verified) {
-      if (mounted) showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
+      if (mounted) {
+        showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
+      }
       return;
     }
     if (!mounted) return;

@@ -395,7 +395,9 @@ void main() {
       ArrangementStrategy.ordered,
     );
     expect(
-      legacy.layout.copyWith(strategy: ArrangementStrategy.compact).strategyChosen,
+      legacy.layout
+          .copyWith(strategy: ArrangementStrategy.compact)
+          .strategyChosen,
       isTrue,
     );
   });

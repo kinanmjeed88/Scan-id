@@ -46,7 +46,7 @@ jobs:
           test -n "$apksigner"
           verification="$("$apksigner" verify --verbose --print-certs "$apk")"
           printf '%s\n' "$verification"
-          expected_sha256='92d97cd931b6b3a8f0caebd24af2d21e01ad91a2f89fe06276ebcc9f05d05215'
+          expected_sha256='55e92ed546ea405d736fdfdf0c99297f3a3c5b857455de63707f495e770dadb6'
           observed_sha256="$(printf '%s\n' "$verification" | awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
           if [[ "$observed_sha256" != "$expected_sha256" ]]; then
             echo 'APK signer certificate does not match the configured Android release key.' >&2

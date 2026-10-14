@@ -33,9 +33,15 @@ val keyAlias = providers.environmentVariable("KEYSTORE_KEY_ALIAS").orNull
     ?: localSigningProperties.getProperty("KEYSTORE_KEY_ALIAS")
 val keyPassword = providers.environmentVariable("KEYSTORE_KEY_PASSWORD").orNull
     ?: localSigningProperties.getProperty("KEYSTORE_KEY_PASSWORD")
-val requireReleaseSigning = providers.environmentVariable("REQUIRE_RELEASE_SIGNING")
-    .orNull
-    ?.equals("true", ignoreCase = true) == true
+// Release variants must never fall back to the debug key. The explicit environment
+// flag also protects CI jobs whose requested task names are indirect.
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.substringAfterLast(':').contains("release", ignoreCase = true)
+}
+val requireReleaseSigning = releaseTaskRequested ||
+    providers.environmentVariable("REQUIRE_RELEASE_SIGNING")
+        .orNull
+        ?.equals("true", ignoreCase = true) == true
 
 val hasKeyStoreSource = !keyStoreBase64.isNullOrBlank() || !localKeyStorePath.isNullOrBlank()
 val signingPasswordsAndAlias = listOf(keyStorePassword, keyAlias, keyPassword)
@@ -52,6 +58,19 @@ if (requireReleaseSigning && !hasAllSigningValues) {
     throw GradleException(
         "Release signing is required, but Android signing values are missing."
     )
+}
+
+// Also inspect the resolved task graph so aggregate invocations (for example `build`)
+// cannot package a release variant using the debug fallback below.
+gradle.taskGraph.whenReady {
+    val requestsReleasePackage = allTasks.any { task ->
+        val taskName = task.name.lowercase()
+        (taskName.startsWith("assemble") || taskName.startsWith("bundle")) &&
+            taskName.endsWith("release")
+    }
+    if (requestsReleasePackage && !hasAllSigningValues) {
+        throw GradleException("Release APK/AAB packaging requires a configured release keystore.")
+    }
 }
 
 var releaseKeyStoreFile: File? = null
@@ -168,8 +187,8 @@ android {
 
     buildTypes {
         release {
-            // CI verification remains debug-signed unless explicit signing variables are supplied.
-            // Dedicated release CI sets REQUIRE_RELEASE_SIGNING=true to prohibit that fallback.
+            // The task-graph guard rejects release packaging without this release config;
+            // the debug assignment is not permitted to produce a Release APK/AAB.
             signingConfig = if (releaseKeyStoreFile != null) {
                 signingConfigs.getByName("release")
             } else {

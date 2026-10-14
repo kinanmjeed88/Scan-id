@@ -3,6 +3,7 @@ import java.io.File
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.util.Base64
+import java.util.Properties
 import org.gradle.api.GradleException
 
 plugins {
@@ -12,27 +13,44 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val localSigningProperties = Properties()
+val localSigningPropertiesFile = rootProject.file("key.properties")
+if (localSigningPropertiesFile.isFile) {
+    try {
+        localSigningPropertiesFile.inputStream().use(localSigningProperties::load)
+    } catch (error: Exception) {
+        throw GradleException("Could not read the ignored local Android signing properties file.", error)
+    }
+}
+
+// Environment variables take precedence; key.properties is a git-ignored local fallback.
 val keyStoreBase64 = providers.environmentVariable("KEYSTORE_BASE64").orNull
+    ?: localSigningProperties.getProperty("KEYSTORE_BASE64")
+val localKeyStorePath = localSigningProperties.getProperty("storeFile")
 val keyStorePassword = providers.environmentVariable("KEYSTORE_STORE_PASSWORD").orNull
+    ?: localSigningProperties.getProperty("KEYSTORE_STORE_PASSWORD")
 val keyAlias = providers.environmentVariable("KEYSTORE_KEY_ALIAS").orNull
+    ?: localSigningProperties.getProperty("KEYSTORE_KEY_ALIAS")
 val keyPassword = providers.environmentVariable("KEYSTORE_KEY_PASSWORD").orNull
+    ?: localSigningProperties.getProperty("KEYSTORE_KEY_PASSWORD")
 val requireReleaseSigning = providers.environmentVariable("REQUIRE_RELEASE_SIGNING")
     .orNull
     ?.equals("true", ignoreCase = true) == true
 
-val signingValues = listOf(keyStoreBase64, keyStorePassword, keyAlias, keyPassword)
-val hasAnySigningValue = signingValues.any { !it.isNullOrBlank() }
-val hasAllSigningValues = signingValues.all { !it.isNullOrBlank() }
+val hasKeyStoreSource = !keyStoreBase64.isNullOrBlank() || !localKeyStorePath.isNullOrBlank()
+val signingPasswordsAndAlias = listOf(keyStorePassword, keyAlias, keyPassword)
+val hasAnySigningValue = hasKeyStoreSource || signingPasswordsAndAlias.any { !it.isNullOrBlank() }
+val hasAllSigningValues = hasKeyStoreSource && signingPasswordsAndAlias.all { !it.isNullOrBlank() }
 
 if (hasAnySigningValue && !hasAllSigningValues) {
     throw GradleException(
-        "Set all four Android signing variables: KEYSTORE_BASE64, " +
+        "Provide KEYSTORE_BASE64 or a local storeFile, plus " +
             "KEYSTORE_STORE_PASSWORD, KEYSTORE_KEY_ALIAS, and KEYSTORE_KEY_PASSWORD.",
     )
 }
 if (requireReleaseSigning && !hasAllSigningValues) {
     throw GradleException(
-        "Release signing is required, but the Android signing variables are missing.",
+        "Release signing is required, but Android signing values are missing."
     )
 }
 
@@ -40,14 +58,26 @@ var releaseKeyStoreFile: File? = null
 var releaseKeyStoreType: String? = null
 
 if (hasAllSigningValues) {
-    val encodedKeyStore = keyStoreBase64!!.filterNot { it.isWhitespace() }
-    val keyStoreBytes = try {
-        Base64.getDecoder().decode(encodedKeyStore)
-    } catch (error: IllegalArgumentException) {
-        throw GradleException("KEYSTORE_BASE64 is not valid Base64.", error)
+    val keyStoreBytes = if (!keyStoreBase64.isNullOrBlank()) {
+        val encodedKeyStore = keyStoreBase64.filterNot { it.isWhitespace() }
+        try {
+            Base64.getDecoder().decode(encodedKeyStore)
+        } catch (error: IllegalArgumentException) {
+            throw GradleException("KEYSTORE_BASE64 is not valid Base64.", error)
+        }
+    } else {
+        val localKeyStoreFile = rootProject.file(localKeyStorePath!!)
+        if (!localKeyStoreFile.isFile) {
+            throw GradleException("The local signing keystore file configured by storeFile is missing.")
+        }
+        try {
+            localKeyStoreFile.readBytes()
+        } catch (error: Exception) {
+            throw GradleException("Could not read the local Android signing keystore file.", error)
+        }
     }
     if (keyStoreBytes.isEmpty()) {
-        throw GradleException("KEYSTORE_BASE64 decoded to an empty keystore.")
+        throw GradleException("The supplied Android signing keystore is empty.")
     }
 
     var loadedKeyStore: KeyStore? = null

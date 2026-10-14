@@ -1,8 +1,102 @@
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.util.Base64
+import org.gradle.api.GradleException
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val keyStoreBase64 = providers.environmentVariable("KEYSTORE_BASE64").orNull
+val keyStorePassword = providers.environmentVariable("KEYSTORE_STORE_PASSWORD").orNull
+val keyAlias = providers.environmentVariable("KEYSTORE_KEY_ALIAS").orNull
+val keyPassword = providers.environmentVariable("KEYSTORE_KEY_PASSWORD").orNull
+val requireReleaseSigning = providers.environmentVariable("REQUIRE_RELEASE_SIGNING")
+    .orNull
+    ?.equals("true", ignoreCase = true) == true
+
+val signingValues = listOf(keyStoreBase64, keyStorePassword, keyAlias, keyPassword)
+val hasAnySigningValue = signingValues.any { !it.isNullOrBlank() }
+val hasAllSigningValues = signingValues.all { !it.isNullOrBlank() }
+
+if (hasAnySigningValue && !hasAllSigningValues) {
+    throw GradleException(
+        "Set all four Android signing variables: KEYSTORE_BASE64, " +
+            "KEYSTORE_STORE_PASSWORD, KEYSTORE_KEY_ALIAS, and KEYSTORE_KEY_PASSWORD.",
+    )
+}
+if (requireReleaseSigning && !hasAllSigningValues) {
+    throw GradleException(
+        "Release signing is required, but the Android signing variables are missing.",
+    )
+}
+
+var releaseKeyStoreFile: File? = null
+var releaseKeyStoreType: String? = null
+
+if (hasAllSigningValues) {
+    val encodedKeyStore = keyStoreBase64!!.filterNot { it.isWhitespace() }
+    val keyStoreBytes = try {
+        Base64.getDecoder().decode(encodedKeyStore)
+    } catch (error: IllegalArgumentException) {
+        throw GradleException("KEYSTORE_BASE64 is not valid Base64.", error)
+    }
+    if (keyStoreBytes.isEmpty()) {
+        throw GradleException("KEYSTORE_BASE64 decoded to an empty keystore.")
+    }
+
+    var loadedKeyStore: KeyStore? = null
+    var detectedKeyStoreType: String? = null
+    for (candidateType in listOf("JKS", "PKCS12")) {
+        try {
+            val candidate = KeyStore.getInstance(candidateType)
+            ByteArrayInputStream(keyStoreBytes).use {
+                candidate.load(it, keyStorePassword!!.toCharArray())
+            }
+            loadedKeyStore = candidate
+            detectedKeyStoreType = candidateType
+            break
+        } catch (_: Exception) {
+            // Try the other common Android keystore format without logging secrets.
+        }
+    }
+
+    val parsedKeyStore = loadedKeyStore
+        ?: throw GradleException(
+            "Could not read KEYSTORE_BASE64 as JKS or PKCS12; check the keystore and store password.",
+        )
+    if (!parsedKeyStore.containsAlias(keyAlias!!)) {
+        throw GradleException("KEYSTORE_KEY_ALIAS was not found in the keystore.")
+    }
+    if (!parsedKeyStore.isKeyEntry(keyAlias)) {
+        throw GradleException("KEYSTORE_KEY_ALIAS does not identify a private-key entry.")
+    }
+    val signingKey = try {
+        parsedKeyStore.getKey(keyAlias, keyPassword!!.toCharArray())
+    } catch (error: Exception) {
+        throw GradleException("KEYSTORE_KEY_PASSWORD did not unlock the signing key.", error)
+    }
+    if (signingKey !is PrivateKey) {
+        throw GradleException("The selected keystore entry is not a private signing key.")
+    }
+
+    val keyStoreFile = layout.buildDirectory
+        .file("signing/release-signing.keystore")
+        .get()
+        .asFile
+    try {
+        keyStoreFile.parentFile.mkdirs()
+        keyStoreFile.writeBytes(keyStoreBytes)
+    } catch (error: Exception) {
+        throw GradleException("Could not materialize the signing keystore in the build directory.", error)
+    }
+    releaseKeyStoreFile = keyStoreFile
+    releaseKeyStoreType = detectedKeyStoreType
 }
 
 android {
@@ -30,11 +124,27 @@ android {
         versionName = flutter.versionName
     }
 
+    if (releaseKeyStoreFile != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = releaseKeyStoreFile!!
+                storePassword = keyStorePassword
+                keyAlias = keyAlias
+                keyPassword = keyPassword
+                storeType = releaseKeyStoreType
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // CI verification remains debug-signed unless explicit signing variables are supplied.
+            // Dedicated release CI sets REQUIRE_RELEASE_SIGNING=true to prohibit that fallback.
+            signingConfig = if (releaseKeyStoreFile != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

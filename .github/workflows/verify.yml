@@ -67,6 +67,29 @@ jobs:
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --debug
+
+      # Temporary diagnostic: proves how this image's apksigner reports a
+      # signer certificate (which stream, which labels) against a real APK, so
+      # the release workflow's fingerprint comparison can be trusted. Prints no
+      # secret material -- a certificate fingerprint of the CI debug key.
+      - name: Prove apksigner certificate reporting format (diagnostic)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
+          apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" version || true
+          apk=build/app/outputs/flutter-apk/app-debug.apk
+          "$apksigner" verify --verbose --print-certs "$apk" > /tmp/diag-out.txt 2> /tmp/diag-err.txt || true
+          out_lines="$(wc -l < /tmp/diag-out.txt | tr -d ' ')"
+          err_lines="$(wc -l < /tmp/diag-err.txt | tr -d ' ')"
+          labels="$(sed -E 's/:.*$//' /tmp/diag-out.txt | head -n 15 | paste -sd '|' -)"
+          digest="$(grep -i -m1 'signer #1 certificate sha-256 digest' /tmp/diag-out.txt | sed -E 's/^[^:]*:[[:space:]]*//' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]' || true)"
+          echo "apksigner=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines"
+          echo "labels=$labels"
+          echo "parsed_digest_chars=${#digest}"
+          echo "::notice title=apksigner-report format::tool=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines labels=$labels parsed_sha256_chars=${#digest}"
       - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:

@@ -1,4 +1,4 @@
-name: Android signed release
+name: Android signed release and Windows
 
 on:
   workflow_dispatch:
@@ -411,3 +411,10 @@ jobs:
           rm -f "$RUNNER_TEMP/release-signing.keystore"
           rm -rf build/app/signing android/app/build 2>/dev/null || true
           find . -name '*.keystore' -o -name '*.jks' -o -name 'key.properties' | grep -v '.git/' || echo "no signing files left in workspace"
+
+  # Independent runner: build both platforms from the same checked-out revision.
+  # Signing secrets and the protected environment remain Android-only.
+  windows:
+    uses: ./.github/workflows/windows-release.yml
+    permissions:
+      contents: read

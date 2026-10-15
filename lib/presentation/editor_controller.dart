@@ -61,7 +61,7 @@ class LayoutEditorController extends ChangeNotifier {
   final selected = <String>{};
   bool busy = false;
   String? error;
-  bool autoFlow = true;
+  bool get autoFlow => project.layout.autoFlow;
   bool allowOverlap = false;
   bool showGuides = true;
 
@@ -182,18 +182,28 @@ class LayoutEditorController extends ChangeNotifier {
     bool layout = true,
     bool manual = false,
   }) {
-    if (manual && autoFlow) {
-      autoFlow = false;
-      _say(
-        'أُوقف «الترتيب المستمر» لأنك رتّبت يدوياً؛ أعد تشغيله من تبويب «الرئيسية» متى شئت.',
-      );
-    }
-    return run(() => session.apply((p) => _relayout(change(p), layout)));
+    final pausesAutoFlow = manual && autoFlow;
+    return run(() async {
+      await session.apply((project) {
+        var changed = change(project);
+        if (manual && project.layout.autoFlow) {
+          changed = changed.copyWith(
+            layout: changed.layout.copyWith(autoFlow: false),
+          );
+        }
+        return _relayout(changed, layout);
+      });
+      if (pausesAutoFlow) {
+        _say(
+          'أُوقف «الترتيب المستمر» لأنك رتّبت يدوياً؛ أعد تشغيله من تبويب «الرئيسية» متى شئت.',
+        );
+      }
+    });
   }
 
   Project _relayout(Project changed, bool layout) {
     if (!layout) return PageLayout.checked(changed, allowOverlap: allowOverlap);
-    if (autoFlow) return arrangeDocuments(changed).result;
+    if (changed.layout.autoFlow) return arrangeDocuments(changed).result;
     return PageLayout.checked(
       arrangeDocuments(changed, keepPlaced: true).result,
       allowOverlap: allowOverlap,
@@ -263,21 +273,30 @@ class LayoutEditorController extends ChangeNotifier {
     if (!ok || outcome == null) return;
     final result = outcome!;
     final parts = [
-      'رُتّبت المستمسكات على ${result.pageCount} صفحة',
+      'نتيجة الترتيب: ${result.pageCount} صفحة',
       if (result.takenOffSheet.isNotEmpty)
         '${result.takenOffSheet.length} أُبعد عن الورقة لأن مقاسه غير مؤكد',
       if (result.awaitingSize.isNotEmpty)
         '${result.awaitingSize.length} بانتظار تحديد النوع',
       if (result.unplaced.isNotEmpty)
-        '${result.unplaced.length} أكبر من مساحة الطباعة',
+        '${result.unplaced.length} مستمسك بقي خارج الورقة؛ راجع حالة كل عنصر',
     ];
     _say(parts.join(' · '));
   }
 
   Future<void> setAutoFlow(bool value) async {
-    autoFlow = value;
-    _notify();
-    if (value) await arrangeNow();
+    if (value == autoFlow) return;
+    final saved = await run(
+      () => session.apply((project) {
+        final changed = project.copyWith(
+          layout: project.layout.copyWith(autoFlow: value),
+        );
+        return value ? arrangeDocuments(changed).result : changed;
+      }),
+    );
+    if (saved && value) {
+      _say('أُعيد تشغيل «الترتيب المستمر» وحُفظ الاختيار لهذا المشروع.');
+    }
   }
 
   Future<void> setStrategy(ArrangementStrategy strategy) =>
@@ -1048,17 +1067,20 @@ class LayoutEditorController extends ChangeNotifier {
       _notify();
       return;
     }
-    if (autoFlow) {
-      autoFlow = false;
+    final pausesAutoFlow = autoFlow;
+    final saved = await _guard(
+      () => session.apply((project) {
+        final changed = pausesAutoFlow
+            ? project.copyWith(layout: project.layout.copyWith(autoFlow: false))
+            : project;
+        return PageLayout.move(changed, id, dx, dy, allowOverlap: allowOverlap);
+      }),
+    );
+    if (saved && pausesAutoFlow) {
       _say(
         'أُوقف «الترتيب المستمر» لأنك رتّبت يدوياً؛ أعد تشغيله من تبويب «الرئيسية» متى شئت.',
       );
     }
-    await _guard(
-      () => session.apply(
-        (p) => PageLayout.move(p, id, dx, dy, allowOverlap: allowOverlap),
-      ),
-    );
   }
 
   /// Writes pending nudges and picture edits (before leaving the editor).

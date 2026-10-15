@@ -37,7 +37,14 @@ void main() {
     () async {
       final bytes = img.encodePng(img.Image(width: 860, height: 540));
       final created = await service.create('معاملة');
-      final imported = await service.importImages(created, [
+      final orderedProject = await projects.save(
+        created.copyWith(
+          layout: created.layout.copyWith(
+            strategy: ArrangementStrategy.ordered,
+          ),
+        ),
+      );
+      final imported = await service.importImages(orderedProject, [
         ImportSource('جواز السفر.png', () => Stream.value(bytes)),
         ImportSource('بطاقة السكن.png', () => Stream.value(bytes)),
         ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
@@ -50,6 +57,15 @@ void main() {
       expect(result.project.paper.width, 210);
       expect(result.project.paper.height, 297);
       expect(result.project.items, hasLength(3));
+      expect(
+        result.project.documents,
+        isEmpty,
+        reason: 'the default-off Phase 1B flag keeps legacy imports unlinked',
+      );
+      expect(
+        result.project.items.every((item) => item.documentId == null),
+        isTrue,
+      );
       expect(result.recognized, 3);
       expect(result.unplaced, 0);
       expect(result.notDetected, 3, reason: 'flat images have no boundary');
@@ -74,6 +90,25 @@ void main() {
       );
     },
   );
+
+  test('Phase 1B reprocessing is disabled unless explicitly enabled', () async {
+    final bytes = img.encodePng(img.Image(width: 120, height: 90));
+    final created = await service.create('بدون تعرف');
+    final imported = await service.importImages(created, [
+      ImportSource('photo.png', () => Stream.value(bytes)),
+    ]);
+    expect(imported.project.documents, isEmpty);
+
+    final report = await service.reprocessImages(imported.project, [
+      imported.project.assets.single.id,
+    ]);
+
+    expect(report, isNull);
+    expect(
+      (await projects.get(created.id)).toJson(),
+      imported.project.toJson(),
+    );
+  });
 
   test(
     'the boundary shape alone recognises a card and rectifies it exactly',

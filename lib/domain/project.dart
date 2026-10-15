@@ -105,6 +105,7 @@ class LayoutSettings {
     ArrangementStrategy? strategy,
     bool? strategyChosen,
     bool? centerCaptures,
+    this.autoFlow = true,
   }) : strategy = strategy ?? ArrangementStrategy.compact,
        strategyChosen = strategyChosen ?? strategy != null,
        centerCaptures = centerCaptures ?? false {
@@ -130,6 +131,11 @@ class LayoutSettings {
 
   final bool centerCaptures;
 
+  /// Whether edits that affect geometry automatically reflow the full sheet.
+  /// A manual move turns this off; the choice is persisted with the project so
+  /// reopening the editor cannot unexpectedly rearrange a hand-built layout.
+  final bool autoFlow;
+
   /// The strategy used when arranging unless the caller overrides it.
   /// Projects that never recorded a strategy choice keep the by-kind rows.
   ArrangementStrategy get arrangementStrategy =>
@@ -141,15 +147,18 @@ class LayoutSettings {
     bool? allowRotation,
     LayoutOrder? order,
     ArrangementStrategy? strategy,
+    bool? strategyChosen,
     bool? centerCaptures,
+    bool? autoFlow,
   }) => LayoutSettings(
     horizontalGap: horizontalGap ?? this.horizontalGap,
     verticalGap: verticalGap ?? this.verticalGap,
     allowRotation: allowRotation ?? this.allowRotation,
     order: order ?? this.order,
     strategy: strategy ?? this.strategy,
-    strategyChosen: strategy != null || strategyChosen,
+    strategyChosen: strategyChosen ?? (strategy != null || this.strategyChosen),
     centerCaptures: centerCaptures ?? this.centerCaptures,
+    autoFlow: autoFlow ?? this.autoFlow,
   );
 
   Map<String, Object?> toJson() => {
@@ -159,6 +168,7 @@ class LayoutSettings {
     'order': order.name,
     if (strategyChosen) 'strategy': strategy.name,
     'centerCaptures': centerCaptures,
+    'autoFlow': autoFlow,
   };
   factory LayoutSettings.fromJson(Object? json) {
     final m = objectMap(json);
@@ -177,6 +187,9 @@ class LayoutSettings {
       centerCaptures: m['centerCaptures'] == null
           ? true
           : boolean(m['centerCaptures'], 'centerCaptures'),
+      autoFlow: m['autoFlow'] == null
+          ? true
+          : boolean(m['autoFlow'], 'autoFlow'),
     );
   }
 }

@@ -156,6 +156,7 @@ void main() {
     projects,
     assets,
     imageEditor: LocalImageEditor(projects.files),
+    smartRecognitionEnabled: true,
     segmenter: segmenter,
   );
 
@@ -531,7 +532,8 @@ void main() {
       final items = project.items.toList();
       expect(items.length, greaterThanOrEqualTo(2));
       final rearranged = <DocumentItem>[
-        items[0].copyWith(x: 10, y: 20, rotation: 90, zIndex: 7, locked: true),
+        // Rotation expands the bounds upward; y=21 keeps the 5 mm margin.
+        items[0].copyWith(x: 10, y: 21, rotation: 90, zIndex: 7, locked: true),
         items[1].copyWith(x: 90, y: 10, rotation: 0, zIndex: 3, locked: false),
         ...items.skip(2),
       ];

@@ -387,7 +387,7 @@ class EditorStatusBar extends StatelessWidget {
   );
 }
 
-/// Documents that are not on any page: waiting for a category, or too large.
+/// Documents not on a page, with a status for why automatic layout left them out.
 class OffSheetTray extends StatelessWidget {
   const OffSheetTray({required this.controller, super.key});
 
@@ -515,6 +515,11 @@ class _OffSheetReason extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final (text, hint, color) = switch (status) {
+      AutoLayoutStatus.locked => (
+        'مثبت · خارج الترتيب التلقائي',
+        'لا ينقله الترتيب التلقائي؛ أزل القفل قبل إعادته إلى الورقة',
+        scheme.error,
+      ),
       AutoLayoutStatus.sizeUnconfirmed => (
         'مقاس غير مؤكد · خارج الترتيب التلقائي',
         'لا يدخل الترتيب التلقائي حتى تختار نوعه أو تكتب مقاسه من «المستمسك»',
@@ -523,6 +528,12 @@ class _OffSheetReason extends StatelessWidget {
       AutoLayoutStatus.tooLarge => (
         'أكبر من مساحة الطباعة',
         'لا يُصغَّر تلقائياً؛ قلّل الهوامش أو غيّر اتجاه الورقة أو مقاسه',
+        scheme.error,
+      ),
+      AutoLayoutStatus.groupNeedsSpace => (
+        'بانتظار ترتيب المجموعة',
+        'لا تُقسَّم المجموعة؛ إذا تعذر وضعها كاملةً '
+            'تبقى عناصرها القابلة للتحريك خارج الورقة',
         scheme.error,
       ),
       AutoLayoutStatus.eligible => (

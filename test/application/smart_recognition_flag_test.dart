@@ -1,16 +1,15 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/smart_recognition_flag.dart';
 
-/// Smart Recognition ships ENABLED: the import intake routes through the
-/// recognition pipeline. The flag stays an app-level switch (never part of
-/// the schema) so the legacy byte-for-byte path remains one constant away.
+/// Smart Recognition remains opt-in and OFF in the shipping configuration;
+/// its flag stays app-level and never enters project persistence.
 void main() {
-  test('Smart Recognition feature flag is ON in this build', () {
-    expect(smartRecognitionEnabled, isTrue);
+  test('Smart Recognition feature flag is OFF by default', () {
+    expect(smartRecognitionEnabled, isFalse);
   });
 
-  test('allows() still honours the per-call gate', () {
+  test('the disabled app-level flag denies both request states', () {
     expect(smartRecognitionAllows(false), isFalse);
-    expect(smartRecognitionAllows(true), isTrue);
+    expect(smartRecognitionAllows(true), isFalse);
   });
 }

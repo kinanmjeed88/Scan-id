@@ -4,6 +4,7 @@ import 'document_kind.dart';
 import 'geometry.dart';
 import 'packing.dart';
 import 'project.dart';
+import 'recognition.dart' show GroupArrangement, LayoutGroup;
 
 /// Largest number of pages automatic arrangement may create.
 const maxArrangedPages = 100;
@@ -12,10 +13,13 @@ const _eps = 1e-7;
 
 /// Whether automatic arrangement may place a document and, if not, why.
 ///
-/// A state of the document itself, not of where it currently is: the editor
-/// shows it for every document that automatic arrangement leaves out, so the
-/// user sees the reason instead of a document that merely sits off the sheet.
+/// The reason automatic arrangement cannot place an item or leaves it out;
+/// the editor shows the status on off-sheet items so the user sees more than
+/// just their current location.
 enum AutoLayoutStatus {
+  /// It is locked and automatic arrangement will not move it.
+  locked,
+
   /// Automatic arrangement places it (or keeps it, when it is fixed).
   eligible,
 
@@ -29,6 +33,10 @@ enum AutoLayoutStatus {
   /// page, even when turned (where turning is allowed). Documents are never
   /// scaled to fit.
   tooLarge,
+
+  /// The item belongs to a multi-item keep-together group and is still off-sheet.
+  /// The arranger will only place the complete group when it fits.
+  groupNeedsSpace,
 }
 
 /// The [AutoLayoutStatus] of [item] in [project]; [allowRotation] defaults
@@ -38,11 +46,22 @@ AutoLayoutStatus autoLayoutStatus(
   DocumentItem item, {
   bool? allowRotation,
 }) {
+  if (item.locked) return AutoLayoutStatus.locked;
   if (!item.sizeConfirmed) return AutoLayoutStatus.sizeUnconfirmed;
   final rotate = allowRotation ?? project.layout.allowRotation;
-  return _fitting(item, project.paper.printable, rotate) == null
-      ? AutoLayoutStatus.tooLarge
-      : AutoLayoutStatus.eligible;
+  if (_fitting(item, project.paper.printable, rotate) == null) {
+    return AutoLayoutStatus.tooLarge;
+  }
+  if (item.pageIndex == null &&
+      project.layoutGroups.any(
+        (group) =>
+            group.keepTogether &&
+            group.itemIds.length > 1 &&
+            group.itemIds.contains(item.id),
+      )) {
+    return AutoLayoutStatus.groupNeedsSpace;
+  }
+  return AutoLayoutStatus.eligible;
 }
 
 /// Outcome of [arrangeDocuments]. Sizes never change; only positions, page
@@ -61,8 +80,9 @@ class ArrangementResult {
   final Project original;
   final Project result;
 
-  /// Documents with a size that cannot fit inside the printable area of an
-  /// empty page, even when turned.
+  /// Documents that did not receive a page in this pass. This can be because
+  /// an item is larger than a blank printable area, available pages are full,
+  /// or its keep-together group could not be placed as a whole.
   final List<String> unplaced;
 
   /// Documents left aside because their category/size is not set yet
@@ -78,9 +98,10 @@ class ArrangementResult {
 
 /// Arranges documents over as many A4 pages as needed.
 ///
-/// Documents are taken in category order (unified card, residence card,
-/// passport, ration card, others) and, within a category, by the project's
-/// [LayoutOrder]. Locked documents never move and act as obstacles; with
+/// In ordered mode, documents and keep-together groups are taken in category
+/// order (unified card, residence card, passport, ration card, others) and,
+/// within a category, by the project's [LayoutOrder]. Compact mode prioritizes
+/// dense placement. Locked documents never move and act as obstacles; with
 /// [keepPlaced] every document already on a page stays where it is and only
 /// off-sheet documents are arranged. A document whose size is not confirmed
 /// is not eligible for automatic arrangement ([AutoLayoutStatus]): it is
@@ -138,10 +159,111 @@ ArrangementResult arrangeDocuments(
     return inputOrder[a.id]!.compareTo(inputOrder[b.id]!);
   });
 
-  final placed = switch (strategy ?? source.layout.arrangementStrategy) {
-    ArrangementStrategy.ordered => _ordered(source, fixed, movable, rotate),
-    ArrangementStrategy.compact => _compact(source, movable, rotate),
+  // Treat valid, wholly movable keep-together groups as one layout unit.
+  // A partial/locked group is not silently split by the automatic arranger:
+  // its movable members stay off-sheet until the whole group can be handled.
+  final itemById = {for (final item in source.items) item.id: item};
+  final keptGroups =
+      source.layoutGroups
+          .where((group) => group.keepTogether && group.itemIds.length > 1)
+          .toList()
+        ..sort((a, b) {
+          int firstIndex(LayoutGroup group) => source.items.indexWhere(
+            (item) => group.itemIds.contains(item.id),
+          );
+          final order = firstIndex(a).compareTo(firstIndex(b));
+          return order != 0 ? order : a.id.compareTo(b.id);
+        });
+  final movableIds = {for (final item in movable) item.id};
+  final groupedMovableIds = <String>{};
+  final blockedGroupIds = <String>{};
+  final groupsToPlace = <LayoutGroup>[];
+  for (final group in keptGroups) {
+    final members = [for (final id in group.itemIds) itemById[id]!];
+    final ownershipIsConsistent = members.every(
+      (item) => item.groupId == group.id,
+    );
+    if (!ownershipIsConsistent ||
+        members.any((item) => groupedMovableIds.contains(item.id))) {
+      blockedGroupIds.addAll(
+        members
+            .where((item) => movableIds.contains(item.id))
+            .map((item) => item.id),
+      );
+      continue;
+    }
+    if (members.every((item) => movableIds.contains(item.id))) {
+      groupsToPlace.add(group);
+      groupedMovableIds.addAll(group.itemIds);
+    } else {
+      blockedGroupIds.addAll(
+        members
+            .where((item) => movableIds.contains(item.id))
+            .map((item) => item.id),
+      );
+    }
+  }
+
+  final regularMovable = movable
+      .where(
+        (item) =>
+            !groupedMovableIds.contains(item.id) &&
+            !blockedGroupIds.contains(item.id),
+      )
+      .toList();
+  final selectedStrategy = strategy ?? source.layout.arrangementStrategy;
+  // In compact mode groups are packed after regular items. Clear their old
+  // page assignments during that first pass so stale positions cannot become
+  // locked obstacles or make a valid sheet fail bounds validation.
+  final regularIds = {for (final item in regularMovable) item.id};
+  final deferredIds = {
+    for (final item in movable)
+      if (!regularIds.contains(item.id)) item.id,
   };
+  final compactSource = selectedStrategy == ArrangementStrategy.compact
+      ? source.copyWith(
+          items: [
+            for (final item in source.items)
+              if (deferredIds.contains(item.id))
+                item.copyWith(unplaced: true)
+              else
+                item,
+          ],
+        )
+      : source;
+  final placed = switch (selectedStrategy) {
+    ArrangementStrategy.ordered => _orderedWithGroups(
+      source,
+      fixed,
+      regularMovable,
+      groupsToPlace,
+      rotate,
+    ),
+    ArrangementStrategy.compact => _compact(
+      compactSource,
+      regularMovable,
+      rotate,
+    ),
+  };
+  if (selectedStrategy == ArrangementStrategy.compact) {
+    _placeTogetherGroups(source, groupsToPlace, placed, rotate);
+  }
+  if (source.layout.centerCaptures && placed.isNotEmpty) {
+    final obstacles = <int, List<RectMm>>{};
+    for (final item in source.items) {
+      final pageIndex = item.pageIndex;
+      if (pageIndex != null && !placed.containsKey(item.id)) {
+        obstacles.putIfAbsent(pageIndex, () => []).add(item.bounds);
+      }
+    }
+    _centerPageItems(
+      placed,
+      source.paper.printable,
+      source.layout.horizontalGap,
+      source.layout.verticalGap,
+      obstacles,
+    );
+  }
 
   final items = [
     for (final item in source.items)
@@ -167,6 +289,353 @@ ArrangementResult arrangeDocuments(
     awaitingSize: awaiting,
     takenOffSheet: takenOffSheet,
   );
+}
+
+class _GroupMemberPlacement {
+  const _GroupMemberPlacement(this.item, this.rotation, this.x, this.y);
+
+  final DocumentItem item;
+  final double rotation;
+  final double x;
+  final double y;
+}
+
+/// Temporary packing projects contain only geometry, not v5 ownership links.
+/// Their real records and groups stay on the source project and are retained
+/// when the accepted positions are expanded back into member items.
+DocumentItem _packingProxy(
+  DocumentItem item, {
+  String? id,
+  DocumentKind? documentKind,
+  required double x,
+  required double y,
+  required double width,
+  required double height,
+  required double rotation,
+  required int? pageIndex,
+  required bool locked,
+  required bool sizeConfirmed,
+}) => DocumentItem(
+  id: id ?? item.id,
+  assetId: item.assetId,
+  x: x,
+  y: y,
+  width: width,
+  height: height,
+  rotation: rotation,
+  pageIndex: pageIndex,
+  zIndex: item.zIndex,
+  locked: locked,
+  keepAspectRatio: item.keepAspectRatio,
+  documentKind: documentKind ?? item.documentKind,
+  recognitionConfidence: item.recognitionConfidence,
+  sizeConfirmed: sizeConfirmed,
+);
+
+class _GroupShape {
+  const _GroupShape(this.width, this.height, this.members);
+
+  final double width;
+  final double height;
+  final List<_GroupMemberPlacement> members;
+}
+
+class _OrderedGroup {
+  const _OrderedGroup(this.proxy, this.shape, this.inputOrder);
+
+  final DocumentItem proxy;
+  final _GroupShape shape;
+  final int inputOrder;
+}
+
+/// Packs group rectangles as category-ordered units, then restores real items.
+/// A group inherits its highest-priority member category so grouping cannot
+/// demote an earlier category behind an ordinary item.
+Map<String, DocumentItem> _orderedWithGroups(
+  Project project,
+  List<DocumentItem> fixed,
+  List<DocumentItem> regularMovable,
+  List<LayoutGroup> groups,
+  bool allowRotation,
+) {
+  final area = project.paper.printable;
+  final horizontalGap = project.layout.horizontalGap;
+  final verticalGap = project.layout.verticalGap;
+  final inputOrder = {
+    for (var i = 0; i < project.items.length; i++) project.items[i].id: i,
+  };
+  final usedIds = {for (final item in project.items) item.id};
+  final orderedGroups = <_OrderedGroup>[];
+  for (final group in groups) {
+    final members = [
+      for (final id in group.itemIds)
+        project.items.firstWhere((item) => item.id == id),
+    ];
+    final category = members
+        .map((item) => item.documentKind)
+        .reduce((a, b) => a.order <= b.order ? a : b);
+    final turns = [0, if (allowRotation) 90];
+    final shapes = [
+      for (final turn in turns)
+        _shapeGroup(
+          members,
+          group.arrangement,
+          turn,
+          horizontalGap,
+          verticalGap,
+        ),
+    ];
+    final shape = shapes.firstWhere(
+      (candidate) =>
+          candidate.width <= area.width + _eps &&
+          candidate.height <= area.height + _eps,
+      orElse: () => shapes.first,
+    );
+    final firstIndex = members
+        .map((item) => inputOrder[item.id]!)
+        .reduce((a, b) => a < b ? a : b);
+    final stem = 'group-${group.id}';
+    var suffix = 0;
+    String nextProxyId() {
+      final suffixText = suffix == 0 ? '' : '-$suffix';
+      suffix++;
+      final limit = 80 - suffixText.length;
+      final prefixLength = stem.length < limit ? stem.length : limit;
+      return '${stem.substring(0, prefixLength)}$suffixText';
+    }
+
+    var proxyId = nextProxyId();
+    while (!usedIds.add(proxyId)) {
+      proxyId = nextProxyId();
+    }
+    final proxy = _packingProxy(
+      members.first,
+      id: proxyId,
+      documentKind: category,
+      x: area.x,
+      y: area.y,
+      width: shape.width,
+      height: shape.height,
+      rotation: 0,
+      pageIndex: null,
+      locked: false,
+      sizeConfirmed: true,
+    );
+    orderedGroups.add(_OrderedGroup(proxy, shape, firstIndex));
+  }
+
+  final orientedRegular = [
+    for (final item in regularMovable)
+      _fitting(item, area, allowRotation) ?? item,
+  ];
+  final inputOrderByUnit = {
+    for (final item in regularMovable) item.id: inputOrder[item.id]!,
+    for (final group in orderedGroups) group.proxy.id: group.inputOrder,
+  };
+  final units =
+      <DocumentItem>[
+        ...orientedRegular,
+        for (final group in orderedGroups) group.proxy,
+      ]..sort((a, b) {
+        final kind = a.documentKind.order.compareTo(b.documentKind.order);
+        if (kind != 0) return kind;
+        if (project.layout.order == LayoutOrder.area) {
+          final size = (b.width * b.height).compareTo(a.width * a.height);
+          if (size != 0) return size;
+        }
+        final order = inputOrderByUnit[a.id]!.compareTo(
+          inputOrderByUnit[b.id]!,
+        );
+        return order != 0 ? order : a.id.compareTo(b.id);
+      });
+  final packed = _ordered(project, fixed, units, false);
+  final placed = <String, DocumentItem>{
+    for (final item in regularMovable)
+      if (packed.containsKey(item.id)) item.id: packed[item.id]!,
+  };
+  for (final group in orderedGroups) {
+    final box = packed[group.proxy.id];
+    if (box == null || box.pageIndex == null) continue;
+    _expandGroupPlacement(group.shape, box, placed);
+  }
+  return placed;
+}
+
+void _expandGroupPlacement(
+  _GroupShape shape,
+  DocumentItem box,
+  Map<String, DocumentItem> placed,
+) {
+  final page = box.pageIndex;
+  if (page == null) return;
+  for (final member in shape.members) {
+    final originalBounds = member.item
+        .copyWith(rotation: member.rotation)
+        .bounds;
+    placed[member.item.id] = member.item.copyWith(
+      x: box.x + member.x + (originalBounds.width - member.item.width) / 2,
+      y: box.y + member.y + (originalBounds.height - member.item.height) / 2,
+      rotation: member.rotation,
+      pageIndex: page,
+    );
+  }
+}
+
+/// Reserves a composite rectangle for each keep-together group, then expands
+/// the accepted rectangle back into its real member rectangles. The ordinary
+/// items are obstacles, and a fresh page is tried before the group is left
+/// unplaced; members are never split to make a partial result look successful.
+void _placeTogetherGroups(
+  Project project,
+  List<LayoutGroup> groups,
+  Map<String, DocumentItem> placed,
+  bool allowRotation,
+) {
+  if (groups.isEmpty) return;
+  final area = project.paper.printable;
+  final horizontalGap = project.layout.horizontalGap;
+  final verticalGap = project.layout.verticalGap;
+  final allGroupedIds = {
+    for (final group in groups)
+      for (final id in group.itemIds) id,
+  };
+
+  for (final group in groups) {
+    final groupIds = group.itemIds.toSet();
+    final members = [
+      for (final id in group.itemIds)
+        project.items.firstWhere((item) => item.id == id),
+    ];
+    final turns = [0, if (allowRotation) 90];
+    var lastOccupiedPage = project.pageCount - 1;
+    for (final item in project.items) {
+      if (groupIds.contains(item.id)) continue;
+      final current = placed[item.id] ?? item;
+      if (current.pageIndex != null) {
+        lastOccupiedPage = math.max(lastOccupiedPage, current.pageIndex!);
+      }
+    }
+    final lastPageToTry = math.min(
+      maxArrangedPages - 1,
+      math.max(lastOccupiedPage + 1, 0),
+    );
+    var acceptedShape = _GroupShape(0, 0, const []);
+    DocumentItem? acceptedBox;
+
+    for (var page = 0; page <= lastPageToTry && acceptedBox == null; page++) {
+      for (final turn in turns) {
+        final shape = _shapeGroup(
+          members,
+          group.arrangement,
+          turn,
+          horizontalGap,
+          verticalGap,
+        );
+        if (shape.width > area.width + _eps ||
+            shape.height > area.height + _eps) {
+          continue;
+        }
+        final first = members.first;
+        final composite = _packingProxy(
+          first,
+          x: area.x,
+          y: area.y,
+          width: shape.width,
+          height: shape.height,
+          rotation: 0,
+          pageIndex: null,
+          sizeConfirmed: true,
+          locked: false,
+        );
+        final obstacles = <DocumentItem>[];
+        for (final item in project.items) {
+          if (groupIds.contains(item.id)) continue;
+          final arranged = placed[item.id];
+          if (allGroupedIds.contains(item.id) && arranged == null) continue;
+          final current = arranged ?? item;
+          if (current.pageIndex != null) {
+            obstacles.add(
+              _packingProxy(
+                current,
+                x: current.x,
+                y: current.y,
+                width: current.width,
+                height: current.height,
+                rotation: current.rotation,
+                pageIndex: current.pageIndex,
+                sizeConfirmed: current.sizeConfirmed,
+                locked: current.locked,
+              ),
+            );
+          }
+        }
+        final temporaryProject = project.copyWith(
+          pageCount: math.max(project.pageCount, page + 1),
+          items: [...obstacles, composite],
+          documents: const [],
+          layoutGroups: const [],
+        );
+        final proposal = proposePacking(
+          temporaryProject,
+          includeLocked: false,
+          allowRotation: false,
+          onlyUnplaced: true,
+          pageIndex: page,
+        );
+        final box = proposal.result.items.firstWhere(
+          (item) => item.id == composite.id,
+        );
+        if (box.pageIndex == page) {
+          acceptedShape = shape;
+          acceptedBox = box;
+          break;
+        }
+      }
+    }
+
+    final box = acceptedBox;
+    if (box == null) continue;
+    _expandGroupPlacement(acceptedShape, box, placed);
+  }
+}
+
+_GroupShape _shapeGroup(
+  List<DocumentItem> items,
+  GroupArrangement arrangement,
+  int turn,
+  double horizontalGap,
+  double verticalGap,
+) {
+  final rotated = [
+    for (final item in items)
+      item.copyWith(rotation: (item.rotation + turn) % 360),
+  ];
+  final bounds = [for (final item in rotated) item.bounds];
+  final width = arrangement == GroupArrangement.stacked
+      ? bounds.map((item) => item.width).reduce(math.max)
+      : bounds.fold<double>(0, (sum, item) => sum + item.width) +
+            horizontalGap * (bounds.length - 1);
+  final height = arrangement == GroupArrangement.stacked
+      ? bounds.fold<double>(0, (sum, item) => sum + item.height) +
+            verticalGap * (bounds.length - 1)
+      : bounds.map((item) => item.height).reduce(math.max);
+  var cursor = 0.0;
+  final placements = <_GroupMemberPlacement>[];
+  for (var i = 0; i < rotated.length; i++) {
+    final item = rotated[i];
+    final bound = bounds[i];
+    final x = arrangement == GroupArrangement.stacked
+        ? (width - bound.width) / 2
+        : cursor;
+    final y = arrangement == GroupArrangement.stacked
+        ? cursor
+        : (height - bound.height) / 2;
+    placements.add(_GroupMemberPlacement(items[i], item.rotation, x, y));
+    cursor += arrangement == GroupArrangement.stacked
+        ? bound.height + verticalGap
+        : bound.width + horizontalGap;
+  }
+  return _GroupShape(width, height, List.unmodifiable(placements));
 }
 
 /// The orientation an item is arranged in: its own when it fits on an empty
@@ -335,10 +804,15 @@ void _centerPageItems(
     // Check that centering won't cause overlap with obstacles.
     final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
     final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
-    final shifted = pageItems.map(
-      (item) =>
-          RectMm(item.x + shiftX, item.y + shiftY, item.width, item.height),
-    );
+    final shifted = pageItems.map((item) {
+      final bounds = item.bounds;
+      return RectMm(
+        bounds.x + shiftX,
+        bounds.y + shiftY,
+        bounds.width,
+        bounds.height,
+      );
+    });
     final others = obstacles[page] ?? const <RectMm>[];
     final clear = shifted.every(
       (r) => others.every((o) => !_gapOverlap(r, o, gx, gy)),
@@ -352,12 +826,93 @@ void _centerPageItems(
 }
 
 /// Densest packing per page (MaxRects); whatever does not fit flows on.
+///
+/// When the user's within-category order is input order, a second deterministic
+/// largest-first pass is tried only for mixed-size categories. It replaces the
+/// first pass only when it places more documents or uses fewer pages. This is a
+/// bounded heuristic improvement, not an optimality guarantee.
 Map<String, DocumentItem> _compact(
   Project project,
   List<DocumentItem> movable,
   bool rotate,
 ) {
+  final preferred = _compactPass(
+    project,
+    movable,
+    rotate,
+    orderOverride: project.layout.order,
+  );
+  if (project.layout.order != LayoutOrder.input ||
+      !_hasMixedAreaWithinCategory(movable)) {
+    return preferred;
+  }
+  final largestFirst = _compactPass(
+    project,
+    movable,
+    rotate,
+    orderOverride: LayoutOrder.area,
+  );
+  return _compactResultIsBetter(
+        largestFirst,
+        preferred,
+        movable,
+        project.paper.printable,
+        rotate,
+      )
+      ? largestFirst
+      : preferred;
+}
+
+bool _hasMixedAreaWithinCategory(List<DocumentItem> items) {
+  final areaByKind = <DocumentKind, double>{};
+  for (final item in items) {
+    final area = item.width * item.height;
+    final previous = areaByKind[item.documentKind];
+    if (previous != null && (previous - area).abs() > _eps) return true;
+    areaByKind[item.documentKind] = area;
+  }
+  return false;
+}
+
+bool _compactResultIsBetter(
+  Map<String, DocumentItem> candidate,
+  Map<String, DocumentItem> current,
+  List<DocumentItem> movable,
+  RectMm area,
+  bool rotate,
+) {
+  final eligible = movable
+      .where((item) => _fitting(item, area, rotate) != null)
+      .length;
+  final candidateUnplaced = eligible - candidate.length;
+  final currentUnplaced = eligible - current.length;
+  if (candidateUnplaced != currentUnplaced) {
+    return candidateUnplaced < currentUnplaced;
+  }
+  final candidatePages = candidate.values.map((item) => item.pageIndex).toSet();
+  final currentPages = current.values.map((item) => item.pageIndex).toSet();
+  if (candidatePages.length != currentPages.length) {
+    return candidatePages.length < currentPages.length;
+  }
+  int lastPage(Set<int?> pages) {
+    var last = 0;
+    for (final page in pages.whereType<int>()) {
+      if (page > last) last = page;
+    }
+    return last;
+  }
+
+  return lastPage(candidatePages) < lastPage(currentPages);
+}
+
+Map<String, DocumentItem> _compactPass(
+  Project project,
+  List<DocumentItem> movable,
+  bool rotate, {
+  required LayoutOrder orderOverride,
+}) {
   final area = project.paper.printable;
+  final movableIds = {for (final item in movable) item.id};
   final ids = {
     for (final item in movable)
       if (_fitting(item, area, rotate) != null) item.id,
@@ -365,9 +920,12 @@ Map<String, DocumentItem> _compact(
   var current = project.copyWith(
     items: [
       for (final item in project.items)
-        movable.any((m) => m.id == item.id)
-            ? item.copyWith(unplaced: true)
-            : item,
+        if (movableIds.contains(item.id))
+          item.copyWith(unplaced: true)
+        else if (item.pageIndex == null && item.sizeConfirmed)
+          item.copyWith(locked: true)
+        else
+          item,
     ],
   );
   final placed = <String, DocumentItem>{};
@@ -383,6 +941,7 @@ Map<String, DocumentItem> _compact(
       allowRotation: rotate,
       onlyUnplaced: true,
       pageIndex: page,
+      orderOverride: orderOverride,
     );
     var progress = false;
     for (final item in proposal.result.items) {

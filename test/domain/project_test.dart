@@ -332,7 +332,10 @@ void main() {
 
   test('size catalog and arrangement strategy round-trip with the project', () {
     final project = projectFixture(assets: [assetFixture()]).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
+      layout: LayoutSettings(
+        strategy: ArrangementStrategy.compact,
+        autoFlow: false,
+      ),
       catalog: const DocumentSizeCatalog().copyWith(
         residenceCard: const PhysicalSizeMm(90, 60),
         rationCard: const PhysicalSizeMm(50, 280),
@@ -340,6 +343,7 @@ void main() {
     );
     final restored = Project.fromJson(jsonDecode(jsonEncode(project.toJson())));
     expect(restored.layout.strategy, ArrangementStrategy.compact);
+    expect(restored.layout.autoFlow, isFalse);
     expect(restored.catalog.residenceCard.width, 90);
     expect(restored.catalog.residenceCard.height, 60);
     expect(restored.catalog.rationCard.height, 280);
@@ -350,9 +354,14 @@ void main() {
     final json = projectFixture(assets: [assetFixture()]).toJson()
       ..['schemaVersion'] = 3
       ..remove('catalog');
-    (json['layout']! as Map<String, Object?>).remove('strategy');
+    final oldLayout = json['layout']! as Map<String, Object?>;
+    oldLayout
+      ..remove('strategy')
+      ..remove('autoFlow');
     final migrated = Project.fromJson(jsonDecode(jsonEncode(json)));
     expect(migrated.layout.strategy, ArrangementStrategy.ordered);
+    expect(migrated.layout.arrangementStrategy, ArrangementStrategy.ordered);
+    expect(migrated.layout.autoFlow, isTrue);
     expect(
       migrated.catalog.residenceCard.width,
       DocumentSizeCatalog.defaultResidenceCard.width,
@@ -362,6 +371,35 @@ void main() {
       DocumentSizeCatalog.defaultRationCard.height,
     );
     expect(migrated.toJson()['schemaVersion'], Project.schemaVersion);
+  });
+
+  test('toggling autoFlow preserves an absent legacy strategy choice', () {
+    final json = projectFixture(assets: [assetFixture()]).toJson();
+    (json['layout']! as Map<String, Object?>)
+      ..remove('strategy')
+      ..remove('autoFlow');
+    final legacy = Project.fromJson(jsonDecode(jsonEncode(json)));
+
+    expect(legacy.layout.strategyChosen, isFalse);
+    expect(legacy.layout.arrangementStrategy, ArrangementStrategy.ordered);
+    final paused = legacy.copyWith(
+      layout: legacy.layout.copyWith(autoFlow: false),
+    );
+    expect(paused.layout.autoFlow, isFalse);
+    expect(paused.layout.strategyChosen, isFalse);
+    expect(paused.layout.arrangementStrategy, ArrangementStrategy.ordered);
+    expect(
+      Project.fromJson(
+        jsonDecode(jsonEncode(paused.toJson())),
+      ).layout.arrangementStrategy,
+      ArrangementStrategy.ordered,
+    );
+    expect(
+      legacy.layout
+          .copyWith(strategy: ArrangementStrategy.compact)
+          .strategyChosen,
+      isTrue,
+    );
   });
 
   test('impossible catalog sizes are rejected', () {

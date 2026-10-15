@@ -218,6 +218,7 @@ void main() {
     projects,
     repository ?? assets,
     imageEditor: LocalImageEditor(projects.files),
+    smartRecognitionEnabled: true,
     segmenter: _twoCards,
   );
 

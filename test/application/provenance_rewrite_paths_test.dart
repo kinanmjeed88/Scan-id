@@ -90,6 +90,7 @@ void main() {
       projects,
       assets,
       imageEditor: editor,
+      smartRecognitionEnabled: true,
       segmenter: (bytes) async => segmentDocumentBytes(bytes),
     );
     final bytes = _twoCardPhoto;
@@ -263,6 +264,7 @@ void main() {
         projects,
         assets,
         imageEditor: editor,
+        smartRecognitionEnabled: true,
         segmenter: (bytes) async => segmentDocumentBytes(bytes),
       );
       final bytes = _twoCardPhoto;

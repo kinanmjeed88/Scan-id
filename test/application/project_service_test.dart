@@ -80,6 +80,22 @@ void main() {
   }
 
   test(
+    'new projects select and persist the effective compact strategy',
+    () async {
+      final project = await service.create('ترتيب مضغوط');
+
+      expect(project.layout.strategy, ArrangementStrategy.compact);
+      expect(project.layout.arrangementStrategy, ArrangementStrategy.compact);
+      expect(project.layout.autoFlow, isTrue);
+
+      final reopened = await projects.get(project.id);
+      expect(reopened.layout.arrangementStrategy, ArrangementStrategy.compact);
+      expect(reopened.layout.autoFlow, isTrue);
+      expect(reopened.toJson(), project.toJson());
+    },
+  );
+
+  test(
     'import pipeline commits original, normalized copy and thumbnail then reopens',
     () async {
       final bytes = img.encodePng(img.Image(width: 100, height: 50));

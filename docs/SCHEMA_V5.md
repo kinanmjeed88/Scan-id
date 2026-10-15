@@ -48,7 +48,7 @@ layout, exportProfile, catalog, assets, items`.
 | Object | Existing JSON keys |
 |---|---|
 | `paper` | `orientation, margins{top,right,bottom,left}` |
-| `layout` | `horizontalGap, verticalGap, allowRotation, order, strategy` |
+| `layout` | `horizontalGap, verticalGap, allowRotation, order, strategy?`, `centerCaptures`, `autoFlow` |
 | `exportProfile` | `format, dpi, jpegQuality` |
 | `catalog` | `residenceCard{width,height}, rationCard{width,height}` (National ID & Passport are code constants, not serialized) |
 | `ImageAsset` | `id, captureId, derivedFrom, userAuthoredCrop? (true only), name, originalPath, workingPath, thumbnailPath, width, height, crop, adjustments, transforms` |
@@ -81,6 +81,13 @@ validation, backups and orphan liveness include this raster. Replacements use
 their own sibling raster; the original bytes remain unchanged.
 
 **Do not re-add or rename any of these.** v5 only *adds* optional keys.
+
+The persisted `layout.autoFlow` preference is an additive v5 key. A manual move
+stores the pause in the same project revision as the move, so undo/redo restores
+both together. Projects predating the key read as `true`, matching the editor's
+previous default; new projects also start with it enabled. The existing
+`strategy` field remains optional: an absent choice retains the ordered legacy
+behavior even though new projects explicitly select compact packing.
 
 ---
 

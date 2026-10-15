@@ -11,23 +11,8 @@ import 'shared.dart';
 import 'export_screen.dart';
 import 'layout_screen.dart';
 
-class UpdateInfo {
-  final String currentVersion;
-  final String newVersion;
-  final String summary;
-  final int size;
-  final String downloadUrl;
-
-  UpdateInfo({
-    required this.currentVersion,
-    required this.newVersion,
-    required this.summary,
-    required this.size,
-    required this.downloadUrl,
-  });
-
-  bool get isNewer => newVersion != currentVersion;
-}
+typedef ExternalUrlLauncher = Future<bool> Function(Uri uri);
+typedef SaveBackup = Future<bool> Function(Project project);
 
 /// صفحة الإعدادات المستقلة التي تجمع إدارة البيانات والمعلومات والصيانة.
 class SettingsScreen extends StatefulWidget {
@@ -36,6 +21,9 @@ class SettingsScreen extends StatefulWidget {
     required this.service,
     required this.pickImages,
     required this.recoverStorage,
+    this.launchExternalUrl,
+    this.restoreBackup,
+    this.saveBackup,
     super.key,
   });
 
@@ -43,6 +31,9 @@ class SettingsScreen extends StatefulWidget {
   final ProjectService service;
   final PickImages pickImages;
   final Future<void> Function()? recoverStorage;
+  final ExternalUrlLauncher? launchExternalUrl;
+  final Future<Project?> Function()? restoreBackup;
+  final SaveBackup? saveBackup;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -105,9 +96,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     setState(() => _busy = true);
     try {
-      final saved = await BackupTransfer(
-        widget.service.backups!,
-      ).save(_project);
+      final saved = widget.saveBackup == null
+          ? await BackupTransfer(widget.service.backups!).save(_project)
+          : await widget.saveBackup!.call(_project);
       if (mounted) {
         showMessage(
           context,
@@ -129,21 +120,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'إعادة إنشاء النسخ المعالجة؟',
           'ستنشأ نسخ جديدة من الأصول باستخدام وصفات القص المحفوظة. تبقى النسخ القديمة والأصول ومقاسات الورقة؛ راجع الصور الناتجة. إذا كان الأصل مفقوداً أو فاسداً فاستعد نسختك الاحتياطية.',
           confirmLabel: 'إعادة إنشاء النسخ',
-        ) &&
-        mounted) {
-      setState(() => _busy = true);
-      try {
-        await widget.service.recovery!.rebuildDerived(_project);
-        if (mounted) {
-          showMessage(context, 'حُدّثت النسخ المعالجة.');
-        }
-      } catch (error) {
-        if (mounted) {
-          showMessage(context, userError(error));
-        }
-      } finally {
-        if (mounted) setState(() => _busy = false);
+        ) ||
+        !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.service.recovery!.rebuildDerived(_project);
+      if (mounted) {
+        showMessage(context, 'حُدّثت النسخ المعالجة.');
       }
+    } catch (error) {
+      if (mounted) {
+        showMessage(context, userError(error));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -232,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _openLayout() async {
     if (_busy || !mounted) return;
-    await Navigator.of(context).push<void>(
+    final updated = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
         builder: (_) => LayoutScreen(
           project: _project,
@@ -241,6 +233,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+    if (mounted && updated != null) {
+      setState(() => _project = updated);
+    }
   }
 
   Future<void> _openExport() async {
@@ -400,7 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 4),
             const Text(
               'نسخة احتياطية كاملة، واستعادة النسخة الاحتياطية، واسترداد قاعدة المشاريع من نقاط الحفظ، '
-              'ومaintenance المساحة والملفات غير المرتبطة.',
+              'وصيانة المساحة والملفات غير المرتبطة.',
             ),
             const SizedBox(height: 12),
             const InfoBanner(
@@ -413,13 +408,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                if (widget.service.backups != null)
+                if (widget.service.backups != null || widget.saveBackup != null)
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _backup,
                     icon: const Icon(Icons.backup_outlined),
                     label: const Text('نسخة احتياطية كاملة'),
                   ),
-                if (widget.service.backups != null)
+                if (widget.service.backups != null ||
+                    widget.restoreBackup != null)
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _restoreBackup,
                     icon: const Icon(Icons.restore),
@@ -435,7 +431,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _recoverCapture,
                     icon: const Icon(Icons.history),
-                    label: const Text('استرداد تقاط معلق'),
+                    label: const Text('استرداد التقاط معلق'),
                   ),
                 OutlinedButton.icon(
                   onPressed: _busy ? null : _maintenance,
@@ -500,7 +496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 12),
-            _ContactCards(),
+            _ContactCards(launchExternalUrl: widget.launchExternalUrl),
             const SizedBox(height: 8),
             const InfoBanner(
               tone: BannerTone.info,
@@ -521,34 +517,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.update_outlined, size: 24),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'تحديث التطبيق',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        'فحص التحديثات المتاحة',
-                        style: TextStyle(color: Color(0xFF666666)),
-                      ),
-                    ],
+                Icon(Icons.update_outlined, size: 24),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'تحديث التطبيق',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _UpdateInfo(
-              currentVersion: '0.1.0',
-              onCheckUpdate: _checkForUpdates,
+            const SizedBox(height: 12),
+            const InfoBanner(
+              tone: BannerTone.caution,
+              message:
+                  'التحديث الهوائي غير متاح في هذا الإصدار. لم يُجرَ فحص أو تنزيل أو تثبيت؛ استخدم قناة التوزيع الرسمية عند توفر إصدار أحدث.',
             ),
           ],
         ),
@@ -585,7 +570,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     setState(() => _busy = true);
     try {
-      final project = await BackupTransfer(widget.service.backups!).restore();
+      final project = widget.restoreBackup == null
+          ? await BackupTransfer(widget.service.backups!).restore()
+          : await widget.restoreBackup!.call();
       if (mounted && project != null) {
         showMessage(context, 'استُعيد المشروع كاملاً كنسخة مستقلة.');
         Navigator.pop(context);
@@ -597,78 +584,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _checkForUpdates() async {
-    if (_busy || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      final updateInfo = await _fetchUpdateInfo();
-      if (!mounted) return;
-
-      if (updateInfo == null) {
-        showMessage(context, 'لا يوجد تحديث متاح. أنت تستخدم أحدث إصدار.');
-        return;
-      }
-
-      if (updateInfo.isNewer) {
-        final decided = await showDialog<bool>(
-          context: context,
-          builder: (context) => _UpdateDialog(
-            currentVersion: updateInfo.currentVersion,
-            newVersion: updateInfo.newVersion,
-            summary: updateInfo.summary,
-            size: updateInfo.size.toString(),
-            onDownload: () {
-              Navigator.pop(context, true);
-            },
-          ),
-        );
-        if (decided == true && mounted) {
-          await _downloadAndInstallUpdate(updateInfo.downloadUrl);
-        }
-      } else {
-        showMessage(context, 'لا يوجد تحديث متاح. أنت تستخدم أحدث إصدار.');
-      }
-    } catch (error) {
-      if (mounted) {
-        showMessage(context, 'فشل فحص التحديث: ${userError(error)}');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<UpdateInfo?> _fetchUpdateInfo() async {
-    // في بيئة الإنتاج، يستخدم هذا GitHub Releases
-    // للتطبيق التجريبي، نرجع null لمحاكاة "لا يوجد تحديث"
-    await Future<void>.delayed(const Duration(seconds: 1));
-    return null;
-  }
-
-  Future<void> _downloadAndInstallUpdate(String url) async {
-    if (!mounted) return;
-    showMessage(context, 'جارٍ التحقق من ملف التحديث...');
-
-    // التحقق من التوقيع/البصمة قبل التثبيت
-    final verified = await _verifyUpdateFile(url);
-    if (!verified) {
-      if (mounted) {
-        showMessage(context, 'فشل التحقق من ملف التحديث. لا يتم التثبيت.');
-      }
-      return;
-    }
-    if (!mounted) return;
-
-    showMessage(context, 'تم التحقق من ملف التحديث. سيتم تثبيته الآن.');
-    // on Android: use the package_installer or similar
-    // on Windows: launch the installer
-  }
-
-  Future<bool> _verifyUpdateFile(String url) async {
-    // التحقق من سلامة الملف (SHA256، التوقيع، إلخ)
-    await Future<void>.delayed(const Duration(seconds: 1));
-    return true;
   }
 }
 
@@ -715,35 +630,45 @@ class _DeveloperInfo extends StatelessWidget {
             color: Color(0xFF12685e),
           ),
           const SizedBox(width: 8),
-          Text(status, style: const TextStyle(fontSize: 13)),
+          Expanded(child: Text(status, style: const TextStyle(fontSize: 13))),
         ],
       ),
     ],
   );
 }
 
+Future<bool> _launchExternally(Uri uri) {
+  // ignore: deprecated_member_use
+  return launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
 class _ContactCards extends StatelessWidget {
-  const _ContactCards();
+  const _ContactCards({this.launchExternalUrl});
+
+  final ExternalUrlLauncher? launchExternalUrl;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
     children: [
       _ContactCard(
         icon: Icons.play_circle_outline,
         label: 'YouTube',
         url: 'https://youtube.com/@kinanmajeed?si=I2yuzJT2rRnEHLVg',
+        launchExternalUrl: launchExternalUrl,
       ),
-      const SizedBox(width: 12),
       _ContactCard(
         icon: Icons.chat_bubble_outline,
         label: 'قناة Telegram',
         url: 'https://t.me/techtouch7',
+        launchExternalUrl: launchExternalUrl,
       ),
-      const SizedBox(width: 12),
       _ContactCard(
         icon: Icons.chat_outlined,
         label: 'مراسلة المطور',
         url: 'https://t.me/kinanmjeed',
+        launchExternalUrl: launchExternalUrl,
       ),
     ],
   );
@@ -754,14 +679,17 @@ class _ContactCard extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.url,
+    this.launchExternalUrl,
   });
 
   final IconData icon;
   final String label;
   final String url;
+  final ExternalUrlLauncher? launchExternalUrl;
 
   @override
   Widget build(BuildContext context) => Card(
+    margin: EdgeInsets.zero,
     clipBehavior: Clip.antiAlias,
     child: InkWell(
       onTap: () => _openUrl(context, url),
@@ -796,159 +724,21 @@ class _ContactCard extends StatelessWidget {
     ),
   );
 
-  void _openUrl(BuildContext context, String url) {
+  Future<void> _openUrl(BuildContext context, String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      showMessage(context, 'الرابط غير صالح.');
+      return;
+    }
     try {
-      final uri = Uri.parse(url);
-      if (uri.isScheme('http') || uri.isScheme('https')) {
-        // ignore: deprecated_member_use
-        launchUrl(uri, mode: LaunchMode.externalApplication);
+      final opened = await (launchExternalUrl ?? _launchExternally)(uri);
+      if (!opened && context.mounted) {
+        showMessage(context, 'لم يتمكن النظام من فتح الرابط.');
       }
-    } catch (e) {
-      showMessage(context, 'تعذر فتح الرابط: $e');
+    } catch (_) {
+      if (context.mounted) showMessage(context, 'تعذر فتح الرابط.');
     }
   }
-}
-
-class _UpdateInfo extends StatefulWidget {
-  const _UpdateInfo({
-    required this.currentVersion,
-    required this.onCheckUpdate,
-  });
-
-  final String currentVersion;
-  final Future<void> Function() onCheckUpdate;
-
-  @override
-  State<_UpdateInfo> createState() => _UpdateInfoState();
-}
-
-class _UpdateInfoState extends State<_UpdateInfo> {
-  String _status = 'جارٍ التحقق...';
-  bool _checking = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkUpdate();
-  }
-
-  Future<void> _checkUpdate() async {
-    setState(() {
-      _status = 'جارٍ التحقق...';
-      _checking = true;
-    });
-    await widget.onCheckUpdate();
-    if (mounted) {
-      setState(() {
-        _status = 'تم التحقق من التحديثات';
-        _checking = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text('الإصدار الحالي'),
-        subtitle: Text(widget.currentVersion),
-        leading: const Icon(Icons.info_outline),
-      ),
-      const Divider(height: 1),
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('فحص التحديثات'),
-        subtitle: Text(_status),
-        leading: Icon(
-          _checking ? Icons.sync : Icons.check_circle_outline,
-          color: _checking ? null : const Color(0xFF12685e),
-        ),
-        trailing: _checking
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : null,
-        onTap: _checking ? null : _checkUpdate,
-      ),
-    ],
-  );
-}
-
-class _UpdateDialog extends StatelessWidget {
-  const _UpdateDialog({
-    required this.currentVersion,
-    required this.newVersion,
-    required this.summary,
-    required this.size,
-    required this.onDownload,
-  });
-
-  final String currentVersion;
-  final String newVersion;
-  final String? summary;
-  final String? size;
-  final VoidCallback onDownload;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('تحديث متاح'),
-    content: SizedBox(
-      width: 400,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'توجد نسخة أحدث من التطبيق.',
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 12),
-          _UpdateInfoRow(label: 'الإصدار الحالي', value: currentVersion),
-          _UpdateInfoRow(label: 'الإصدار الجديد', value: newVersion),
-          if (summary != null) ...[
-            const Divider(),
-            Text(
-              'ملخص التغييرات:',
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 4),
-            Text(summary!, style: const TextStyle(fontSize: 13)),
-          ],
-          if (size != null) ...[
-            const Divider(),
-            _UpdateInfoRow(label: 'حجم الملف', value: size!),
-          ],
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context, false),
-        child: const Text('إلغاء'),
-      ),
-      FilledButton(onPressed: onDownload, child: const Text('تحميل التحديث')),
-    ],
-  );
-}
-
-class _UpdateInfoRow extends StatelessWidget {
-  const _UpdateInfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      children: [
-        Text(label, style: const TextStyle(color: Color(0xFF666666))),
-        const Spacer(),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
-      ],
-    ),
-  );
 }

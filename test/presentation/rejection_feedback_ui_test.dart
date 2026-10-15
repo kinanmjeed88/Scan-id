@@ -106,6 +106,7 @@ void main() {
       projects,
       assets,
       imageEditor: LocalImageEditor(projects.files),
+      smartRecognitionEnabled: true,
       segmenter: segmenter,
     );
 

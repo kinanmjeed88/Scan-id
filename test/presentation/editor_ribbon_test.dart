@@ -647,6 +647,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(itemIn(editor.saved, 'card').x, closeTo(70, .05));
       expect(itemIn(editor.saved, 'card').y, closeTo(5, .05));
+      expect(editor.saved.layout.autoFlow, isFalse);
       expect(_button(tester, 'rb-autoflow').selected, isFalse);
 
       await tester.drag(
@@ -665,6 +666,46 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('manual layout preference survives a fresh editor session', (
+    tester,
+  ) async {
+    final first = await EditorHarness.pump(
+      tester,
+      project: editorProject(
+        items: [
+          placedDocument('card', 'asset1', DocumentKind.unifiedNationalId),
+          placedDocument(
+            'passport',
+            'asset2',
+            DocumentKind.passport,
+            x: 40,
+            y: 150,
+          ),
+        ],
+      ),
+    );
+    await tapKey(tester, const Key('page-item-card'));
+    final scale = pageScale(tester);
+    await tester.drag(
+      find.byKey(const Key('page-item-card')),
+      Offset(10 * scale, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(first.saved.layout.autoFlow, isFalse);
+    expect(_button(tester, 'rb-autoflow').selected, isFalse);
+    await tapKey(tester, const Key('rb-undo'));
+    expect(first.saved.layout.autoFlow, isTrue);
+    await tapKey(tester, const Key('rb-redo'));
+    expect(first.saved.layout.autoFlow, isFalse);
+
+    final saved = first.saved;
+    await tester.pumpWidget(const SizedBox.shrink());
+    final reopened = await EditorHarness.pump(tester, project: saved);
+    expect(reopened.saved.layout.autoFlow, isFalse);
+    expect(_button(tester, 'rb-autoflow').selected, isFalse);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 // ---------------------------------------------------------------------------

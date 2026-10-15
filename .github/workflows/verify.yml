@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   # Quality gate (format, analyze, tests, independent export audit) followed
-  # by the Android release APK — the only Android deliverable.
+  # by a clearly labelled Android debug smoke artifact. Release APKs are built only
+  # by the protected, signed-release workflow.
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -46,17 +47,31 @@ jobs:
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests
         run: python tool/ci_gate.py test flutter test --reporter expanded
+      - name: Ensure release build rejects missing signing credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if release_output="$(flutter build apk --release 2>&1)"; then
+            echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
+            exit 1
+          fi
+          printf '%s\n' "$release_output"
+          if ! grep -Fq 'Release signing is required, but Android signing values are missing.' <<< "$release_output" &&
+             ! grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' <<< "$release_output"; then
+            echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
+            exit 1
+          fi
       - name: Export audit dependencies
         run: python -m pip install PyMuPDF==1.26.5 Pillow==11.3.0
       - name: Independently validate exported documents
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
-      - name: Build Android release APK
-        run: python tool/ci_gate.py android-build flutter build apk --release
-      - name: Android APK
+      - name: Build Android debug APK (CI smoke test)
+        run: python tool/ci_gate.py android-build flutter build apk --debug
+      - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:
-          name: scan-id-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: scan-id-android-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
 
   # The Windows deliverable: the self-contained release folder, published as

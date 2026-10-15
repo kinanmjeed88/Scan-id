@@ -5,7 +5,9 @@ import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/page_layout.dart';
+import 'package:scan_id/domain/packing.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 
 import '../fixtures.dart';
 
@@ -34,11 +36,78 @@ DocumentItem _doc(
   );
 }
 
-Project _project(List<DocumentItem> items, {double margin = 5}) =>
+DocumentItem _sizedDoc(
+  String id,
+  double width,
+  double height, {
+  int? page = 0,
+  double rotation = 0,
+  bool locked = false,
+  String? groupId,
+}) => DocumentItem(
+  id: id,
+  assetId: 'asset1',
+  x: 0,
+  y: 0,
+  width: width,
+  height: height,
+  pageIndex: page,
+  rotation: rotation,
+  locked: locked,
+  documentKind: DocumentKind.other,
+  sizeConfirmed: true,
+  groupId: groupId,
+);
+
+Project _project(
+  List<DocumentItem> items, {
+  double margin = 5,
+  List<LayoutGroup> layoutGroups = const [],
+  List<DocumentRecord> documents = const [],
+}) =>
     projectFixture(
       assets: [assetFixture()],
       items: items,
-    ).copyWith(paper: PaperSettings(margins: Margins.all(margin)));
+      documents: documents,
+      layoutGroups: layoutGroups,
+    ).copyWith(
+      paper: PaperSettings(margins: Margins.all(margin)),
+      items: items,
+      layoutGroups: layoutGroups,
+    );
+
+DocumentRecord _linkedRecord({
+  required String id,
+  required String sideId,
+  required String itemId,
+  required SideKind side,
+  String? pairedDocumentId,
+}) => DocumentRecord(
+  id: id,
+  sourceImageId: 'asset1',
+  sides: [
+    DocumentSide(
+      id: sideId,
+      side: side,
+      processedAsset: ProcessedAssetRef(
+        workingPath: 'projects/project1/assets/asset1/processed/$id.png',
+        thumbnailPath:
+            'projects/project1/assets/asset1/processed/$id-thumb.jpg',
+        width: 80,
+        height: 50,
+      ),
+    ),
+  ],
+  pairing: pairedDocumentId == null ? PairingState.single : PairingState.paired,
+  pairedDocumentId: pairedDocumentId,
+  provenance: Provenance(
+    sourceImageId: 'asset1',
+    detectionIds: ['detection-$id'],
+    processedAssetVersion: 'test-v1',
+    pipelineVersion: 'test-v1',
+    layoutItemIds: [itemId],
+  ),
+);
 
 void main() {
   test('categories are laid out in order: ID, residence, passport, ration', () {
@@ -219,6 +288,397 @@ void main() {
     expect(r.items.every((e) => r.paper.printable.contains(e.bounds)), isTrue);
   });
 
+  test(
+    'compact retries mixed sizes only when the largest-first pass improves packing',
+    () {
+      final project =
+          _project([
+            _sizedDoc('small-tall', 60, 90, page: null),
+            _sizedDoc('medium-wide', 90, 60, page: null),
+            _sizedDoc('full-width', 180, 60, page: null),
+          ]).copyWith(
+            paper: PaperSettings(
+              margins: Margins(top: 58.5, right: 15, bottom: 58.5, left: 15),
+            ),
+            layout: LayoutSettings(
+              strategy: ArrangementStrategy.compact,
+              horizontalGap: 0,
+              verticalGap: 0,
+            ),
+          );
+
+      final inputOrder = proposePacking(
+        project,
+        includeLocked: false,
+        allowRotation: false,
+        pageIndex: 0,
+      );
+      final largestFirst = proposePacking(
+        project,
+        includeLocked: false,
+        allowRotation: false,
+        pageIndex: 0,
+        orderOverride: LayoutOrder.area,
+      );
+      expect(
+        inputOrder.result.items.where((item) => item.pageIndex == 0),
+        hasLength(2),
+      );
+      expect(
+        largestFirst.result.items.where((item) => item.pageIndex == 0),
+        hasLength(3),
+      );
+
+      final result = arrangeDocuments(project);
+      expect(result.unplaced, isEmpty);
+      expect(result.result.pageCount, 1);
+      expect(result.result.items.every((item) => item.pageIndex == 0), isTrue);
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
+
+  test(
+    'keep-together groups occupy one valid page in ordered and compact modes',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        for (final arrangement in GroupArrangement.values) {
+          final suffix = '${strategy.name}-${arrangement.name}';
+          final groupId = 'pair-$suffix';
+          final group = LayoutGroup(
+            id: groupId,
+            itemIds: ['front-$suffix', 'back-$suffix'],
+            arrangement: arrangement,
+          );
+          final project = _project(
+            [
+              _sizedDoc('front-$suffix', 80, 50, groupId: groupId),
+              _sizedDoc('back-$suffix', 80, 50, groupId: groupId),
+            ],
+            layoutGroups: [group],
+          ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+          final result = arrangeDocuments(project);
+          final front = PageLayout.item(result.result, 'front-$suffix');
+          final back = PageLayout.item(result.result, 'back-$suffix');
+          expect(result.unplaced, isEmpty, reason: '$strategy, $arrangement');
+          expect(
+            front.pageIndex,
+            back.pageIndex,
+            reason: '$strategy, $arrangement',
+          );
+          if (arrangement == GroupArrangement.stacked) {
+            expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
+          } else {
+            expect(back.bounds.x - front.bounds.right, closeTo(5, 1e-6));
+          }
+          expect(
+            inspectLayout(result.result),
+            isEmpty,
+            reason: '$strategy, $arrangement',
+          );
+        }
+      }
+    },
+  );
+
+  test('group packing is deterministic in saved item order', () {
+    for (final strategy in ArrangementStrategy.values) {
+      final groupA = LayoutGroup(id: 'group-a', itemIds: ['a-front', 'a-back']);
+      final groupB = LayoutGroup(id: 'group-b', itemIds: ['b-front', 'b-back']);
+      final items = [
+        _sizedDoc('b-front', 40, 30, groupId: groupB.id),
+        _sizedDoc('b-back', 40, 30, groupId: groupB.id),
+        _sizedDoc(
+          'passport',
+          60,
+          40,
+        ).copyWith(documentKind: DocumentKind.passport),
+        _sizedDoc(
+          'national-id',
+          50,
+          30,
+        ).copyWith(documentKind: DocumentKind.unifiedNationalId),
+        _sizedDoc('a-front', 40, 30, groupId: groupA.id),
+        _sizedDoc('a-back', 40, 30, groupId: groupA.id),
+      ];
+      Project arrange(List<LayoutGroup> groups) => _project(
+        items,
+        layoutGroups: groups,
+      ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+      final groupsInMetadataOrder = arrange([groupA, groupB]);
+      final groupsReversed = arrange([groupB, groupA]);
+      final first = arrangeDocuments(groupsInMetadataOrder).result;
+      final second = arrangeDocuments(groupsReversed).result;
+      final firstPositions = {
+        for (final item in first.items)
+          item.id: [item.x, item.y, item.pageIndex, item.rotation],
+      };
+
+      expect(
+        {
+          for (final item in second.items)
+            item.id: [item.x, item.y, item.pageIndex, item.rotation],
+        },
+        firstPositions,
+        reason: '$strategy: group storage order must not change placement',
+      );
+      if (strategy == ArrangementStrategy.ordered) {
+        expect(
+          PageLayout.item(first, 'national-id').y,
+          lessThan(PageLayout.item(first, 'passport').y),
+          reason: 'ordered mode preserves ungrouped category order',
+        );
+      }
+      expect(
+        PageLayout.item(first, 'b-back').bounds.y,
+        greaterThan(PageLayout.item(first, 'b-front').bounds.y),
+        reason: '$strategy: members retain their saved input order',
+      );
+      expect(
+        PageLayout.item(first, 'a-back').bounds.y,
+        greaterThan(PageLayout.item(first, 'a-front').bounds.y),
+        reason: '$strategy: members retain their saved input order',
+      );
+    }
+  });
+
+  test('ordered mode sorts a group with ordinary category items', () {
+    for (final kinds in [
+      (DocumentKind.unifiedNationalId, DocumentKind.passport),
+      (DocumentKind.passport, DocumentKind.unifiedNationalId),
+    ]) {
+      const groupId = 'category-pair';
+      final group = LayoutGroup(
+        id: groupId,
+        itemIds: const ['pair-front', 'pair-back'],
+      );
+      final groupKind = kinds.$1;
+      final itemKind = kinds.$2;
+      final plain = _sizedDoc('plain', 40, 30).copyWith(documentKind: itemKind);
+      final front = _sizedDoc(
+        'pair-front',
+        30,
+        20,
+        groupId: groupId,
+      ).copyWith(documentKind: groupKind);
+      final back = _sizedDoc(
+        'pair-back',
+        30,
+        20,
+        groupId: groupId,
+      ).copyWith(documentKind: groupKind);
+      final project = _project(
+        [plain, back, front],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.ordered));
+      final result = arrangeDocuments(project).result;
+      final plainBounds = PageLayout.item(result, 'plain').bounds;
+      final groupTop = math.min(
+        PageLayout.item(result, 'pair-front').bounds.y,
+        PageLayout.item(result, 'pair-back').bounds.y,
+      );
+      final groupBottom = math.max(
+        PageLayout.item(result, 'pair-front').bounds.bottom,
+        PageLayout.item(result, 'pair-back').bounds.bottom,
+      );
+
+      if (groupKind.order < itemKind.order) {
+        expect(groupBottom, lessThan(plainBounds.y));
+      } else {
+        expect(plainBounds.bottom, lessThan(groupTop));
+      }
+    }
+  });
+
+  test(
+    'linked recognition records remain valid while a keep-together pair is packed',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        const groupId = 'pair-rec-back';
+        const frontId = 'front-item';
+        const backId = 'back-item';
+        final group = LayoutGroup(id: groupId, itemIds: [frontId, backId]);
+        final front = _sizedDoc(
+          frontId,
+          80,
+          50,
+          page: null,
+          groupId: groupId,
+        ).copyWith(documentId: 'rec-front', sideId: 'side-front');
+        final back = _sizedDoc(
+          backId,
+          80,
+          50,
+          page: null,
+          groupId: groupId,
+        ).copyWith(documentId: 'rec-back', sideId: 'side-back');
+        final obstacle = _sizedDoc('linked-obstacle', 40, 40, locked: true)
+            .copyWith(
+              x: 5,
+              y: 5,
+              documentId: 'rec-obstacle',
+              sideId: 'side-obstacle',
+            );
+        final project = _project(
+          [front, back, obstacle],
+          layoutGroups: [group],
+          documents: [
+            _linkedRecord(
+              id: 'rec-front',
+              sideId: 'side-front',
+              itemId: frontId,
+              side: SideKind.front,
+              pairedDocumentId: 'rec-back',
+            ),
+            _linkedRecord(
+              id: 'rec-back',
+              sideId: 'side-back',
+              itemId: backId,
+              side: SideKind.back,
+              pairedDocumentId: 'rec-front',
+            ),
+            _linkedRecord(
+              id: 'rec-obstacle',
+              sideId: 'side-obstacle',
+              itemId: 'linked-obstacle',
+              side: SideKind.unknown,
+            ),
+          ],
+        ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+        final result = arrangeDocuments(project);
+        final arrangedFront = PageLayout.item(result.result, frontId);
+        final arrangedBack = PageLayout.item(result.result, backId);
+        expect(result.unplaced, isEmpty, reason: '$strategy');
+        expect(arrangedFront.pageIndex, arrangedBack.pageIndex);
+        expect(arrangedBack.bounds.y - arrangedFront.bounds.bottom, 5);
+        expect(PageLayout.item(result.result, 'linked-obstacle').x, obstacle.x);
+        expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
+      }
+    },
+  );
+
+  test(
+    'a group with no room on the first page flows together to a new page',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        final group = LayoutGroup(
+          id: 'crowded-pair-${strategy.name}',
+          itemIds: ['crowded-front', 'crowded-back'],
+          arrangement: GroupArrangement.stacked,
+        );
+        final fullPage = _sizedDoc(
+          'full-page',
+          200,
+          287,
+          locked: true,
+        ).copyWith(x: 5, y: 5);
+        final project = _project(
+          [
+            fullPage,
+            _sizedDoc('crowded-front', 80, 50, groupId: group.id),
+            _sizedDoc('crowded-back', 80, 50, groupId: group.id),
+          ],
+          layoutGroups: [group],
+        ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+        final result = arrangeDocuments(project);
+        final front = PageLayout.item(result.result, 'crowded-front');
+        final back = PageLayout.item(result.result, 'crowded-back');
+        expect(front.pageIndex, 1, reason: '$strategy');
+        expect(back.pageIndex, 1, reason: '$strategy');
+        expect(back.bounds.y - front.bounds.bottom, closeTo(5, 1e-6));
+        expect(result.result.pageCount, 2);
+        expect(inspectLayout(result.result), isEmpty, reason: '$strategy');
+      }
+    },
+  );
+
+  test('an indivisible group that cannot fit stays wholly off-sheet', () {
+    for (final strategy in ArrangementStrategy.values) {
+      final group = LayoutGroup(
+        id: 'large-pair',
+        itemIds: ['large-a', 'large-b'],
+        arrangement: GroupArrangement.stacked,
+      );
+      final project = _project(
+        [
+          _sizedDoc('large-a', 200, 200, groupId: group.id),
+          _sizedDoc('large-b', 200, 200, groupId: group.id),
+        ],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: strategy));
+
+      final result = arrangeDocuments(project);
+      expect(result.unplaced.toSet(), {
+        'large-a',
+        'large-b',
+      }, reason: '$strategy');
+      expect(
+        result.result.items.every((item) => item.pageIndex == null),
+        isTrue,
+      );
+      expect(result.result.pageCount, 1);
+      expect(inspectLayout(result.result), isEmpty);
+    }
+  });
+
+  test(
+    'a pinned group member is preserved and its movable partner is not split in',
+    () {
+      final group = LayoutGroup(
+        id: 'locked-pair',
+        itemIds: ['locked-front', 'movable-back'],
+      );
+      final pinned = _sizedDoc(
+        'locked-front',
+        80,
+        50,
+        locked: true,
+        groupId: group.id,
+      ).copyWith(x: 20, y: 30);
+      final project = _project(
+        [pinned, _sizedDoc('movable-back', 80, 50, groupId: group.id)],
+        layoutGroups: [group],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
+
+      final result = arrangeDocuments(project);
+      expect(PageLayout.item(result.result, 'locked-front').x, 20);
+      expect(PageLayout.item(result.result, 'locked-front').y, 30);
+      expect(PageLayout.item(result.result, 'movable-back').pageIndex, isNull);
+      expect(result.unplaced, ['movable-back']);
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
+
+  test(
+    'centering tests a rotated item bounds, not its unrotated rectangle',
+    () {
+      final locked = _sizedDoc(
+        'obstacle',
+        10,
+        10,
+        locked: true,
+      ).copyWith(x: 80, y: 110, documentKind: DocumentKind.passport);
+      final rotated = _sizedDoc('rotated', 100, 20, rotation: 45);
+      final project = _project([locked, rotated]).copyWith(
+        layout: LayoutSettings(
+          centerCaptures: true,
+          horizontalGap: 0,
+          verticalGap: 0,
+        ),
+      );
+
+      final result = arrangeDocuments(project).result;
+      final moved = PageLayout.item(result, 'rotated');
+      final obstacle = PageLayout.item(result, 'obstacle');
+      expect(moved.bounds.overlaps(obstacle.bounds), isFalse);
+      expect(result.paper.printable.contains(moved.bounds), isTrue);
+      expect(inspectLayout(result), isEmpty);
+    },
+  );
+
   test('arrangement is deterministic', () {
     final project = _project([
       for (var i = 0; i < 6; i++) _doc('d$i', DocumentKind.values[1 + i % 4]),
@@ -276,6 +736,7 @@ void main() {
       // 250 × 150 mm: wider than the 200 mm printable width, but fits turned.
       _doc('wide', DocumentKind.other).copyWith(width: 250, height: 150),
       _doc('id', DocumentKind.unifiedNationalId),
+      _sizedDoc('locked', 80, 50, page: null, locked: true),
     ]);
     AutoLayoutStatus status(String id, {bool? allowRotation}) =>
         autoLayoutStatus(
@@ -292,6 +753,7 @@ void main() {
     expect(status('wide'), AutoLayoutStatus.tooLarge);
     expect(status('wide', allowRotation: true), AutoLayoutStatus.eligible);
     expect(status('id'), AutoLayoutStatus.eligible);
+    expect(status('locked'), AutoLayoutStatus.locked);
 
     // The arrangement agrees: the too-large document is reported, not
     // scaled, and nothing was on a page to be taken off.
@@ -304,24 +766,46 @@ void main() {
     expect(PageLayout.item(turned.result, 'wide').width, 250);
   });
 
-  // compact strategy as default (when no strategy is specified)
-  test('compact is the default strategy when no strategy is set', () {
-    final project = _project([
-      _doc('a', DocumentKind.unifiedNationalId),
-      _doc('b', DocumentKind.unifiedNationalId),
-    ]);
-    // Default strategy should be compact now
-    expect(project.layout.strategy, ArrangementStrategy.compact);
-  });
+  test(
+    'an unchosen layout records compact but remains effectively ordered',
+    () {
+      final project = _project([
+        _doc('passport', DocumentKind.passport),
+        _doc('id', DocumentKind.unifiedNationalId),
+      ]);
+      expect(project.layout.strategy, ArrangementStrategy.compact);
+      expect(project.layout.strategyChosen, isFalse);
+      expect(project.layout.arrangementStrategy, ArrangementStrategy.ordered);
+
+      final actual = arrangeDocuments(project).result;
+      final ordered = arrangeDocuments(
+        project.copyWith(
+          layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
+        ),
+      ).result;
+      expect(
+        {
+          for (final item in actual.items)
+            item.id: (item.x, item.y, item.pageIndex),
+        },
+        {
+          for (final item in ordered.items)
+            item.id: (item.x, item.y, item.pageIndex),
+        },
+      );
+    },
+  );
 
   // Compact packs more documents per page than ordered
   test(
     'compact packs more documents per page than ordered for same documents',
     () {
-      final project = _project([
-        for (var i = 0; i < 10; i++)
-          _doc('c$i', DocumentKind.unifiedNationalId),
-      ]);
+      final project = _project(
+        [
+          for (var i = 0; i < 10; i++)
+            _doc('c$i', DocumentKind.unifiedNationalId),
+        ],
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
       final orderedResult = arrangeDocuments(
         project.copyWith(
@@ -543,7 +1027,7 @@ void main() {
   test('compact reduces page count for many documents', () {
     final project = _project([
       for (var i = 0; i < 50; i++) _doc('x$i', DocumentKind.unifiedNationalId),
-    ]);
+    ]).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
     final result = arrangeDocuments(project);
     expect(result.unplaced, isEmpty);
@@ -564,7 +1048,9 @@ void main() {
       for (var i = 0; i < 10; i++) _doc('item-$i', DocumentKind.values[i % 4]),
     ];
 
-    final project = _project(items);
+    final project = _project(
+      items,
+    ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
     final result = arrangeDocuments(project);
 
     final resultIds = result.result.items.map((e) => e.id).toSet();

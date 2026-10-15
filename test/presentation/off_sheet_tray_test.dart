@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 
 import 'editor_harness.dart';
 
@@ -16,12 +18,38 @@ void main() {
   testWidgets(
     'the tray and status bar say why each document is out of the arrangement',
     (tester) async {
-      final editor = await EditorHarness.pump(tester, project: _mixed());
+      final editor = await EditorHarness.pump(
+        tester,
+        project: _mixed(),
+        size: const Size(2200, 900),
+      );
 
       expect(_reason(tester, 'unknown'), 'sizeUnconfirmed');
       expect(_reason(tester, 'huge'), 'tooLarge');
       // A copy that only lacked room fits on a page: it is not "too large".
       expect(_reason(tester, 'copy'), 'eligible');
+      expect(_reason(tester, 'pair-a'), 'groupNeedsSpace');
+      expect(
+        autoLayoutStatus(editor.saved, itemIn(editor.saved, 'pair-b')),
+        AutoLayoutStatus.groupNeedsSpace,
+      );
+      final pairTooltip = tester.widget<Tooltip>(
+        find.descendant(
+          of: find.byKey(const Key('offsheet-pair-a')),
+          matching: find.byType(Tooltip),
+        ),
+      );
+      expect(pairTooltip.message, contains('لا تُقسَّم المجموعة'));
+      expect(_reason(tester, 'locked'), 'locked');
+      const lockedText = 'مثبت · خارج الترتيب التلقائي';
+      expect(find.text(lockedText), findsOneWidget);
+      final lockedTooltip = tester.widget<Tooltip>(
+        find.ancestor(
+          of: find.text(lockedText),
+          matching: find.byType(Tooltip),
+        ),
+      );
+      expect(lockedTooltip.message, contains('أزل القفل'));
       // Counted by state, wherever the document is: the off-sheet unknown
       // one and the placed one without a confirmed size. Only the 250 mm
       // document is too large; the copy that merely lacked room is not.
@@ -37,6 +65,12 @@ void main() {
       expect(itemIn(saved, 'copy').pageIndex, isNotNull);
       expect(itemIn(saved, 'huge').pageIndex, isNull);
       expect(itemIn(saved, 'huge').width, 250);
+      expect(itemIn(saved, 'pair-a').pageIndex, isNull);
+      expect(itemIn(saved, 'pair-b').pageIndex, isNull);
+      expect(
+        find.textContaining('مستمسك بقي خارج الورقة؛ راجع حالة كل عنصر'),
+        findsOneWidget,
+      );
       expect(_reason(tester, 'legacy'), 'sizeUnconfirmed');
       expect(find.byKey(const Key('offsheet-copy')), findsNothing);
       expect(
@@ -53,6 +87,9 @@ void main() {
 /// A placed card, plus one document of each off-sheet kind and one placed
 /// document whose size was never confirmed (as older data can contain).
 Project _mixed() => editorProject(
+  layoutGroups: [
+    LayoutGroup(id: 'blocked-pair', itemIds: ['pair-a', 'pair-b']),
+  ],
   items: [
     placedDocument('card', 'asset1', DocumentKind.unifiedNationalId),
     DocumentItem(
@@ -76,6 +113,19 @@ Project _mixed() => editorProject(
       'asset1',
       DocumentKind.unifiedNationalId,
     ).copyWith(unplaced: true),
+    for (final id in ['pair-a', 'pair-b'])
+      DocumentItem(
+        id: id,
+        assetId: 'asset2',
+        x: 0,
+        y: 0,
+        width: 160,
+        height: 160,
+        pageIndex: null,
+        documentKind: DocumentKind.other,
+        sizeConfirmed: true,
+        groupId: 'blocked-pair',
+      ),
     DocumentItem(
       id: 'legacy',
       assetId: 'asset4',
@@ -84,6 +134,11 @@ Project _mixed() => editorProject(
       width: 70,
       height: 45,
     ),
+    placedDocument(
+      'locked',
+      'asset4',
+      DocumentKind.unifiedNationalId,
+    ).copyWith(unplaced: true, locked: true),
   ],
 );
 

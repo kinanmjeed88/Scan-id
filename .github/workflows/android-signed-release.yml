@@ -10,7 +10,15 @@ jobs:
   android-signed-release:
     name: Signed Android release APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # This cap only has to cover the bounded steps below: ~1 min job setup,
+    # ~1 min signing diagnostics, ~2 min dependency resolution, 20 min cap on NDK
+    # provisioning (which itself stops the download at 900s), 15 min cap on the
+    # release build, ~5 min for signature verification and artifact upload.
+    # The previous 30-minute cap was consumed by an unbounded NDK download that
+    # AGP performed *inside* the release build step (run 38748716360: the build
+    # step ran 29m44s and the job was cancelled with no diagnosis, leaving only
+    # the signature report artifact).
+    timeout-minutes: 45
     # Store the four KEYSTORE_* values as secrets in this protected environment.
     environment: android-signing
     env:
@@ -18,6 +26,23 @@ jobs:
       # keystore (generated 2026-10-15, RSA-4096).
       # This is a public certificate fingerprint, not a secret.
       EXPECTED_CERT_SHA256: '3e9c3d988ab491a60a570b4c70de79c1eba61f038893d3cd2a4ea29bb913c74a'
+      # The exact NDK that AGP resolves for android/app/build.gradle.kts, which
+      # forwards flutter.ndkVersion (27.0.12077973 in Flutter 3.35.7). The
+      # ubuntu-24.04 runner image ships 27.3.13750724 / 29.0.14206865 /
+      # 30.0.16248370 only, so the first release task that needs the NDK makes
+      # AGP download and extract ~1 GB inside the build step, where it prints
+      # nothing that survives Gradle's captured output. It is therefore
+      # provisioned -- and cached for later runs -- by the bounded steps below.
+      ANDROID_NDK_VERSION: '27.0.12077973'
+      # Directory holding that NDK in the runner image's SDK. Only the cache uses
+      # it; provisioning itself always derives the path from ANDROID_SDK_ROOT and
+      # warns if the two ever diverge.
+      ANDROID_SDK_NDK_CACHE_PATH: /usr/local/lib/android/sdk/ndk
+      # AGP also installs its default CMake next to that NDK on this image --
+      # observed in the debug build log of run 38757019049 -- so it is provisioned
+      # and cached the same way instead of being fetched inside a build step.
+      ANDROID_CMAKE_VERSION: '3.22.1'
+      ANDROID_SDK_CMAKE_CACHE_PATH: /usr/local/lib/android/sdk/cmake
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -47,6 +72,15 @@ jobs:
             if [[ -n "$sdk" && -d "$sdk/build-tools" ]]; then
               echo "Build-tools: $(ls "$sdk/build-tools" | tr '\n' ' ')"
             fi
+            if [[ -n "$sdk" && -d "$sdk/ndk" ]]; then
+              echo "NDK versions preinstalled in the image: $(ls "$sdk/ndk" | tr '\n' ' ')"
+            else
+              echo "NDK versions preinstalled in the image: <none>"
+            fi
+            if [[ -n "$sdk" && -d "$sdk/cmdline-tools" ]]; then
+              echo "cmdline-tools: $(ls "$sdk/cmdline-tools" | tr '\n' ' ')"
+            fi
+            echo "Required NDK (flutter.ndkVersion): ${ANDROID_NDK_VERSION:-<unset>}"
             echo "Gradle wrapper:"
             grep distributionUrl android/gradle/wrapper/gradle-wrapper.properties || true
             echo "AGP / Kotlin (android/settings.gradle.kts):"
@@ -113,7 +147,133 @@ jobs:
         shell: bash
         run: bash tool/bootstrap.sh
 
+      # AGP installs android/app/build.gradle.kts's ndkVersion, and its default
+      # CMake, on demand -- on this image that is a ~1 GB download plus extraction
+      # performed inside whichever Gradle task needs them first. Run
+      # 38748716360 shows the cost: the release step was still on the NDK install
+      # when the job hit its 30-minute limit. Provisioning them here keeps that
+      # work out of the build, bounds it, records it, and the cache keeps later
+      # runs fast even when the SDK repository is slow.
+      - name: Restore cached Android SDK packages
+        id: sdk-cache
+        # Caching is an optimisation: a cache outage must slow the run down, not
+        # fail a release whose packages the next step can still install.
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_SDK_CMAKE_CACHE_PATH }}/${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-sdk-${{ env.ANDROID_NDK_VERSION }}-cmake-${{ env.ANDROID_CMAKE_VERSION }}-ubuntu-24.04-x64
+
+      - name: Install required Android SDK packages if missing (bounded)
+        id: sdk-provision
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_NDK_VERSION:?ANDROID_NDK_VERSION must be set}"
+          : "${ANDROID_CMAKE_VERSION:?ANDROID_CMAKE_VERSION must be set}"
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
+          sdkmanager_bin="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager_bin" && -d "$sdk/cmdline-tools" ]]; then
+            # `|| true` keeps an empty cmdline-tools directory from ending the
+            # step silently under `set -e`; the check below reports it properly.
+            sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1 || true)"
+          fi
+          installed_any=0
+          install_package() { # label, kind, version
+            local label="$1" kind="$2" version="$3" dir="$sdk/$2/$3" rc=0
+            # An interrupted download leaves a directory that looks installed but
+            # cannot build anything; repair it instead of trusting its name.
+            if [[ -d "$dir" && ! -f "$dir/source.properties" ]]; then
+              echo "Removing incomplete $label directory: $dir"
+              rm -rf "$dir"
+            fi
+            if [[ -f "$dir/source.properties" ]]; then
+              echo "$label $version is already present at $dir."
+              return 0
+            fi
+            if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
+              echo "::error title=sdk-provisioning::sdkmanager not found under $sdk/cmdline-tools; cannot install $label $version" >&2
+              return 1
+            fi
+            echo "Installing $label $version with $sdkmanager_bin (download bounded to 900s)."
+            # The runner image already accepted the Android SDK licences, and
+            # stdin is closed so a licence prompt can only fail fast rather than
+            # hang. sdkmanager reports progress with carriage returns;
+            # translating them keeps the captured log readable.
+            set +o pipefail
+            timeout --signal=TERM 900 "$sdkmanager_bin" --sdk_root="$sdk" \
+              --install "$kind;$version" </dev/null 2>&1 \
+              | tr '\r' '\n' | tee -a diagnostics/sdk-install.log
+            rc="${PIPESTATUS[0]}"
+            set -o pipefail
+            if (( rc != 0 )); then
+              echo "::error title=sdk-provisioning::$sdkmanager_bin exited $rc while installing $label $version (124 means the 900s bound was reached)" >&2
+              return 1
+            fi
+            installed_any=1
+          }
+          install_package "NDK (Side by side)" ndk "$ANDROID_NDK_VERSION"
+          install_package "CMake" cmake "$ANDROID_CMAKE_VERSION"
+          echo "installed=$installed_any" >> "$GITHUB_OUTPUT"
+
+      # Runs on cache hits too: the report artifact must always state which
+      # packages the build saw, and AGP must never fall back to fetching them.
+      - name: Verify provisioned Android SDK packages
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_NDK_VERSION:?ANDROID_NDK_VERSION must be set}"
+          : "${ANDROID_CMAKE_VERSION:?ANDROID_CMAKE_VERSION must be set}"
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
+          ndk_dir="$sdk/ndk/$ANDROID_NDK_VERSION"
+          cmake_dir="$sdk/cmake/$ANDROID_CMAKE_VERSION"
+          {
+            echo "== Android SDK package provisioning =="
+            echo "required NDK: $ANDROID_NDK_VERSION"
+            echo "required CMake: $ANDROID_CMAKE_VERSION"
+            echo "sdk root: $sdk"
+            echo "cache path base: $ANDROID_SDK_NDK_CACHE_PATH"
+            echo "NDK directories now: $(ls "$sdk/ndk" 2>/dev/null | tr '\n' ' ')"
+            echo "CMake directories now: $(ls "$sdk/cmake" 2>/dev/null | tr '\n' ' ')"
+          } | tee diagnostics/sdk-provisioning.txt
+          missing=()
+          [[ -f "$ndk_dir/source.properties" ]] || missing+=("ndk;$ANDROID_NDK_VERSION")
+          [[ -f "$cmake_dir/source.properties" ]] || missing+=("cmake;$ANDROID_CMAKE_VERSION")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error title=sdk-provisioning::Missing Android SDK packages after provisioning: ${missing[*]}. AGP would fetch them inside the release build, which is what run 38748716360 spent its budget on." >&2
+            exit 1
+          fi
+          {
+            grep -E '^Pkg\.(Revision|Desc)' "$ndk_dir/source.properties" || true
+            echo "NDK size: $(du -sh "$ndk_dir" | cut -f1)"
+            grep -E '^Pkg\.(Revision|Desc)' "$cmake_dir/source.properties" || true
+            echo "CMake size: $(du -sh "$cmake_dir" | cut -f1)"
+          } | tee -a diagnostics/sdk-provisioning.txt
+          if [[ "$(readlink -f "$sdk/ndk")" != "$(readlink -f "$ANDROID_SDK_NDK_CACHE_PATH")" ]]; then
+            echo "::warning title=sdk-cache::Packages were installed under $sdk, not under the cached path $ANDROID_SDK_NDK_CACHE_PATH; update the cache configuration to restore caching" >&2
+          fi
+
+      # Only a run that really downloaded something refreshes the cache; a plain
+      # cache hit must not re-upload a gigabyte.
+      - name: Save Android SDK packages to cache
+        if: success() && steps.sdk-provision.outputs.installed == '1'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_SDK_CMAKE_CACHE_PATH }}/${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-sdk-${{ env.ANDROID_NDK_VERSION }}-cmake-${{ env.ANDROID_CMAKE_VERSION }}-ubuntu-24.04-x64
+
       - name: Build signed Android release APK
+        # A cold release build on this image needs single-digit minutes; the cap
+        # turns a regression into a step failure that names the real Gradle error
+        # instead of the silent cancellation seen in run 38748716360.
+        timeout-minutes: 20
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -123,11 +283,28 @@ jobs:
           REQUIRE_RELEASE_SIGNING: 'true'
         run: |
           set -euo pipefail
+          mkdir -p diagnostics
           # No fallback: Gradle fails fast naming any missing signing variable,
           # and never signs a release variant with the debug key.
-          flutter build apk --release 2>&1 | tee diagnostics/release-build.log
+          # ci_gate.py keeps the whole log in diagnostics/release-build.log for
+          # the artifact and re-emits failures as annotations, which is the only
+          # channel readable when the Actions log blob store is unreachable.
+          # Every other line is prefixed with a UTC stamp (annotations are left
+          # alone so they still parse) so a slow phase is attributable instead of
+          # merely visible as a long step.
+          stamp_and_tee() {
+            tee diagnostics/release-build-timed.log | while IFS= read -r line; do
+              if [[ "$line" == ::* ]]; then
+                printf '%s\n' "$line"
+              else
+                printf '%(%H:%M:%S)T %s\n' -1 "$line"
+              fi
+            done
+          }
+          python tool/ci_gate.py release-build flutter build apk --release 2>&1 | stamp_and_tee
 
       - name: Verify APK signature and fingerprint match
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -136,17 +313,76 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -n "$apksigner" || { echo "::error title=signing-verify::apksigner not found in Android SDK build-tools" >&2; exit 1; }
-          "$apksigner" verify --verbose --print-certs "$apk" | tee diagnostics/apksigner-verify.txt
-          observed_sha256="$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2; exit}' diagnostics/apksigner-verify.txt | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          report=diagnostics/apksigner-verify.txt
+          # Both streams: the certificate report must not be lost when the tool
+          # writes it to stderr, and warnings must not be lost when it does not.
+          rc=0
+          "$apksigner" verify --verbose --print-certs "$apk" > "$report" 2>&1 || rc=$?
+          cat "$report"
+          # The Actions log store is unreachable for API-only clients, so a
+          # failure has to describe itself through annotations. Labels and counts
+          # only: the certificate subject DN is private data, the layout is what
+          # makes a parse failure diagnosable.
+          diagnose() {
+            echo "::error title=signing-verify::$1" >&2
+            echo "::error title=signing-verify-output::lines=$(wc -l < "$report" | tr -d ' ') bytes=$(wc -c < "$report" | tr -d ' ') labels=$(sed -E 's/:.*$//' "$report" | head -n 15 | paste -sd '|' -)"
+          }
+          if (( rc != 0 )); then
+            diagnose "apksigner verify exited $rc; the APK signature could not be verified"
+            exit 1
+          fi
+          # The certificate digest line is worded per tool version: build-tools
+          # 37 labels it "V2 Signer: certificate SHA-256 digest: <hex>" while
+          # earlier build-tools used "Signer #1 certificate SHA-256 digest:".
+          # Accept either, never the "public key SHA-256 digest" line.
+          digest_line="$( { grep -iE 'certificate.*sha-256 digest' "$report" || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          if [[ -z "$digest_line" ]]; then
+            digest_line="$( { grep -iE 'sha-256 digest' "$report" || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          fi
+          observed_sha256="$(printf '%s' "$digest_line" | sed -E 's/.*digest:[[:space:]]*//I' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          if [[ ! "$observed_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            diagnose "could not read the signer certificate SHA-256 digest (parsed ${#observed_sha256} characters)"
+            exit 1
+          fi
+          # One signer only: with several, "the" fingerprint is ambiguous.
+          signers="$(grep -i -m1 'number of signers' "$report" | sed -E 's/.*:[[:space:]]*//' | tr -d '[:space:]' || true)"
+          if [[ "$signers" =~ ^[0-9]+$ ]] && (( signers != 1 )); then
+            diagnose "the release APK reports $signers signers; exactly one is expected"
+            exit 1
+          fi
+          # A release deliverable must be a release build type; aapt2 prints
+          # application-debuggable for exactly the ones that are not.
+          aapt2="$(find "$sdk/build-tools" -type f -name aapt2 -print | sort -V | tail -n 1)"
+          test -n "$aapt2" || { echo "::error title=signing-verify::aapt2 not found in Android SDK build-tools" >&2; exit 1; }
+          "$aapt2" dump badging "$apk" > diagnostics/apk-badging.txt 2>&1 || true
+          if ! grep -q '^package:' diagnostics/apk-badging.txt; then
+            echo "::error title=signing-verify::aapt2 could not read the release APK's manifest" >&2
+            head -c 400 diagnostics/apk-badging.txt >&2
+            exit 1
+          fi
+          debuggable=false
+          if grep -q 'application-debuggable' diagnostics/apk-badging.txt; then
+            debuggable=true
+          fi
           {
             echo "APK: $apk"
             echo "APK size (bytes): $(stat -c%s "$apk")"
             echo "APK SHA-256: $(sha256sum "$apk" | awk '{print $1}')"
             echo "Signer certificate SHA-256: $observed_sha256"
             echo "Expected certificate SHA-256: $EXPECTED_CERT_SHA256"
+            echo "Debuggable: $debuggable"
+            echo "Manifest: $(grep -m1 '^package:' diagnostics/apk-badging.txt)"
+            grep -E 'Number of signers|Verified using' "$report" || true
           } | tee diagnostics/signature-report.txt
           if [[ "$observed_sha256" != "$EXPECTED_CERT_SHA256" ]]; then
-            echo "::error title=signing-verify::APK signer certificate does not match the release keystore" >&2
+            echo "::error title=signing-verify::APK signer SHA-256 $observed_sha256 does not match the expected release certificate $EXPECTED_CERT_SHA256" >&2
+            if grep -qi 'CN=Android Debug' "$report"; then
+              echo "::error title=signing-verify::the APK is signed with the AOSP debug key, so the release signing configuration never reached Gradle" >&2
+            fi
+            exit 1
+          fi
+          if [[ "$debuggable" != "false" ]]; then
+            echo "::error title=signing-verify::Release APK reports android:debuggable" >&2
             exit 1
           fi
           echo "match: true" >> diagnostics/signature-report.txt

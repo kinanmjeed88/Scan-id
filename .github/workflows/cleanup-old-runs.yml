@@ -1,8 +1,8 @@
-name: Cleanup Workflow Runs Older Than 24 Hours
+name: Cleanup Old Workflow Runs
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "0 2 * * *" # يعمل يومياً الساعة 2 صباحاً
   workflow_dispatch:
 
 permissions:
@@ -55,10 +55,10 @@ jobs:
               STATUS="$(jq -r '.status' <<< "$RUN")"
               NAME="$(jq -r '.name' <<< "$RUN")"
 
-              # Never delete this cleanup run.
+              # لا تقم بحذف الأكشن الحالي الذي يعمل الآن
               [ "$ID" = "$CURRENT_RUN_ID" ] && continue
 
-              # Never delete runs that are still running.
+              # لا تقم بحذف الروتينات التي لم تنته بعد
               [ "$STATUS" = "completed" ] || continue
 
               if [[ "$CREATED" < "$CUTOFF" ]]; then

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Structural audit only. This does NOT analyze Dart or execute Flutter tests."""
+import struct
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -35,8 +36,45 @@ for mode in ("cloud-backup", "device-transfer"):
         "root", "file", "database", "sharedpref", "external"
     }
 
+# Launcher artwork: the icon is shipped branding, not a build artifact, so every
+# density is pinned to the exact pixel size the platform loads and the manifests
+# are checked to still point at it. Guards against a silent blank/stale icon.
+res = ROOT / "android/app/src/main/res"
+
+
+def png_size(path):
+    data = path.read_bytes()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", f"Not a PNG: {path}"
+    return struct.unpack(">II", data[16:24])
+
+
+for density, size in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):
+    assert png_size(res / f"mipmap-{density}/ic_launcher.png") == (size, size)
+for density, size in (("mdpi", 432), ("hdpi", 648), ("xhdpi", 864), ("xxhdpi", 1152), ("xxxhdpi", 1440)):
+    assert png_size(res / f"drawable-{density}/ic_launcher_foreground.png") == (size, size)
+for density, size in (("mdpi", 128), ("hdpi", 192), ("xhdpi", 256), ("xxhdpi", 384), ("xxxhdpi", 512)):
+    assert png_size(res / f"drawable-{density}/launch_image.png") == (size, size)
+assert png_size(ROOT / "design/icons-v3/selected-phone-to-page-1024.png") == (1024, 1024)
+assert app.get(android + "icon") == "@mipmap/ic_launcher"
+adaptive = (res / "mipmap-anydpi-v26/ic_launcher.xml").read_text(encoding="utf-8")
+assert "@drawable/ic_launcher_background" in adaptive, "Adaptive icon lost its background layer"
+assert "@drawable/ic_launcher_foreground" in adaptive, "Adaptive icon lost its foreground layer"
+colors = ET.parse(res / "values/colors.xml").getroot().find("color")
+assert colors.get("name") == "ic_launcher_background"
+for drawable in ("drawable", "drawable-v21"):
+    splash = (res / f"{drawable}/launch_background.xml").read_text(encoding="utf-8")
+    assert "@drawable/launch_image" in splash, f"Splash {drawable} lost the icon artwork"
+# Runner.rc embeds this file, and rc.exe rejects an ICO with a broken header.
+ico = (ROOT / "windows/runner/resources/app_icon.ico").read_bytes()
+assert ico[:6][:4] == b"\x00\x00\x01\x00", "app_icon.ico is not an icon file"
+entries = struct.unpack("<H", ico[4:6])[0]
+assert entries >= 5, "app_icon.ico must carry several sizes for Windows shell scaling"
+assert "resources\\\\app_icon.ico" in (ROOT / "windows/runner/Runner.rc").read_text(encoding="utf-8")
+
 count = sum(len(re.findall(r"\btest(?:Widgets)?\(", file.read_text(encoding="utf-8")))
             for file in files if file.name.endswith("_test.dart"))
 print(f"PASS: {len(files)} Dart files have resolvable local imports; domain boundaries checked.")
 print("PASS: Android XML parses, release manifest has no permissions and disables automatic backup.")
+print(f"PASS: Launcher artwork present at every density and referenced by both platforms "
+      f"(Windows icon carries {entries} sizes).")
 print(f"INVENTORY: {count} declared Dart/Flutter tests. NOT executed by this audit.")

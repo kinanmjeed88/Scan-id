@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon (Android 8.0+).
+     ic_launcher_background_samples the paper white of the selected artwork:
+     design/icons-v3/selected-phone-to-page-1024.png (idea 04). -->
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>

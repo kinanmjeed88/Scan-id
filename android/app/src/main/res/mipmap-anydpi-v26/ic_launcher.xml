@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon (Android 8.0+): the paper-white background with the
+     motif inside the 66% safe zone (drawable-*/ic_launcher_foreground.png),
+     so no launcher mask clips the phone, the flow arrows or the A4 page. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!-- Splash shown by the Android window while the Flutter engine starts.
+     The white field matches the paper white of the launcher icon artwork
+     (design/icons-v3/selected-phone-to-page-1024.png) and launch_image.png is
+     that artwork at 128dp on every density. Android 12+ draws its own splash
+     from the launcher icon, so this file covers Android 7-11. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
+    <item android:drawable="@android:color/white" />
+    <item>
         <bitmap
             android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+            android:src="@drawable/launch_image" />
+    </item>
 </layer-list>

@@ -57,10 +57,30 @@ for density, size in (("mdpi", 128), ("hdpi", 192), ("xhdpi", 256), ("xxhdpi", 3
 assert png_size(ROOT / "design/icons-v3/selected-phone-to-page-1024.png") == (1024, 1024)
 assert app.get(android + "icon") == "@mipmap/ic_launcher"
 adaptive = (res / "mipmap-anydpi-v26/ic_launcher.xml").read_text(encoding="utf-8")
-assert "@drawable/ic_launcher_background" in adaptive, "Adaptive icon lost its background layer"
+assert "@color/ic_launcher_background" in adaptive, "Adaptive icon lost its background layer"
 assert "@drawable/ic_launcher_foreground" in adaptive, "Adaptive icon lost its foreground layer"
 colors = ET.parse(res / "values/colors.xml").getroot().find("color")
 assert colors.get("name") == "ic_launcher_background"
+# AAPT fails the whole build (':app:processDebugResources') when any @drawable /
+# @color / @mipmap / @xml reference points at a resource that is not in res/, so
+# resolve every local reference the app's own resource XML makes.
+declared_colors = {
+    node.get("name")
+    for values in res.glob("values*/colors.xml")
+    for node in ET.parse(values).getroot().findall("color")
+}
+for xml_file in sorted(res.rglob("*.xml")):
+    for kind, name in re.findall(r"@(drawable|mipmap|color|xml)/([A-Za-z0-9_.]+)", xml_file.read_text(encoding="utf-8")):
+        if kind == "color":
+            assert name in declared_colors, f"{xml_file}: @color/{name} is not declared in values/colors.xml"
+        elif kind == "xml":
+            assert (res / "xml" / f"{name}.xml").is_file(), f"{xml_file}: @xml/{name} has no res/xml/{name}.xml"
+        else:
+            # Path.glob() yields a generator, and any() over a generator of
+            # generators is always True, so the inner any() must consume it.
+            assert any(
+                any((res / directory).glob(f"{name}.*")) for directory in res.glob(f"{kind}*")
+            ), f"{xml_file}: @{kind}/{name} resolves to no file under res/{kind}*/"
 for drawable in ("drawable", "drawable-v21"):
     splash = (res / f"{drawable}/launch_background.xml").read_text(encoding="utf-8")
     assert "@drawable/launch_image" in splash, f"Splash {drawable} lost the icon artwork"

@@ -1,0 +1,82 @@
+name: Cleanup Workflow Runs Older Than 24 Hours
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cleanup-old-workflow-runs
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete old workflow runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Delete workflow runs older than 24 hours
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CUTOFF="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Deleting workflow runs created before: $CUTOFF"
+
+          PAGE=1
+          DELETED=0
+          FAILED=0
+
+          while true; do
+            RESPONSE="$(gh api \
+              "repos/${REPOSITORY}/actions/runs?per_page=100&page=${PAGE}" \
+              --jq '[.workflow_runs[] | {
+                id: .id,
+                created_at: .created_at,
+                status: .status,
+                name: .name
+              }]')"
+
+            COUNT="$(jq 'length' <<< "$RESPONSE")"
+            [ "$COUNT" -eq 0 ] && break
+
+            while IFS= read -r RUN; do
+              ID="$(jq -r '.id' <<< "$RUN")"
+              CREATED="$(jq -r '.created_at' <<< "$RUN")"
+              STATUS="$(jq -r '.status' <<< "$RUN")"
+              NAME="$(jq -r '.name' <<< "$RUN")"
+
+              # Never delete this cleanup run.
+              [ "$ID" = "$CURRENT_RUN_ID" ] && continue
+
+              # Never delete runs that are still running.
+              [ "$STATUS" = "completed" ] || continue
+
+              if [[ "$CREATED" < "$CUTOFF" ]]; then
+                echo "Deleting run $ID | $CREATED | $NAME"
+
+                if gh api --method DELETE \
+                  "repos/${REPOSITORY}/actions/runs/${ID}"; then
+                  DELETED=$((DELETED + 1))
+                else
+                  echo "::warning::Failed to delete run $ID"
+                  FAILED=$((FAILED + 1))
+                fi
+              fi
+            done < <(jq -c '.[]' <<< "$RESPONSE")
+
+            PAGE=$((PAGE + 1))
+          done
+
+          echo "Deleted runs: $DELETED"
+          echo "Failed deletions: $FAILED"
+          echo "Cleanup finished."

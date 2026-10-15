@@ -304,6 +304,7 @@ jobs:
           python tool/ci_gate.py release-build flutter build apk --release 2>&1 | stamp_and_tee
 
       - name: Verify APK signature and fingerprint match
+        timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
@@ -312,10 +313,32 @@ jobs:
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -n "$apksigner" || { echo "::error title=signing-verify::apksigner not found in Android SDK build-tools" >&2; exit 1; }
-          "$apksigner" verify --verbose --print-certs "$apk" | tee diagnostics/apksigner-verify.txt
-          observed_sha256="$(awk -F': ' '/^Signer #1 certificate SHA-256 digest:/ {print $2; exit}' diagnostics/apksigner-verify.txt | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          # A release deliverable must not be a debuggable build; aapt2 prints
-          # application-debuggable for exactly those.
+          report=diagnostics/apksigner-verify.txt
+          # Both streams: the certificate report must not be lost when the tool
+          # writes it to stderr, and warnings must not be lost when it does not.
+          rc=0
+          "$apksigner" verify --verbose --print-certs "$apk" > "$report" 2>&1 || rc=$?
+          cat "$report"
+          # The Actions log store is unreachable for API-only clients, so a
+          # failure has to describe itself through annotations. Labels and counts
+          # only: the certificate subject DN is private data, the layout is what
+          # makes a parse failure diagnosable.
+          diagnose() {
+            echo "::error title=signing-verify::$1" >&2
+            echo "::error title=signing-verify-output::lines=$(wc -l < "$report" | tr -d ' ') bytes=$(wc -c < "$report" | tr -d ' ') labels=$(sed -E 's/:.*$//' "$report" | head -n 15 | paste -sd '|' -)"
+          }
+          if (( rc != 0 )); then
+            diagnose "apksigner verify exited $rc; the APK signature could not be verified"
+            exit 1
+          fi
+          digest_line="$(grep -i -m1 'signer #1 certificate sha-256 digest' "$report" || true)"
+          observed_sha256="$(printf '%s' "$digest_line" | sed -E 's/^[^:]*:[[:space:]]*//' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          if [[ ! "$observed_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            diagnose "could not read the signer certificate SHA-256 digest (parsed ${#observed_sha256} characters)"
+            exit 1
+          fi
+          # A release deliverable must be a release build type; aapt2 prints
+          # application-debuggable for exactly the ones that are not.
           aapt2="$(find "$sdk/build-tools" -type f -name aapt2 -print | sort -V | tail -n 1)"
           test -n "$aapt2" || { echo "::error title=signing-verify::aapt2 not found in Android SDK build-tools" >&2; exit 1; }
           "$aapt2" dump badging "$apk" > diagnostics/apk-badging.txt 2>&1 || true
@@ -336,9 +359,13 @@ jobs:
             echo "Expected certificate SHA-256: $EXPECTED_CERT_SHA256"
             echo "Debuggable: $debuggable"
             echo "Manifest: $(grep -m1 '^package:' diagnostics/apk-badging.txt)"
+            grep -E 'Number of signers|Verified using' "$report" || true
           } | tee diagnostics/signature-report.txt
           if [[ "$observed_sha256" != "$EXPECTED_CERT_SHA256" ]]; then
-            echo "::error title=signing-verify::APK signer certificate does not match the release keystore" >&2
+            echo "::error title=signing-verify::APK signer SHA-256 $observed_sha256 does not match the expected release certificate $EXPECTED_CERT_SHA256" >&2
+            if grep -qi 'CN=Android Debug' "$report"; then
+              echo "::error title=signing-verify::the APK is signed with the AOSP debug key, so the release signing configuration never reached Gradle" >&2
+            fi
             exit 1
           fi
           if [[ "$debuggable" != "false" ]]; then

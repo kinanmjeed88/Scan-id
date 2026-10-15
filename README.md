@@ -98,15 +98,15 @@ flutter run -d <android-device-id>
 flutter build apk --release
 ```
 
-الناتج: `build/app/outputs/flutter-apk/app-release.apk`. محليًا، يقرأ Gradle إعدادات التوقيع من `android/key.properties` (ملف مستبعد من Git) ويقرأ ملف JKS الذي يشير إليه `storeFile`. إذا لم توجد إعدادات محلية أو متغيرات بيئة، يستخدم البناء توقيع debug كما في CI العام؛ لا تضف keystore أو كلمات مرور إلى Git.
+الناتج: `build/app/outputs/flutter-apk/app-release.apk`. محليًا، يقرأ Gradle إعدادات التوقيع من `android/key.properties` (ملف مستبعد من Git) ويقرأ ملف JKS الذي يشير إليه `storeFile`. إذا لم توجد إعدادات محلية أو متغيرات بيئة، يفشل بناء الإصدار ولا يرجع إلى توقيع debug؛ لا تضف keystore أو كلمات مرور إلى Git.
 
-لبناء APK موقّع من GitHub Actions، أنشئ بيئة GitHub باسم `android-signing`، وقيّد فروع النشر وفعّل موافقة مراجِع قبل إتاحة أسرارها. أضف إليها الأسرار الأربعة بالأسماء الدقيقة `KEYSTORE_BASE64` و`KEYSTORE_STORE_PASSWORD` و`KEYSTORE_KEY_ALIAS` و`KEYSTORE_KEY_PASSWORD`. بعد إدراج سير العمل في الفرع الافتراضي، شغّل **Android signed release** يدويًا. يقبل Gradle keystore بصيغة JKS أو PKCS12، ويتحقق من Base64 وكلمة مرور المخزن والاسم المستعار وكلمة مرور المفتاح، ويكتب نسخة مؤقتة تحت مجلد `build/` فقط. سير عمل التحقق العام لا يستلم هذه الأسرار؛ والبناء الموقّع يفشل بدلاً من الرجوع إلى debug إذا كانت القيم ناقصة أو غير صالحة. لا تضع Base64 أو كلمات المرور في الشيفرة أو السجلات أو المحادثات.
+لبناء APK موقّع من GitHub Actions، أنشئ بيئة GitHub باسم `android-signing`، وقيّد فروع النشر وفعّل موافقة مراجِع قبل إتاحة أسرارها. أضف إليها الأسرار الأربعة بالأسماء الدقيقة `KEYSTORE_BASE64` و`KEYSTORE_STORE_PASSWORD` و`KEYSTORE_KEY_ALIAS` و`KEYSTORE_KEY_PASSWORD`. بعد إدراج سير العمل في الفرع الافتراضي، شغّل **Android signed release and Windows** يدويًا. يبني هذا التشغيل APK الموقّع ونسخة Windows Release بالتوازي من نفس مراجعة المصدر، ويرفع **scan-id-android-signed-apk** و**scan-id-windows** ضمن Artifacts في صفحة التشغيل نفسها. خطوات Windows مشتركة عبر `.github/workflows/windows-release.yml` وتشمل اختبارات معالجة الصور الأصلية؛ ولا تُمرّر أسرار توقيع Android إلى Windows. يقبل Gradle keystore بصيغة JKS أو PKCS12، ويتحقق من Base64 وكلمة مرور المخزن والاسم المستعار وكلمة مرور المفتاح، ويكتب نسخة مؤقتة تحت مجلد `build/` فقط. سير عمل التحقق العام لا يستلم هذه الأسرار؛ والبناء الموقّع يفشل بدلاً من الرجوع إلى debug إذا كانت القيم ناقصة أو غير صالحة. لا تضع Base64 أو كلمات المرور في الشيفرة أو السجلات أو المحادثات.
 
 ### التحقق الآلي (CI)
 
 `.github/workflows/verify.yml` فيه وظيفتان فقط:
 
-- **android** (Ubuntu): `dart format` و`flutter analyze --fatal-infos` و`flutter test` وفحص مستقل لملفات التصدير، ثم `flutter build apk --release` ورفع **scan-id-android-apk**.
+- **android** (Ubuntu): `dart format` و`flutter analyze --fatal-infos` و`flutter test` وفحص مستقل لملفات التصدير، ثم اختبار رفض الإصدار دون أسرار التوقيع و`flutter build apk --debug` ورفع **scan-id-android-debug-apk**.
 - **windows**: `flutter build windows --release` ورفع **scan-id-windows**.
 
 لا تُبنى منصات أخرى. الملفات المبنية متاحة في Artifacts لكل تشغيل ناجح، ولا تُضاف إلى Git.

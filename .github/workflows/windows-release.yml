@@ -1,0 +1,38 @@
+name: Windows release build
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        shell: bash
+        run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
+      - name: Build Windows release
+        run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Build native Windows scaler regression tests
+        run: python tool/ci_gate.py windows-scaler-build cmake --build build/windows/x64 --config Release --target large_jpeg_scaler_test
+      - name: Run native Windows scaler regressions
+        run: python tool/ci_gate.py windows-scaler-test ctest --test-dir build/windows/x64 -C Release --output-on-failure -R large_jpeg_scaler_windows
+      - name: Windows application
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-windows
+          path: |
+            build/windows/x64/runner/Release/
+            !build/windows/x64/runner/Release/large_jpeg_scaler_test.exe
+            !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
+          retention-days: 14
+          if-no-files-found: error

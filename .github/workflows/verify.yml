@@ -68,10 +68,13 @@ jobs:
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --debug
 
-      # Temporary diagnostic: proves how this image's apksigner reports a
-      # signer certificate (which stream, which labels) against a real APK, so
-      # the release workflow's fingerprint comparison can be trusted. Prints no
-      # secret material -- a certificate fingerprint of the CI debug key.
+      # Guards the release workflow's fingerprint parser against a change in the
+      # signing tool's report layout: build-tools 37 labels the signer
+      # certificate digest "V2 Signer: ..." where earlier versions printed
+      # "Signer #1 certificate SHA-256 digest:" -- a mismatch that silently made
+      # the release workflow compare an empty digest. Runs a real APK through the
+      # exact parsing chain; prints no secret material, only how a CI debug key's
+      # certificate is reported.
       - name: Prove apksigner certificate reporting format (diagnostic)
         shell: bash
         run: |
@@ -84,12 +87,21 @@ jobs:
           "$apksigner" verify --verbose --print-certs "$apk" > /tmp/diag-out.txt 2> /tmp/diag-err.txt || true
           out_lines="$(wc -l < /tmp/diag-out.txt | tr -d ' ')"
           err_lines="$(wc -l < /tmp/diag-err.txt | tr -d ' ')"
-          labels="$(sed -E 's/:.*$//' /tmp/diag-out.txt | head -n 15 | paste -sd '|' -)"
-          digest="$(grep -i -m1 'signer #1 certificate sha-256 digest' /tmp/diag-out.txt | sed -E 's/^[^:]*:[[:space:]]*//' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]' || true)"
-          echo "apksigner=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines"
-          echo "labels=$labels"
-          echo "parsed_digest_chars=${#digest}"
-          echo "::notice title=apksigner-report format::tool=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines labels=$labels parsed_sha256_chars=${#digest}"
+          # Same chain as the release workflow, character for character.
+          digest_line="$( { grep -iE 'certificate.*sha-256 digest' /tmp/diag-out.txt || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          if [[ -z "$digest_line" ]]; then
+            digest_line="$( { grep -iE 'sha-256 digest' /tmp/diag-out.txt || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          fi
+          digest="$(printf '%s' "$digest_line" | sed -E 's/.*digest:[[:space:]]*//I' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          # Long hex is masked: the notice carries the layout, not the digests.
+          layout="$(sed -E 's/[0-9a-fA-F]{16,}/<hex>/g' /tmp/diag-out.txt | head -n 20 | paste -sd '|' -)"
+          echo "parsed_sha256_chars=${#digest}"
+          echo "layout=$layout"
+          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error title=apksigner-report::the certificate digest parser read ${#digest} characters, not a 64-character SHA-256. Layout: $layout" >&2
+            exit 1
+          fi
+          echo "::notice title=apksigner-report format::tool=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines parsed_sha256_chars=${#digest} layout=$layout"
       - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:

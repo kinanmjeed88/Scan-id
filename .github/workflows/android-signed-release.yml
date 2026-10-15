@@ -331,10 +331,23 @@ jobs:
             diagnose "apksigner verify exited $rc; the APK signature could not be verified"
             exit 1
           fi
-          digest_line="$(grep -i -m1 'signer #1 certificate sha-256 digest' "$report" || true)"
-          observed_sha256="$(printf '%s' "$digest_line" | sed -E 's/^[^:]*:[[:space:]]*//' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
+          # The certificate digest line is worded per tool version: build-tools
+          # 37 labels it "V2 Signer: certificate SHA-256 digest: <hex>" while
+          # earlier build-tools used "Signer #1 certificate SHA-256 digest:".
+          # Accept either, never the "public key SHA-256 digest" line.
+          digest_line="$( { grep -iE 'certificate.*sha-256 digest' "$report" || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          if [[ -z "$digest_line" ]]; then
+            digest_line="$( { grep -iE 'sha-256 digest' "$report" || true; } | { grep -iv 'public key' || true; } | head -n 1 || true)"
+          fi
+          observed_sha256="$(printf '%s' "$digest_line" | sed -E 's/.*digest:[[:space:]]*//I' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           if [[ ! "$observed_sha256" =~ ^[0-9a-f]{64}$ ]]; then
             diagnose "could not read the signer certificate SHA-256 digest (parsed ${#observed_sha256} characters)"
+            exit 1
+          fi
+          # One signer only: with several, "the" fingerprint is ambiguous.
+          signers="$(grep -i -m1 'number of signers' "$report" | sed -E 's/.*:[[:space:]]*//' | tr -d '[:space:]' || true)"
+          if [[ "$signers" =~ ^[0-9]+$ ]] && (( signers != 1 )); then
+            diagnose "the release APK reports $signers signers; exactly one is expected"
             exit 1
           fi
           # A release deliverable must be a release build type; aapt2 prints

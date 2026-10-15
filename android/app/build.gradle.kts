@@ -48,15 +48,24 @@ val signingPasswordsAndAlias = listOf(keyStorePassword, keyAlias, keyPassword)
 val hasAnySigningValue = hasKeyStoreSource || signingPasswordsAndAlias.any { !it.isNullOrBlank() }
 val hasAllSigningValues = hasKeyStoreSource && signingPasswordsAndAlias.all { !it.isNullOrBlank() }
 
+// Name (never value) of every missing signing input, for actionable failures.
+val missingSigningValues = buildList {
+    if (!hasKeyStoreSource) add("KEYSTORE_BASE64 (or local storeFile in key.properties)")
+    if (keyStorePassword.isNullOrBlank()) add("KEYSTORE_STORE_PASSWORD")
+    if (keyAlias.isNullOrBlank()) add("KEYSTORE_KEY_ALIAS")
+    if (keyPassword.isNullOrBlank()) add("KEYSTORE_KEY_PASSWORD")
+}
+
 if (hasAnySigningValue && !hasAllSigningValues) {
     throw GradleException(
-        "Provide KEYSTORE_BASE64 or a local storeFile, plus " +
-            "KEYSTORE_STORE_PASSWORD, KEYSTORE_KEY_ALIAS, and KEYSTORE_KEY_PASSWORD.",
+        "Incomplete Android release signing configuration. Missing: " +
+            missingSigningValues.joinToString(", ") + ".",
     )
 }
 if (requireReleaseSigning && !hasAllSigningValues) {
     throw GradleException(
-        "Release signing is required, but Android signing values are missing."
+        "Release signing is required, but Android signing values are missing. " +
+            "Missing: " + missingSigningValues.joinToString(", ") + "."
     )
 }
 
@@ -174,12 +183,22 @@ android {
     }
 
     if (releaseKeyStoreFile != null) {
+        // Capture the script-level values under distinct names BEFORE entering
+        // the SigningConfig receiver scope. Inside `create("release") { ... }`
+        // the receiver is a SigningConfig, so `keyAlias = keyAlias` and
+        // `keyPassword = keyPassword` would resolve to the receiver's own
+        // (still null) properties -- a self-assignment that made AGP fail with:
+        //   SigningConfig "release" is missing required property "keyPassword"
+        // even though the environment secrets reached Gradle correctly.
+        val signingStorePassword = keyStorePassword
+        val signingKeyAlias = keyAlias
+        val signingKeyPassword = keyPassword
         signingConfigs {
             create("release") {
                 storeFile = releaseKeyStoreFile!!
-                storePassword = keyStorePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
                 storeType = releaseKeyStoreType
             }
         }

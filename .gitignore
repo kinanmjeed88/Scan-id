@@ -17,6 +17,8 @@ android/local.properties
 android/key.properties
 *.jks
 *.keystore
+*.p12
+signing-secrets-local/
 windows/flutter/ephemeral/
 *.db
 *.db-journal

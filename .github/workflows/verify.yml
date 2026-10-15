@@ -73,6 +73,9 @@ jobs:
           name: scan-id-android-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+          # CI smoke artifact only; short retention prevents artifact-storage
+          # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).
+          retention-days: 7
 
   # The Windows deliverable: the self-contained release folder, published as
   # one downloadable archive.
@@ -103,4 +106,5 @@ jobs:
             build/windows/x64/runner/Release/
             !build/windows/x64/runner/Release/large_jpeg_scaler_test.exe
             !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
+          retention-days: 14
           if-no-files-found: error

@@ -38,6 +38,11 @@ jobs:
       # it; provisioning itself always derives the path from ANDROID_SDK_ROOT and
       # warns if the two ever diverge.
       ANDROID_SDK_NDK_CACHE_PATH: /usr/local/lib/android/sdk/ndk
+      # AGP also installs its default CMake next to that NDK on this image --
+      # observed in the debug build log of run 38757019049 -- so it is provisioned
+      # and cached the same way instead of being fetched inside a build step.
+      ANDROID_CMAKE_VERSION: '3.22.1'
+      ANDROID_SDK_CMAKE_CACHE_PATH: /usr/local/lib/android/sdk/cmake
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -142,109 +147,133 @@ jobs:
         shell: bash
         run: bash tool/bootstrap.sh
 
-      # AGP installs android/app/build.gradle.kts's ndkVersion on demand, and on
-      # this image that means a ~1 GB download plus extraction on the critical
-      # path of the release build. Doing it here keeps that cost out of the build
-      # step, makes it bounded and observable, and the cache keeps later runs
-      # fast even when the SDK repository is slow.
-      - name: Restore cached Android NDK
-        id: ndk-cache
+      # AGP installs android/app/build.gradle.kts's ndkVersion, and its default
+      # CMake, on demand -- on this image that is a ~1 GB download plus extraction
+      # performed inside whichever Gradle task needs them first. Run
+      # 38748716360 shows the cost: the release step was still on the NDK install
+      # when the job hit its 30-minute limit. Provisioning them here keeps that
+      # work out of the build, bounds it, records it, and the cache keeps later
+      # runs fast even when the SDK repository is slow.
+      - name: Restore cached Android SDK packages
+        id: sdk-cache
         # Caching is an optimisation: a cache outage must slow the run down, not
-        # fail a release whose NDK the next step can still install.
+        # fail a release whose packages the next step can still install.
         continue-on-error: true
         uses: actions/cache/restore@v6
         with:
-          path: ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
-          key: android-ndk-${{ env.ANDROID_NDK_VERSION }}-ubuntu-24.04-x64
+          path: |
+            ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_SDK_CMAKE_CACHE_PATH }}/${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-sdk-${{ env.ANDROID_NDK_VERSION }}-cmake-${{ env.ANDROID_CMAKE_VERSION }}-ubuntu-24.04-x64
 
-      - name: Install Android NDK if missing (bounded)
-        if: success() && steps.ndk-cache.outputs.cache-hit != 'true'
+      - name: Install required Android SDK packages if missing (bounded)
+        id: sdk-provision
         timeout-minutes: 20
         shell: bash
         run: |
           set -euo pipefail
           : "${ANDROID_NDK_VERSION:?ANDROID_NDK_VERSION must be set}"
+          : "${ANDROID_CMAKE_VERSION:?ANDROID_CMAKE_VERSION must be set}"
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
-          ndk_dir="$sdk/ndk/$ANDROID_NDK_VERSION"
-          # An interrupted download leaves a directory that looks installed but
-          # cannot strip anything; repair it instead of trusting its name.
-          if [[ -d "$ndk_dir" && ! -f "$ndk_dir/source.properties" ]]; then
-            echo "Removing incomplete NDK directory: $ndk_dir"
-            rm -rf "$ndk_dir"
-          fi
-          if [[ -f "$ndk_dir/source.properties" ]]; then
-            echo "NDK $ANDROID_NDK_VERSION is already present at $ndk_dir."
-            exit 0
-          fi
           sdkmanager_bin="$sdk/cmdline-tools/latest/bin/sdkmanager"
           if [[ ! -x "$sdkmanager_bin" && -d "$sdk/cmdline-tools" ]]; then
             # `|| true` keeps an empty cmdline-tools directory from ending the
-            # step silently under `set -e`: the check below reports it properly.
+            # step silently under `set -e`; the check below reports it properly.
             sdkmanager_bin="$(find "$sdk/cmdline-tools" -maxdepth 3 -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1 || true)"
           fi
-          if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
-            echo "::error title=ndk-provisioning::sdkmanager not found under $sdk/cmdline-tools; cannot install NDK $ANDROID_NDK_VERSION" >&2
-            exit 1
-          fi
-          echo "Installing NDK $ANDROID_NDK_VERSION with $sdkmanager_bin (download bounded to 900s)."
-          # The runner image already accepted the Android SDK licences, and stdin
-          # is closed so a licence prompt can only fail fast rather than hang.
-          # sdkmanager reports progress with carriage returns; translating them
-          # keeps the captured log readable.
-          rc=0
-          set +o pipefail
-          timeout --signal=TERM 900 "$sdkmanager_bin" --sdk_root="$sdk" \
-            --install "ndk;$ANDROID_NDK_VERSION" </dev/null 2>&1 \
-            | tr '\r' '\n' | tee diagnostics/ndk-install.log
-          rc="${PIPESTATUS[0]}"
-          set -o pipefail
-          if (( rc != 0 )); then
-            echo "::error title=ndk-provisioning::sdkmanager exited $rc while installing NDK $ANDROID_NDK_VERSION (124 means the 900s bound was reached)" >&2
-            exit 1
-          fi
+          installed_any=0
+          install_package() { # label, kind, version
+            local label="$1" kind="$2" version="$3" dir="$sdk/$2/$3" rc=0
+            # An interrupted download leaves a directory that looks installed but
+            # cannot build anything; repair it instead of trusting its name.
+            if [[ -d "$dir" && ! -f "$dir/source.properties" ]]; then
+              echo "Removing incomplete $label directory: $dir"
+              rm -rf "$dir"
+            fi
+            if [[ -f "$dir/source.properties" ]]; then
+              echo "$label $version is already present at $dir."
+              return 0
+            fi
+            if [[ -z "$sdkmanager_bin" || ! -x "$sdkmanager_bin" ]]; then
+              echo "::error title=sdk-provisioning::sdkmanager not found under $sdk/cmdline-tools; cannot install $label $version" >&2
+              return 1
+            fi
+            echo "Installing $label $version with $sdkmanager_bin (download bounded to 900s)."
+            # The runner image already accepted the Android SDK licences, and
+            # stdin is closed so a licence prompt can only fail fast rather than
+            # hang. sdkmanager reports progress with carriage returns;
+            # translating them keeps the captured log readable.
+            set +o pipefail
+            timeout --signal=TERM 900 "$sdkmanager_bin" --sdk_root="$sdk" \
+              --install "$kind;$version" </dev/null 2>&1 \
+              | tr '\r' '\n' | tee -a diagnostics/sdk-install.log
+            rc="${PIPESTATUS[0]}"
+            set -o pipefail
+            if (( rc != 0 )); then
+              echo "::error title=sdk-provisioning::$sdkmanager_bin exited $rc while installing $label $version (124 means the 900s bound was reached)" >&2
+              return 1
+            fi
+            installed_any=1
+          }
+          install_package "NDK (Side by side)" ndk "$ANDROID_NDK_VERSION"
+          install_package "CMake" cmake "$ANDROID_CMAKE_VERSION"
+          echo "installed=$installed_any" >> "$GITHUB_OUTPUT"
 
-      # Runs on cache hits too: the report artifact must always state which NDK
-      # the build saw, and AGP must never fall back to downloading it itself.
-      - name: Verify provisioned Android NDK
+      # Runs on cache hits too: the report artifact must always state which
+      # packages the build saw, and AGP must never fall back to fetching them.
+      - name: Verify provisioned Android SDK packages
         timeout-minutes: 5
         shell: bash
         run: |
           set -euo pipefail
           : "${ANDROID_NDK_VERSION:?ANDROID_NDK_VERSION must be set}"
+          : "${ANDROID_CMAKE_VERSION:?ANDROID_CMAKE_VERSION must be set}"
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
           ndk_dir="$sdk/ndk/$ANDROID_NDK_VERSION"
+          cmake_dir="$sdk/cmake/$ANDROID_CMAKE_VERSION"
           {
-            echo "== Android NDK provisioning =="
-            echo "required: $ANDROID_NDK_VERSION"
+            echo "== Android SDK package provisioning =="
+            echo "required NDK: $ANDROID_NDK_VERSION"
+            echo "required CMake: $ANDROID_CMAKE_VERSION"
             echo "sdk root: $sdk"
             echo "cache path base: $ANDROID_SDK_NDK_CACHE_PATH"
             echo "NDK directories now: $(ls "$sdk/ndk" 2>/dev/null | tr '\n' ' ')"
-          } | tee diagnostics/ndk-provisioning.txt
-          if [[ ! -f "$ndk_dir/source.properties" ]]; then
-            echo "::error title=ndk-provisioning::NDK $ANDROID_NDK_VERSION is missing at $ndk_dir; AGP would download ~1 GB inside the release build" >&2
+            echo "CMake directories now: $(ls "$sdk/cmake" 2>/dev/null | tr '\n' ' ')"
+          } | tee diagnostics/sdk-provisioning.txt
+          missing=()
+          [[ -f "$ndk_dir/source.properties" ]] || missing+=("ndk;$ANDROID_NDK_VERSION")
+          [[ -f "$cmake_dir/source.properties" ]] || missing+=("cmake;$ANDROID_CMAKE_VERSION")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error title=sdk-provisioning::Missing Android SDK packages after provisioning: ${missing[*]}. AGP would fetch them inside the release build, which is what run 38748716360 spent its budget on." >&2
             exit 1
           fi
           {
             grep -E '^Pkg\.(Revision|Desc)' "$ndk_dir/source.properties" || true
-            echo "size: $(du -sh "$ndk_dir" | cut -f1)"
-          } | tee -a diagnostics/ndk-provisioning.txt
+            echo "NDK size: $(du -sh "$ndk_dir" | cut -f1)"
+            grep -E '^Pkg\.(Revision|Desc)' "$cmake_dir/source.properties" || true
+            echo "CMake size: $(du -sh "$cmake_dir" | cut -f1)"
+          } | tee -a diagnostics/sdk-provisioning.txt
           if [[ "$(readlink -f "$sdk/ndk")" != "$(readlink -f "$ANDROID_SDK_NDK_CACHE_PATH")" ]]; then
-            echo "::warning title=ndk-cache::NDK installed under $sdk/ndk, which is not the cached path $ANDROID_SDK_NDK_CACHE_PATH; update ANDROID_SDK_NDK_CACHE_PATH to restore caching" >&2
+            echo "::warning title=sdk-cache::Packages were installed under $sdk, not under the cached path $ANDROID_SDK_NDK_CACHE_PATH; update the cache configuration to restore caching" >&2
           fi
 
-      - name: Save Android NDK to cache
-        if: success() && steps.ndk-cache.outputs.cache-hit != 'true'
+      # Only a run that really downloaded something refreshes the cache; a plain
+      # cache hit must not re-upload a gigabyte.
+      - name: Save Android SDK packages to cache
+        if: success() && steps.sdk-provision.outputs.installed == '1'
         continue-on-error: true
         uses: actions/cache/save@v6
         with:
-          path: ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
-          key: ${{ steps.ndk-cache.outputs.cache-primary-key }}
+          path: |
+            ${{ env.ANDROID_SDK_NDK_CACHE_PATH }}/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_SDK_CMAKE_CACHE_PATH }}/${{ env.ANDROID_CMAKE_VERSION }}
+          key: android-sdk-${{ env.ANDROID_NDK_VERSION }}-cmake-${{ env.ANDROID_CMAKE_VERSION }}-ubuntu-24.04-x64
 
       - name: Build signed Android release APK
-        # Measured cost on this image: a few minutes. The cap turns any
-        # regression into a step failure that names the real Gradle error,
-        # instead of the silent job cancellation seen in run 38748716360.
-        timeout-minutes: 15
+        # A cold release build on this image needs single-digit minutes; the cap
+        # turns a regression into a step failure that names the real Gradle error
+        # instead of the silent cancellation seen in run 38748716360.
+        timeout-minutes: 20
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -254,12 +283,25 @@ jobs:
           REQUIRE_RELEASE_SIGNING: 'true'
         run: |
           set -euo pipefail
+          mkdir -p diagnostics
           # No fallback: Gradle fails fast naming any missing signing variable,
           # and never signs a release variant with the debug key.
           # ci_gate.py keeps the whole log in diagnostics/release-build.log for
           # the artifact and re-emits failures as annotations, which is the only
           # channel readable when the Actions log blob store is unreachable.
-          python tool/ci_gate.py release-build flutter build apk --release
+          # Every other line is prefixed with a UTC stamp (annotations are left
+          # alone so they still parse) so a slow phase is attributable instead of
+          # merely visible as a long step.
+          stamp_and_tee() {
+            tee diagnostics/release-build-timed.log | while IFS= read -r line; do
+              if [[ "$line" == ::* ]]; then
+                printf '%s\n' "$line"
+              else
+                printf '%(%H:%M:%S)T %s\n' -1 "$line"
+              fi
+            done
+          }
+          python tool/ci_gate.py release-build flutter build apk --release 2>&1 | stamp_and_tee
 
       - name: Verify APK signature and fingerprint match
         shell: bash

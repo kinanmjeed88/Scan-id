@@ -118,6 +118,15 @@ flutter analyze --fatal-infos
 flutter test
 ```
 
+## الأيقونة
+
+أيقونة التطبيق فكرة واحدة واضحة: **هاتف تخرج منه بطاقات المستمسكات وتنزل إلى ورقة A4 فتُرتَّب في أربع خانات** بخطوط قص متقطّعة. المصدر الوحيد للحقيقة هو `design/icons-v3/selected-phone-to-page-1024.png` (1024×1024)، وبدائله المدروسة محفوظة في `design/` مع لوحتي مقارنة (`design/icon-ideas-modern-6.png`، `design/sheets/scan-id-icons-01-10.jpg`) واختبار الوضوح على المقاس الصغير (`design/icons-v3/applied-preview.png`).
+
+- **Android:** `mipmap-*/ic_launcher.png` بكل الكثافات (48/72/96/144/192) + أيقونة متكيّفة `mipmap-anydpi-v26/ic_launcher.xml` مع `drawable-*/ic_launcher_foreground.png` والخلفية الورقية `#FFFFFF` في `values/colors.xml`، والشعار داخل النطاق الآمن (62%) فلا يقصّه أي قناع.
+- **شاشة البداية:** `drawable-*/launch_image.png` في `launch_background.xml` (أندرويد 7–11؛ أندرويد 12+ يرسم شاشة البداية من الأيقونة).
+- **Windows:** `windows/runner/resources/app_icon.ico` بـ 9 مقاسات (16–256). النسخة الافتراضية من Flutter محفوظة في `design/icons-v3/flutter-default-app_icon.ico.bak`.
+- `tool/check_source.py` يتحقق في CI من وجود كل مقاس ومن أن الـ manifest و`Runner.rc` ما زالا يشيران إليه.
+
 ## التخزين والسلامة
 
 - Windows: `%LOCALAPPDATA%\ScanId\scan_id`؛ Android: مجلد دعم التطبيق الخاص، دون إذن تخزين واسع.

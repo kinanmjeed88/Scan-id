@@ -29,7 +29,55 @@ assert app is not None
 assert app.get(android + "allowBackup") == "false"
 assert app.get(android + "fullBackupContent") == "false"
 assert app.get(android + "dataExtractionRules") == "@xml/data_extraction_rules"
-assert not manifest.findall("uses-permission"), "Unexpected release permission"
+# The app is offline by design. Two permissions exist, both for the update flow a
+# person starts on purpose: INTERNET reaches the release feed (without it every
+# check dies in EACCES), REQUEST_INSTALL_PACKAGES lets the system installer
+# accept a verified package. Everything else — camera, storage, media, location —
+# must stay undeclared, so the declared set is compared as a whole rather than
+# searched for a few names someone happened to think of.
+RELEASE_PERMISSIONS = {
+    "android.permission.INTERNET",
+    "android.permission.REQUEST_INSTALL_PACKAGES",
+}
+kotlin = "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in (ROOT / "android/app/src/main/kotlin").rglob("*.kt")
+)
+declared = {item.get(android + "name") for item in manifest.findall("uses-permission")}
+assert declared == RELEASE_PERMISSIONS, f"unexpected release permissions: {sorted(declared)}"
+# A provider the manifest names but no Kotlin class defines is a crash at install
+# time (ClassNotFoundException), which no Dart test can see.
+authorities = set()
+for node in app.findall("provider"):
+    name = node.get(android + "name").rsplit(".", 1)[-1]
+    assert f"class {name} :" in kotlin, f"{name} has no Kotlin class"
+    resource = node.find("meta-data").get(android + "resource")
+    authority = node.get(android + "authorities")
+    # A shared authority would let one feature read another feature's files, so
+    # every provider gets its own suffix and its own single declared directory.
+    assert authority.startswith("${applicationId}."), f"{name}: authorities must be app-scoped"
+    authorities.add(authority.rsplit(".", 1)[-1])
+    paths = ROOT / f"android/app/src/main/res/xml/{resource.removeprefix('@xml/')}.xml"
+    assert paths.is_file(), f"{name}: {resource} has no file"
+    # Every provider is scoped to one directory of its own and is not exported,
+    # so a grant can only ever name the files that feature wrote.
+    assert node.get(android + "exported") == "false", f"{name} must stay unexported"
+    assert len(ET.parse(paths).getroot()) == 1, f"{name}: expected exactly one declared path"
+assert len(authorities) == len(
+    app.findall("provider")
+), "two providers share one authority"
+# The install handoff works only while three files agree on one directory name.
+# A rename on one side alone would either leave the installer refusing a package
+# it may not read, or widen the grant beyond the update feature.
+UPDATE_DIRECTORY = "scan-updates"
+update_paths = (ROOT / "android/app/src/main/res/xml/update_paths.xml").read_text(
+    encoding="utf-8"
+)
+assert f'path="{UPDATE_DIRECTORY}/"' in update_paths, "update_paths.xml moved"
+assert f'DIRECTORY = "{UPDATE_DIRECTORY}"' in kotlin, "UpdateInstaller.kt moved"
+ota = (ROOT / "lib/application/ota_update.dart").read_text(encoding="utf-8")
+assert f"updateDirectoryName = '{UPDATE_DIRECTORY}'" in ota, "the Dart side moved"
+assert "updateDownloadDirectory" in ota, "the update directory has no resolver"
 rules = ET.parse(ROOT / "android/app/src/main/res/xml/data_extraction_rules.xml").getroot()
 for mode in ("cloud-backup", "device-transfer"):
     assert {item.get("domain") for item in rules.findall(mode + "/exclude")} == {
@@ -94,7 +142,8 @@ assert "resources\\\\app_icon.ico" in (ROOT / "windows/runner/Runner.rc").read_t
 count = sum(len(re.findall(r"\btest(?:Widgets)?\(", file.read_text(encoding="utf-8")))
             for file in files if file.name.endswith("_test.dart"))
 print(f"PASS: {len(files)} Dart files have resolvable local imports; domain boundaries checked.")
-print("PASS: Android XML parses, release manifest has no permissions and disables automatic backup.")
+print("PASS: Android XML parses; the release manifest declares only the two update "
+      "permissions and every provider is class-backed, unexported and single-path.")
 print(f"PASS: Launcher artwork present at every density and referenced by both platforms "
       f"(Windows icon carries {entries} sizes).")
 print(f"INVENTORY: {count} declared Dart/Flutter tests. NOT executed by this audit.")

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the dedicated update directory can ever be handed to the system
+     installer. Separate authority and separate path scope from the capture and
+     export providers, so an install grant cannot name a project's images. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="updates" path="scan-updates/" />
+</paths>

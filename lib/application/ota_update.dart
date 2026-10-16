@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,10 +9,42 @@ import 'package:path_provider/path_provider.dart';
 
 import 'cancellation.dart';
 import 'ids.dart';
+import 'update_installer.dart';
 
 const int maxUpdateMetadataBytes = 2 * 1024 * 1024;
 const int maxUpdateDownloadBytes = 512 * 1024 * 1024;
+
+/// Prefix of every package this feature writes. It names the whole update
+/// directory, so leftovers from an interrupted session are recognisable.
+const String updateFilePrefix = 'scan-id-update-';
+
+/// The one directory a downloaded package is written to.
+///
+/// Three files must agree on this name, because that is what makes a handoff to
+/// the system installer both possible and narrow: the provider's declared path
+/// in `android/app/src/main/res/xml/update_paths.xml`, the accepted directory
+/// in `UpdateInstaller.kt`, and the directory this service writes.
+/// `tool/check_source.py` re-checks all three, so a rename in one place cannot
+/// silently open a wider grant or leave the installer refusing a file it may
+/// not read.
+const String updateDirectoryName = 'scan-updates';
+
+/// The update directory inside the app's own cache, which is exactly what
+/// `getTemporaryDirectory()` resolves to on Android (`context.getCacheDir()`).
+Future<Directory> updateDownloadDirectory() async => Directory(
+  p.join((await getTemporaryDirectory()).path, updateDirectoryName),
+);
+
+/// A check must answer even when a captive portal or a dead DNS swallows the
+/// socket: the release feed never gets to hold the settings screen open.
+const Duration updateConnectTimeout = Duration(seconds: 10);
+const Duration updateReadTimeout = Duration(seconds: 30);
+const Duration updateCheckTimeout = Duration(seconds: 25);
+
+/// Hosts an update may come from. The metadata host is listed with the asset
+/// hosts so one rule decides both, and a redirect can only ever land here.
 const Set<String> _trustedUpdateHosts = {
+  'api.github.com',
   'github.com',
   'objects.githubusercontent.com',
   'release-assets.githubusercontent.com',
@@ -23,6 +56,120 @@ bool _isAllowedUpdateUri(Uri uri) =>
     uri.userInfo.isEmpty &&
     (!uri.hasPort || uri.port == 443) &&
     !uri.hasFragment;
+
+/// Why an update request could not be completed.
+///
+/// The kind is decided from the exception type the transport raised, not from a
+/// search through its message: a check that greps for `"404"` reports a network
+/// outage as a missing release as soon as a port, a byte count or a locale
+/// happens to contain those digits — which is exactly how a user ends up being
+/// told to check their internet when the app had no route at all.
+enum UpdateFailureKind {
+  unavailable,
+  timeout,
+  rejected,
+  corrupt,
+  tooLarge,
+  failed,
+}
+
+class UpdateFailure implements Exception {
+  const UpdateFailure(this.kind, this.detail, {this.status});
+
+  final UpdateFailureKind kind;
+
+  /// A short technical note for logs and tests. Never shown as written.
+  final String detail;
+
+  /// The HTTP status, when a server answered with one.
+  final int? status;
+
+  @override
+  String toString() => 'UpdateFailure(${kind.name}: $detail)';
+}
+
+/// The sentence a user reads for [failure], kept beside the failure itself so
+/// every surface that reports one says the same thing.
+String describeUpdateFailure(UpdateFailure failure) {
+  switch (failure.kind) {
+    case UpdateFailureKind.unavailable:
+      return 'لا يمكن الوصول إلى مصدر التحديثات. تحقّق من الاتصال بالإنترنت.';
+    case UpdateFailureKind.timeout:
+      return 'انتهت مهلة الاتصال بمصدر التحديثات. أعد المحاولة.';
+    case UpdateFailureKind.rejected:
+      if (failure.status == HttpStatus.notFound) {
+        return 'لم يُنشر إصدار جديد بعد.';
+      }
+      return 'مصدر التحديثات غير متاح الآن؛ حاول لاحقاً.';
+    case UpdateFailureKind.corrupt:
+      return 'بيانات الإصدار المنشور غير صالحة؛ حاول لاحقاً.';
+    case UpdateFailureKind.tooLarge:
+      return 'بيانات التحديث أكبر من الحد المسموح.';
+    case UpdateFailureKind.failed:
+      return 'تعذر التحقق من التحديث؛ حاول لاحقاً.';
+  }
+}
+
+/// Maps anything a transport can raise onto one [UpdateFailure].
+UpdateFailure classifyUpdateError(Object error) {
+  if (error is UpdateFailure) return error;
+  if (error is TimeoutException) {
+    return const UpdateFailure(
+      UpdateFailureKind.timeout,
+      'The update request timed out.',
+    );
+  }
+  if (error is HandshakeException) {
+    return const UpdateFailure(
+      UpdateFailureKind.rejected,
+      'The update connection could not be secured.',
+    );
+  }
+  if (error is SocketException) {
+    return const UpdateFailure(
+      UpdateFailureKind.unavailable,
+      'No route to the update feed.',
+    );
+  }
+  if (error is HttpException) {
+    return const UpdateFailure(
+      UpdateFailureKind.rejected,
+      'The update feed rejected the request.',
+    );
+  }
+  if (error is FormatException) {
+    return const UpdateFailure(
+      UpdateFailureKind.corrupt,
+      'Release metadata is not readable.',
+    );
+  }
+  return UpdateFailure(UpdateFailureKind.failed, error.runtimeType.toString());
+}
+
+/// A client whose every phase can end: connecting, waiting for headers and
+/// reading a body. `HttpClient` alone has no read timeout at all, so a server
+/// that accepts the connection and then says nothing would hold the check open
+/// for as long as the settings screen is open.
+HttpClient _newUpdateClient() => HttpClient()
+  ..connectionTimeout = updateConnectTimeout;
+
+/// Reads a whole response body under a hard cap, with an idle timeout between
+/// chunks, and never holds more than [limit] bytes.
+Future<List<int>> _readBounded(Stream<List<int>> source, int limit) async {
+  final builder = BytesBuilder(copy: false);
+  var received = 0;
+  await for (final chunk in source.timeout(updateReadTimeout)) {
+    received += chunk.length;
+    if (received > limit) {
+      throw UpdateFailure(
+        UpdateFailureKind.tooLarge,
+        'Response exceeds its $limit-byte limit.',
+      );
+    }
+    builder.add(chunk);
+  }
+  return builder.takeBytes();
+}
 
 /// Metadata for one platform-specific release asset.
 class UpdateInfo {
@@ -170,33 +317,17 @@ class GitHubUpdateSource implements UpdateSource {
     required UpdatePlatform platform,
   }) async {
     final uri = Uri.parse('$_baseUrl/$owner/$repo/releases/latest');
-    final client = HttpClient();
+    if (!_isAllowedUpdateUri(uri)) {
+      throw const UpdateFailure(
+        UpdateFailureKind.rejected,
+        'The configured release feed is not an allowed update host.',
+      );
+    }
+    final client = _newUpdateClient();
     try {
-      final request = await client.getUrl(uri);
-      request.followRedirects = false;
-      request.headers
-        ..set('Accept', 'application/vnd.github+json')
-        ..set('User-Agent', 'Scan-id-update-check')
-        ..set('X-GitHub-Api-Version', '2022-11-28');
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'GitHub release metadata returned HTTP ${response.statusCode}.',
-          uri: uri,
-        );
-      }
-      final builder = BytesBuilder(copy: false);
-      var received = 0;
-      await for (final chunk in response) {
-        received += chunk.length;
-        if (received > maxUpdateMetadataBytes) {
-          throw const FormatException(
-            'Release metadata exceeds its size limit.',
-          );
-        }
-        builder.add(chunk);
-      }
-      final release = parseReleaseJson(utf8.decode(builder.takeBytes()));
+      final release = await _fetchMetadata(client, uri).timeout(
+        updateCheckTimeout,
+      );
       if (release == null) return null;
       return selectUpdate(
         release,
@@ -204,9 +335,37 @@ class GitHubUpdateSource implements UpdateSource {
         platform: platform,
         releaseTagPrefix: releaseTagPrefix,
       );
+    } on Object catch (error) {
+      throw classifyUpdateError(error);
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// The release record, or `null` for a response that carries no published
+  /// release. Everything that can go wrong on the way there is an
+  /// [UpdateFailure] by the time it leaves this method.
+  Future<Map<String, dynamic>?> _fetchMetadata(
+    HttpClient client,
+    Uri uri,
+  ) async {
+    final request = await client.getUrl(uri);
+    request.followRedirects = false;
+    request.headers
+      ..set('Accept', 'application/vnd.github+json')
+      ..set('User-Agent', 'Scan-id-update-check')
+      ..set('X-GitHub-Api-Version', '2022-11-28');
+    final response = await request.close();
+    if (response.statusCode != HttpStatus.ok) {
+      await response.drain<void>();
+      throw UpdateFailure(
+        UpdateFailureKind.rejected,
+        'Release metadata returned HTTP ${response.statusCode}.',
+        status: response.statusCode,
+      );
+    }
+    final bytes = await _readBounded(response, maxUpdateMetadataBytes);
+    return parseReleaseJson(utf8.decode(bytes));
   }
 
   /// Pure selection path used by the network adapter and by tests. The
@@ -353,7 +512,7 @@ abstract interface class UpdateTransport {
 }
 
 class _IoUpdateTransport implements UpdateTransport {
-  final HttpClient _client = HttpClient();
+  final HttpClient _client = _newUpdateClient();
 
   @override
   Future<UpdateResponse> get(Uri uri) async {
@@ -369,7 +528,9 @@ class _IoUpdateTransport implements UpdateTransport {
         return UpdateResponse(
           statusCode: response.statusCode,
           contentLength: response.contentLength,
-          body: response,
+          // A stalled connection must not hold a download open forever; the
+          // timeout is between chunks, so a slow but live server keeps going.
+          body: response.timeout(updateReadTimeout),
         );
       }
       final location = response.headers.value(HttpHeaders.locationHeader);
@@ -394,8 +555,9 @@ class _IoUpdateTransport implements UpdateTransport {
 
 /// Platform update operations. Downloads are streamed to a unique bounded
 /// temporary file and accepted only when a SHA-256 digest is supplied and
-/// verified. Installation deliberately fails closed until signed production
-/// packages and native installer integrations are configured.
+/// verified. [installer] is the only thing that may hand a verified package to
+/// the operating system; with none configured, installation stays refused
+/// rather than pretending to have happened.
 class UpdateService {
   UpdateService({
     required this.source,
@@ -403,6 +565,7 @@ class UpdateService {
     this.platform = UpdatePlatform.android,
     UpdateTransport Function()? transportFactory,
     Future<Directory> Function()? temporaryDirectory,
+    this.installer,
     this.maxDownloadBytes = maxUpdateDownloadBytes,
   }) : _transportFactory = transportFactory ?? _IoUpdateTransport.new,
        _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory {
@@ -418,6 +581,10 @@ class UpdateService {
   final String currentVersion;
   final UpdatePlatform platform;
   final int maxDownloadBytes;
+
+  /// Asks the operating system to install a package this service verified. Null
+  /// means this build has no install path and never starts one.
+  final UpdateInstaller? installer;
   final UpdateTransport Function() _transportFactory;
   final Future<Directory> Function() _temporaryDirectory;
 
@@ -496,9 +663,10 @@ class UpdateService {
           (response.contentLength >= 0 ? response.contentLength : 0);
       final directory = await _temporaryDirectory();
       await directory.create(recursive: true);
+      await _discardPreviousDownloads(directory);
       final extension = p.extension(uri.path).toLowerCase();
       tempFile = File(
-        p.join(directory.path, 'scan-id-update-${newId()}$extension'),
+        p.join(directory.path, '$updateFilePrefix${newId()}$extension'),
       );
       final output = tempFile.openWrite(mode: FileMode.writeOnly);
       final hashSink = _SingleDigestSink();
@@ -548,7 +716,7 @@ class UpdateService {
     } on _UpdateFailure catch (error) {
       return fail(error.message);
     } on Object catch (error) {
-      return fail('فشل تنزيل التحديث: $error');
+      return fail(describeUpdateFailure(classifyUpdateError(error)));
     } finally {
       transport?.close();
     }
@@ -595,9 +763,13 @@ class UpdateService {
     }
   }
 
-  /// The current release configuration has no production publisher identity or
-  /// native installer implementation. Verification alone never launches or
-  /// installs an executable; this method reports the operation as unavailable.
+  /// Hands a verified package to [installer].
+  ///
+  /// Verification is corruption detection, not authorization: what makes an
+  /// install acceptable is the digest check above plus the system installer's
+  /// own confirmation. With no installer configured this build refuses the
+  /// operation and keeps the verified file, exactly as it did before native
+  /// install integration existed, so a Windows package is never executed here.
   Future<InstallResult> installUpdate(
     UpdateInfo update,
     String filePath,
@@ -607,12 +779,40 @@ class UpdateService {
         'تعذر التحقق من ملف التحديث؛ لم يُشغَّل أي مثبت.',
       );
     }
-    return InstallResult.error(switch (platform) {
-      UpdatePlatform.android =>
-        'تثبيت Android الهوائي غير مهيأ لهذا البناء؛ لم يبدأ مثبت النظام.',
-      UpdatePlatform.windows =>
-        'تثبيت Windows الهوائي غير مهيأ دون حزمة ومُثبّت موثوقين؛ لم يُشغَّل أي ملف.',
-    });
+    final target = installer;
+    if (target == null) {
+      return InstallResult.error(switch (platform) {
+        UpdatePlatform.android =>
+          'لا يفتح هذا البناء مثبت النظام تلقائياً؛ لم يبدأ مثبت النظام.',
+        UpdatePlatform.windows =>
+          'تثبيت Windows الهوائي غير مهيأ دون حزمة ومُثبّت موثوقين؛ لم يُشغَّل أي ملف.',
+      });
+    }
+    final outcome = await target.install(filePath);
+    final message = outcome.message ?? 'تعذر إكمال التثبيت.';
+    if (!outcome.started) {
+      return InstallResult.error(message);
+    }
+    return InstallResult.success(message);
+  }
+
+  /// Removes packages an interrupted session left behind. This directory
+  /// belongs to the update feature alone, so anything already in it names a
+  /// download that was never completed — keeping it only costs disk space.
+  Future<void> _discardPreviousDownloads(Directory directory) async {
+    try {
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) continue;
+        if (!p.basename(entity.path).startsWith(updateFilePrefix)) continue;
+        try {
+          await entity.delete();
+        } on Object {
+          // An undeletable leftover must not fail a download that can proceed.
+        }
+      }
+    } on Object {
+      // An unreadable directory is created again by the caller.
+    }
   }
 
   Future<bool> _cleanupTempFile(File? file) async {

@@ -274,7 +274,7 @@ jobs:
           fetch-tags: true
           token: ${{ github.token }}
 
-      - name: Update pubspec and Dart files
+      - name: Update the two version files
         id: bump
         shell: bash
         run: |
@@ -289,28 +289,23 @@ jobs:
           sed -i -E "s/^version:.*/version: $new_pubspec/" pubspec.yaml
           grep -q "^version: $new_pubspec" pubspec.yaml || { echo "::error::pubspec update failed"; exit 1; }
 
-          # lib/presentation/app.dart
-          if grep -q "applicationVersion:" lib/presentation/app.dart; then
-            sed -i -E "s/applicationVersion: '[^']*'/applicationVersion: '$new'/" lib/presentation/app.dart
-            grep -q "applicationVersion: '$new'" lib/presentation/app.dart || { echo "::error::app.dart update failed"; exit 1; }
-          fi
+          # The version a build carries lives in exactly one Dart file. The About
+          # dialog and the update check both read that constant, so a published
+          # version cannot leave one of them comparing itself to a stale number.
+          version_file=lib/application/app_release.dart
+          grep -q "const String appVersion = '" "$version_file" || { echo "::error::$version_file no longer carries the appVersion line this step edits"; exit 1; }
+          sed -i -E "s/const String appVersion = '[^']*'/const String appVersion = '$new'/" "$version_file"
+          grep -q "const String appVersion = '$new'" "$version_file" || { echo "::error::version file update failed"; exit 1; }
 
-          # lib/presentation/settings_screen.dart
-          if grep -q "_appVersion" lib/presentation/settings_screen.dart; then
-            sed -i -E "s/static const String _appVersion = '[^']*'/static const String _appVersion = '$new'/" lib/presentation/settings_screen.dart
-            grep -q "_appVersion = '$new'" lib/presentation/settings_screen.dart || { echo "::error::settings_screen update failed"; exit 1; }
-          fi
-
-          # Verify scope: only 3 files should be changed
+          # Verify scope: only the two version files may change
           changed=$(git diff --name-only)
           echo "Changed files:"
           echo "$changed"
           allowed="pubspec.yaml
-          lib/presentation/app.dart
-          lib/presentation/settings_screen.dart"
+          lib/application/app_release.dart"
           for f in $changed; do
             if ! echo "$allowed" | grep -qx "$f"; then
-              echo "::error::تغيير غير متوقع في $f — مسموح فقط pubspec + app.dart + settings_screen.dart"
+              echo "::error::تغيير غير متوقع في $f — المسموح pubspec.yaml وlib/application/app_release.dart فقط"
               git diff --stat
               exit 1
             fi
@@ -324,8 +319,7 @@ jobs:
           # Instead of committing now, we keep modified files and upload as artifact for build jobs
           mkdir -p /tmp/version-bump
           cp pubspec.yaml /tmp/version-bump/
-          cp lib/presentation/app.dart /tmp/version-bump/app.dart.bak 2>/dev/null || true
-          cp lib/presentation/settings_screen.dart /tmp/version-bump/settings.dart.bak 2>/dev/null || true
+          cp lib/application/app_release.dart /tmp/version-bump/app_release.dart.bak
 
       - name: Upload version bump artifact
         uses: actions/upload-artifact@v6
@@ -359,10 +353,9 @@ jobs:
         run: |
           set -euo pipefail
           cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app.dart.bak lib/presentation/app.dart 2>/dev/null || true
-          cp /tmp/version-bump/settings.dart.bak lib/presentation/settings_screen.dart 2>/dev/null || true
+          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
-          grep -E 'applicationVersion|_appVersion' lib/presentation/app.dart lib/presentation/settings_screen.dart | head
+          grep -E 'appVersion' lib/application/app_release.dart
 
       - uses: actions/setup-java@v5
         with:
@@ -503,11 +496,10 @@ jobs:
         run: |
           set -euo pipefail
           cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app.dart.bak lib/presentation/app.dart 2>/dev/null || true
-          cp /tmp/version-bump/settings.dart.bak lib/presentation/settings_screen.dart 2>/dev/null || true
+          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
           echo "Applied version bump:"
           grep -E '^version:' pubspec.yaml
-          grep -E 'applicationVersion|_appVersion' lib/presentation/app.dart lib/presentation/settings_screen.dart | head || true
+          grep -E 'appVersion' lib/application/app_release.dart
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'
@@ -583,9 +575,9 @@ jobs:
         run: |
           set -euo pipefail
           cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app.dart.bak lib/presentation/app.dart 2>/dev/null || true
-          cp /tmp/version-bump/settings.dart.bak lib/presentation/settings_screen.dart 2>/dev/null || true
-          cat pubspec.yaml | grep version
+          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
+          grep -E '^version:' pubspec.yaml
+          grep -E "const String appVersion = '" lib/application/app_release.dart
 
       - name: Download Android APK
         if: contains(inputs.targets, 'android') || inputs.targets == 'both'

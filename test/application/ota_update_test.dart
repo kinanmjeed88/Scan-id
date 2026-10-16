@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/ota_update.dart';
+import 'package:scan_id/application/update_installer.dart';
 
 class _NoUpdateSource implements UpdateSource {
   UpdatePlatform? checkedPlatform;
@@ -53,6 +55,36 @@ UpdateInfo _update({
   size: size ?? bytes.length,
   sha256: includeDigest ? digest ?? _digest(bytes) : null,
 );
+
+class _ThrowingTransport implements UpdateTransport {
+  _ThrowingTransport(this.error);
+
+  final Object error;
+
+  @override
+  Future<UpdateResponse> get(Uri uri) async => throw error;
+
+  @override
+  void close() {}
+}
+
+class _RecordingInstaller implements UpdateInstaller {
+  _RecordingInstaller({
+    this.outcome = const InstallOutcome(
+      started: true,
+      message: 'فتح مثبت النظام.',
+    ),
+  });
+
+  final InstallOutcome outcome;
+  String? receivedPath;
+
+  @override
+  Future<InstallOutcome> install(String filePath) async {
+    receivedPath = filePath;
+    return outcome;
+  }
+}
 
 void main() {
   group('Semantic Versioning', () {
@@ -500,6 +532,227 @@ void main() {
       }
     },
   );
+
+  group('failure classification', () {
+    test('a transport error is answered with a fact, not a guess', () {
+      final offline = classifyUpdateError(
+        const SocketException('Failed host lookup: api.github.com'),
+      );
+      expect(offline.kind, UpdateFailureKind.unavailable);
+      expect(
+        describeUpdateFailure(offline),
+        contains('لا يمكن الوصول إلى مصدر التحديثات'),
+      );
+      expect(
+        classifyUpdateError(TimeoutException(const Duration(seconds: 1))).kind,
+        UpdateFailureKind.timeout,
+      );
+      expect(
+        classifyUpdateError(const FormatException('bad json')).kind,
+        UpdateFailureKind.corrupt,
+      );
+      expect(
+        classifyUpdateError(const HttpException('boom')).kind,
+        UpdateFailureKind.rejected,
+      );
+    });
+
+    test('a missing release is not reported as a broken app', () {
+      const missing = UpdateFailure(
+        UpdateFailureKind.rejected,
+        'HTTP 404',
+        status: HttpStatus.notFound,
+      );
+      expect(
+        describeUpdateFailure(missing),
+        contains('لم يُنشر إصدار جديد بعد'),
+      );
+      expect(
+        describeUpdateFailure(
+          const UpdateFailure(UpdateFailureKind.rejected, 'HTTP 500'),
+        ),
+        contains('غير متاح الآن'),
+      );
+    });
+
+    test('an already classified failure keeps its kind', () {
+      const failure = UpdateFailure(UpdateFailureKind.tooLarge, 'over cap');
+      expect(classifyUpdateError(failure), same(failure));
+      expect(describeUpdateFailure(failure), contains('أكبر من الحد'));
+    });
+
+    test('a download failure never repeats raw exception text', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_neterr_');
+      try {
+        final transport = _ThrowingTransport(const SocketException('x'));
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => transport,
+          temporaryDirectory: () async => root,
+        );
+        final result = await service.downloadUpdate(
+          _update(),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+        expect(result.isSuccess, isFalse);
+        expect(result.error, isNot(contains('SocketException')));
+        expect(result.error, contains('لا يمكن الوصول إلى مصدر التحديثات'));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+  });
+
+  group('the update directory and the install handoff', () {
+    test('a leftover package is cleared before a new download', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_prune_');
+      const bytes = [1, 2, 3, 4];
+      try {
+        final separator = Platform.pathSeparator;
+        final stale = File('${root.path}${separator}scan-id-update-old.apk')
+          ..createSync();
+        final keeper = File('${root.path}${separator}notes.txt')
+          ..writeAsStringSync('keep');
+        final transport = _FakeTransport(
+          UpdateResponse(
+            statusCode: HttpStatus.ok,
+            contentLength: bytes.length,
+            body: Stream.value(bytes),
+          ),
+        );
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => transport,
+          temporaryDirectory: () async => root,
+        );
+        final result = await service.downloadUpdate(
+          _update(bytes: bytes),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+
+        expect(result.isSuccess, isTrue);
+        // A package left by an interrupted session must not outlive the next
+        // download, and nothing else in the directory may be touched.
+        expect(stale.existsSync(), isFalse);
+        expect(keeper.existsSync(), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('a verified package reaches the installer', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_send_');
+      const bytes = [1, 2, 3, 4];
+      try {
+        final installer = _RecordingInstaller();
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => _FakeTransport(
+            UpdateResponse(
+              statusCode: HttpStatus.ok,
+              contentLength: bytes.length,
+              body: Stream.value(bytes),
+            ),
+          ),
+          temporaryDirectory: () async => root,
+          installer: installer,
+        );
+        final download = await service.downloadUpdate(
+          _update(bytes: bytes),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+        expect(download.isSuccess, isTrue);
+
+        final install = await service.installUpdate(
+          _update(bytes: bytes),
+          download.filePath!,
+        );
+        expect(install.isSuccess, isTrue);
+        expect(install.message, 'فتح مثبت النظام.');
+        expect(installer.receivedPath, download.filePath);
+        expect(File(download.filePath!).existsSync(), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('a refused handoff is reported as refused', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_refuse_');
+      const bytes = [1, 2, 3, 4];
+      try {
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => _FakeTransport(
+            UpdateResponse(
+              statusCode: HttpStatus.ok,
+              contentLength: bytes.length,
+              body: Stream.value(bytes),
+            ),
+          ),
+          temporaryDirectory: () async => root,
+          installer: _RecordingInstaller(
+            outcome: const InstallOutcome(
+              started: false,
+              message: 'اسمح للتطبيق بتثبيت التطبيقات أولاً.',
+            ),
+          ),
+        );
+        final download = await service.downloadUpdate(
+          _update(bytes: bytes),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+        final install = await service.installUpdate(
+          _update(bytes: bytes),
+          download.filePath!,
+        );
+        expect(install.isSuccess, isFalse);
+        expect(install.error, contains('اسمح للتطبيق بتثبيت التطبيقات'));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
+    test('with no installer this build still starts nothing', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_none_');
+      const bytes = [1, 2, 3, 4];
+      try {
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => _FakeTransport(
+            UpdateResponse(
+              statusCode: HttpStatus.ok,
+              contentLength: bytes.length,
+              body: Stream.value(bytes),
+            ),
+          ),
+          temporaryDirectory: () async => root,
+        );
+        final download = await service.downloadUpdate(
+          _update(bytes: bytes),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+        final install = await service.installUpdate(
+          _update(bytes: bytes),
+          download.filePath!,
+        );
+        expect(install.isSuccess, isFalse);
+        expect(install.error, contains('لم يبدأ مثبت النظام'));
+        expect(File(download.filePath!).existsSync(), isTrue);
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+  });
 
   group('operation results', () {
     test('download success/error are explicit', () {

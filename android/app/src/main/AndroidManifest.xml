@@ -1,5 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- External camera intent: no INTERNET, CAMERA or broad storage permission. -->
+    <!-- The app works entirely offline: recognition, storage and export never
+         touch the network. Exactly two permissions are declared, both for the
+         update flow the person starts from Settings, and nothing else:
+         INTERNET lets the update check reach its release feed (without it every
+         request dies in EACCES), and REQUEST_INSTALL_PACKAGES lets the system
+         installer accept a package the app verified. No CAMERA, no storage, no
+         location. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="مستمسكات"
         android:name="${applicationName}"
@@ -14,6 +22,12 @@
              Separate authority and separate path scope from the camera provider. -->
         <provider android:name=".ExportFileProvider" android:authorities="${applicationId}.exports" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/export_paths" />
+        </provider>
+        <!-- A verified update package, handed to the system installer and to
+             nothing else: its own authority and its own single directory, so a
+             grant can never name a project's images. -->
+        <provider android:name=".UpdateFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
         </provider>
         <activity
             android:name=".MainActivity"

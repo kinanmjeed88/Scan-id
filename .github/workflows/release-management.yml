@@ -1,4 +1,4 @@
-Name: Release Management (Dashboard)
+name: Release Management (Dashboard)
 
 on:
   workflow_dispatch:
@@ -75,8 +75,6 @@ jobs:
           echo "::notice title=auth::Actor $actor has $perm permission"
 
       - name: Check target branch
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -455,7 +453,7 @@ jobs:
           if ! grep -q '^package:' /tmp/apk-badging.txt; then echo "::error title=signing-verify::aapt2 could not read manifest" >&2; head -c 400 /tmp/apk-badging.txt >&2; exit 1; fi
           if grep -q 'application-debuggable' /tmp/apk-badging.txt; then echo "::error title=signing-verify::Release APK reports android:debuggable — release signing misconfigured" >&2; exit 1; fi
           if [[ "$observed" != "$EXPECTED_CERT_SHA256" ]]; then
-            echo "::error title=signing-verify::APK cert $observed != expected$EXPECTED_CERT_SHA256" >&2
+            echo "::error title=signing-verify::APK cert $observed != expected $EXPECTED_CERT_SHA256" >&2
             if grep -qi 'CN=Android Debug' "$report"; then echo "::error title=signing-verify::APK signed with AOSP debug key" >&2; fi
             exit 1
           fi
@@ -525,14 +523,14 @@ jobs:
         run: |
           $src = "build/windows/x64/runner/Release"
           $zip = "scan-id-windows.zip"
-          if (Test-Path $zip) { Remove-Item$zip -Force }
+          if (Test-Path $zip) { Remove-Item $zip -Force }
           Get-ChildItem $src -Recurse | Out-Null
           Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
-          $size = (Get-Item$zip).Length
+          $size = (Get-Item $zip).Length
           Write-Host "Created $zip ($size bytes)"
           if ($size -eq 0) { throw "Windows ZIP is empty" }
           # Verify ZIP contains scan_id executable and is not just tests
-          $entries = (Expand-Archive -Path$zip -DestinationPath $env:RUNNER_TEMP/zip-check -Force -PassThru; Get-ChildItem$env:RUNNER_TEMP/zip-check -Recurse | Select-Object -ExpandProperty Name)
+          $entries = (Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP/zip-check -Force -PassThru; Get-ChildItem $env:RUNNER_TEMP/zip-check -Recurse | Select-Object -ExpandProperty Name)
           if (-not (Test-Path "$env:RUNNER_TEMP/zip-check/scan_id.exe")) { throw "ZIP missing scan_id.exe" }
           Remove-Item $env:RUNNER_TEMP/zip-check -Recurse -Force
       - name: Windows application
@@ -607,8 +605,8 @@ jobs:
           ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*//; s/"//g; s/'\''//g' | tr -d '[:space:]')
           core=$(echo "$ver" | cut -d'+' -f1)
           build=$(echo "$ver" | cut -d'+' -f2)
-          if [[ "$core" != "${{ inputs.version }}" ]]; then echo "::error title=release-verify::pubspec core $core != requested${{ inputs.version }} — artifact mismatch"; exit 1; fi
-          if [[ "$build" != "${{ inputs.build_number }}" ]]; then echo "::error title=release-verify::pubspec build $build != requested${{ inputs.build_number }}"; exit 1; fi
+          if [[ "$core" != "${{ inputs.version }}" ]]; then echo "::error title=release-verify::pubspec core $core != requested ${{ inputs.version }} — artifact mismatch"; exit 1; fi
+          if [[ "$build" != "${{ inputs.build_number }}" ]]; then echo "::error title=release-verify::pubspec build $build != requested ${{ inputs.build_number }}"; exit 1; fi
           echo "Version artifact verified: $ver"
           # 2. APK checks (when target includes android)
           if [[ "${{ inputs.targets }}" == "both" || "${{ inputs.targets }}" == "android" ]]; then
@@ -625,7 +623,7 @@ jobs:
             unzip -l "$zip" >/dev/null || { echo "::error::ZIP invalid"; exit 1; }
             # Windows ZIP must contain main executable
             if ! unzip -l "$zip" | grep -qi 'scan_id\.exe'; then echo "::error::ZIP missing scan_id.exe"; unzip -l "$zip" | head -n 20; exit 1; fi
-            if [[ $(stat -c\%s "$zip") -lt 5000000 ]]; then echo "::warning::ZIP suspiciously small — verify windows build completeness"; fi
+            if [[ $(stat -c%s "$zip") -lt 5000000 ]]; then echo "::warning::ZIP suspiciously small — verify windows build completeness"; fi
           fi
           # Generate hashes with deterministic ordering
           mkdir -p release-ready
@@ -659,7 +657,8 @@ jobs:
           else
             git commit -m "release: $tag+$build
 
-          $tag build $build${{ inputs.release_notes }}"
+          $tag build $build
+          ${{ inputs.release_notes }}"
             if ! git show --name-only --format= HEAD | grep -qx 'lib/application/app_release.dart'; then
               echo "::error title=release-commit::the release commit did not change lib/application/app_release.dart" >&2
               exit 1
@@ -671,7 +670,7 @@ jobs:
             git push origin HEAD:searchidf
           fi
           # Tag
-          if git ls-remote --tags origin "refs/tags/$tag" \vert{} grep -q "$tag"; then
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q "$tag"; then
             echo "::error::Tag $tag already exists"
             exit 1
           fi
@@ -701,11 +700,11 @@ jobs:
           json=$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets')
           echo "$json" | jq .
           # Platform-correct files
-          if [[ "${{ inputs.targets }}" == "both" \vert{}\vert{} "${{ inputs.targets }}" == "android" ]]; then
-            if ! echo "$json" \vert{} jq -e '.[] \vert{} select(.name == "scan-id-android-${{ inputs.version }}.apk")' >/dev/null; then echo "::error::No APK with expected name scan-id-android-${{ inputs.version }}.apk"; exit 1; fi
+          if [[ "${{ inputs.targets }}" == "both" || "${{ inputs.targets }}" == "android" ]]; then
+            if ! echo "$json" | jq -e '.[] | select(.name == "scan-id-android-${{ inputs.version }}.apk")' >/dev/null; then echo "::error::No APK with expected name scan-id-android-${{ inputs.version }}.apk"; exit 1; fi
           fi
-          if [[ "${{ inputs.targets }}" == "both" \vert{}\vert{} "${{ inputs.targets }}" == "windows" ]]; then
-            if ! echo "$json" \vert{} jq -e '.[] \vert{} select(.name == "scan-id-windows-${{ inputs.version }}.zip")' >/dev/null; then echo "::error::No ZIP with expected name scan-id-windows-${{ inputs.version }}.zip"; exit 1; fi
+          if [[ "${{ inputs.targets }}" == "both" || "${{ inputs.targets }}" == "windows" ]]; then
+            if ! echo "$json" | jq -e '.[] | select(.name == "scan-id-windows-${{ inputs.version }}.zip")' >/dev/null; then echo "::error::No ZIP with expected name scan-id-windows-${{ inputs.version }}.zip"; exit 1; fi
           fi
           # Must have SHA256SUMS for manual verification
           if ! echo "$json" | jq -e '.[] | select(.name == "SHA256SUMS.txt")' >/dev/null; then echo "::error::No SHA256SUMS.txt asset"; exit 1; fi
@@ -719,18 +718,18 @@ jobs:
           echo "Comparing local vs remote digests..."
           while read -r hash fname; do
             # Find matching remote asset by name
-            remote_digest=$(echo "$json" | jq -r --arg n "$fname" '.[] \vert{} select(.name==$n) | .digest // empty')
+            remote_digest=$(echo "$json" | jq -r --arg n "$fname" '.[] | select(.name==$n) | .digest // empty')
             if [[ -z "$remote_digest" ]]; then echo "::warning::No remote digest for $fname"; continue; fi
             remote_hash=$(echo "$remote_digest" | sed -E 's/^sha256://I')
             if [[ "$remote_hash" != "$hash" ]]; then
-              echo "::error::Hash mismatch for $fname: local $hash != remote$remote_hash"
+              echo "::error::Hash mismatch for $fname: local $hash != remote $remote_hash"
               exit 1
             fi
-            echo "✓ $fname digest matches:$hash"
+            echo "✓ $fname digest matches: $hash"
           done < /tmp/local-hashes.txt
           echo "::notice::OTA verified for $tag — all digests match local hashes"
           echo "## Release Published" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: $tag" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Pubspec: $(cat pubspec.yaml \vert{} grep version)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Assets: $(echo "$json" \vert{} jq -r '.[].name' \vert{} tr '\n' ' ') " >> "$GITHUB_STEP_SUMMARY"
-          echo "- Digests: $(echo "$json" \vert{} jq -c '[.[] \vert{} {name, digest}]')" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pubspec: $(cat pubspec.yaml | grep version)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Assets: $(echo "$json" | jq -r '.[].name' | tr '\n' ' ') " >> "$GITHUB_STEP_SUMMARY"
+          echo "- Digests: $(echo "$json" | jq -c '[.[] | {name, digest}]')" >> "$GITHUB_STEP_SUMMARY"

@@ -29,7 +29,105 @@ assert app is not None
 assert app.get(android + "allowBackup") == "false"
 assert app.get(android + "fullBackupContent") == "false"
 assert app.get(android + "dataExtractionRules") == "@xml/data_extraction_rules"
-assert not manifest.findall("uses-permission"), "Unexpected release permission"
+# The app is offline by design. Two permissions exist, both for the update flow a
+# person starts on purpose: INTERNET reaches the release feed (without it every
+# check dies in EACCES), REQUEST_INSTALL_PACKAGES lets the system installer
+# accept a verified package. Everything else — camera, storage, media, location —
+# must stay undeclared, so the declared set is compared as a whole rather than
+# searched for a few names someone happened to think of.
+RELEASE_PERMISSIONS = {
+    "android.permission.INTERNET",
+    "android.permission.REQUEST_INSTALL_PACKAGES",
+}
+kotlin = "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in (ROOT / "android/app/src/main/kotlin").rglob("*.kt")
+)
+declared = {item.get(android + "name") for item in manifest.findall("uses-permission")}
+assert declared == RELEASE_PERMISSIONS, f"unexpected release permissions: {sorted(declared)}"
+# A provider the manifest names but no Kotlin class defines is a crash at install
+# time (ClassNotFoundException), which no Dart test can see.
+authorities = set()
+for node in app.findall("provider"):
+    name = node.get(android + "name").rsplit(".", 1)[-1]
+    assert f"class {name} :" in kotlin, f"{name} has no Kotlin class"
+    resource = node.find("meta-data").get(android + "resource")
+    authority = node.get(android + "authorities")
+    # A shared authority would let one feature read another feature's files, so
+    # every provider gets its own suffix and its own single declared directory.
+    assert authority.startswith("${applicationId}."), f"{name}: authorities must be app-scoped"
+    authorities.add(authority.rsplit(".", 1)[-1])
+    paths = ROOT / f"android/app/src/main/res/xml/{resource.removeprefix('@xml/')}.xml"
+    assert paths.is_file(), f"{name}: {resource} has no file"
+    # Every provider is scoped to one directory of its own and is not exported,
+    # so a grant can only ever name the files that feature wrote.
+    assert node.get(android + "exported") == "false", f"{name} must stay unexported"
+    assert len(ET.parse(paths).getroot()) == 1, f"{name}: expected exactly one declared path"
+assert len(authorities) == len(
+    app.findall("provider")
+), "two providers share one authority"
+# The install handoff works only while three files agree on one directory name.
+# A rename on one side alone would either leave the installer refusing a package
+# it may not read, or widen the grant beyond the update feature.
+UPDATE_DIRECTORY = "scan-updates"
+update_paths = (ROOT / "android/app/src/main/res/xml/update_paths.xml").read_text(
+    encoding="utf-8"
+)
+assert f'path="{UPDATE_DIRECTORY}/"' in update_paths, "update_paths.xml moved"
+assert f'DIRECTORY = "{UPDATE_DIRECTORY}"' in kotlin, "UpdateInstaller.kt moved"
+ota = (ROOT / "lib/application/ota_update.dart").read_text(encoding="utf-8")
+assert f"updateDirectoryName = '{UPDATE_DIRECTORY}'" in ota, "the Dart side moved"
+assert "updateDownloadDirectory" in ota, "the update directory has no resolver"
+# An install permission is only defensible while the code that consumes it can name
+# the publisher: the digest published next to a file proves arrival, not authorship,
+# because both come from the same release. So the pin, the compiled constant and the
+# Kotlin comparison must stay one chain — otherwise the shipped app trusts its feed.
+PINS = {}
+for name in ("release-management.yml", "android-signed-release.yml"):
+    text = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+    found = re.findall(r"EXPECTED_CERT_SHA256:\s*'([0-9a-f]{64})'", text)
+    assert found, f"{name} no longer pins a release certificate fingerprint"
+    PINS[name] = set(found)
+assert PINS["release-management.yml"] == PINS["android-signed-release.yml"], (
+    "the release workflows pin different certificates: "
+    f"{sorted(PINS['release-management.yml'])} vs {sorted(PINS['android-signed-release.yml'])}"
+)
+gradle = (ROOT / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+# AGP 8 generates BuildConfig only on request, so a dropped flag would break the
+# build; a dropped field would break it later, on a user's phone, silently.
+assert "buildConfig = true" in gradle, "BuildConfig is not generated, so the pin cannot be read"
+assert '"EXPECTED_UPDATE_CERT_SHA256"' in gradle, "the certificate pin is not compiled into the app"
+assert 'requestsReleasePackage && expectedCertSha256.isEmpty()' in gradle, (
+    "a release could be packaged with no publisher anchor at all"
+)
+for needed in (
+    "getPackageArchiveInfo",
+    "GET_SIGNING_CERTIFICATES",
+    "apkContentsSigners",
+    "GET_SIGNATURES",
+    "BuildConfig.EXPECTED_UPDATE_CERT_SHA256",
+    "publisherRefusal",
+):
+    assert needed in kotlin, f"the installer lost the publisher check ({needed})"
+# Order is the contract: the answer must be read before the intent is built, and a
+# refusal must be decided before any permission screen opens. No host test can see
+# this, and a plausible-looking edit can silently break it.
+ORDER = (
+    "val packageFile = verifiedFile(raw)",
+    "val refusal = publisherRefusal(packageFile)",
+    "if (refusal != null)",
+    '"signature"',
+    "startInstall(packageFile, reply)",
+)
+positions = []
+for step in ORDER:
+    assert step in kotlin, f"the install handoff no longer contains: {step!r}"
+    positions.append(kotlin.index(step))
+assert positions == sorted(positions), "the publisher check no longer runs before the handoff"
+# A refusal the person cannot read is a bug in the one place a bug must not be.
+installer_dart = (ROOT / "lib/application/update_installer.dart").read_text(encoding="utf-8")
+assert "'signature' =>" in installer_dart, "the publisher refusal has no sentence to show"
+
 rules = ET.parse(ROOT / "android/app/src/main/res/xml/data_extraction_rules.xml").getroot()
 for mode in ("cloud-backup", "device-transfer"):
     assert {item.get("domain") for item in rules.findall(mode + "/exclude")} == {
@@ -94,7 +192,10 @@ assert "resources\\\\app_icon.ico" in (ROOT / "windows/runner/Runner.rc").read_t
 count = sum(len(re.findall(r"\btest(?:Widgets)?\(", file.read_text(encoding="utf-8")))
             for file in files if file.name.endswith("_test.dart"))
 print(f"PASS: {len(files)} Dart files have resolvable local imports; domain boundaries checked.")
-print("PASS: Android XML parses, release manifest has no permissions and disables automatic backup.")
+print("PASS: Android XML parses; the release manifest declares only the two update "
+      "permissions and every provider is class-backed, unexported and single-path.")
+print("PASS: the release certificate pin is declared once, compiled into the build, "
+      "and compared against the package signer before the installer is offered it.")
 print(f"PASS: Launcher artwork present at every density and referenced by both platforms "
       f"(Windows icon carries {entries} sizes).")
 print(f"INVENTORY: {count} declared Dart/Flutter tests. NOT executed by this audit.")

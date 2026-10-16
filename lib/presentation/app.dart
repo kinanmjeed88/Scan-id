@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import '../application/app_release.dart';
 import '../application/project_service.dart';
-import '../application/backup_transfer.dart';
 import '../domain/project.dart';
 import 'project_screen.dart';
 import 'settings_screen.dart';
@@ -137,34 +137,6 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     ],
   );
 
-  Future<void> _restore() async {
-    if (!await confirm(
-          context,
-          'استعادة نسخة احتياطية؟',
-          'اختر ملف Scan ID محلياً موثوقاً. تُستعاد الصور والبيانات كمشروع جديد؛ لن يُستبدل أي مشروع موجود.',
-          confirmLabel: 'اختيار ملف',
-        ) ||
-        !mounted) {
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      final project = await BackupTransfer(widget.service.backups!).restore();
-      if (mounted && project != null) {
-        _refresh();
-        showMessage(context, 'استُعيد المشروع كاملاً كنسخة مستقلة.');
-      }
-    } catch (error) {
-      if (mounted) {
-        showMessage(context, userError(error));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
   Future<void> _newProject() async {
     final name = await askName(context, title: 'مشروع جديد', initial: '');
     if (name == null || !mounted) {
@@ -254,22 +226,16 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
   }
 
+  /// Settings is about the app, not about one project: it opens whatever
+  /// the list holds, including nothing at all. Requiring a project first put
+  /// the recovery and backup tools out of reach in exactly the situation
+  /// they exist for — a device with no readable project.
   Future<void> _openSettings() async {
     if (_busy || !mounted) return;
-    final projects = await _projects;
-    if (!mounted) return;
-    if (projects.isEmpty) {
-      showMessage(context, 'أنشئ مشروعاً أولاً للوصول إلى الإعدادات.');
-      return;
-    }
-    final project = projects.first;
-    if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
-          project: project,
           service: widget.service,
-          pickImages: widget.pickImages,
           recoverStorage: widget.recoverStorage,
           restoreBackup: widget.restoreBackup,
         ),
@@ -310,57 +276,15 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     }
   }
 
-  Future<void> _maintenance() async {
-    setState(() => _busy = true);
-    try {
-      final orphans = await widget.service.findOrphans();
-      if (!mounted) {
-        return;
-      }
-      final kept = orphans.retained.isEmpty
-          ? ''
-          : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر تشير إليه '
-                'نقطة استرداد أو نسخة ترقية ما زالت قائمة. تُحذف بعد تحديث تلك النقطة.';
-      if (orphans.count == 0) {
-        showMessage(context, 'لا ملفات غير مرتبطة بمشاريعك.$kept');
-        return;
-      }
-      final megabytes = (orphans.bytes / (1024 * 1024)).toStringAsFixed(2);
-      final yes = await confirm(
-        context,
-        'حذف الملفات غير المرتبطة؟',
-        'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
-            'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. '
-            'لا تُحذف ملفات المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق حمايةً لعمل جارٍ.$kept',
-        confirmLabel: 'حذف الملفات',
-        destructive: true,
-      );
-      if (!yes || !mounted) {
-        return;
-      }
-      final removed = await widget.service.deleteOrphans();
-      if (mounted) {
-        showMessage(context, 'أُزيل $removed من ${orphans.count} عناصر.');
-      }
-    } catch (error) {
-      if (mounted) {
-        showMessage(context, userError(error));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
-    }
-  }
-
   void _about() {
     showAboutDialog(
       context: context,
       applicationName: 'مستمسكات — Scan ID',
-      applicationVersion: '0.1.0',
+      applicationVersion: appVersion,
       children: [
         const Text(
-          'معالجة محلية دون رفع. تبقى صورك على هذا الجهاز، ولا يرسلها التطبيق عبر الشبكة.',
+          'معالجة محلية دون رفع. تبقى صورك على هذا الجهاز؛ الاتصال بالشبكة '
+          'يُفتح لفحص التحديث عند طلبك فقط.',
         ),
         const SizedBox(height: 12),
         const InfoBanner(
@@ -456,7 +380,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                                   SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'محلي · لا يرسل التطبيق صورك عبر الشبكة',
+                                      'محلي · صورك لا تغادر الجهاز؛ الشبكة للتحديث فقط',
                                     ),
                                   ),
                                 ],
@@ -585,62 +509,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                     );
                   },
                 ),
-                SliverToBoxAdapter(child: _maintenanceSection()),
               ],
             ),
           ),
-        ),
-      ),
-    ),
-  );
-
-  /// Secondary tools: they change storage, so they sit below the projects and
-  /// carry their own cautions. Nothing here is removed; each action keeps its
-  /// confirmation.
-  Widget _maintenanceSection() => Padding(
-    padding: const EdgeInsets.only(top: 24, bottom: 24),
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'البيانات والصيانة',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            const Text('أدوات تعمل على التخزين. لا تُنفَّذ أي منها دون تأكيد.'),
-            const SizedBox(height: 12),
-            const InfoBanner(
-              tone: BannerTone.caution,
-              message: 'احفظ نسخة احتياطية قبل إزالة التطبيق؛ النسخ غير مشفرة.',
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (widget.service.backups != null)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _restore,
-                    icon: const Icon(Icons.restore),
-                    label: const Text('استعادة نسخة احتياطية'),
-                  ),
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : _maintenance,
-                  icon: const Icon(Icons.cleaning_services_outlined),
-                  label: const Text('صيانة المساحة والملفات غير المرتبطة'),
-                ),
-                if (widget.recoverStorage != null)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _recoverDatabase,
-                    icon: const Icon(Icons.history),
-                    label: const Text('استرداد قاعدة المشاريع من نقاط الحفظ'),
-                  ),
-              ],
-            ),
-          ],
         ),
       ),
     ),

@@ -243,3 +243,79 @@ class _NameDialogState extends State<_NameDialog> {
 
 /// A function that produces a list of image sources to import.
 typedef PickImages = Future<List<ImportSource>> Function();
+
+/// Opens what one tool does, in the user's own words, before or instead of
+/// using it. Every [ExplainedAction] and every settings card offers it.
+Future<void> showFeatureExplanation(
+  BuildContext context, {
+  required String title,
+  required String details,
+}) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text(title),
+    content: SingleChildScrollView(child: Text(details)),
+    actions: [
+      FilledButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('فهمت'),
+      ),
+    ],
+  ),
+);
+
+/// One tool in a settings list, with its explanation attached to it.
+///
+/// A row of buttons whose labels are words like "recovery point" or "orphaned
+/// files" leaves a person two bad options: press something they cannot predict,
+/// or leave a tool they needed unused. So the row says what it does in one
+/// line, the info mark opens the full answer, and holding the row opens the
+/// same answer without running anything. Pressing the row is the only action.
+class ExplainedAction extends StatelessWidget {
+  const ExplainedAction({
+    required this.icon,
+    required this.title,
+    required this.summary,
+    required this.details,
+    required this.onTap,
+    this.enabled = true,
+    this.destructive = false,
+    super.key,
+  });
+
+  final IconData icon;
+  final String title;
+
+  /// The one line that decides whether the tool is worth opening: what changes,
+  /// and what does not.
+  final String summary;
+
+  /// The full answer, shown on tap of the info mark or a long press.
+  final String details;
+  final VoidCallback? onTap;
+  final bool enabled;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    void explain() {
+      showFeatureExplanation(context, title: title, details: details);
+    }
+
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      enabled: enabled,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      leading: Icon(icon, color: destructive ? scheme.error : scheme.primary),
+      title: Text(title),
+      subtitle: Text(summary),
+      trailing: IconButton(
+        icon: const Icon(Icons.info_outline),
+        tooltip: 'ما هذه الأداة؟',
+        onPressed: explain,
+      ),
+      onTap: onTap,
+      onLongPress: explain,
+    );
+  }
+}

@@ -110,11 +110,16 @@ auto-enhance), `editor_controller.dart` (`LayoutEditorController`, single editor
 state), `page_canvas.dart` (only mm→px site; `_DocumentPanGestureRecognizer`),
 `sheet_view.dart`, `export_screen.dart`, `shortcuts.dart`, `shared.dart`.
 
-**Android/** — `android/app/src/main/AndroidManifest.xml`: **no INTERNET**,
-`allowBackup=false`, `fullBackupContent=false`, `dataExtractionRules` set;
-system camera via `ACTION_IMAGE_CAPTURE` + `CaptureFileProvider` (no CAMERA
-permission); `ExportFileProvider`. `debug`/`profile` manifests add INTERNET
-(Flutter template; not in release). Native glue in `MainActivity.kt`.
+**Android/** — `android/app/src/main/AndroidManifest.xml`: exactly
+`INTERNET` + `REQUEST_INSTALL_PACKAGES` (the update lifecycle; `tool/
+check_source.py` asserts that exact set), `allowBackup=false`,
+`fullBackupContent=false`, `dataExtractionRules` set; system camera via
+`ACTION_IMAGE_CAPTURE` + `CaptureFileProvider` (no CAMERA permission);
+`ExportFileProvider` for shares; `UpdateFileProvider` scoped to the single
+`cache/scan-updates` directory the update service writes. Native glue in
+`MainActivity.kt` (`NativeCamera`, `UpdateInstaller`). Document data never
+uses the network: the only sockets are the release-metadata read and the
+package download the user started.
 
 **Windows/** — CMake runner; PDFium pinned (chromium/8086, SHA256 verified at
 build); storage under LocalAppData; save via system picker; reveal-folder share.
@@ -402,7 +407,9 @@ weakened; no test moved to make the build pass; no sleeps/`pumpAndSettle` hacks.
 A phase is not complete unless CI provides actual evidence for: `dart format`
 (clean), `flutter analyze --fatal-infos` (zero errors/warnings), `flutter test`
 (all green incl. pre-existing), Android build (+ APK privacy/permission audit:
-no INTERNET), Windows build (+ startup), independent export verification
+the declared permission set is exactly `INTERNET` + `REQUEST_INSTALL_PACKAGES`,
+and every provider is unexported and single-path), Windows build (+ startup),
+independent export verification
 (PyMuPDF/Pillow), migration tests, the full regression suite, and (once present)
 the recognition import guard and benchmark resource assertions.
 

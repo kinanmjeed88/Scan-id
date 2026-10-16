@@ -799,7 +799,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
                         child: ExpansionTile(
                           title: const Text('البيانات والصيانة'),
                           subtitle: const Text(
-                            'نسخة احتياطية كاملة، وإصلاح النسخ، واسترداد التقاط معلق',
+                            'أدوات تخص هذا المشروع وحده؛ اضغط ⓘ لتعرف ماذا تفعل '
+                            'قبل أن تضغطها.',
                           ),
                           childrenPadding: const EdgeInsets.fromLTRB(
                             16,
@@ -815,30 +816,65 @@ class _ProjectScreenState extends State<ProjectScreen> {
                                   'احفظ نسخة احتياطية قبل إزالة التطبيق أو تغيير الجهاز. النسخة تحتوي بيانات حساسة؛ اختر مكاناً محلياً آمناً.',
                             ),
                             const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                if (widget.service.backups != null)
-                                  OutlinedButton.icon(
-                                    onPressed: _busy ? null : _backup,
-                                    icon: const Icon(Icons.backup_outlined),
-                                    label: const Text('نسخة احتياطية كاملة'),
-                                  ),
-                                if (widget.service.recovery != null)
-                                  OutlinedButton.icon(
-                                    onPressed: _busy ? null : _repairImages,
-                                    icon: const Icon(Icons.healing),
-                                    label: const Text('إصلاح النسخ من الأصول'),
-                                  ),
-                                if (widget.service.camera != null)
-                                  OutlinedButton.icon(
-                                    onPressed: _busy ? null : _recoverCapture,
-                                    icon: const Icon(Icons.history),
-                                    label: const Text('استرداد التقاط معلق'),
-                                  ),
-                              ],
-                            ),
+                            if (widget.service.backups != null)
+                              ExplainedAction(
+                                icon: Icons.backup_outlined,
+                                title: 'نسخة احتياطية كاملة',
+                                summary:
+                                    'يحفظ هذا المشروع بجميع صوره ومخططاته في ملف '
+                                    'تختار مكانه.',
+                                details:
+                                    'ما الذي يُنسخ: الصور الأصلية ونسخ العمل ومخطط '
+                                    'الورقة وتعديلات الصور وكل بيانات هذا المشروع، '
+                                    'في ملف واحد.\n\n'
+                                    'ما لن يحدث: لا يُحذف شيء ولا تُعدَّل صورة؛ '
+                                    'المشاريع الأخرى لا تُمسّ.\n\n'
+                                    'متى تحتاجها: قبل إزالة التطبيق أو تغيير الجهاز '
+                                    'أو إعادة تثبيت النظام.',
+                                onTap: _busy ? null : _backup,
+                              ),
+                            if (widget.service.recovery != null)
+                              ExplainedAction(
+                                icon: Icons.healing,
+                                title: 'إصلاح النسخ من الأصول',
+                                summary:
+                                    'يعيد إنشاء نسخ العمل القصيرة من الصور الأصلية، '
+                                    'ولا يغيّر الأصول.',
+                                details:
+                                    'لماذا توجد: من كل صورة يحتفظ التطبيق بالأصل '
+                                    'كما هو، وبنسخة عمل مصغّرة تُقصّ وتُعدَّل. إذا '
+                                    'فُقدت نسخة عمل أو فسدت بعد خطأ تخزين أو صيانة '
+                                    'ناقصاً؛ تظهر الصورة في المشروع ولا تُفتح.\n\n'
+                                    'ما الذي يفعله: يقرأ الأصل ويعيد إنشاء نسخ العمل '
+                                    'بالوصفة المحفوظة نفسها (نفس نقاط القص ونفس '
+                                    'التعديلات).\n\n'
+                                    'ما الذي لا يتغير: الصور الأصلية، ومخطط الورقة، '
+                                    'وأماكن الصور ومقاساتها. إن كان الأصل نفسه مفقوداً '
+                                    'فلا شيء يُصلَح هنا؛ استعد نسخة احتياطية.\n\n'
+                                    'بعدها راجع الصور الناتجة: قد يختلف لون النسخة '
+                                    'قليداً لأن إعادة الترميز تقريبية.',
+                                onTap: _busy ? null : _repairImages,
+                              ),
+                            if (widget.service.camera != null)
+                              ExplainedAction(
+                                icon: Icons.history,
+                                title: 'استرداد التقاط معلق',
+                                summary:
+                                    'يُظهر صورة التقطتها بالكاميرا ولم يُؤكَّد حفظها، '
+                                    'ليحفظها أو يحذفها.',
+                                details:
+                                    'من أين تأتي: الضغط على الكاميرا يكتب الصورة في '
+                                    'ملف مؤقت أولاً، ولا تدخل المشروع إلا بعد أن '
+                                    'تؤكّدها. إن أُغلق التطبيق أو الكاميرا في تلك '
+                                    'اللحظة تبقى الصورة معلقة.\n\n'
+                                    'ما الذي تراه هنا: معاينة للملف المعلق وثلاثة '
+                                    'مسارات: حفظها في هذا المشروع، أو حذف الملف '
+                                    'المؤقت، أو الإغلاق وتركها لهذه الأداة.\n\n'
+                                    'لا تكرار: صورة حُفظت في المشروع من قبل لا تُحفظ '
+                                    'مرة ثانية؛ الحذف يخص الملف المؤقت وحده ولا يمس '
+                                    'أي صورة محفوظة.',
+                                onTap: _busy ? null : _recoverCapture,
+                              ),
                           ],
                         ),
                       ),
@@ -898,9 +934,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
-          project: _project,
           service: widget.service,
-          pickImages: widget.pickImages,
           recoverStorage: widget.recoverStorage,
         ),
       ),

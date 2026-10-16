@@ -1,10 +1,13 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../application/backup_transfer.dart';
+import '../application/cancellation.dart';
 import '../application/image_reader.dart';
+import '../application/ota_update.dart';
 import '../application/project_service.dart';
 import '../domain/project.dart';
 import 'shared.dart';
@@ -511,33 +514,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _updateSection() => Padding(
     padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.update_outlined, size: 24),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'تحديث التطبيق',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const InfoBanner(
-              tone: BannerTone.caution,
-              message:
-                  'التحديث الهوائي غير متاح في هذا الإصدار. لم يُجرَ فحص أو تنزيل أو تثبيت؛ استخدم قناة التوزيع الرسمية عند توفر إصدار أحدث.',
-            ),
-          ],
-        ),
-      ),
+    child: _OtaUpdateCard(
+      busy: _busy,
+      onBusyChanged: (value) {
+        if (mounted) setState(() => _busy = value);
+      },
+      launchExternalUrl: widget.launchExternalUrl,
     ),
   );
 
@@ -585,6 +567,334 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  // OTA helpers are handled by _OtaUpdateCard below.
+}
+
+class _OtaUpdateCard extends StatefulWidget {
+  const _OtaUpdateCard({
+    required this.busy,
+    required this.onBusyChanged,
+    this.launchExternalUrl,
+    this.source,
+    this.currentVersion,
+  });
+
+  final bool busy;
+  final ValueChanged<bool> onBusyChanged;
+  final ExternalUrlLauncher? launchExternalUrl;
+  final UpdateSource? source;
+  final String? currentVersion;
+
+  @override
+  State<_OtaUpdateCard> createState() => _OtaUpdateCardState();
+}
+
+class _OtaUpdateCardState extends State<_OtaUpdateCard> {
+  static const String _appVersion = '0.1.0';
+  static const String _owner = 'kinanmjeed88';
+  static const String _repo = 'Scan-id';
+
+  UpdateInfo? _pendingUpdate;
+  String? _statusMessage;
+  double _progress = 0;
+  bool _checking = false;
+  bool _downloading = false;
+  CancellationToken? _cancelToken;
+
+  UpdatePlatform get _platform {
+    if (Platform.isAndroid) return UpdatePlatform.android;
+    if (Platform.isWindows) return UpdatePlatform.windows;
+    return UpdatePlatform.android;
+  }
+
+  UpdateSource get _source =>
+      widget.source ??
+      GitHubUpdateSource(owner: _owner, repo: _repo);
+
+  String get _version => widget.currentVersion ?? _appVersion;
+
+  Future<void> _check() async {
+    if (_checking || _downloading || widget.busy) return;
+    setState(() {
+      _checking = true;
+      _statusMessage = null;
+      _pendingUpdate = null;
+    });
+    widget.onBusyChanged(true);
+    try {
+      final service = UpdateService(
+        source: _source,
+        currentVersion: _version,
+        platform: _platform,
+      );
+      final update = await service.checkForUpdate();
+      if (!mounted) return;
+      if (update == null) {
+        setState(() => _statusMessage = 'لا يوجد تحديث أحدث من $_version.');
+        showMessage(context, 'أنت على أحدث إصدار ($_version).');
+      } else {
+        setState(() {
+          _pendingUpdate = update;
+          _statusMessage =
+              'يتوفر الإصدار ${update.newVersion} (الحالي $_version).';
+        });
+        if (mounted) {
+          await _showUpdateDialog(update);
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        final message = _friendlyError(error);
+        setState(() => _statusMessage = message);
+        showMessage(context, message);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _checking = false);
+        widget.onBusyChanged(false);
+      }
+    }
+  }
+
+  String _friendlyError(Object error) {
+    final text = error.toString().toLowerCase();
+    if (text.contains('socketexception') ||
+        text.contains('failed host lookup') ||
+        text.contains('network is unreachable')) {
+      return 'تعذر الاتصال بخادم التحديثات. تحقق من الإنترنت وحاول مجدداً.';
+    }
+    if (text.contains('404') || text.contains('http 404')) {
+      return 'لم يُعثر على إصدار منشور بعد.';
+    }
+    if (text.contains('format') || text.contains('invalid')) {
+      return 'بيانات الإصدار غير صالحة. حاول لاحقاً.';
+    }
+    return userError(error);
+  }
+
+  Future<void> _showUpdateDialog(UpdateInfo update) async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('تحديث متاح — ${update.newVersion}'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('الإصدار الحالي: $_version'),
+              Text('الإصدار الجديد: ${update.newVersion}'),
+              if (update.summary != null && update.summary!.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(update.summary!, style: const TextStyle(fontSize: 13)),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                'المنصة: ${_platform.name} — الملف: ${Uri.tryParse(update.downloadUrl)?.pathSegments.lastOrNull ?? ''}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              ),
+              if (update.size != null)
+                Text(
+                  'الحجم: ${(update.size! / (1024 * 1024)).toStringAsFixed(2)} MiB',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('لاحقاً'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'open'),
+            child: const Text('فتح صفحة الإصدار'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'download'),
+            child: const Text('تنزيل وتحقّق'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'open') {
+      await _openReleasesPage();
+    } else if (action == 'download') {
+      await _download(update);
+    }
+  }
+
+  Future<void> _openReleasesPage() async {
+    final uri = Uri.parse('https://github.com/$_owner/$_repo/releases/latest');
+    try {
+      final opened = await (widget.launchExternalUrl ?? _launchExternally)(uri);
+      if (!opened && mounted) {
+        showMessage(context, 'لم يتمكن النظام من فتح صفحة الإصدارات.');
+      }
+    } catch (_) {
+      if (mounted) showMessage(context, 'تعذر فتح صفحة الإصدارات.');
+    }
+  }
+
+  Future<void> _download(UpdateInfo update) async {
+    if (_downloading) return;
+    setState(() {
+      _downloading = true;
+      _progress = 0;
+      _cancelToken = CancellationToken();
+    });
+    widget.onBusyChanged(true);
+    try {
+      final service = UpdateService(
+        source: _source,
+        currentVersion: _version,
+        platform: _platform,
+      );
+      final result = await service.downloadUpdate(
+        update,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          setState(() {
+            _progress = total > 0 ? received / total : 0;
+          });
+        },
+        onCancel: () {
+          if (mounted) showMessage(context, 'أُلغي التنزيل.');
+        },
+        cancellation: _cancelToken,
+      );
+      if (!mounted) return;
+      if (result.isSuccess) {
+        final path = result.filePath!;
+        final verified = await service.verifyUpdateSource(update, path);
+        if (!verified) {
+          showMessage(context, 'فشل التحقق من الملف بعد التنزيل.');
+          return;
+        }
+        final install = await service.installUpdate(update, path);
+        if (install.error != null) {
+          showMessage(
+            context,
+            'حُفظ الملف وتحقق بنجاح في: $path\n${install.error}',
+          );
+        } else {
+          showMessage(context, install.message ?? 'اكتمل التحديث.');
+        }
+      } else {
+        showMessage(context, result.error ?? 'فشل التنزيل.');
+      }
+    } catch (error) {
+      if (mounted) showMessage(context, userError(error));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloading = false;
+          _progress = 0;
+          _cancelToken = null;
+        });
+        widget.onBusyChanged(false);
+      }
+    }
+  }
+
+  void _cancelDownload() {
+    _cancelToken?.cancel();
+    showMessage(context, 'جاري إلغاء التنزيل...');
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.update_outlined, size: 24),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'تحديث التطبيق',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'الإصدار الحالي: $_version — المنصة: ${_platform.name}',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF666666)),
+              ),
+              if (_statusMessage != null) ...[
+                const SizedBox(height: 8),
+                InfoBanner(
+                  tone: _pendingUpdate != null
+                      ? BannerTone.info
+                      : BannerTone.caution,
+                  message: _statusMessage!,
+                ),
+              ],
+              if (_downloading) ...[
+                const SizedBox(height: 12),
+                LinearProgressIndicator(value: _progress > 0 ? _progress : null),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: OutlinedButton.icon(
+                    onPressed: _cancelDownload,
+                    icon: const Icon(Icons.cancel_outlined),
+                    label: const Text('إلغاء التنزيل'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  FilledButton.icon(
+                    onPressed:
+                        (_checking || _downloading || widget.busy) ? null : _check,
+                    icon: _checking
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cloud_download_outlined),
+                    label: Text(_checking ? 'جاري الفحص...' : 'التحقق من التحديث'),
+                  ),
+                  if (_pendingUpdate != null && !_downloading)
+                    OutlinedButton.icon(
+                      onPressed: () => _showUpdateDialog(_pendingUpdate!),
+                      icon: const Icon(Icons.info_outline),
+                      label: const Text('تفاصيل التحديث'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: (widget.busy || _downloading)
+                        ? null
+                        : _openReleasesPage,
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('فتح صفحة الإصدارات'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const InfoBanner(
+                tone: BannerTone.info,
+                message:
+                    'يتحقق التطبيق من GitHub Releases الرسمية فقط عبر HTTPS. يُحقق التنزيل ببصمة SHA-256 قبل أي تثبيت؛ التثبيت التلقائي غير مفعّل حتى توقيع الناشر.',
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _DeveloperInfo extends StatelessWidget {

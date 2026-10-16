@@ -26,6 +26,18 @@ jobs:
         run: python tool/ci_gate.py windows-scaler-build cmake --build build/windows/x64 --config Release --target large_jpeg_scaler_test
       - name: Run native Windows scaler regressions
         run: python tool/ci_gate.py windows-scaler-test ctest --test-dir build/windows/x64 -C Release --output-on-failure -R large_jpeg_scaler_windows
+      - name: Create Windows portable ZIP
+        shell: pwsh
+        run: |
+          $src = "build/windows/x64/runner/Release"
+          $zip = "scan-id-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          # Exclude test binaries if they still exist
+          Get-ChildItem $src -Recurse | Out-Null
+          Compress-Archive -Path "$src/*" -DestinationPath $zip -Force
+          $size = (Get-Item $zip).Length
+          Write-Host "Created $zip ($size bytes)"
+          if ($size -eq 0) { throw "Windows ZIP is empty" }
       - name: Windows application
         uses: actions/upload-artifact@v6
         with:
@@ -36,3 +48,10 @@ jobs:
             !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
           retention-days: 14
           if-no-files-found: error
+      - name: Windows portable ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-windows-zip
+          path: scan-id-windows.zip
+          if-no-files-found: error
+          retention-days: 14

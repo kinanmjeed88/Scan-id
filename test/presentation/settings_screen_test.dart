@@ -634,11 +634,13 @@ void main() {
     // The buttons come back: a failed check that stays disabled would need a
     // restart of the app to retry. The button is an icon button, whose widget
     // is a private subclass of ButtonStyleButton, so it is located by its
-    // label from within, where its enabled state can be read.
+    // label from within, where its enabled state can be read. byType would
+    // name the private class exactly; bySubtype matches the public base it
+    // carries its onPressed from.
     final checked = tester.widget<ButtonStyleButton>(
       find.ancestor(
         of: find.text('التحقق من التحديث'),
-        matching: find.byType(ButtonStyleButton),
+        matching: find.bySubtype<ButtonStyleButton>(),
       ),
     );
     expect(checked.onPressed, isNotNull);

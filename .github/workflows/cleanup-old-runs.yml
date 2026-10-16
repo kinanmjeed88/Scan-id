@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (no deletions, only report)"
+        description: "Dry run (no deletions, only report) — الإعداد الافتراضي الآن معاينة آمنة"
         required: false
-        default: false
+        default: true
         type: boolean
       cutoff_hours:
         description: "Hours before deleting completed runs"
@@ -74,16 +74,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Determine dry-run: schedule always live, dispatch respects input
+          # SAFETY: scheduled runs are now preview-only until manual review completes (P0).
+          # Deletion only occurs when workflow_dispatch is run with dry_run=false explicitly.
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
-            export DELETE_BRANCHES="true"
+            export DELETE_BRANCHES="false"
             cutoff="${{ inputs.cutoff_hours || '24' }}"
+            echo "::notice title=safety::Scheduled cleanup is in DRY-RUN preview mode — no branches/runs will be deleted. Run workflow_dispatch with dry_run=false for live deletion."
           else
             if [[ "${{ inputs.dry_run }}" == "true" ]]; then
               export DELETE_BRANCHES="false"
               echo "Dry run requested via input — no deletions will occur."
             else
-              export DELETE_BRANCHES="true"
+              export DELETE_BRANCHES="false"
+              # Allow live only when explicitly requested via dry_run=false on dispatch
+              if [[ "${{ inputs.dry_run }}" == "false" ]]; then
+                export DELETE_BRANCHES="true"
+                echo "::warning title=safety::LIVE deletion enabled via explicit dry_run=false — proceeding with verified deletions only."
+              fi
             fi
             cutoff="${{ inputs.cutoff_hours || '24' }}"
             if [[ -z "$cutoff" ]]; then cutoff="24"; fi

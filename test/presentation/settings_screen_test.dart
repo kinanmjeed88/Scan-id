@@ -63,7 +63,7 @@ void main() {
   });
 
   testWidgets(
-    'settings states that OTA is unavailable without simulating a check',
+    'settings shows OTA update card with check button',
     (tester) async {
       tester.view.physicalSize = const Size(360, 900);
       tester.view.devicePixelRatio = 1;
@@ -83,10 +83,11 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await _scrollTo(tester, find.textContaining('التحديث الهوائي غير متاح'));
+      await _scrollTo(tester, find.textContaining('تحديث التطبيق'));
 
-      expect(find.textContaining('التحديث الهوائي غير متاح'), findsOneWidget);
-      expect(find.text('فحص التحديثات'), findsNothing);
+      expect(find.textContaining('تحديث التطبيق'), findsOneWidget);
+      expect(find.textContaining('التحقق من التحديث'), findsOneWidget);
+      expect(find.textContaining('الإصدار الحالي'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

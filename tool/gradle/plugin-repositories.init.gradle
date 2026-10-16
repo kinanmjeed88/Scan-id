@@ -1,0 +1,127 @@
+// Scan ID -- Gradle plugin-repository fallback. Installed by CI, not an app feature.
+//
+// WHY THIS FILE EXISTS
+// Run 38815652328 (2026-10-15, commit bb223ef, "Signed Android release APK")
+// failed 30 seconds into the build step with:
+//
+//   > Could not find org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.0.21.
+//   > Could not find org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.0.21.
+//   > Could not find org.jetbrains.kotlin:kotlin-stdlib:2.0.21.
+//     Searched in the following locations:
+//       - https://plugins.gradle.org/m2/org/jetbrains/kotlin/...
+//     Required by:
+//         project :gradle > org.gradle.kotlin.kotlin-dsl:...:5.1.2
+//                         > org.gradle.kotlin:gradle-kotlin-dsl-plugins:5.1.2
+//
+// `project :gradle` is the included build Flutter adds through
+// `pluginManagement { includeBuild("$flutterSdkPath/packages/flutter_tools/gradle") }`.
+// That build declares no plugin repositories of its own, so its Kotlin DSL plugin
+// dependencies -- the ones needed to compile any .gradle.kts of that build --
+// resolve from the single implicit default, plugins.gradle.org/m2. The Gradle
+// Plugin Portal is a proxy in front of Maven Central: when the proxy cannot serve
+// an artifact it proxies, every Kotlin 2.0.21 POM looks "not found" and the whole
+// signed release fails, even though those artifacts are on Maven Central and the
+// runner can reach it. The root build (android/) never saw this because
+// android/settings.gradle.kts declares google() and mavenCentral() next to the
+// portal.
+//
+// WHAT IT DOES
+// For every Settings in the build tree, this script:
+//   * keeps the Gradle Plugin Portal and, when a build declares no plugin
+//     repository at all, makes it explicit first -- the portal is never dropped,
+//     because org.gradle.kotlin:gradle-kotlin-dsl-plugins:5.1.2 (which provides
+//     the Kotlin DSL support this file protects) is published only there and
+//     returns 404 from Maven Central;
+//   * appends Maven Central and Google's Maven repository *only when absent*, so
+//     a request the portal cannot serve falls through to a repository that can.
+// Nothing is removed and no declared repository changes position: a build that
+// already declares a repository keeps exactly the lookup order it has today.
+// A build with the usual `google() + mavenCentral() + gradlePluginPortal()` set
+// therefore receives no new repository at all.
+//
+// Deliberate choices
+//   * Groovy, not Kotlin DSL: compiling a *.init.gradle.kts needs the very Kotlin
+//     artifacts this file makes resolvable, so a degraded portal would take the
+//     fix down with it. Groovy ships with Gradle and compiles offline.
+//   * Plugin resolution only. Dependencies are already declared explicitly
+//     (android/build.gradle.kts and the Flutter tools build's
+//     dependencyResolutionManagement), and Gradle rejects mutating settings-level
+//     dependency repositories outside settings evaluation.
+//   * Every hook is wrapped: a failure here is reported and ignored, never turned
+//     into a broken build. The report file below is what CI checks to prove the
+//     fallback really reached the included build.
+
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+def marker = '[scan-id-plugin-repos]'
+def portalUrl = 'https://plugins.gradle.org/m2'
+def fallbacks = [
+    [name: 'scanIdMavenCentralFallback', url: 'https://repo.maven.apache.org/maven2'],
+    [name: 'scanIdGoogleFallback', url: 'https://dl.google.com/dl/android/maven2'],
+]
+// One path for the whole build tree: the root build and every included build
+// append to the same file, so CI can state which of them carries the fallback
+// even when the Actions log blob store is unreachable.
+def reportPath = System.getenv('SCAN_ID_PLUGIN_REPOSITORIES_REPORT')
+if (reportPath == null || reportPath.isEmpty()) {
+    reportPath = gradle.gradleUserHomeDir.toString() + '/scan-id-gradle-plugin-repositories.log'
+}
+def reportFile = new File(reportPath)
+
+def report = { String line ->
+    System.out.println(line)
+    try {
+        reportFile.parentFile?.mkdirs()
+        // Append mode: concurrent writes from two builds in the tree cannot
+        // clobber each other's line.
+        reportFile << (line + System.lineSeparator())
+    } catch (Throwable ignored) {
+        // Reporting must never fail a build; stdout already carries the line.
+    }
+}
+
+def normaliseUrl = { value -> value.toString().replaceAll('/+$', '') }
+
+def hasUrl = { repositories, url ->
+    def wanted = normaliseUrl(url)
+    return repositories.any { repository ->
+        repository instanceof MavenArtifactRepository && normaliseUrl(repository.url) == wanted
+    }
+}
+
+def ensurePluginRepositories = { settings, phase ->
+    def summaryDir = ''
+    def summary = ''
+    try {
+        def repositories = settings.pluginManagement.repositories
+        summaryDir = settings.settingsDir.toString()
+        def added = []
+        if (!hasUrl(repositories, portalUrl)) {
+            // The implicit default this build would otherwise use, made explicit
+            // so the fallbacks append after it instead of replacing it.
+            repositories.gradlePluginPortal()
+            added << 'gradlePluginPortal'
+        }
+        fallbacks.each { fallback ->
+            if (!hasUrl(repositories, fallback.url) && repositories.findByName(fallback.name) == null) {
+                repositories.maven { repository ->
+                    repository.name = fallback.name
+                    repository.url = fallback.url
+                }
+                added << fallback.name
+            }
+        }
+        def addedText = added.isEmpty() ? 'none' : added.join(',')
+        def names = repositories.collect { it.name }.join('|')
+        summary = 'phase=' + phase + ' dir=' + summaryDir + ' added=' + addedText + ' repositories=' + names
+    } catch (Throwable failure) {
+        summary = 'phase=' + phase + ' dir=' + summaryDir + ' failed=' + failure.getClass().name + ': ' + failure.message
+    }
+    report(marker + ' ' + summary)
+}
+
+// beforeSettings is the decisive hook: it runs before that build's settings script
+// is compiled, which is the step that needs the Kotlin artifacts. settingsEvaluated
+// then covers every build script of the same build as well.
+gradle.beforeSettings { settings -> ensurePluginRepositories(settings, 'beforeSettings') }
+gradle.settingsEvaluated { settings -> ensurePluginRepositories(settings, 'settingsEvaluated') }

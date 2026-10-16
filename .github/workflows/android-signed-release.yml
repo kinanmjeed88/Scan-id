@@ -11,9 +11,11 @@ jobs:
     name: Signed Android release APK
     runs-on: ubuntu-24.04
     # This cap only has to cover the bounded steps below: ~1 min job setup,
+    # ~1 min installing the Gradle init scripts and restoring the Gradle caches,
     # ~1 min signing diagnostics, ~2 min dependency resolution, 20 min cap on NDK
-    # provisioning (which itself stops the download at 900s), 15 min cap on the
-    # release build, ~5 min for signature verification and artifact upload.
+    # provisioning (which itself stops the download at 900s), 20 min cap on the
+    # release build (which also covers the one bounded retry of a resolution
+    # failure), ~5 min for signature verification and artifact upload.
     # The previous 30-minute cap was consumed by an unbounded NDK download that
     # AGP performed *inside* the release build step (run 38748716360: the build
     # step ran 29m44s and the job was cancelled with no diagnosis, leaving only
@@ -54,6 +56,59 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+
+      # One `flutter build apk` starts Gradle for two builds: the root build in
+      # android/ and the Flutter tools build that android/settings.gradle.kts adds
+      # through `pluginManagement { includeBuild(...) }`. Only the root build
+      # declares plugin repositories, so the included build resolved its Kotlin DSL
+      # plugin dependencies from the single implicit default,
+      # plugins.gradle.org/m2 -- run 38815652328 failed in 30 seconds when that
+      # portal could not serve the Kotlin 2.0.21 artifacts it proxies from Maven
+      # Central. Init scripts in GRADLE_USER_HOME/init.d are applied to every build
+      # in the tree, which is the only hook that reaches the included build:
+      # `flutter build apk` does not forward --init-script to Gradle.
+      - name: Install Gradle plugin-repository fallback
+        shell: bash
+        run: bash tool/install_gradle_init.sh
+
+      # Gradle downloads the same plugins and dependencies on every run. Restoring
+      # them is what makes a repeat run independent of any single repository: with
+      # a cache hit, the resolution that failed in run 38815652328 never reaches
+      # the network. Caching is an optimisation -- a miss, or an outage of the
+      # cache service itself, must only make the run slower, never fail it.
+      - name: Restore cached Gradle artifacts
+        id: gradle-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Report Gradle cache state
+        id: gradle-cache-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle_user_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          cold=0
+          lines=()
+          for path in "$gradle_user_home/caches/modules-2" "$gradle_user_home/wrapper/dists"; do
+            if [[ -d "$path" ]]; then
+              lines+=("restored: $path ($(du -sh "$path" | cut -f1))")
+            else
+              lines+=("missing: $path (this run will download it)")
+              cold=1
+            fi
+          done
+          {
+            echo "== Gradle caches before the build =="
+            printf '%s\n' "${lines[@]}"
+          } | tee diagnostics/gradle-cache.txt
+          echo "cold=$cold" >> "$GITHUB_OUTPUT"
 
       - name: Diagnostics - toolchain versions
         shell: bash
@@ -272,7 +327,9 @@ jobs:
       - name: Build signed Android release APK
         # A cold release build on this image needs single-digit minutes; the cap
         # turns a regression into a step failure that names the real Gradle error
-        # instead of the silent cancellation seen in run 38748716360.
+        # instead of the silent cancellation seen in run 38748716360. It also
+        # covers the single retry below, which only ever follows a resolution
+        # failure that happened seconds into the build.
         timeout-minutes: 20
         shell: bash
         env:
@@ -282,18 +339,18 @@ jobs:
           KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
           REQUIRE_RELEASE_SIGNING: 'true'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p diagnostics
           # No fallback: Gradle fails fast naming any missing signing variable,
           # and never signs a release variant with the debug key.
-          # ci_gate.py keeps the whole log in diagnostics/release-build.log for
-          # the artifact and re-emits failures as annotations, which is the only
+          # ci_gate.py keeps each attempt's whole log in diagnostics/ for the
+          # artifact and re-emits failures as annotations, which is the only
           # channel readable when the Actions log blob store is unreachable.
           # Every other line is prefixed with a UTC stamp (annotations are left
           # alone so they still parse) so a slow phase is attributable instead of
           # merely visible as a long step.
           stamp_and_tee() {
-            tee diagnostics/release-build-timed.log | while IFS= read -r line; do
+            tee "$1" | while IFS= read -r line; do
               if [[ "$line" == ::* ]]; then
                 printf '%s\n' "$line"
               else
@@ -301,7 +358,57 @@ jobs:
               fi
             done
           }
-          python tool/ci_gate.py release-build flutter build apk --release 2>&1 | stamp_and_tee
+          # A repository outage is the one release-build failure that is not caused
+          # by the revision under test, so it gets exactly one retry: run
+          # 38815652328 died because plugins.gradle.org served the Kotlin DSL
+          # plugin but returned 404 for the Kotlin 2.0.21 artifacts it proxies from
+          # Maven Central. A compile, lint, test or signing failure is never
+          # retried -- the first attempt's annotations already say what is wrong,
+          # and repeating the build would only delay the diagnosis.
+          transient='Could not find|Could not resolve|Could not GET|Could not HEAD|Could not download|Searched in the following locations|Connection (refused|reset|timed out)|Read timed out|Remote host terminated'
+          rc=1
+          for attempt in 1 2; do
+            log="diagnostics/release-build-attempt-$attempt.log"
+            echo "::notice title=release-build::attempt $attempt of 2: flutter build apk --release"
+            python tool/ci_gate.py "release-build-attempt-$attempt" flutter build apk --release 2>&1 \
+              | stamp_and_tee "diagnostics/release-build-timed-$attempt.log"
+            rc="${PIPESTATUS[0]}"
+            if (( rc == 0 )); then
+              break
+            fi
+            if (( attempt == 1 )) && grep -qE "$transient" "$log"; then
+              echo "::warning title=release-build::attempt 1 failed inside plugin/dependency resolution; retrying once before reporting a failure" >&2
+              continue
+            fi
+            break
+          done
+          # The last attempt keeps the name earlier notes and the artifacts use.
+          cp -f "diagnostics/release-build-attempt-$attempt.log" diagnostics/release-build.log || true
+          exit "$rc"
+
+      # Proof that the fallback reached the build that failed in run 38815652328:
+      # the init script appends one line per build in the tree to its report file,
+      # and the Flutter tools build (`project :gradle`) only carries the fallback
+      # repositories if its own line says so. tool/report_gradle_plugin_repositories.sh
+      # turns that file into annotations -- warnings when the evidence is missing
+      # or the included build is absent, notices naming the repositories each build
+      # resolves plugins from. It never fails the run: it reports state.
+      - name: Report Gradle plugin-repository coverage
+        if: always()
+        shell: bash
+        run: bash tool/report_gradle_plugin_repositories.sh diagnostics/release-build-attempt-*.log
+
+      # Only a run that had to download something refreshes the cache; a full hit
+      # must not spend minutes re-uploading what is already stored.
+      - name: Save Gradle caches
+        if: success() && steps.gradle-cache-state.outputs.cold == '1'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
 
       - name: Verify APK signature and fingerprint match
         timeout-minutes: 5

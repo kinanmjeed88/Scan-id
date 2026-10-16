@@ -622,9 +622,14 @@ void main() {
     // A download that did not finish never reaches an installer.
     expect(service.installAsked, isFalse);
     // The buttons come back: a failed check that stays disabled would need a
-    // restart of the app to retry.
-    final checked = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'التحقق من التحديث'),
+    // restart of the app to retry. The button is an icon button, whose widget
+    // is a private subclass of ButtonStyleButton, so it is located by its
+    // label from within, where its enabled state can be read.
+    final checked = tester.widget<ButtonStyleButton>(
+      find.ancestor(
+        of: find.text('التحقق من التحديث'),
+        matching: find.byType(ButtonStyleButton),
+      ),
     );
     expect(checked.onPressed, isNotNull);
     expect(find.text('إلغاء التنزيل'), findsNothing);

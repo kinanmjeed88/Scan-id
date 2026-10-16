@@ -50,11 +50,11 @@ class _FakeInstaller implements UpdateInstaller {
 /// screen's own behaviour — cancelling and recovery — observable at all.
 class _ScriptedService extends UpdateService {
   _ScriptedService({
-    required UpdateSource source,
+    required super.source,
     required this.answer,
     this.installResult,
     this.hold = false,
-  }) : super(source: source, currentVersion: '0.1.0');
+  }) : super(currentVersion: '0.1.0');
 
   /// Handed back for the download, and for the install when one is reached.
   final DownloadResult answer;

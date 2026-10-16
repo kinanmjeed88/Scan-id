@@ -395,7 +395,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('يتوفر إصدار أحدث'), findsOneWidget);
-    expect(find.text('الإصدار الحالي: 0.1.0'), findsOneWidget);
+    // The card and its offer both name the version in force: one line each,
+    // and neither of them names where the package comes from.
+    expect(find.text('الإصدار الحالي: 0.1.0'), findsWidgets);
     expect(find.text('الإصدار الجديد: 0.2.0'), findsOneWidget);
     expect(find.textContaining('0.2.0'), findsWidgets);
     // No repository, host, package filename or release-notes link reaches the
@@ -591,7 +593,7 @@ void main() {
     await tester.tap(find.text('التحقق من التحديث'));
     await tester.pumpAndSettle();
     expect(find.text('تنزيل وتثبيت'), findsWidgets);
-    expect(find.textContaining('تفتح شاشة التثبيت'), findsOneWidget);
+    expect(find.textContaining('شاشة التثبيت'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

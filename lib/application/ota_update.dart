@@ -648,11 +648,12 @@ class _UpdateFailure implements Exception {
 int _extensionPriority(UpdatePlatform platform, String extension) =>
     switch (platform) {
       UpdatePlatform.android => 0,
-      UpdatePlatform.windows => extension == '.exe'
-          ? 0
-          : extension == '.msi'
-              ? 1
-              : 2,
+      UpdatePlatform.windows =>
+        extension == '.exe'
+            ? 0
+            : extension == '.msi'
+            ? 1
+            : 2,
     };
 
 List<String> _extensionsFor(UpdatePlatform platform) => switch (platform) {

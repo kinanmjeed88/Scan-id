@@ -609,8 +609,7 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
   }
 
   UpdateSource get _source =>
-      widget.source ??
-      GitHubUpdateSource(owner: _owner, repo: _repo);
+      widget.source ?? GitHubUpdateSource(owner: _owner, repo: _repo);
 
   String get _version => widget.currentVersion ?? _appVersion;
 
@@ -685,7 +684,8 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
             children: [
               Text('الإصدار الحالي: $_version'),
               Text('الإصدار الجديد: ${update.newVersion}'),
-              if (update.summary != null && update.summary!.trim().isNotEmpty) ...[
+              if (update.summary != null &&
+                  update.summary!.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(update.summary!, style: const TextStyle(fontSize: 13)),
               ],
@@ -697,7 +697,10 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
               if (update.size != null)
                 Text(
                   'الحجم: ${(update.size! / (1024 * 1024)).toStringAsFixed(2)} MiB',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF666666),
+                  ),
                 ),
             ],
           ),
@@ -806,95 +809,93 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
 
   @override
   Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.update_outlined, size: 24),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'تحديث التطبيق',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'الإصدار الحالي: $_version — المنصة: ${_platform.name}',
-                style: const TextStyle(fontSize: 13, color: Color(0xFF666666)),
-              ),
-              if (_statusMessage != null) ...[
-                const SizedBox(height: 8),
-                InfoBanner(
-                  tone: _pendingUpdate != null
-                      ? BannerTone.info
-                      : BannerTone.caution,
-                  message: _statusMessage!,
+              Icon(Icons.update_outlined, size: 24),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'تحديث التطبيق',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
-              ],
-              if (_downloading) ...[
-                const SizedBox(height: 12),
-                LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: OutlinedButton.icon(
-                    onPressed: _cancelDownload,
-                    icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('إلغاء التنزيل'),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton.icon(
-                    onPressed:
-                        (_checking || _downloading || widget.busy) ? null : _check,
-                    icon: _checking
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.cloud_download_outlined),
-                    label: Text(_checking ? 'جاري الفحص...' : 'التحقق من التحديث'),
-                  ),
-                  if (_pendingUpdate != null && !_downloading)
-                    OutlinedButton.icon(
-                      onPressed: () => _showUpdateDialog(_pendingUpdate!),
-                      icon: const Icon(Icons.info_outline),
-                      label: const Text('تفاصيل التحديث'),
-                    ),
-                  OutlinedButton.icon(
-                    onPressed: (widget.busy || _downloading)
-                        ? null
-                        : _openReleasesPage,
-                    icon: const Icon(Icons.open_in_new),
-                    label: const Text('فتح صفحة الإصدارات'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const InfoBanner(
-                tone: BannerTone.info,
-                message:
-                    'يتحقق التطبيق من GitHub Releases الرسمية فقط عبر HTTPS. يُحقق التنزيل ببصمة SHA-256 قبل أي تثبيت؛ التثبيت التلقائي غير مفعّل حتى توقيع الناشر.',
               ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 8),
+          Text(
+            'الإصدار الحالي: $_version — المنصة: ${_platform.name}',
+            style: const TextStyle(fontSize: 13, color: Color(0xFF666666)),
+          ),
+          if (_statusMessage != null) ...[
+            const SizedBox(height: 8),
+            InfoBanner(
+              tone: _pendingUpdate != null
+                  ? BannerTone.info
+                  : BannerTone.caution,
+              message: _statusMessage!,
+            ),
+          ],
+          if (_downloading) ...[
+            const SizedBox(height: 12),
+            LinearProgressIndicator(value: _progress > 0 ? _progress : null),
+            const SizedBox(height: 8),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: OutlinedButton.icon(
+                onPressed: _cancelDownload,
+                icon: const Icon(Icons.cancel_outlined),
+                label: const Text('إلغاء التنزيل'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.icon(
+                onPressed: (_checking || _downloading || widget.busy)
+                    ? null
+                    : _check,
+                icon: _checking
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.cloud_download_outlined),
+                label: Text(_checking ? 'جاري الفحص...' : 'التحقق من التحديث'),
+              ),
+              if (_pendingUpdate != null && !_downloading)
+                OutlinedButton.icon(
+                  onPressed: () => _showUpdateDialog(_pendingUpdate!),
+                  icon: const Icon(Icons.info_outline),
+                  label: const Text('تفاصيل التحديث'),
+                ),
+              OutlinedButton.icon(
+                onPressed: (widget.busy || _downloading)
+                    ? null
+                    : _openReleasesPage,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('فتح صفحة الإصدارات'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const InfoBanner(
+            tone: BannerTone.info,
+            message:
+                'يتحقق التطبيق من GitHub Releases الرسمية فقط عبر HTTPS. يُحقق التنزيل ببصمة SHA-256 قبل أي تثبيت؛ التثبيت التلقائي غير مفعّل حتى توقيع الناشر.',
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _DeveloperInfo extends StatelessWidget {

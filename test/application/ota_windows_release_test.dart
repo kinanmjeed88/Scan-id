@@ -148,7 +148,11 @@ void main() {
         currentVersion: '0.1.0',
         platform: UpdatePlatform.android,
       );
-      expect(update, isNull, reason: 'Build metadata should not count as newer');
+      expect(
+        update,
+        isNull,
+        reason: 'Build metadata should not count as newer',
+      );
     });
 
     test('Same version not offered', () {
@@ -191,10 +195,20 @@ void main() {
     test('Release assets must match OTA platform extensions', () {
       // Simulate verification that published assets match expectations:
       // Android needs .apk, Windows needs .exe/.msi/.zip
-      final assets = ['scan-id-android-v0.1.1.apk', 'scan-id-windows-v0.1.1.zip', 'SHA256SUMS.txt'];
+      final assets = [
+        'scan-id-android-v0.1.1.apk',
+        'scan-id-windows-v0.1.1.zip',
+        'SHA256SUMS.txt',
+      ];
       final hasApk = assets.any((a) => a.endsWith('.apk'));
-      final hasWindows = assets.any((a) => a.endsWith('.exe') || a.endsWith('.msi') || a.endsWith('.zip'));
-      expect(hasApk, isTrue, reason: 'Release must contain APK for Android OTA');
+      final hasWindows = assets.any(
+        (a) => a.endsWith('.exe') || a.endsWith('.msi') || a.endsWith('.zip'),
+      );
+      expect(
+        hasApk,
+        isTrue,
+        reason: 'Release must contain APK for Android OTA',
+      );
       expect(hasWindows, isTrue, reason: 'Release must contain Windows asset');
     });
   });

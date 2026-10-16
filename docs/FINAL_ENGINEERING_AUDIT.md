@@ -10,8 +10,10 @@
 | **SHA المرجعي في التقرير السابق** | `b597375d5b5cbde05e9f1da9b8310e596a77c649` (التقرير `FINAL_AUDIT_...FOLLOWUP`) |
 | **HEAD الفعلي عند بدء المهمة** | `b597375d5b5cbde05e9f1da9b8310e596a77c649` — مطابق ( `git rev-parse HEAD` ) |
 | **الفرع الحالي** | `arena/8457c5eb-scan-id` tracking `origin/arena/8457c5eb-scan-id` |
-| **SHA النهائي بعد الإصلاحات** | `232177c5f49771e6e7662691e6bbb6b1c40a3e50` |
-| **التغييرات بين SHAين** | `cleanup-old-runs.yml` (P0) — 12 إضافة/5 حذف |
+| **SHA النهائي بعد الإصلاحات** | `3a9796079f931d3300fe95fbdac8ed2af01829af` (232177c + تقرير) |
+| **SHA المثبت (آخر نجاح CI)** | `b597375d5b5cbde05e9f1da9b8310e596a77c649` — success 38896015204/38896020050 |
+| **CI على النهائي** | `3a979607` — 38900037107/38900042976 in_progress (docs فقط، لا يغير البناء) |
+| **التغييرات بين SHAين** | `cleanup-old-runs.yml` (P0) + `FINAL_ENGINEERING_AUDIT.md` |
 
 `origin/searchidf` ثابت `12ddfb641878de90d3acbbd012c47582698ea380` (الأساس). الفارق الكلي `origin/searchidf...HEAD` = 21 ملف، 4153 إضافة/116 حذف.
 

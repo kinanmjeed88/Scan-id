@@ -205,7 +205,7 @@ void main() {
       );
       expect(
         gradle,
-        contains('Regex("^[0-9a-f]{64}$").matches(expectedCertSha256)'),
+        contains('Regex("^[0-9a-f]{64}\$").matches(expectedCertSha256)'),
       );
     });
 

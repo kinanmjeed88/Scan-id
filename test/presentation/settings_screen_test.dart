@@ -446,11 +446,7 @@ void main() {
     final maintenance = _FakeMaintenance(const <String>[]);
     await _pumpSettings(
       tester,
-      service: ProjectService(
-        repository,
-        NoAssets(),
-        maintenance: maintenance,
-      ),
+      service: ProjectService(repository, NoAssets(), maintenance: maintenance),
     );
     await _scrollTo(tester, find.text('صيانة المساحة والملفات غير المرتبطة'));
     await tester.tap(find.text('صيانة المساحة والملفات غير المرتبطة'));
@@ -495,11 +491,7 @@ void main() {
     final maintenance = _FakeMaintenance(['loose.jpg', 'old-work.jpg']);
     await _pumpSettings(
       tester,
-      service: ProjectService(
-        repository,
-        NoAssets(),
-        maintenance: maintenance,
-      ),
+      service: ProjectService(repository, NoAssets(), maintenance: maintenance),
     );
     await _scrollTo(tester, find.text('صيانة المساحة والملفات غير المرتبطة'));
     await tester.tap(find.text('صيانة المساحة والملفات غير المرتبطة'));

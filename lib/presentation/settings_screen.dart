@@ -611,15 +611,14 @@ enum _Brand {
 }
 
 class _BrandIcon extends StatelessWidget {
-  const _BrandIcon(this.brand, {this.size = 30});
+  const _BrandIcon(this.brand);
 
   final _Brand brand;
-  final double size;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: size,
-    height: size,
+    width: 30,
+    height: 30,
     child: CustomPaint(painter: _BrandPainter(brand)),
   );
 }

@@ -544,7 +544,7 @@ void main() {
         contains('لا يمكن الوصول إلى مصدر التحديثات'),
       );
       expect(
-        classifyUpdateError(TimeoutException(const Duration(seconds: 1))).kind,
+        classifyUpdateError(TimeoutException('no answer in time')).kind,
         UpdateFailureKind.timeout,
       );
       expect(

@@ -140,9 +140,18 @@ flutter test
 
 لم تُجرَ تجربة يدوية كاملة على Windows أو هاتف Android حقيقي، ولا طباعة مادية. مقاسا بطاقة السكن والتموينية افتراضيان؛ قِس نسختك وعدّلهما إن اختلفا. التعرف على النوع بالاسم والشكل فقط (لا OCR)، لذلك بطاقتان بنفس النسبة لا يميَّز بينهما إلا بالاسم أو باختيارك.
 
+## إدارة الإصدارات (OTA)
+
+- **لوحة الإدارة:** افتح [لوحة الإدارة](https://kinanmjeed88.github.io/Scan-id/admin/) (Arabic RTL) — تعرض الحالة المباشرة: إصدار `pubspec.yaml` الأخير، رقم البناء، آخر Tag/Release، توافق OTA (APK+ZIP+digest)، وحالة توقيع APK.
+- **إنشاء إصدار:** أدخل `version` (SemVer صارم بلا `v`, بلا صفر بادئ زائد) + `build_number` + `release_notes` + النظام المستهدف — تتحقق الواجهة محلياً من أن الإصدار أحدث من الحالي وآخر Release وغير مكرر. اضغط **إنشاء إصدار ونشر** لعرض أمر `gh workflow run release-management.yml -f ...` + رابط فتح Actions.
+- **مسار النشر:** `validate → update-version → build (android) → windows → publish`؛ `concurrency: release-management` يمنع التزامن، `permissions: contents:read` عامة و`contents:write` في النشر فقط، تحقق `SemVer/build/tag/actor` قبل الكتابة، توقيع APK بـ SHA256 مع `EXPECTED_CERT_SHA256`, تحقق OTA عبر `jq` لـ `hasApk&&hasWindows&&digest!=null`.
+- **الأمان:** لا يُرسل PAT من الصفحة — المصادقة في GitHub Actions (`GITHUB_TOKEN`), باقي التفاصيل في [وثيقة المصادقة](docs/RELEASE_AUTH.md).
+- يدوياً: `gh workflow run release-management.yml -f version=0.2.0 -f build_number=2 -f release_notes="..." -f targets=both` على فرع `searchidf`.
+
 ## التوثيق
 
 - [المعمارية والقرارات](docs/ARCHITECTURE.md)
 - [نتائج التحقق والاختبارات](docs/STATUS.md)
 - [التدقيق](docs/AUDIT.md)
+- [وثيقة مصادقة الإدارة](docs/RELEASE_AUTH.md)
 - [تقرير معمارية التعرّف الذكي على الدفعات والترتيب التلقائي](docs/SMART_LAYOUT_REPORT.md) — تصميم فقط، غير منفذ

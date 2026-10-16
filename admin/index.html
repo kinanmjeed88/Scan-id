@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="لوحة إدارة إصدارات Scan-id - مصممة لإدارة دورة الإصدار من الكود إلى النشر والـ OTA">
+  <meta name="robots" content="noindex, nofollow">
+  <title>لوحة إدارة الإصدارات — Scan-id</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-inner">
+        <div class="brand">
+          <div class="brand-icon">◈</div>
+          <div>
+            <h1>مستمسكات — Scan-id</h1>
+            <p>لوحة إدارة الإصدارات</p>
+          </div>
+        </div>
+        <nav class="header-actions">
+          <a href="../" class="btn btn-ghost">العودة للموقع</a>
+          <a href="https://github.com/kinanmjeed88/Scan-id" target="_blank" rel="noopener" class="btn btn-ghost">المستودع</a>
+          <a href="https://github.com/kinanmjeed88/Scan-id/actions" target="_blank" rel="noopener" class="btn btn-ghost">Actions</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Status banner -->
+      <div id="global-alert" class="alert hidden" role="alert"></div>
+
+      <!-- Section A: Current version status -->
+      <section class="card" aria-labelledby="status-title">
+        <div class="card-header">
+          <h2 id="status-title">حالة الإصدار الحالي</h2>
+          <div class="card-actions">
+            <span id="last-updated" class="muted">—</span>
+            <button id="refresh-btn" class="btn btn-secondary">تحديث البيانات</button>
+          </div>
+        </div>
+        <div id="status-loading" class="loading">
+          <div class="spinner"></div>
+          <p>جلب البيانات من GitHub...</p>
+        </div>
+        <div id="status-error" class="alert alert-error hidden"></div>
+        <div id="status-grid" class="status-grid hidden">
+          <!-- Code version -->
+          <div class="status-item">
+            <div class="status-label">إصدار الكود</div>
+            <div id="code-version" class="status-value code">—</div>
+            <div id="code-branch" class="status-meta">فرع: —</div>
+            <span class="badge badge-code">كود</span>
+          </div>
+          <!-- Build number -->
+          <div class="status-item">
+            <div class="status-label">رقم البناء</div>
+            <div id="build-number" class="status-value">—</div>
+            <div class="status-meta">من pubspec.yaml</div>
+            <span class="badge badge-code">كود</span>
+          </div>
+          <!-- Active branch -->
+          <div class="status-item">
+            <div class="status-label">الفرع النشط للنشر</div>
+            <div id="active-branch" class="status-value">—</div>
+            <div id="active-branch-meta" class="status-meta">الافتراضي</div>
+          </div>
+          <!-- Last tag -->
+          <div class="status-item">
+            <div class="status-label">آخر Tag</div>
+            <div id="last-tag" class="status-value">—</div>
+            <div id="last-tag-date" class="status-meta">—</div>
+            <span class="badge badge-tag">Tag</span>
+          </div>
+          <!-- Last release -->
+          <div class="status-item">
+            <div class="status-label">آخر Release منشور</div>
+            <div id="last-release" class="status-value">—</div>
+            <div id="last-release-date" class="status-meta">—</div>
+            <span class="badge badge-release">منشور</span>
+          </div>
+          <!-- Android build -->
+          <div class="status-item">
+            <div class="status-label">بناء Android</div>
+            <div id="android-status" class="status-value">—</div>
+            <div id="android-link" class="status-meta">—</div>
+            <span class="badge badge-build">مبني</span>
+          </div>
+          <!-- Windows build -->
+          <div class="status-item">
+            <div class="status-label">بناء Windows</div>
+            <div id="windows-status" class="status-value">—</div>
+            <div id="windows-link" class="status-meta">—</div>
+            <span class="badge badge-build">مبني</span>
+          </div>
+          <!-- Signature -->
+          <div class="status-item">
+            <div class="status-label">حالة التوقيع والنشر</div>
+            <div id="signature-status" class="status-value">—</div>
+            <div id="signature-meta" class="status-meta">—</div>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="dot dot-code"></i> كود</span>
+          <span><i class="dot dot-build"></i> مبني</span>
+          <span><i class="dot dot-release"></i> منشور</span>
+        </div>
+        <div id="mismatch-warning" class="alert alert-warning hidden"></div>
+        <div id="ota-compat" class="alert alert-info hidden"></div>
+      </section>
+
+      <!-- Section B: New version form -->
+      <section class="card" aria-labelledby="form-title">
+        <div class="card-header">
+          <h2 id="form-title">إعداد إصدار جديد</h2>
+          <span class="muted">الحقول تجلب الحالة الحقيقية أولاً — لا تستخدم قيماً افتراضية</span>
+        </div>
+        <form id="release-form" class="form" novalidate>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="new-version">الإصدار الجديد <span class="required">*</span></label>
+              <input id="new-version" type="text" placeholder="0.1.1" required autocomplete="off" dir="ltr">
+              <div class="hint">SemVer صارم: X.Y.Z أو X.Y.Z-prerelease (يرفض 01.0.0)</div>
+              <div id="err-version" class="field-error hidden"></div>
+            </div>
+            <div class="form-group">
+              <label for="new-build">رقم البناء الجديد <span class="required">*</span></label>
+              <input id="new-build" type="number" min="1" step="1" placeholder="2" required dir="ltr">
+              <div class="hint">عدد صحيح موجب ، يجب أن يتزايد مع نفس Core</div>
+              <div id="err-build" class="field-error hidden"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="release-notes">ملاحظات الإصدار <span class="required">*</span></label>
+            <textarea id="release-notes" rows="3" placeholder="تحسينات وإصلاحات" required>تحسينات وإصلاحات</textarea>
+            <div class="hint">3–5000 حرف ، لا تحتوي حقن أوامر</div>
+            <div id="err-notes" class="field-error hidden"></div>
+          </div>
+          <div class="form-group">
+            <label>الأنظمة المستهدفة</label>
+            <div class="checkbox-group">
+              <label class="checkbox"><input type="checkbox" id="target-android" checked> Android (APK موقّع)</label>
+              <label class="checkbox"><input type="checkbox" id="target-windows" checked> Windows (ZIP portable)</label>
+            </div>
+            <div class="hint">حسب آلية النشر الفعلية — APK + ZIP فقط</div>
+            <div id="err-targets" class="field-error hidden"></div>
+          </div>
+          <div id="change-summary" class="summary hidden">
+            <h3>ملخص التغيير</h3>
+            <div class="summary-grid">
+              <div><span class="muted">الحالي</span><strong id="sum-current">—</strong></div>
+              <div class="arrow">→</div>
+              <div><span class="muted">المقترح</span><strong id="sum-proposed">—</strong></div>
+              <div><span class="muted">نوع التغيير</span><span id="sum-type">—</span></div>
+            </div>
+          </div>
+          <div id="form-error" class="alert alert-error hidden"></div>
+          <div id="form-success" class="alert alert-success hidden"></div>
+        </form>
+      </section>
+
+      <!-- Section C: Actions -->
+      <section class="card" aria-labelledby="actions-title">
+        <div class="card-header">
+          <h2 id="actions-title">الإجراءات</h2>
+        </div>
+        <div class="actions">
+          <button id="btn-create" class="btn btn-primary btn-large">إنشاء إصدار ونشر</button>
+          <button id="btn-copy-gh" class="btn btn-secondary">نسخ أمر gh CLI</button>
+          <a id="btn-open-actions" href="https://github.com/kinanmjeed88/Scan-id/actions/workflows/release-management.yml" target="_blank" rel="noopener" class="btn btn-secondary">فتح Actions</a>
+        </div>
+        <div id="action-steps" class="steps hidden">
+          <h3>سير العملية المتوقع (16 خطوة)</h3>
+          <ol>
+            <li>التحقق من المدخلات والصلاحيات</li>
+            <li>التحقق من الفرع الهدف</li>
+            <li>جلب الحالة الحالية (pubspec, Tag, Release)</li>
+            <li>التحقق SemVer / Build / منع التكرار</li>
+            <li>فحص التزامن (concurrency)</li>
+            <li>عرض ملخص قبل التنفيذ</li>
+            <li>تحديث pubspec.yaml و app.dart</li>
+            <li>التحقق من نطاق التغيير (3 ملفات فقط)</li>
+            <li>تشغيل analyze &amp; test</li>
+            <li>بناء Android + Windows</li>
+            <li>التحقق من APK signature و ZIP</li>
+            <li>إنشاء SHA-256</li>
+            <li>التحقق من عدم وجود Tag مكرر</li>
+            <li>إنشاء Tag + Release + رفع الأصول</li>
+            <li>التحقق من OTA (assets + digest)</li>
+            <li>عرض النتيجة والروابط</li>
+          </ol>
+        </div>
+        <div id="gh-command" class="code-block hidden">
+          <div class="code-header">
+            <span>أمر gh CLI (آمن — يُنفّذ محلياً بصلاحياتك)</span>
+            <button id="copy-cmd" class="btn btn-small">نسخ</button>
+          </div>
+          <pre><code id="cmd-text"></code></pre>
+        </div>
+        <div class="alert alert-info">
+          <strong>الأمان:</strong> لا يُرسل أي PAT من هذه الصفحة. الإنشاء يتم عبر GitHub Actions بمصادقة GitHub نفسها. راجع <a href="../docs/RELEASE_AUTH.html" target="_blank">وثيقة المصادقة</a>.
+        </div>
+        <div id="recent-runs" class="recent-runs hidden">
+          <h3>آخر 3 تشغيلات لإدارة الإصدارات</h3>
+          <div id="runs-list" class="runs-list"></div>
+        </div>
+      </section>
+
+      <section class="card card-help">
+        <h2>كيف تعمل؟</h2>
+        <ul>
+          <li><strong>القراءة:</strong> الصفحة تستخدم GitHub API العام (<code>api.github.com</code>) بدون مصادقة لعرض الحالة — لا تحتاج PAT.</li>
+          <li><strong>الكتابة:</strong> عند الضغط «إنشاء إصدار» تُبنى <code>gh workflow run</code> أو رابط Actions — أنت تسجل دخولك في GitHub وتنفّذ بنفسك. الـ Workflow يتحقق من <code>actor == collaborator</code> و<code>ref == searchidf</code> و<code>permissions: contents: write</code> فقط في مهمة النشر.</li>
+          <li><strong>لا أسرار في المتصفح:</strong> ابحث في المصدر — لا يوجد <code>token</code> ثابت. PAT المؤقت (إن استخدمته يدوياً) لا يُخزن أبداً.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Scan-id • إدارة إصدارات شفافة — <a href="https://github.com/kinanmjeed88/Scan-id">GitHub</a> • آخر تحديث للصفحة: <span id="page-built"></span></p>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

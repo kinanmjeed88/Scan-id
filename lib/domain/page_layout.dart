@@ -69,6 +69,10 @@ class PageLayout {
     for (final e in p.items) {
       if (e.pageIndex == null) continue;
       require(
+        e.pageIndex! >= 0 && e.pageIndex! < p.pageCount,
+        'رقم الصفحة غير صالح.',
+      );
+      require(
         e.sizeConfirmed,
         'لا يمكن وضع مستمسك بقياس غير مؤكد على الورقة؛ أدخل قياسه وأكّده أولاً.',
       );
@@ -136,6 +140,78 @@ class PageLayout {
     return replace(
       p,
       e.copyWith(x: e.x + dx, y: e.y + dy),
+      allowOverlap: allowOverlap,
+    );
+  }
+
+  /// Moves [id] to [targetPage], creating that page when it does not exist yet.
+  ///
+  /// The document keeps its size and (when it still fits) its position. When
+  /// the current position is invalid or collides on the target page, a valid
+  /// non-overlapping spot is searched; if none exists the operation is
+  /// rejected with a clear reason instead of leaving the document off-page or
+  /// overlapping. A document larger than the printable area is always rejected.
+  static Project moveToPage(
+    Project p,
+    String id,
+    int targetPage, {
+    bool allowOverlap = false,
+    bool? allowRotation,
+  }) {
+    final e = item(p, id);
+    require(!e.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
+    require(
+      targetPage >= 0 && targetPage < 100,
+      'رقم الصفحة غير صالح.',
+    );
+    final rotate = allowRotation ?? p.layout.allowRotation;
+    final area = p.paper.printable;
+    final gx = p.layout.horizontalGap, gy = p.layout.verticalGap;
+
+    DocumentItem oriented = e;
+    if (!_fitsInArea(oriented, area)) {
+      if (rotate) {
+        final turned = e.copyWith(rotation: (e.rotation + 90) % 360);
+        if (_fitsInArea(turned, area)) oriented = turned;
+      }
+    }
+    require(
+      _fitsInArea(oriented, area),
+      'أبعاد المستمسك (${oriented.width.toStringAsFixed(1)}×'
+      '${oriented.height.toStringAsFixed(1)} مم) لا تسمح بوضعه ضمن '
+      'المساحة القابلة للطباعة (${area.width.toStringAsFixed(1)}×'
+      '${area.height.toStringAsFixed(1)} مم).',
+    );
+
+    var pageCount = p.pageCount;
+    if (targetPage >= pageCount) pageCount = targetPage + 1;
+
+    final others = [
+      for (final other in p.items)
+        if (other.id != id && other.pageIndex == targetPage) other,
+    ];
+
+    var candidate = oriented.copyWith(pageIndex: targetPage);
+    if (!_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
+      candidate = _topLeftPlacement(candidate, area);
+    }
+    if (!_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
+      final found = _findPlacement(candidate, area, others, gx, gy, allowOverlap);
+      if (found == null) {
+        throw ValidationException(
+          'لا توجد مساحة كافية في الصفحة ${targetPage + 1} لوضع المستمسك '
+          'دون تداخل.',
+        );
+      }
+      candidate = found;
+    }
+
+    final items = [
+      for (final existing in p.items)
+        existing.id == id ? candidate : existing,
+    ];
+    return checked(
+      p.copyWith(pageCount: pageCount, items: items),
       allowOverlap: allowOverlap,
     );
   }
@@ -346,3 +422,62 @@ class PageLayout {
     );
   }
 }
+
+
+bool _fitsInArea(DocumentItem item, RectMm area) {
+  final b = item.bounds;
+  return b.width <= area.width + 1e-7 && b.height <= area.height + 1e-7;
+}
+
+bool _validPlacement(
+  DocumentItem candidate,
+  RectMm area,
+  List<DocumentItem> others,
+  double gx,
+  double gy,
+  bool allowOverlap,
+) {
+  if (!area.contains(candidate.bounds)) return false;
+  if (allowOverlap) return true;
+  for (final other in others) {
+    if (_gapOverlap(candidate.bounds, other.bounds, gx, gy)) return false;
+  }
+  return true;
+}
+
+DocumentItem _topLeftPlacement(DocumentItem item, RectMm area) {
+  final b = item.bounds;
+  final x = area.x + (b.width - item.width) / 2;
+  final y = area.y + (b.height - item.height) / 2;
+  return item.copyWith(x: x, y: y);
+}
+
+DocumentItem? _findPlacement(
+  DocumentItem item,
+  RectMm area,
+  List<DocumentItem> others,
+  double gx,
+  double gy,
+  bool allowOverlap,
+) {
+  final b = item.bounds;
+  const step = 1.0;
+  for (double by = area.y; by + b.height <= area.bottom + 1e-7; by += step) {
+    for (double bx = area.x; bx + b.width <= area.right + 1e-7; bx += step) {
+      final candidate = item.copyWith(
+        x: bx + (b.width - item.width) / 2,
+        y: by + (b.height - item.height) / 2,
+      );
+      if (_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+bool _gapOverlap(RectMm a, RectMm b, double x, double y) =>
+    a.x < b.right + x - 1e-7 &&
+    a.right + x > b.x + 1e-7 &&
+    a.y < b.bottom + y - 1e-7 &&
+    a.bottom + y > b.y + 1e-7;

@@ -1,11 +1,14 @@
 name: Android signed release and Windows
 
 on:
+  push:
+    branches:
+      - searchidf
   workflow_dispatch:
 
 permissions:
   contents: read
-
+  
 jobs:
   android-signed-release:
     name: Signed Android release APK

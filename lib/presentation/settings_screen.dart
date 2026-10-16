@@ -576,7 +576,9 @@ class _OtaUpdateCard extends StatefulWidget {
     required this.busy,
     required this.onBusyChanged,
     this.launchExternalUrl,
+    // ignore: unused_element_parameter
     this.source,
+    // ignore: unused_element_parameter
     this.currentVersion,
   });
 
@@ -772,11 +774,13 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
       if (result.isSuccess) {
         final path = result.filePath!;
         final verified = await service.verifyUpdateSource(update, path);
+        if (!mounted) return;
         if (!verified) {
           showMessage(context, 'فشل التحقق من الملف بعد التنزيل.');
           return;
         }
         final install = await service.installUpdate(update, path);
+        if (!mounted) return;
         if (install.error != null) {
           showMessage(
             context,
@@ -786,6 +790,7 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
           showMessage(context, install.message ?? 'اكتمل التحديث.');
         }
       } else {
+        if (!mounted) return;
         showMessage(context, result.error ?? 'فشل التنزيل.');
       }
     } catch (error) {

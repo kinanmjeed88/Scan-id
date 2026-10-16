@@ -32,6 +32,53 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+
+      # Both Gradle invocations below (the release guard and the debug build) start
+      # an included Flutter tools build that declares no plugin repositories of its
+      # own; run 38815652328 showed what that costs when plugins.gradle.org cannot
+      # serve the Kotlin artifacts it proxies from Maven Central. See
+      # tool/gradle/plugin-repositories.init.gradle.
+      - name: Install Gradle plugin-repository fallback
+        shell: bash
+        run: bash tool/install_gradle_init.sh
+
+      # Gradle re-downloads the same plugins on every run; restoring them keeps the
+      # gate independent of any single repository. A cache miss or an outage of the
+      # cache service only makes the run slower.
+      - name: Restore cached Gradle artifacts
+        id: gradle-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Report Gradle cache state
+        id: gradle-cache-state
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle_user_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          cold=0
+          lines=()
+          for path in "$gradle_user_home/caches/modules-2" "$gradle_user_home/wrapper/dists"; do
+            if [[ -d "$path" ]]; then
+              lines+=("restored: $path ($(du -sh "$path" | cut -f1))")
+            else
+              lines+=("missing: $path (this run will download it)")
+              cold=1
+            fi
+          done
+          {
+            echo "== Gradle caches before the build =="
+            printf '%s\n' "${lines[@]}"
+          } | tee diagnostics/gradle-cache.txt
+          echo "cold=$cold" >> "$GITHUB_OUTPUT"
+
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
@@ -47,20 +94,54 @@ jobs:
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests
         run: python tool/ci_gate.py test flutter test --reporter expanded
+      # The build below MUST fail, and only the signing guard may be the reason.
+      # A repository outage must not read as "the release build no longer
+      # enforces signing" (that is what a red gate on a good revision looks
+      # like), so a failure inside plugin/dependency resolution -- and only such
+      # a failure -- is retried once before it is reported.
       - name: Ensure release build rejects missing signing credentials
         shell: bash
         run: |
-          set -euo pipefail
-          if release_output="$(flutter build apk --release 2>&1)"; then
-            echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
-            exit 1
-          fi
-          printf '%s\n' "$release_output"
-          if ! grep -Fq 'Release signing is required, but Android signing values are missing.' <<< "$release_output" &&
-             ! grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' <<< "$release_output"; then
-            echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
-            exit 1
-          fi
+          set -uo pipefail
+          mkdir -p diagnostics
+          # The reason has to survive without the Actions log store: annotations
+          # are the only channel API-only clients can read, so the tail of the
+          # captured output is re-emitted (percent signs escaped, lines joined
+          # with '~' to stay on one annotation line).
+          annotate() {
+            local title="$1" bytes="$2" detail
+            detail="$(tail -c "$bytes" "$log" | sed -e 's/%/%25/g' -e 's/\r//g' | tr '\n' '~')"
+            printf '::error title=%s::%s\n' "$title" "$detail" >&2
+          }
+          guard_message() {
+            grep -Fq 'Release signing is required, but Android signing values are missing.' "$log" ||
+              grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' "$log"
+          }
+          transient='Could not find|Could not resolve|Could not GET|Could not HEAD|Could not download|Searched in the following locations|Connection (refused|reset|timed out)|Read timed out|Remote host terminated'
+          for attempt in 1 2; do
+            log="diagnostics/signing-guard-attempt-$attempt.log"
+            rc=0
+            flutter build apk --release > "$log" 2>&1 || rc=$?
+            cat "$log"
+            if (( rc == 0 )); then
+              annotate signing-guard-unexpected-success 1200
+              echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
+              exit 1
+            fi
+            if guard_message; then
+              cp -f "$log" diagnostics/signing-guard.log
+              echo "::notice title=signing-guard::attempt $attempt of 2 failed with the signing guard message, as required"
+              exit 0
+            fi
+            if (( attempt == 1 )) && grep -qE "$transient" "$log"; then
+              echo "::warning title=signing-guard::attempt 1 failed inside plugin/dependency resolution, not on the signing guard; retrying once" >&2
+              continue
+            fi
+            break
+          done
+          annotate signing-guard-reason 2600
+          echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
+          exit 1
       - name: Export audit dependencies
         run: python -m pip install PyMuPDF==1.26.5 Pillow==11.3.0
       - name: Independently validate exported documents
@@ -102,6 +183,27 @@ jobs:
             exit 1
           fi
           echo "::notice title=apksigner-report format::tool=$apksigner stdout_lines=$out_lines stderr_lines=$err_lines parsed_sha256_chars=${#digest} layout=$layout"
+
+      # Reports, with annotations, which builds in the Gradle tree resolved plugins
+      # with the fallback repositories installed. Warning-only evidence: the gate
+      # itself is the build steps above.
+      - name: Report Gradle plugin-repository coverage
+        if: always()
+        shell: bash
+        run: bash tool/report_gradle_plugin_repositories.sh diagnostics/*.log
+
+      # Only a run that had to download something refreshes the cache; a full hit
+      # must not spend minutes re-uploading what is already stored.
+      - name: Save Gradle caches
+        if: success() && steps.gradle-cache-state.outputs.cold == '1'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+
       - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:

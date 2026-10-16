@@ -29,11 +29,7 @@ void main() {
         AppShell(
           home: ProjectScreen(
             project: project,
-            service: ProjectService(
-              repository,
-              NoAssets(),
-              recovery: recovery,
-            ),
+            service: ProjectService(repository, NoAssets(), recovery: recovery),
             pickImages: () async => [],
           ),
         ),

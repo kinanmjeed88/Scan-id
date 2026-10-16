@@ -79,6 +79,5 @@ class AndroidPackageInstaller implements UpdateInstaller {
 /// install path. Android completes an over-the-air update; Windows keeps the
 /// verified package and refuses to run anything, until a signed installer is
 /// configured for it (see `docs/adr/ADR-005.md`).
-UpdateInstaller? platformUpdateInstaller() => Platform.isAndroid
-    ? const AndroidPackageInstaller()
-    : null;
+UpdateInstaller? platformUpdateInstaller() =>
+    Platform.isAndroid ? const AndroidPackageInstaller() : null;

@@ -306,10 +306,7 @@ class ExplainedAction extends StatelessWidget {
     return ListTile(
       enabled: enabled,
       contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      leading: Icon(
-        icon,
-        color: destructive ? scheme.error : scheme.primary,
-      ),
+      leading: Icon(icon, color: destructive ? scheme.error : scheme.primary),
       title: Text(title),
       subtitle: Text(summary),
       trailing: IconButton(

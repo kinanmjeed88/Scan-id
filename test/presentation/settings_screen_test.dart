@@ -94,10 +94,8 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
   await tester.pumpAndSettle();
 }
 
-Finder _toolRow(String title) => find.ancestor(
-  of: find.text(title),
-  matching: find.byType(ExplainedAction),
-);
+Finder _toolRow(String title) =>
+    find.ancestor(of: find.text(title), matching: find.byType(ExplainedAction));
 
 /// Storage maintenance the widget can be pointed at: it records what was
 /// deleted instead of touching files, so the test can prove the confirmation is
@@ -415,10 +413,7 @@ void main() {
       tester,
       updateSource: _FakeSource(
         null,
-        error: const UpdateFailure(
-          UpdateFailureKind.unavailable,
-          'no route',
-        ),
+        error: const UpdateFailure(UpdateFailureKind.unavailable, 'no route'),
       ),
     );
     await _scrollTo(tester, find.text('التحقق من التحديث'));
@@ -432,9 +427,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the update card explains what it asks for', (
-    tester,
-  ) async {
+  testWidgets('the update card explains what it asks for', (tester) async {
     await _pumpSettings(tester, updateSource: _FakeSource(null));
     await _scrollTo(tester, find.text('تحديث التطبيق'));
 
@@ -463,10 +456,7 @@ void main() {
     await tester.tap(find.text('صيانة المساحة والملفات غير المرتبطة'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('لا ملفات غير مرتبطة بمشاريعك'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('لا ملفات غير مرتبطة بمشاريعك'), findsOneWidget);
     expect(find.text('حذف الملفات'), findsNothing);
     expect(maintenance.deleted, isEmpty);
     expect(tester.takeException(), isNull);

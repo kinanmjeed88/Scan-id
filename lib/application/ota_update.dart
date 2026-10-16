@@ -150,8 +150,8 @@ UpdateFailure classifyUpdateError(Object error) {
 /// reading a body. `HttpClient` alone has no read timeout at all, so a server
 /// that accepts the connection and then says nothing would hold the check open
 /// for as long as the settings screen is open.
-HttpClient _newUpdateClient() => HttpClient()
-  ..connectionTimeout = updateConnectTimeout;
+HttpClient _newUpdateClient() =>
+    HttpClient()..connectionTimeout = updateConnectTimeout;
 
 /// Reads a whole response body under a hard cap, with an idle timeout between
 /// chunks, and never holds more than [limit] bytes.
@@ -325,9 +325,10 @@ class GitHubUpdateSource implements UpdateSource {
     }
     final client = _newUpdateClient();
     try {
-      final release = await _fetchMetadata(client, uri).timeout(
-        updateCheckTimeout,
-      );
+      final release = await _fetchMetadata(
+        client,
+        uri,
+      ).timeout(updateCheckTimeout);
       if (release == null) return null;
       return selectUpdate(
         release,

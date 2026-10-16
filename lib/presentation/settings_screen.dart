@@ -108,7 +108,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ExplainedAction(
           icon: Icons.backup_outlined,
           title: 'نسخة احتياطية كاملة',
-          summary: 'يحفظ مشروعاً واحداً بجميع صوره ومخططاته في ملف تختار مكانه.',
+          summary:
+              'يحفظ مشروعاً واحداً بجميع صوره ومخططاته في ملف تختار مكانه.',
           details:
               'ما الذي يُنسخ: الصور الأصلية ونسخ العمل ومخطط الورقة وتعديلات '
               'الصور وكل بيانات المشروع، في ملف واحد.\n\n'
@@ -311,7 +312,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           context,
           'استعادة نسخة احتياطية؟',
           'اختر ملف نسخة موثوقاً من جهازك. تُستعاد الصور والبيانات مشروعاً جديداً '
-          'مستقلاً؛ لن يُستبدل أي مشروع موجود ولا تُمسح ملفاتك.',
+              'مستقلاً؛ لن يُستبدل أي مشروع موجود ولا تُمسح ملفاتك.',
           confirmLabel: 'اختيار ملف',
         ) ||
         !mounted) {
@@ -561,10 +562,7 @@ class _ContactMark extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
             ),
             Text(
               contact.hint,

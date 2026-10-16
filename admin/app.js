@@ -59,6 +59,26 @@
   function show(el, yes){ if(el) el.classList.toggle('hidden', !yes); }
   function setText(id, t){ var e = typeof id==='string'? EL[id] : id; if(e) e.textContent = t; }
   function setHTML(id, h){ var e = typeof id==='string'? EL[id] : id; if(e) e.innerHTML = h; }
+  // Safe DOM helpers (prevent XSS from GitHub API data)
+  function setLink(containerId, href, text, suffix){
+    var c = typeof containerId==='string'? EL[containerId] : containerId;
+    if (!c) return;
+    c.textContent = '';
+    var a = document.createElement('a');
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = text;
+    c.appendChild(a);
+    if (suffix) c.appendChild(document.createTextNode(suffix));
+  }
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function sanitizeReleaseNotesForDisplay(s){
+    // Render as text only — never as HTML
+    var div = document.createElement('div');
+    div.textContent = s;
+    return div.textContent;
+  }
 
   var state = {
     currentCore: null, currentBuild: null, currentPubspec: null,
@@ -163,31 +183,49 @@
           // We show last verify run as proxy for both platforms
           // For granular, fetch android-signed and windows
         }
+        var workflowAvailable = true;
+        try { await fetchJSON(API_BASE + '/actions/workflows/release-management.yml'); }
+        catch(e){ if (e.status===404) { workflowAvailable = false; errors.push('release-management workflow غير موجود في searchidf — الأمر gh غير صالح قبل الدمج (PR #20)'); } }
+
         var androidRuns = await fetchJSON(API_BASE + '/actions/workflows/android-signed-release.yml/runs?per_page=1');
         var ar = androidRuns.workflow_runs && androidRuns.workflow_runs[0];
         if (ar) {
           setText('android-status', ar.conclusion || ar.status);
           var cls = ar.conclusion==='success'?'success':ar.conclusion==='failure'?'error':'warning';
           EL['android-status'].className = 'status-value badge-'+cls;
-          setHTML('android-link','<a href="'+ar.html_url+'" target="_blank">فتح السجل</a> — '+new Date(ar.created_at).toLocaleString('ar-IQ'));
+          setLink('android-link', ar.html_url, 'فتح السجل', ' — '+new Date(ar.created_at).toLocaleString('ar-IQ'));
+        } else { setText('android-status','لا يوجد'); setText('android-link','—'); }
+        // Windows: prefer release-management workflow (inline job post-merge), fallback to standalone
+        var winStatusSet = false;
+        if (workflowAvailable) {
+          try {
+            var rmRuns = await fetchJSON(API_BASE + '/actions/workflows/release-management.yml/runs?per_page=1');
+            var rmr = rmRuns.workflow_runs && rmRuns.workflow_runs[0];
+            if (rmr) { setText('windows-status', rmr.conclusion||rmr.status); if (rmr.html_url) setLink('windows-link', rmr.html_url, 'فتح السجل', ''); winStatusSet = true; }
+          } catch(e){}
         }
-        var winRuns = await fetchJSON(API_BASE + '/actions/workflows/windows-release.yml/runs?per_page=1');
-        // windows is reusable, its runs are via caller; fallback to verify
-        if (winRuns.workflow_runs && winRuns.workflow_runs[0]) {
-          var wr = winRuns.workflow_runs[0];
-          setText('windows-status', wr.conclusion||wr.status);
-        } else if (last) {
-          setText('windows-status', last.conclusion||last.status);
-          setHTML('windows-link','<a href="'+last.html_url+'" target="_blank">فتح السجل</a>');
-        }
-        // Use verify run for windows link if needed
-        if (!EL['windows-link'].textContent || EL['windows-link'].textContent==='—') {
-          var verifyRuns = await fetchJSON(API_BASE + '/actions/workflows/verify.yml/runs?per_page=1');
-          var vr = verifyRuns.workflow_runs[0];
-          if (vr) {
-            setText('windows-status', vr.conclusion||vr.status);
-            setHTML('windows-link','<a href="'+vr.html_url+'" target="_blank">فتح السجل</a>');
+        if (!winStatusSet) {
+          var winRuns = await fetchJSON(API_BASE + '/actions/workflows/windows-release.yml/runs?per_page=1');
+          if (winRuns.workflow_runs && winRuns.workflow_runs[0]) {
+            var wr = winRuns.workflow_runs[0];
+            setText('windows-status', wr.conclusion||wr.status);
+            if (wr.html_url) setLink('windows-link', wr.html_url, 'فتح السجل', '');
+            winStatusSet = true;
+          } else if (last) {
+            setText('windows-status', last.conclusion||last.status);
+            if (last.html_url) setLink('windows-link', last.html_url, 'فتح السجل', '');
+            winStatusSet = true;
           }
+        }
+        if (!winStatusSet || !EL['windows-link'].textContent || EL['windows-link'].textContent==='—') {
+          try {
+            var verifyRuns = await fetchJSON(API_BASE + '/actions/workflows/verify.yml/runs?per_page=1');
+            var vr = verifyRuns.workflow_runs && verifyRuns.workflow_runs[0];
+            if (vr) {
+              if (!winStatusSet) setText('windows-status', vr.conclusion||vr.status);
+              if (vr.html_url) setLink('windows-link', vr.html_url, 'فتح السجل', '');
+            }
+          } catch(e){}
         }
       } catch(e){ errors.push('actions: '+e.message); }
 
@@ -223,7 +261,7 @@
       show(EL['status-loading'], false);
       show(EL['status-error'], true);
       EL['status-error'].textContent = 'تعذر جلب البيانات: '+e.message+' — تحقق من الشبكة أو GitHub API rate limit (60/h بدون مصادقة).';
-      EL['status-error'].innerHTML += ' <button onclick="location.reload()" class="btn btn-small">إعادة المحاولة</button>';
+      var retryBtn = document.createElement('button'); retryBtn.className='btn btn-small'; retryBtn.textContent='إعادة المحاولة'; retryBtn.addEventListener('click', function(){ location.reload(); }); EL['status-error'].appendChild(document.createTextNode(' ')); EL['status-error'].appendChild(retryBtn);
     }
   }
 
@@ -316,10 +354,20 @@
       }
       if (!runs.length) return;
       show(EL['recent-runs'], true);
-      EL['runs-list'].innerHTML = runs.map(function(r){
-        var badge = r.conclusion==='success'?'success':r.conclusion==='failure'?'failure':'in_progress';
-        return '<div class="run-item"><div><strong>'+r.name+'</strong> #'+r.run_number+'<br><small>'+new Date(r.created_at).toLocaleString('ar-IQ')+'</small></div><span class="run-badge '+badge+'">'+(r.conclusion||r.status)+'</span><a href="'+r.html_url+'" target="_blank" class="btn btn-small">فتح</a></div>';
-      }).join('');
+      // Build DOM safely (textContent for names, href via DOM API to prevent XSS)
+      EL['runs-list'].textContent = '';
+      runs.forEach(function(r){
+        var item = document.createElement('div'); item.className = 'run-item';
+        var left = document.createElement('div');
+        var strong = document.createElement('strong'); strong.textContent = r.name || 'run'; left.appendChild(strong);
+        left.appendChild(document.createTextNode(' #' + (r.run_number || '')));
+        left.appendChild(document.createElement('br'));
+        var small = document.createElement('small'); small.textContent = new Date(r.created_at).toLocaleString('ar-IQ'); left.appendChild(small);
+        item.appendChild(left);
+        var badge = document.createElement('span'); badge.className = 'run-badge ' + (r.conclusion==='success'?'success':r.conclusion==='failure'?'failure':'in_progress'); badge.textContent = r.conclusion||r.status||''; item.appendChild(badge);
+        var a = document.createElement('a'); a.href = r.html_url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'btn btn-small'; a.textContent = 'فتح'; item.appendChild(a);
+        EL['runs-list'].appendChild(item);
+      });
     } catch(e){}
   }
 
@@ -365,7 +413,8 @@
         window.open(url, '_blank');
         show(EL['form-success'], true);
         EL['form-success'].textContent = 'تم فتح صفحة Actions. أكمل العملية هناك — الـ Workflow سيتحقق من الصلاحيات والـ SemVer والـ Tag المكرر قبل أي كتابة.';
-        EL['form-success'].innerHTML += '<br><small>الأمر المحلي: <code>'+buildGhCommand()+'</code></small>';
+        var br = document.createElement('br'); EL['form-success'].appendChild(br);
+        var sm = document.createElement('small'); sm.textContent = 'الأمر المحلي: '; var code = document.createElement('code'); code.textContent = buildGhCommand(); sm.appendChild(code); EL['form-success'].appendChild(sm);
       }
     });
   }

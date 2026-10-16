@@ -1,5 +1,69 @@
 # حالة التنفيذ والتحقق — Scan ID
 
+## الحالة الأحدث — الفرع `arena/1ad7e4bb-scan-id`، 2026-10-16: إصلاح فشل الإصدار الموقّع في CI
+
+هذا القسم هو المرجع لهذا الفرع. لا تغيير في الشيفرة أو الاعتماديات أو الأذونات أو
+المخرجات: التعديل كله في أدوات CI وسير العمل.
+
+### المشكلة وأصلها
+
+فشل تشغيل **«Android signed release and Windows»** رقم [38815652328](https://github.com/kinanmjeed88/Scan-id/actions/runs/38815652328)
+(commit `bb223ef`) بعد 30 ثانية من بدء خطوة البناء:
+
+```
+> Could not find org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.0.21.
+> Could not find org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.0.21.
+> Could not find org.jetbrains.kotlin:kotlin-stdlib:2.0.21.
+  Searched in the following locations:
+    - https://plugins.gradle.org/m2/org/jetbrains/kotlin/...
+  Required by:
+      project :gradle > org.gradle.kotlin:gradle-kotlin-dsl-plugins:5.1.2
+```
+
+`project :gradle` هو بناء Flutter tools المضمّن الذي يضيفه
+`android/settings.gradle.kts` عبر `pluginManagement { includeBuild(...) }`. هذا
+البناء **لا يعلن أي مصدر إضافات**، فيحل ملفات Kotlin DSL (اللازمة لتصريف أي
+`.gradle.kts` فيه) من المصدر الافتراضي الوحيد `plugins.gradle.org/m2`، وهو وسيط
+أمام Maven Central: عندما عجز عن تقديم ملفات Kotlin 2.0.21 ظهرت «غير موجودة»
+وفشل الإصدار الموقّع كاملاً، مع أنها موجودة في Maven Central ومتاحة من المشغّل.
+بناء الجذر (`android/`) لم يتأثر لأنه يعلن `google()` و`mavenCentral()` بنفسه.
+
+### الإصلاح
+
+- `tool/gradle/plugin-repositories.init.gradle` (Groovy لا Kotlin DSL، وإلا
+  احتاج إلى ملفات Kotlin نفسها التي يصلحها): يبقي `plugins.gradle.org` أولًا —
+  فهو وحده ينشر `gradle-kotlin-dsl-plugins:5.1.2` (تحقّق: 404 على Maven
+  Central) — ويضيف `Maven Central` و`Google Maven` **عند غيابهما فقط**. لا يُحذف
+  مصدر ولا يتغيّر ترتيب مصدر معلن؛ وبناء يعلن الثلاثة لا يستلم أي مصدر جديد.
+  كل خطاف ملفوف بـ try/catch ويكتب سطرًا في تقرير يمكن قراءته.
+- `tool/install_gradle_init.sh`: يثبّت السكربت في `GRADLE_USER_HOME/init.d` —
+  وهو الخطاف الوحيد الذي يصل إلى بناء مضمّن، لأن `flutter build apk` لا يمرّر
+  `--init-script` — ويتحقق من النسخة المثبّتة بـ SHA-256.
+- `tool/report_gradle_plugin_repositories.sh`: يحوّل التقرير إلى annotations
+  (إشعار لكل بناء، وتحذير عند غياب بناء Flutter tools أو التقرير كله). دليل لا
+  بوابة: لا يفشل البناء أبدًا.
+- `.github/workflows/android-signed-release.yml`: تثبيت السكربت، تخزين مخرجات
+  Gradle (`~/.gradle/caches/modules-2` و`~/.gradle/wrapper/dists`) بين التشغيلات،
+  وإعادة محاولة واحدة **فقط** عند فشل داخل حل الإضافات/الاعتماديات، مع تقرير
+  التغطية. `.github/workflows/verify.yml`: التثبيت والتخزين نفسهما، وإعادة محاولة
+  مماثلة في اختبار رفض الإصدار.
+
+### أدلة CI
+
+| التشغيل | المحتوى | النتيجة الفعلية |
+|---|---|---|
+| [38864291628](https://github.com/kinanmjeed88/Scan-id/actions/runs/38864291628) | `6fc2501` | `android` فشل في خطوة اختبار رفض الإصدار (سبب غير التوقيع)؛ سجل التقارير أَثبت أن المصادر الاحتياطية وصلت البناءين، ولم يكن للسجل أي annotation يشرح سبب الفشل |
+| [38865033214](https://github.com/kinanmjeed88/Scan-id/actions/runs/38865033214) | `6cf82bd` | **نجاح كامل**: `android` و`windows` success. إشعارات التقرير: بناء Flutter tools صار `repositories=Gradle Central Plugin Repository\|scanIdMavenCentralFallback\|scanIdGoogleFallback`، وبناء الجذر أضاف المصادر نفسهما بعد مصادره المعلنة (`…\|Google\|MavenRepo\|Gradle Central Plugin Repository2`)، وخطوة الحرس أعلنت `the release build failed with the signing guard message, as required`، ونجحت التنسيق والتحليل و626+ اختبارًا وتدقيق التصدير المستقل وبناء APK للتشخيص مع تخزين مؤقت لمخزون Gradle |
+
+### ما لم يُتحقق منه
+
+- لم يُشغَّل «Android signed release and Windows» بعد هذا الإصلاح: إنشاء تشغيل
+  يدوي (`workflow_dispatch`) يحتاج صلاحية `actions: write` غير متاحة للأداة هنا،
+  لذلك لم يُبنَ APK موقّع من هذه المراجعة بعد. الفشل الأصلي كان في مرحلة حل
+  الإضافات قبل التوقيع، وهي المرحلة نفسها التي يغطيها الآن بناء `debug` في
+  `verify.yml` بنجاح.
+- تخزين Gradle المؤقت تحسين لا شرط: فشله أو غيابه يبطئ التشغيل فقط.
+
 ## الحالة الأحدث — الفرع `arena/7f4e4c45-scan-id`، 2026-10-08: التعرف الذكي كاملاً
 
 هذا القسم هو المرجع لهذا الفرع ويحل محل أي حكم أقدم يخالفه. التفاصيل

@@ -109,6 +109,8 @@ flutter build apk --release
 - **android** (Ubuntu): `dart format` و`flutter analyze --fatal-infos` و`flutter test` وفحص مستقل لملفات التصدير، ثم اختبار رفض الإصدار دون أسرار التوقيع و`flutter build apk --debug` ورفع **scan-id-android-debug-apk**.
 - **windows**: `flutter build windows --release` ورفع **scan-id-windows**.
 
+قبل أي أمر Gradle، يثبّت السير عمل سكربت init من `tool/gradle/plugin-repositories.init.gradle` في `~/.gradle/init.d` عبر `tool/install_gradle_init.sh`. السبب: أمر `flutter build apk` يشغّل بناءين Gradle — جذر المشروع في `android/` وبناء Flutter tools الذي يضيفه `pluginManagement { includeBuild(...) }` — والثاني لا يعلن أي مصدر إضافات خاص به، فيحل ملفات Kotlin DSL من المصدر الافتراضي الوحيد `plugins.gradle.org/m2`؛ وعندما تعذّر على هذا الوسيط تقديم ملفات Kotlin 2.0.21 فشل الإصدار الموقّع في تشغيل 38815652328 بعد 30 ثانية. السكربت يبقي Portal أولًا (فهو وحده ينشر `gradle-kotlin-dsl-plugins`) ويضيف `Maven Central` و`Google Maven` بعده عند غيابهما فقط: لا يُحذف مصدر ولا يتغيّر ترتيب مصدر معلن. وتُخزَّن مخرجات Gradle (`~/.gradle/caches/modules-2` و`~/.gradle/wrapper/dists`) بين التشغيلات، ويعيد بناء الإصدار الموقّع المحاولة مرة واحدة عندما يقع الفشل داخل حل الإضافات أو الاعتماديات فقط. ويتحقق `tool/report_gradle_plugin_repositories.sh` من التقرير الذي يكتبه السكربت ويعلن في annotations أي بناء استلم المصادر الاحتياطية — تحذيرًا لا بوابة.
+
 لا تُبنى منصات أخرى. الملفات المبنية متاحة في Artifacts لكل تشغيل ناجح، ولا تُضاف إلى Git.
 
 ```bash

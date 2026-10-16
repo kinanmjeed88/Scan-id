@@ -94,15 +94,16 @@ jobs:
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests
         run: python tool/ci_gate.py test flutter test --reporter expanded
+      # The build below MUST fail, and only the signing guard may be the reason.
+      # A repository outage must not read as "the release build no longer
+      # enforces signing" (that is what a red gate on a good revision looks
+      # like), so a failure inside plugin/dependency resolution -- and only such
+      # a failure -- is retried once before it is reported.
       - name: Ensure release build rejects missing signing credentials
         shell: bash
         run: |
           set -uo pipefail
           mkdir -p diagnostics
-          log=diagnostics/signing-guard.log
-          rc=0
-          flutter build apk --release > "$log" 2>&1 || rc=$?
-          cat "$log"
           # The reason has to survive without the Actions log store: annotations
           # are the only channel API-only clients can read, so the tail of the
           # captured output is re-emitted (percent signs escaped, lines joined
@@ -112,18 +113,35 @@ jobs:
             detail="$(tail -c "$bytes" "$log" | sed -e 's/%/%25/g' -e 's/\r//g' | tr '\n' '~')"
             printf '::error title=%s::%s\n' "$title" "$detail" >&2
           }
-          if (( rc == 0 )); then
-            annotate signing-guard-unexpected-success 1200
-            echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
-            exit 1
-          fi
-          if ! grep -Fq 'Release signing is required, but Android signing values are missing.' "$log" &&
-             ! grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' "$log"; then
-            annotate signing-guard-reason 2600
-            echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
-            exit 1
-          fi
-          echo "::notice title=signing-guard::the release build failed with the signing guard message, as required"
+          guard_message() {
+            grep -Fq 'Release signing is required, but Android signing values are missing.' "$log" ||
+              grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' "$log"
+          }
+          transient='Could not find|Could not resolve|Could not GET|Could not HEAD|Could not download|Searched in the following locations|Connection (refused|reset|timed out)|Read timed out|Remote host terminated'
+          for attempt in 1 2; do
+            log="diagnostics/signing-guard-attempt-$attempt.log"
+            rc=0
+            flutter build apk --release > "$log" 2>&1 || rc=$?
+            cat "$log"
+            if (( rc == 0 )); then
+              annotate signing-guard-unexpected-success 1200
+              echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
+              exit 1
+            fi
+            if guard_message; then
+              cp -f "$log" diagnostics/signing-guard.log
+              echo "::notice title=signing-guard::attempt $attempt of 2 failed with the signing guard message, as required"
+              exit 0
+            fi
+            if (( attempt == 1 )) && grep -qE "$transient" "$log"; then
+              echo "::warning title=signing-guard::attempt 1 failed inside plugin/dependency resolution, not on the signing guard; retrying once" >&2
+              continue
+            fi
+            break
+          done
+          annotate signing-guard-reason 2600
+          echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
+          exit 1
       - name: Export audit dependencies
         run: python -m pip install PyMuPDF==1.26.5 Pillow==11.3.0
       - name: Independently validate exported documents

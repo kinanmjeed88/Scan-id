@@ -224,14 +224,13 @@ class PageLayout {
     String id, {
     bool allowOverlap = false,
     bool? allowRotation,
-  }) =>
-      moveToPage(
-        p,
-        id,
-        p.pageCount,
-        allowOverlap: allowOverlap,
-        allowRotation: allowRotation,
-      );
+  }) => moveToPage(
+    p,
+    id,
+    p.pageCount,
+    allowOverlap: allowOverlap,
+    allowRotation: allowRotation,
+  );
 
   static Project moveItemToPage(
     Project p,
@@ -239,14 +238,13 @@ class PageLayout {
     int targetPage, {
     bool allowOverlap = false,
     bool? allowRotation,
-  }) =>
-      moveToPage(
-        p,
-        id,
-        targetPage,
-        allowOverlap: allowOverlap,
-        allowRotation: allowRotation,
-      );
+  }) => moveToPage(
+    p,
+    id,
+    targetPage,
+    allowOverlap: allowOverlap,
+    allowRotation: allowRotation,
+  );
 
   static DocumentItem resize(DocumentItem e, double width, double height) =>
       e.copyWith(

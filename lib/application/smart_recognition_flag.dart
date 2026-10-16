@@ -13,7 +13,7 @@
 library;
 
 /// Whether the Smart Recognition pipeline may run.
-const bool smartRecognitionEnabled = true;
+const bool smartRecognitionEnabled = false;
 
 /// Convenience accessor so call sites have a single, testable seam.
 bool smartRecognitionAllows(bool flag) => flag && smartRecognitionEnabled;

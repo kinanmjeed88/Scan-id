@@ -160,10 +160,7 @@ class PageLayout {
   }) {
     final e = item(p, id);
     require(!e.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
-    require(
-      targetPage >= 0 && targetPage < 100,
-      'رقم الصفحة غير صالح.',
-    );
+    require(targetPage >= 0 && targetPage < 100, 'رقم الصفحة غير صالح.');
     final rotate = allowRotation ?? p.layout.allowRotation;
     final area = p.paper.printable;
     final gx = p.layout.horizontalGap, gy = p.layout.verticalGap;
@@ -196,7 +193,14 @@ class PageLayout {
       candidate = _topLeftPlacement(candidate, area);
     }
     if (!_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
-      final found = _findPlacement(candidate, area, others, gx, gy, allowOverlap);
+      final found = _findPlacement(
+        candidate,
+        area,
+        others,
+        gx,
+        gy,
+        allowOverlap,
+      );
       if (found == null) {
         throw ValidationException(
           'لا توجد مساحة كافية في الصفحة ${targetPage + 1} لوضع المستمسك '
@@ -207,8 +211,7 @@ class PageLayout {
     }
 
     final items = [
-      for (final existing in p.items)
-        existing.id == id ? candidate : existing,
+      for (final existing in p.items) existing.id == id ? candidate : existing,
     ];
     return checked(
       p.copyWith(pageCount: pageCount, items: items),
@@ -422,7 +425,6 @@ class PageLayout {
     );
   }
 }
-
 
 bool _fitsInArea(DocumentItem item, RectMm area) {
   final b = item.bounds;

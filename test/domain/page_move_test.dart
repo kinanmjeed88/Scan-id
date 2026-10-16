@@ -4,18 +4,23 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
 import '../fixtures.dart';
 
-DocumentItem block(String id, double x, double y,
-        {double width = 30, double height = 20, bool locked = false}) =>
-    DocumentItem(
-      id: id,
-      assetId: 'asset1',
-      x: x,
-      y: y,
-      width: width,
-      height: height,
-      locked: locked,
-      sizeConfirmed: true,
-    );
+DocumentItem block(
+  String id,
+  double x,
+  double y, {
+  double width = 30,
+  double height = 20,
+  bool locked = false,
+}) => DocumentItem(
+  id: id,
+  assetId: 'asset1',
+  x: x,
+  y: y,
+  width: width,
+  height: height,
+  locked: locked,
+  sizeConfirmed: true,
+);
 
 Project page(List<DocumentItem> items) =>
     projectFixture(assets: [assetFixture()], items: items);

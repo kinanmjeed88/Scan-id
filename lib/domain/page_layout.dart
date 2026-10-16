@@ -219,6 +219,35 @@ class PageLayout {
     );
   }
 
+  static Project moveToNewPage(
+    Project p,
+    String id, {
+    bool allowOverlap = false,
+    bool? allowRotation,
+  }) =>
+      moveToPage(
+        p,
+        id,
+        p.pageCount,
+        allowOverlap: allowOverlap,
+        allowRotation: allowRotation,
+      );
+
+  static Project moveItemToPage(
+    Project p,
+    String id,
+    int targetPage, {
+    bool allowOverlap = false,
+    bool? allowRotation,
+  }) =>
+      moveToPage(
+        p,
+        id,
+        targetPage,
+        allowOverlap: allowOverlap,
+        allowRotation: allowRotation,
+      );
+
   static DocumentItem resize(DocumentItem e, double width, double height) =>
       e.copyWith(
         width: e.keepAspectRatio && width == e.width

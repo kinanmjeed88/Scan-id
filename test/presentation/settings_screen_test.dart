@@ -62,34 +62,34 @@ void main() {
     }
   });
 
-  testWidgets(
-    'settings states that OTA is unavailable without simulating a check',
-    (tester) async {
-      tester.view.physicalSize = const Size(360, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('settings shows OTA update card with check button', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      final repository = MemoryProjects();
-      final project = await repository.create(editorProject(items: []));
-      await tester.pumpWidget(
-        AppShell(
-          home: SettingsScreen(
-            project: project,
-            service: ProjectService(repository, NoAssets()),
-            pickImages: () async => [],
-            recoverStorage: null,
-          ),
+    final repository = MemoryProjects();
+    final project = await repository.create(editorProject(items: []));
+    await tester.pumpWidget(
+      AppShell(
+        home: SettingsScreen(
+          project: project,
+          service: ProjectService(repository, NoAssets()),
+          pickImages: () async => [],
+          recoverStorage: null,
         ),
-      );
-      await tester.pumpAndSettle();
-      await _scrollTo(tester, find.textContaining('التحديث الهوائي غير متاح'));
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.textContaining('تحديث التطبيق'));
 
-      expect(find.textContaining('التحديث الهوائي غير متاح'), findsOneWidget);
-      expect(find.text('فحص التحديثات'), findsNothing);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(find.textContaining('تحديث التطبيق'), findsOneWidget);
+    expect(find.textContaining('التحقق من التحديث'), findsOneWidget);
+    expect(find.textContaining('الإصدار الحالي'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('repair confirmation never repairs on cancel', (tester) async {
     tester.view.physicalSize = const Size(360, 900);

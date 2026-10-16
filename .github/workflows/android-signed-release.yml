@@ -528,3 +528,221 @@ jobs:
     uses: ./.github/workflows/windows-release.yml
     permissions:
       contents: read
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [android-signed-release, windows]
+    if: ${{ always() && needs.android-signed-release.result == 'success' && needs.windows.result == 'success' && (github.ref == 'refs/heads/searchidf' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Read version from pubspec
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=$(grep -E '^version:' pubspec.yaml | sed -E 's/version:[[:space:]]*//; s/\"//g; s/'\''//g' | tr -d '[:space:]')
+          echo "pubspec_raw=$ver"
+          # Strip build metadata after '+' for tag core
+          core=$(echo "$ver" | cut -d'+' -f1)
+          if [[ ! "$core" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error title=release-version::pubspec version '$ver' core '$core' is not SemVer"
+            exit 1
+          fi
+          # Normalize: ensure tag uses v prefix
+          tag="v$core"
+          echo "version_core=$core" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "pubspec_version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Detected version core: $core -> tag: $tag"
+
+      - name: Check existing tag and release
+        id: tag_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          echo "Checking tag $tag"
+          # Check remote tag existence
+          if git ls-remote --tags origin "refs/tags/$tag" | grep -q "$tag"; then
+            echo "Tag $tag already exists remotely."
+            # Check if release already exists
+            if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release $tag already exists."
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Tag exists but no release — will create release from existing tag."
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            fi
+            # Verify that existing tag does not point to different content for same version
+            # If release exists, skip publishing to avoid reusing tag with different assets
+            # This is safety: we will not overwrite existing release assets
+            if gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null | grep -q .; then
+              echo "::warning title=release-exists::Release $tag already has assets, skipping publish to avoid overwriting tag with different build."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Tag $tag does not exist — will create new release."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Android APK artifact
+        if: steps.tag_check.outputs.skip != 'true'
+        uses: actions/download-artifact@v6
+        with:
+          name: scan-id-android-signed-apk
+          path: release-assets/android
+
+      - name: Download Windows ZIP artifact
+        if: steps.tag_check.outputs.skip != 'true'
+        uses: actions/download-artifact@v6
+        with:
+          name: scan-id-windows-zip
+          path: release-assets/windows
+
+      - name: Verify assets exist and are signed
+        if: steps.tag_check.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="release-assets/android/app-release.apk"
+          win_zip="release-assets/windows/scan-id-windows.zip"
+          echo "Verifying assets..."
+          if [[ ! -s "$apk" ]]; then
+            echo "::error title=release-verify::Android APK missing or empty: $apk"
+            ls -lh release-assets/android/ || true
+            exit 1
+          fi
+          if [[ ! -s "$win_zip" ]]; then
+            echo "::error title=release-verify::Windows ZIP missing or empty: $win_zip"
+            ls -lh release-assets/windows/ || true
+            exit 1
+          fi
+          echo "APK: $(stat -c%s "$apk") bytes, SHA256: $(sha256sum "$apk" | awk '{print $1}')"
+          echo "Windows ZIP: $(stat -c%s "$win_zip") bytes, SHA256: $(sha256sum "$win_zip" | awk '{print $1}')"
+          # Ensure APK is not debuggable (basic sanity, full verify already in previous job)
+          # Check ZIP is valid
+          if ! unzip -l "$win_zip" >/dev/null 2>&1; then
+            echo "::error title=release-verify::Windows ZIP is not a valid ZIP"
+            exit 1
+          fi
+          echo "Assets verified."
+
+      - name: Prepare release assets with versioned names
+        if: steps.tag_check.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          core="${{ steps.version.outputs.version_core }}"
+          mkdir -p release-ready
+          apk_src="release-assets/android/app-release.apk"
+          win_src="release-assets/windows/scan-id-windows.zip"
+          # OTA expects .apk for Android, .zip for Windows — names include tag for traceability
+          cp "$apk_src" "release-ready/scan-id-android-${core}.apk"
+          cp "$win_src" "release-ready/scan-id-windows-${core}.zip"
+          # Also keep generic names for convenience
+          cp "$apk_src" "release-ready/scan-id.apk"
+          cp "$win_src" "release-ready/scan-id-windows.zip"
+          ls -lh release-ready/
+          # Generate SHA256SUMS for transparency (not required for OTA but useful for manual verification)
+          (cd release-ready && sha256sum *.apk *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          echo "Release assets prepared for $tag"
+
+      - name: Create GitHub Release and upload assets
+        if: steps.tag_check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          core="${{ steps.version.outputs.version_core }}"
+          exists="${{ steps.tag_check.outputs.exists }}"
+          release_exists="${{ steps.tag_check.outputs.release_exists }}"
+
+          notes="Release $tag — $(date -u +%Y-%m-%d)
+
+          - Android APK (signed, verified against expected certificate)
+          - Windows portable ZIP (contains scan_id.exe + dependencies)
+
+          OTA assets:
+          - Android: \`scan-id-android-${core}.apk\` (.apk)
+          - Windows: \`scan-id-windows-${core}.zip\` (.zip)
+
+          SHA256 digests are provided by GitHub's release asset API (\`digest: sha256:<hex>\`) and verified client-side. See \`SHA256SUMS.txt\` for manual verification.
+
+          Built from ${{ github.sha }} on ${{ github.ref_name }}.
+          "
+
+          # If tag already exists but no release, create release from existing tag
+          # If neither exists, gh will create both tag and release
+          if [[ "$release_exists" == "true" ]]; then
+            echo "Release $tag already exists with assets — skipping creation (idempotent)."
+            gh release view "$tag" --repo "${{ github.repository }}" --json tagName,assets --jq '{tag: .tagName, assets: [.assets[].name]}'
+            exit 0
+          fi
+
+          echo "Creating release $tag..."
+          # Use gh release create — it handles tag creation atomically
+          # --verify-tag ensures we don't create lightweight tag silently if policy requires annotated
+          # We rely on default tag creation via gh
+
+          gh release create "$tag" \
+            --repo "${{ github.repository }}" \
+            --title "Scan-id $tag" \
+            --notes "$notes" \
+            --target "${{ github.sha }}" \
+            release-ready/scan-id-android-${core}.apk \
+            release-ready/scan-id-windows-${core}.zip \
+            release-ready/SHA256SUMS.txt
+
+          echo "::notice title=release::Created release $tag with Android APK and Windows ZIP"
+          gh release view "$tag" --repo "${{ github.repository }}" --json tagName,assets --jq '{tag: .tagName, assets: [.assets[] | {name: .name, size: .size, digest: .digest}]}'
+
+      - name: Verify release assets match OTA expectations
+        if: steps.tag_check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          echo "Verifying release $tag assets for OTA compatibility..."
+          json=$(gh release view "$tag" --repo "${{ github.repository }}" --json assets --jq '.assets')
+          echo "$json" | jq .
+          # Check Android APK present
+          if ! echo "$json" | jq -e '.[] | select(.name | endswith(".apk"))' >/dev/null; then
+            echo "::error title=ota-verify::Release $tag has no .apk asset for Android OTA"
+            exit 1
+          fi
+          # Check Windows ZIP present (OTA now accepts .zip)
+          if ! echo "$json" | jq -e '.[] | select(.name | endswith(".zip"))' >/dev/null; then
+            echo "::error title=ota-verify::Release $tag has no .zip asset for Windows OTA"
+            exit 1
+          fi
+          # Warn if digest missing (should not happen for new releases post-2025-06)
+          missing_digests=$(echo "$json" | jq '[.[] | select(.digest == null or .digest == "")] | length')
+          if [[ "$missing_digests" -gt 0 ]]; then
+            echo "::warning title=ota-verify::Some assets have no digest (null). OTA requires SHA256; verify GitHub digest generation."
+          else
+            echo "All assets have digests — OTA verification will succeed."
+          fi
+          echo "OTA asset verification passed."

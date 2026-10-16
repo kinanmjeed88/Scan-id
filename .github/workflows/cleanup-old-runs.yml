@@ -1,13 +1,25 @@
-name: Cleanup Old Workflow Runs
+name: Cleanup Old Workflow Runs and Merged Branches
 
 on:
   schedule:
-    - cron: "0 2 * * *" # يعمل يومياً الساعة 2 صباحاً
+    - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no deletions, only report) — الإعداد الافتراضي الآن معاينة آمنة"
+        required: false
+        default: true
+        type: boolean
+      cutoff_hours:
+        description: "Hours before deleting completed runs"
+        required: false
+        default: "24"
+        type: string
 
 permissions:
   actions: write
-  contents: read
+  contents: write
+  pull-requests: read
 
 concurrency:
   group: cleanup-old-workflow-runs
@@ -15,68 +27,92 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Delete old workflow runs
+    name: Cleanup runs and branches
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    timeout-minutes: 30
     steps:
-      - name: Delete workflow runs older than 24 hours
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          CURRENT_RUN_ID: ${{ github.run_id }}
+      - name: Checkout with full history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git for branch checks
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin --prune --tags
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*" || true
+          echo "Remote branches:"
+          git branch -r | head -n 50
+          echo "Default branch from git:"
+          git symbolic-ref refs/remotes/origin/HEAD || echo "no origin/HEAD"
 
-          CUTOFF="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
-          echo "Deleting workflow runs created before: $CUTOFF"
+      - name: Show repository state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          echo "Repository: $repo"
+          default=$(gh api "repos/$repo" --jq .default_branch)
+          echo "Default branch (API): $default"
+          echo "Open PRs:"
+          gh api "repos/$repo/pulls?state=open&per_page=100" --jq '.[].head.ref' || true
+          echo "Branches (first 20):"
+          gh api "repos/$repo/branches?per_page=100" --jq '.[].name' | head -n 20 || true
 
-          PAGE=1
-          DELETED=0
-          FAILED=0
-
-          while true; do
-            RESPONSE="$(gh api \
-              "repos/${REPOSITORY}/actions/runs?per_page=100&page=${PAGE}" \
-              --jq '[.workflow_runs[] | {
-                id: .id,
-                created_at: .created_at,
-                status: .status,
-                name: .name
-              }]')"
-
-            COUNT="$(jq 'length' <<< "$RESPONSE")"
-            [ "$COUNT" -eq 0 ] && break
-
-            while IFS= read -r RUN; do
-              ID="$(jq -r '.id' <<< "$RUN")"
-              CREATED="$(jq -r '.created_at' <<< "$RUN")"
-              STATUS="$(jq -r '.status' <<< "$RUN")"
-              NAME="$(jq -r '.name' <<< "$RUN")"
-
-              # لا تقم بحذف الأكشن الحالي الذي يعمل الآن
-              [ "$ID" = "$CURRENT_RUN_ID" ] && continue
-
-              # لا تقم بحذف الروتينات التي لم تنته بعد
-              [ "$STATUS" = "completed" ] || continue
-
-              if [[ "$CREATED" < "$CUTOFF" ]]; then
-                echo "Deleting run $ID | $CREATED | $NAME"
-
-                if gh api --method DELETE \
-                  "repos/${REPOSITORY}/actions/runs/${ID}"; then
-                  DELETED=$((DELETED + 1))
-                else
-                  echo "::warning::Failed to delete run $ID"
-                  FAILED=$((FAILED + 1))
-                fi
+      - name: Run branch and runs cleanup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          DELETE_BRANCHES: ${{ inputs.dry_run == true && 'false' || 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # SAFETY: scheduled runs are now preview-only until manual review completes (P0).
+          # Deletion only occurs when workflow_dispatch is run with dry_run=false explicitly.
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            export DELETE_BRANCHES="false"
+            cutoff="${{ inputs.cutoff_hours || '24' }}"
+            echo "::notice title=safety::Scheduled cleanup is in DRY-RUN preview mode — no branches/runs will be deleted. Run workflow_dispatch with dry_run=false for live deletion."
+          else
+            if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+              export DELETE_BRANCHES="false"
+              echo "Dry run requested via input — no deletions will occur."
+            else
+              export DELETE_BRANCHES="false"
+              # Allow live only when explicitly requested via dry_run=false on dispatch
+              if [[ "${{ inputs.dry_run }}" == "false" ]]; then
+                export DELETE_BRANCHES="true"
+                echo "::warning title=safety::LIVE deletion enabled via explicit dry_run=false — proceeding with verified deletions only."
               fi
-            done < <(jq -c '.[]' <<< "$RESPONSE")
+            fi
+            cutoff="${{ inputs.cutoff_hours || '24' }}"
+            if [[ -z "$cutoff" ]]; then cutoff="24"; fi
+          fi
 
-            PAGE=$((PAGE + 1))
-          done
+          echo "DELETE_BRANCHES=$DELETE_BRANCHES cutoff=$cutoff hours"
+          echo "Running cleanup (branch + runs) with full safety checks..."
 
-          echo "Deleted runs: $DELETED"
-          echo "Failed deletions: $FAILED"
-          echo "Cleanup finished."
+          # Run the Python cleanup script
+          # Use --delete flag only when live, otherwise dry-run
+          if [[ "$DELETE_BRANCHES" == "true" ]]; then
+            python3 tool/branch_cleanup.py --repo "${{ github.repository }}" --delete --cutoff-hours "$cutoff"
+          else
+            python3 tool/branch_cleanup.py --repo "${{ github.repository }}" --cutoff-hours "$cutoff"
+          fi
+
+      - name: Upload cleanup log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cleanup-report
+          path: |
+            diagnostics/
+          if-no-files-found: warn
+          retention-days: 7

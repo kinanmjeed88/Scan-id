@@ -331,7 +331,11 @@ void main() {
   ) async {
     for (final width in [320.0, 360.0]) {
       for (final direction in [TextDirection.rtl, TextDirection.ltr]) {
-        await _pumpSettings(tester, size: Size(width, 3000), direction: direction);
+        await _pumpSettings(
+          tester,
+          size: Size(width, 3000),
+          direction: direction,
+        );
         await _scrollTo(tester, find.text('YouTube'));
 
         final tops = [

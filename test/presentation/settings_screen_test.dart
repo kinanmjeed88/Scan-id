@@ -105,6 +105,13 @@ Future<void> _scrollTo(WidgetTester tester, Finder target) async {
 Finder _toolRow(String title) =>
     find.ancestor(of: find.text(title), matching: find.byType(ExplainedAction));
 
+Project _named(String id, String name) => Project(
+  id: id,
+  name: name,
+  createdAt: DateTime.utc(2026, 10, 13),
+  updatedAt: DateTime.utc(2026, 10, 13),
+);
+
 /// Storage maintenance the widget can be pointed at: it records what was
 /// deleted instead of touching files, so the test can prove the confirmation is
 /// what stands between the button and the disk.
@@ -244,11 +251,13 @@ void main() {
     tester,
   ) async {
     final repository = MemoryProjects();
+    // Distinct ids: a repository keys projects by id, and sharing one would
+    // leave a single project on disk instead of two to choose from.
     final first = await repository.create(
-      editorProject(items: []).copyWith(name: 'مشروع الجواز'),
+      _named('project-jawaz', 'مشروع الجواز'),
     );
     final second = await repository.create(
-      editorProject(items: []).copyWith(name: 'مشروع الهوية'),
+      _named('project-hawija', 'مشروع الهوية'),
     );
     Project? chosen;
     await _pumpSettings(
@@ -537,7 +546,12 @@ void main() {
     await _scrollTo(tester, find.text('استرداد قاعدة المشاريع من نقاط الحفظ'));
     await tester.tap(find.text('استرداد قاعدة المشاريع من نقاط الحفظ'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('لا تُفتح قائمة المشاريع'), findsOneWidget);
+    expect(find.text('استرداد قاعدة المشاريع؟'), findsOneWidget);
+    expect(
+      find.textContaining('تُستعاد نقاط الحفظ في قاعدة جديدة'),
+      findsOneWidget,
+      reason: 'the confirmation must say that nothing is deleted',
+    );
     expect(restored, 0);
     await tester.tap(find.text('إلغاء'));
     await tester.pumpAndSettle();

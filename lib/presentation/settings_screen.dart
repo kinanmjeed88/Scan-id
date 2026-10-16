@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../application/app_release.dart';
 import '../application/backup_transfer.dart';
 import '../application/cancellation.dart';
+import '../application/contracts.dart';
 import '../application/ota_update.dart';
 import '../application/project_service.dart';
 import '../application/update_installer.dart';
@@ -338,37 +339,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _maintenance() async {
     setState(() => _busy = true);
-    try {
-      final orphans = await widget.service.findOrphans();
-      if (!mounted) {
-        return;
-      }
-      final kept = orphans.retained.isEmpty
-          ? ''
-          : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر تشير إليه '
-                'نقطة استرداد أو نسخة ترقية ما زالت قائمة. تُحذف بعد تحديث تلك '
-                'النقطة.';
-      if (orphans.count == 0) {
-        showMessage(context, 'لا ملفات غير مرتبطة بمشاريعك.$kept');
-        return;
-      }
-      final megabytes = (orphans.bytes / (1024 * 1024)).toStringAsFixed(2);
-      final warning =
-          'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
-          'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور '
-          'مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. لا تُحذف ملفات '
-          'المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق '
-          'حمايةً لعمل جارٍ.$kept';
-      final yes = await confirm(
+    final orphans = await _findOrphans();
+    if (!mounted || orphans == null) {
+      return;
+    }
+    if (orphans.count == 0) {
+      setState(() => _busy = false);
+      showMessage(
         context,
-        'حذف الملفات غير المرتبطة؟',
-        warning,
-        confirmLabel: 'حذف الملفات',
-        destructive: true,
+        'لا ملفات غير مرتبطة بمشاريعك.${_retainedNote(orphans)}',
       );
-      if (!yes || !mounted) {
-        return;
-      }
+      return;
+    }
+    final megabytes = (orphans.bytes / (1024 * 1024)).toStringAsFixed(2);
+    final warning =
+        'عدد العناصر: ${orphans.count} · الحجم: $megabytes MiB.\n'
+        'هي ملفات أنشأها التطبيق ولم تعد مرتبطة بأي مشروع محفوظ، مثل صور '
+        'مشاريع محذوفة أو نسخ معالجة قديمة أو بقايا عمل منقطع. لا تُحذف ملفات '
+        'المشاريع الحالية ولا ملفات جهازك. تُتجاهل الملفات الأحدث من عشر دقائق '
+        'حمايةً لعمل جارٍ.${_retainedNote(orphans)}';
+    // The confirmation is the person's turn, not the app's: the progress bar
+    // goes down while they read, so it never spins to pretend work that is
+    // only waiting. No file is touched before the answer comes back.
+    setState(() => _busy = false);
+    final yes = await confirm(
+      context,
+      'حذف الملفات غير المرتبطة؟',
+      warning,
+      confirmLabel: 'حذف الملفات',
+      destructive: true,
+    );
+    if (!yes || !mounted) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
       final removed = await widget.service.deleteOrphans();
       if (mounted) {
         showMessage(context, 'أُزيل $removed من ${orphans.count} عناصر.');
@@ -378,9 +383,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         showMessage(context, userError(error));
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
+
+  /// Reads the orphan set, reporting a failure instead of treating an
+  /// unreadable storage as an empty one.
+  Future<OrphanFiles?> _findOrphans() async {
+    try {
+      return await widget.service.findOrphans();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _busy = false);
+        showMessage(context, userError(error));
+      }
+      return null;
+    }
+  }
+
+  static String _retainedNote(OrphanFiles orphans) => orphans.retained.isEmpty
+      ? ''
+      : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر تشير إليه '
+            'نقطة استرداد أو نسخة ترقية ما زالت قائمة. تُحذف بعد تحديث تلك '
+            'النقطة.';
 
   Future<void> _recoverDatabase() async {
     final note =
@@ -756,14 +783,14 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
       _pendingUpdate = null;
     });
     widget.onBusyChanged(true);
+    UpdateInfo? found;
     try {
-      final update = await _service().checkForUpdate();
+      found = await _service().checkForUpdate();
       if (!mounted) return;
-      if (update == null) {
+      if (found == null) {
         setState(() => _statusMessage = 'أنت على أحدث إصدار ($_version).');
       } else {
-        setState(() => _pendingUpdate = update);
-        await _present(update);
+        setState(() => _pendingUpdate = found);
       }
     } catch (error) {
       if (mounted) {
@@ -772,12 +799,18 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
             : userError(error);
         setState(() => _statusMessage = message);
       }
+      found = null;
     } finally {
       if (mounted) {
         setState(() => _checking = false);
         widget.onBusyChanged(false);
       }
     }
+    // The offer is the person's turn, not the app's: the card waits for an
+    // answer with no progress running, so the screen stays honest about what
+    // is happening and downloading starts only on a yes.
+    if (!mounted || found == null) return;
+    await _present(found);
   }
 
   String get _downloadLabel =>

@@ -60,15 +60,25 @@
 - `test/application/app_release_test.dart` (3 حالات): ملفا الإصدار متطابقان، سير
   النشر يستهدف الملفين، ولا واجهة تعرض مصدراً.
 
-### ما لم يُتحقق في بيئة التنفيذ هذه
+### التحقّق
 
-لا يوجد هنا `flutter` ولا `dart`، لذلك **لم تُنفَّذ** `flutter test` ولا
-`flutter analyze` ولا `flutter format`، ولم يُبنَ APK ولم يُجرَّب تثبيت على
-جهاز. ما نُفِّذ: `python3 tool/check_source.py` (PASS على 176 ملف Dart وXML
-أندرويد والأذونات والـ providers)، وماسح تنسيق يحاكي قواعد `dart format
---line-length 80` على كل ملف معدَّل، وتحليل YAML لملفات سير العمل الثلاثة،
-وفحص توازن الأقواس لكل ملف Dart/Kotlin معدَّل. البوابة الحقيقية هي تشغيل CI
-على هذا الفرع. **NOT VERIFIED**: سلوك التنزيل/التثبيت على جهاز حقيقي.
+بيئة التنفيذ هنا لا فيها `flutter` ولا `dart`، فالبوابة كانت CI على هذا الفرع
+(PR #21، تشغيل [38940682418](https://github.com/kinanmjeed88/Scan-id/actions/runs/38940682418))
+والنتيجة خضراء كاملة على `android` و`windows / windows`:
+
+- `Source integrity audit` ✓ (`tool/check_source.py`: 176 ملف Dart، الأذونات
+  المعلنة، الـ providers، اتفاق `scan-updates` في المواضع الثلاثة).
+- `Dart format gate` ✓ (`dart format --line-length 80` بلا فرق).
+- `Flutter analyze --fatal-infos` ✓ صفر ملاحظات (أُصلح فيها `TimeoutException`
+  التي لا تحمل مدة، وبارامتر `size` غير المستعمل في `BrandIcon`).
+- `Flutter tests` ✓ 674 حالة خضراء، منها الحالات الجديدة في هذا الفرع.
+- `Build Android debug APK` ✓ — أي أن `UpdateInstaller.kt` يُصرَّف فعلياً.
+- بناء Windows وتشغيل اختبارات المقيس الأصلي ✓.
+
+**NOT VERIFIED**: تنزيل حقيقي وتثبيت على هاتف — لا جهاز في هذه البيئة ولا
+إصدار منشور تختبره البطاقة. المسار مُغطّى بالوحدات (مصدر وهمي، نقل وهمي،
+مُثبَّت وهمي) وبفحص النصوص في `tool/check_source.py`، أما موافقة مثبت النظام
+على حزمة موقّعة فتُختبر على الجهاز.
 
 ## الحالة السابقة — الفرع `arena/1ad7e4bb-scan-id`، 2026-10-16: إصلاح فشل الإصدار الموقّع في CI
 

@@ -97,17 +97,33 @@ jobs:
       - name: Ensure release build rejects missing signing credentials
         shell: bash
         run: |
-          set -euo pipefail
-          if release_output="$(flutter build apk --release 2>&1)"; then
+          set -uo pipefail
+          mkdir -p diagnostics
+          log=diagnostics/signing-guard.log
+          rc=0
+          flutter build apk --release > "$log" 2>&1 || rc=$?
+          cat "$log"
+          # The reason has to survive without the Actions log store: annotations
+          # are the only channel API-only clients can read, so the tail of the
+          # captured output is re-emitted (percent signs escaped, lines joined
+          # with '~' to stay on one annotation line).
+          annotate() {
+            local title="$1" bytes="$2" detail
+            detail="$(tail -c "$bytes" "$log" | sed -e 's/%/%25/g' -e 's/\r//g' | tr '\n' '~')"
+            printf '::error title=%s::%s\n' "$title" "$detail" >&2
+          }
+          if (( rc == 0 )); then
+            annotate signing-guard-unexpected-success 1200
             echo 'Release build unexpectedly succeeded without release signing credentials.' >&2
             exit 1
           fi
-          printf '%s\n' "$release_output"
-          if ! grep -Fq 'Release signing is required, but Android signing values are missing.' <<< "$release_output" &&
-             ! grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' <<< "$release_output"; then
+          if ! grep -Fq 'Release signing is required, but Android signing values are missing.' "$log" &&
+             ! grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' "$log"; then
+            annotate signing-guard-reason 2600
             echo 'Release build failed for an unrelated reason; signing guard was not confirmed.' >&2
             exit 1
           fi
+          echo "::notice title=signing-guard::the release build failed with the signing guard message, as required"
       - name: Export audit dependencies
         run: python -m pip install PyMuPDF==1.26.5 Pillow==11.3.0
       - name: Independently validate exported documents

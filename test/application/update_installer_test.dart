@@ -174,10 +174,9 @@ void main() {
     });
 
     test('every native refusal code has a sentence of its own', () {
-      final codes = RegExp('reply\\.error\\(\\s*"([a-z]+)"')
-          .allMatches(kotlin)
-          .map((match) => match.group(1)!)
-          .toSet();
+      final codes = RegExp(
+        'reply\\.error\\(\\s*"([a-z]+)"',
+      ).allMatches(kotlin).map((match) => match.group(1)!).toSet();
       expect(
         codes,
         containsAll(['signature', 'missing', 'permission', 'unavailable']),

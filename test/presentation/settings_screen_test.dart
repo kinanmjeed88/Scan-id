@@ -53,7 +53,11 @@ UpdateInfo _updateInfo({int size = 4 * 1024 * 1024}) => UpdateInfo(
 Future<void> _pumpSettings(
   WidgetTester tester, {
   ProjectService? service,
-  Size size = const Size(360, 900),
+  Future<void> Function()? recoverStorage,
+  // Tall on purpose: a CustomScrollView only builds what is near the
+  // viewport, and a test that asserts a tool is absent must first be sure the
+  // whole screen was built — otherwise "not found" would prove nothing.
+  Size size = const Size(360, 3000),
   SaveBackup? saveBackup,
   Future<Project?> Function()? restoreBackup,
   ExternalUrlLauncher? launchExternalUrl,
@@ -72,6 +76,7 @@ Future<void> _pumpSettings(
         textDirection: direction,
         child: SettingsScreen(
           service: shown,
+          recoverStorage: recoverStorage,
           saveBackup: saveBackup,
           restoreBackup: restoreBackup,
           launchExternalUrl: launchExternalUrl,
@@ -86,6 +91,9 @@ Future<void> _pumpSettings(
 }
 
 Future<void> _scrollTo(WidgetTester tester, Finder target) async {
+  if (target.evaluate().isNotEmpty) {
+    return;
+  }
   await tester.dragUntilVisible(
     target,
     find.byType(CustomScrollView),
@@ -188,7 +196,7 @@ void main() {
   });
 
   testWidgets('storage and recovery tools are explained too', (tester) async {
-    await _pumpSettings(tester);
+    await _pumpSettings(tester, recoverStorage: () async {});
     await _scrollTo(tester, find.text('صيانة المساحة والملفات غير المرتبطة'));
 
     await tester.tap(
@@ -220,7 +228,7 @@ void main() {
   testWidgets('backup with nothing to back up says so instead of writing', (
     tester,
   ) async {
-    await _pumpSettings(tester);
+    await _pumpSettings(tester, saveBackup: (project) async => true);
     await _scrollTo(tester, find.text('نسخة احتياطية كاملة'));
     await tester.tap(find.text('نسخة احتياطية كاملة'));
     await tester.pumpAndSettle();
@@ -323,11 +331,7 @@ void main() {
   ) async {
     for (final width in [320.0, 360.0]) {
       for (final direction in [TextDirection.rtl, TextDirection.ltr]) {
-        await _pumpSettings(
-          tester,
-          size: Size(width, 900),
-          direction: direction,
-        );
+        await _pumpSettings(tester, size: Size(width, 3000), direction: direction);
         await _scrollTo(tester, find.text('YouTube'));
 
         final tops = [
@@ -512,7 +516,7 @@ void main() {
     tester,
   ) async {
     var restored = 0;
-    tester.view.physicalSize = const Size(360, 900);
+    tester.view.physicalSize = const Size(360, 3000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -576,7 +580,7 @@ void main() {
   testWidgets('project list refreshes after a backup is restored in settings', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1000, 900);
+    tester.view.physicalSize = const Size(1000, 2000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);

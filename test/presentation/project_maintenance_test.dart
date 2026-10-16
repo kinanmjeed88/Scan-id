@@ -17,7 +17,9 @@ void main() {
   testWidgets(
     'the project repair tool explains itself, and never acts on cancel',
     (tester) async {
-      tester.view.physicalSize = const Size(360, 900);
+      // The maintenance tile sits below the images: build the whole screen, so
+      // no test here depends on scrolling to reach what it taps.
+      tester.view.physicalSize = const Size(360, 3000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);

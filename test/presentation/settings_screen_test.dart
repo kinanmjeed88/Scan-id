@@ -621,6 +621,16 @@ void main() {
     );
     // A download that did not finish never reaches an installer.
     expect(service.installAsked, isFalse);
+    // The card is the screen's last section, and the banner a failed download
+    // leaves makes it grow: its button row can slide past the tall viewport's
+    // edge, where the lazy scroll stops building it, so bring it back before
+    // asserting on it.
+    await tester.dragUntilVisible(
+      find.text('التحقق من التحديث'),
+      find.byType(CustomScrollView),
+      const Offset(0, -400),
+    );
+    await tester.pumpAndSettle();
     // The buttons come back: a failed check that stays disabled would need a
     // restart of the app to retry. The button is an icon button, whose widget
     // is a private subclass of ButtonStyleButton, so it is located by its

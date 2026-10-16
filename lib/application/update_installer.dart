@@ -22,20 +22,23 @@ class InstallOutcome {
 /// Asks the operating system to install a package the update service has
 /// already verified.
 ///
-/// An installer never decides whether a file is trustworthy: it receives a file
-/// whose extension, declared size and SHA-256 digest were checked before it got
-/// here, and only hands it over. Deciding *whether* to install stays with the
-/// system installer, so a successful download can never become a silent write
-/// to the device.
+/// Integrity is settled before an installer is reached: the file's extension,
+/// declared size and SHA-256 digest were checked by `UpdateService`. Who
+/// *signed* it cannot be settled there — only the platform can read the
+/// certificate of the app already installed — so the platform side performs
+/// that comparison and refuses a package it cannot attribute to this app's
+/// publisher. Deciding *whether* to install still stays with the system
+/// installer, so a successful download can never become a silent write.
 abstract interface class UpdateInstaller {
   Future<InstallOutcome> install(String filePath);
 }
 
 /// Android: hands the verified package to the system package installer through
-/// `iq.scanid/updates` (see `android/app/src/main/kotlin/.../MainActivity.kt`).
+/// `iq.scanid/updates` (see the Kotlin file of the same purpose).
 ///
-/// The native side owns the two things Dart must not do: reading the app's own
-/// update directory through the scoped `UpdateFileProvider`, and starting an
+/// The native side owns three things Dart must not do: reading the app's own
+/// update directory through the scoped `UpdateFileProvider`, comparing the
+/// package's signer with this app's (`signature` below), and starting an
 /// `ACTION_VIEW` install, which Android 8 and above grant only to an app the
 /// person has explicitly allowed to install packages. The channel answers with
 /// an error code; every code becomes a sentence, never a stack trace.
@@ -68,6 +71,9 @@ class AndroidPackageInstaller implements UpdateInstaller {
     'permission' =>
       'يحتاج التطبيق إلى إذن «تثبيت التطبيقات المجهولة» لإكمال التحديث. اسمح له في '
           'إعدادات النظام التي فُتحت الآن، ثم أعد المحاولة.',
+    'signature' =>
+      'لم تُفتح شاشة التثبيت: توقيع الحزمة ليس توقيع هذا التطبيق المثبَّت، أو '
+          'تعذّر التحقق من هويته.',
     'missing' => 'لم يعد ملف التحديث موجوداً؛ نزّله من جديد.',
     'unavailable' =>
       'لا يوجد مثبت تطبيقات على هذا الجهاز؛ لا يمكن إكمال التحديث هنا.',

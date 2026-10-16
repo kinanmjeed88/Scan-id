@@ -78,6 +78,56 @@ assert f'DIRECTORY = "{UPDATE_DIRECTORY}"' in kotlin, "UpdateInstaller.kt moved"
 ota = (ROOT / "lib/application/ota_update.dart").read_text(encoding="utf-8")
 assert f"updateDirectoryName = '{UPDATE_DIRECTORY}'" in ota, "the Dart side moved"
 assert "updateDownloadDirectory" in ota, "the update directory has no resolver"
+# An install permission is only defensible while the code that consumes it can name
+# the publisher: the digest published next to a file proves arrival, not authorship,
+# because both come from the same release. So the pin, the compiled constant and the
+# Kotlin comparison must stay one chain — otherwise the shipped app trusts its feed.
+PINS = {}
+for name in ("release-management.yml", "android-signed-release.yml"):
+    text = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+    found = re.findall(r"EXPECTED_CERT_SHA256:\s*'([0-9a-f]{64})'", text)
+    assert found, f"{name} no longer pins a release certificate fingerprint"
+    PINS[name] = set(found)
+assert PINS["release-management.yml"] == PINS["android-signed-release.yml"], (
+    "the release workflows pin different certificates: "
+    f"{sorted(PINS['release-management.yml'])} vs {sorted(PINS['android-signed-release.yml'])}"
+)
+gradle = (ROOT / "android/app/build.gradle.kts").read_text(encoding="utf-8")
+# AGP 8 generates BuildConfig only on request, so a dropped flag would break the
+# build; a dropped field would break it later, on a user's phone, silently.
+assert "buildConfig = true" in gradle, "BuildConfig is not generated, so the pin cannot be read"
+assert '"EXPECTED_UPDATE_CERT_SHA256"' in gradle, "the certificate pin is not compiled into the app"
+assert 'requestsReleasePackage && expectedCertSha256.isEmpty()' in gradle, (
+    "a release could be packaged with no publisher anchor at all"
+)
+for needed in (
+    "getPackageArchiveInfo",
+    "GET_SIGNING_CERTIFICATES",
+    "apkContentsSigners",
+    "GET_SIGNATURES",
+    "BuildConfig.EXPECTED_UPDATE_CERT_SHA256",
+    "publisherRefusal",
+):
+    assert needed in kotlin, f"the installer lost the publisher check ({needed})"
+# Order is the contract: the answer must be read before the intent is built, and a
+# refusal must be decided before any permission screen opens. No host test can see
+# this, and a plausible-looking edit can silently break it.
+ORDER = (
+    "val packageFile = verifiedFile(raw)",
+    "val refusal = publisherRefusal(packageFile)",
+    "if (refusal != null)",
+    '"signature"',
+    "startInstall(packageFile, reply)",
+)
+positions = []
+for step in ORDER:
+    assert step in kotlin, f"the install handoff no longer contains: {step!r}"
+    positions.append(kotlin.index(step))
+assert positions == sorted(positions), "the publisher check no longer runs before the handoff"
+# A refusal the person cannot read is a bug in the one place a bug must not be.
+installer_dart = (ROOT / "lib/application/update_installer.dart").read_text(encoding="utf-8")
+assert "'signature' =>" in installer_dart, "the publisher refusal has no sentence to show"
+
 rules = ET.parse(ROOT / "android/app/src/main/res/xml/data_extraction_rules.xml").getroot()
 for mode in ("cloud-backup", "device-transfer"):
     assert {item.get("domain") for item in rules.findall(mode + "/exclude")} == {
@@ -144,6 +194,8 @@ count = sum(len(re.findall(r"\btest(?:Widgets)?\(", file.read_text(encoding="utf
 print(f"PASS: {len(files)} Dart files have resolvable local imports; domain boundaries checked.")
 print("PASS: Android XML parses; the release manifest declares only the two update "
       "permissions and every provider is class-backed, unexported and single-path.")
+print("PASS: the release certificate pin is declared once, compiled into the build, "
+      "and compared against the package signer before the installer is offered it.")
 print(f"PASS: Launcher artwork present at every density and referenced by both platforms "
       f"(Windows icon carries {entries} sizes).")
 print(f"INVENTORY: {count} declared Dart/Flutter tests. NOT executed by this audit.")

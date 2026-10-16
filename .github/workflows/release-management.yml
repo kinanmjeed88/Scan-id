@@ -336,6 +336,12 @@ jobs:
     environment: android-signing
     permissions:
       contents: read
+    # The certificate fingerprint a legitimate update must be signed with. The build
+    # compiles it into the app (`EXPECTED_UPDATE_CERT_SHA256` in build.gradle.kts) so
+    # the installed app can check a downloaded package against it; the step below
+    # compares the APK it just produced with the same value. One literal, one scope.
+    env:
+      EXPECTED_CERT_SHA256: '3e9c3d988ab491a60a570b4c70de79c1eba61f038893d3cd2a4ea29bb913c74a'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -420,8 +426,6 @@ jobs:
       - name: Verify APK signature
         if: contains(inputs.targets, 'android') || inputs.targets == 'both'
         shell: bash
-        env:
-          EXPECTED_CERT_SHA256: '3e9c3d988ab491a60a570b4c70de79c1eba61f038893d3cd2a4ea29bb913c74a'
         run: |
           set -euo pipefail
           apk='build/app/outputs/flutter-apk/app-release.apk'
@@ -642,8 +646,12 @@ jobs:
           # Configure git
           git config user.name "Scan-id Release"
           git config user.email "actions@github.com"
-          # Commit
-          git add pubspec.yaml lib/presentation/app.dart lib/presentation/settings_screen.dart
+          # Two files carry a version: pubspec.yaml drives the build, and
+          # lib/application/app_release.dart is the number the installed app compares
+          # an update against. Committing only the first would ship an update check
+          # that keeps offering the release just published, and would break the test
+          # that holds the two together on the branch the tag points at.
+          git add pubspec.yaml lib/application/app_release.dart
           if git diff --cached --quiet; then
             echo "::warning::No changes to commit (version may be same)"
           else
@@ -651,6 +659,14 @@ jobs:
 
           $tag build $build
           ${{ inputs.release_notes }}"
+            if ! git show --name-only --format= HEAD | grep -qx 'lib/application/app_release.dart'; then
+              echo "::error title=release-commit::the release commit did not change lib/application/app_release.dart" >&2
+              exit 1
+            fi
+            if ! git show HEAD:lib/application/app_release.dart | grep -qF "const String appVersion = '$new'"; then
+              echo "::error title=release-commit::the committed appVersion is not $new" >&2
+              exit 1
+            fi
             git push origin HEAD:searchidf
           fi
           # Tag

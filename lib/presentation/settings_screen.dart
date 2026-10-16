@@ -34,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
     this.updateSource,
     this.currentVersion,
     this.updateInstaller,
+    this.updateService,
     super.key,
   });
 
@@ -50,6 +51,10 @@ class SettingsScreen extends StatefulWidget {
   final UpdateSource? updateSource;
   final String? currentVersion;
   final UpdateInstaller? updateInstaller;
+
+  /// Replaces the whole service, so a test can hold a download open long enough
+  /// to leave the screen while it runs. `null` builds the real one.
+  final UpdateService? updateService;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -197,6 +202,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       source: widget.updateSource,
       currentVersion: widget.currentVersion,
       installer: widget.updateInstaller,
+      service: widget.updateService,
     ),
   );
 
@@ -721,6 +727,7 @@ class _OtaUpdateCard extends StatefulWidget {
     this.source,
     this.currentVersion,
     this.installer,
+    this.service,
   });
 
   final bool busy;
@@ -728,6 +735,7 @@ class _OtaUpdateCard extends StatefulWidget {
   final UpdateSource? source;
   final String? currentVersion;
   final UpdateInstaller? installer;
+  final UpdateService? service;
 
   @override
   State<_OtaUpdateCard> createState() => _OtaUpdateCardState();
@@ -736,13 +744,25 @@ class _OtaUpdateCard extends StatefulWidget {
 class _OtaUpdateCardState extends State<_OtaUpdateCard> {
   static const String _explanation =
       'ماذا يفعل الفحص: يسأل مصدر الإصدارات الرسمي — عبر اتصال آمن — هل نُشر '
-      'إصدار أحدث من هذا، ثم يخبرك بالنتيجة.\n\n'
-      'بعد «تنزيل التحديث»: تُنزَّل الحزمة إلى مساحة التطبيق الخاصة بها، وتُطابق '
-      'بصمتها المنشورة قبل أي خطوة، ثم يفتح النظام شاشته لتأكيد التثبيت. لا '
-      'يُثبَّت شيء بصمت.\n\n'
+      'إصدار أحدث من هذا، ثم يخبرك بالنتيجة. لا يُرسل مع السؤال أي شيء عنك: لا '
+      'رقم إصدارك ولا اسمك ولا أي صورة؛ الطلب عنوان ثابت في نطاق مصدر '
+      'الإصدارات، ويرى ذلك المصدر عنوان شبكتك ووقت الطلب كما في أي اتصال.\n\n'
+      'بعد «تنزيل التحديث»: تُنزَّل الحزمة إلى مساحة التطبيق الخاصة بها وتُطابق '
+      'بصمتها المنشورة، وهي مطابقة تُثبت أن الملف وصل كما نُشر ولا تُثبت من '
+      'نشره؛ لذلك يقارن التطبيق قبل فتح المثبت توقيعَ الحزمة بتوقيع التطبيق '
+      'المثبَّت على جهازك، ويُرفض أي تحديث لا تُثبت هذه المقارنة هويته أو يتعذر '
+      'فيه التحقق. ثم يفتح النظام شاشته لتأكيد التثبيت. لا يُثبَّت شيء بصمت.\n\n'
       'إن أُلغي التنزيل أو رُفض التثبيت: تبقى مشاريعك وصورك كما هي، ولا يُحذف '
-      'أي ملف.\n\n'
-      'لا يرفع الفحص صورك ولا بياناتك: ما يُرسل هو رقم الإصدار فقط.';
+      'أي ملف. ومغادرة هذه الشاشة أثناء التنزيل تُلغيه.';
+
+  @override
+  void dispose() {
+    // The download belongs to this screen. Leaving it must not leave a socket
+    // writing a package nobody can stop any more: the cancelled read ends, and
+    // the service removes the partial file it had written.
+    _cancelToken?.cancel();
+    super.dispose();
+  }
 
   UpdateInfo? _pendingUpdate;
   String? _statusMessage;
@@ -767,13 +787,17 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
     return UpdatePlatform.android;
   }
 
-  UpdateService _service() => UpdateService(
-    source: _source,
-    currentVersion: _version,
-    platform: _platform,
-    installer: _installer,
-    temporaryDirectory: updateDownloadDirectory,
-  );
+  UpdateService _service() {
+    final injected = widget.service;
+    if (injected != null) return injected;
+    return UpdateService(
+      source: _source,
+      currentVersion: _version,
+      platform: _platform,
+      installer: _installer,
+      temporaryDirectory: updateDownloadDirectory,
+    );
+  }
 
   Future<void> _check() async {
     if (_checking || _downloading || widget.busy) return;
@@ -818,9 +842,11 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
 
   Future<void> _present(UpdateInfo update) async {
     final notes = update.size == null
-        ? 'يتحقق التطبيق من بصمة الملف قبل أي خطوة.'
+        ? 'تُطابق الحزمة بصمتها المنشورة، ويُطابق توقيعها توقيعُ التطبيق المثبَّت '
+              'على جهازك.'
         : 'حجم التحديث ${(update.size! / (1024 * 1024)).toStringAsFixed(1)} '
-              'MiB. يتحقق التطبيق من بصمة الملف قبل أي خطوة.';
+              'MiB. تُطابق الحزمة بصمتها المنشورة، ويُطابق توقيعها توقيعُ '
+              'التطبيق المثبَّت على جهازك.';
     final go = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

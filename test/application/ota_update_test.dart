@@ -720,6 +720,53 @@ void main() {
       }
     });
 
+    // A publisher refusal is not a permission problem, and it is not the app's
+    // to overrule: the digest matched, the signer did not. This is the path
+    // the platform's `signature` error travels through.
+    test('a signer mismatch reaches the person as a refusal', () async {
+      final root = await Directory.systemTemp.createTemp('scan_id_ota_sig_');
+      const bytes = [1, 2, 3, 4];
+      const refusal = InstallOutcome(
+        started: false,
+        message: 'لم تُفتح شاشة التثبيت: توقيع الحزمة ليس توقيع هذا التطبيق.',
+      );
+      try {
+        final installer = _RecordingInstaller(outcome: refusal);
+        final service = UpdateService(
+          source: _NoUpdateSource(),
+          currentVersion: '1.0.0',
+          transportFactory: () => _FakeTransport(
+            UpdateResponse(
+              statusCode: HttpStatus.ok,
+              contentLength: bytes.length,
+              body: Stream.value(bytes),
+            ),
+          ),
+          temporaryDirectory: () async => root,
+          installer: installer,
+        );
+        final download = await service.downloadUpdate(
+          _update(bytes: bytes),
+          onProgress: (_, _) {},
+          onCancel: () {},
+        );
+        expect(download.isSuccess, isTrue);
+
+        final install = await service.installUpdate(
+          _update(bytes: bytes),
+          download.filePath!,
+        );
+        // Refused before the installer was offered anything, and reported as
+        // that refusal — never as a success, and never as a pending install.
+        expect(installer.receivedPath, download.filePath);
+        expect(install.isSuccess, isFalse);
+        expect(install.isPending, isFalse);
+        expect(install.error, contains('توقيع الحزمة ليس توقيع هذا التطبيق'));
+      } finally {
+        await root.delete(recursive: true);
+      }
+    });
+
     test('with no installer this build still starts nothing', () async {
       final root = await Directory.systemTemp.createTemp('scan_id_ota_none_');
       const bytes = [1, 2, 3, 4];

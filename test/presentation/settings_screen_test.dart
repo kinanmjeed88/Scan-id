@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/ota_update.dart';
 import 'package:scan_id/application/project_service.dart';
@@ -41,6 +44,69 @@ class _FakeInstaller implements UpdateInstaller {
   }
 }
 
+/// A service with its transport replaced by a script: the answer the card gets
+/// back is the one the test wrote, and a download can be held open until the
+/// test releases it. No socket and no file is touched, which is what makes the
+/// screen's own behaviour — cancelling and recovery — observable at all.
+class _ScriptedService extends UpdateService {
+  _ScriptedService({
+    required UpdateSource source,
+    required this.answer,
+    this.installResult,
+    this.hold = false,
+  }) : super(source: source, currentVersion: '0.1.0');
+
+  /// Handed back for the download, and for the install when one is reached.
+  final DownloadResult answer;
+  final InstallResult? installResult;
+
+  /// When true, the download waits for [release] instead of answering.
+  final bool hold;
+  final Completer<void> release = Completer<void>();
+
+  /// The token the card asked to be cancelled, and the question of whether the
+  /// flow reached an installer at all.
+  CancellationToken? cancellation;
+  bool installAsked = false;
+
+  @override
+  Future<DownloadResult> downloadUpdate(
+    UpdateInfo update, {
+    required void Function(int received, int total) onProgress,
+    required void Function() onCancel,
+    CancellationToken? cancellation,
+  }) async {
+    this.cancellation = cancellation;
+    if (hold) await release.future;
+    return answer;
+  }
+
+  @override
+  Future<InstallResult> installUpdate(
+    UpdateInfo update,
+    String filePath,
+  ) async {
+    installAsked = true;
+    return installResult ?? InstallResult.error('لا مُثبَّت لهذا البناء.');
+  }
+}
+
+/// Reaches the state where a download is running, by the two taps a person
+/// makes: check, then accept the offer. The dialog's own button is named
+/// because the card shows the same words as its second action.
+Future<void> _startDownload(WidgetTester tester) async {
+  await _scrollTo(tester, find.text('التحقق من التحديث'));
+  await tester.tap(find.text('التحقق من التحديث'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(FilledButton, 'تنزيل وتحقّق'));
+  // Only pump, never settle: an indeterminate progress bar animates for as long
+  // as the download runs, and a settling test would wait for it forever.
+  for (var frame = 0; frame < 5; frame++) {
+    await tester.pump(const Duration(milliseconds: 40));
+  }
+  await tester.pump();
+}
+
 UpdateInfo _updateInfo({int size = 4 * 1024 * 1024}) => UpdateInfo(
   currentVersion: '0.1.0',
   newVersion: '0.2.0',
@@ -63,6 +129,7 @@ Future<void> _pumpSettings(
   ExternalUrlLauncher? launchExternalUrl,
   UpdateSource? updateSource,
   UpdateInstaller? updateInstaller,
+  UpdateService? updateService,
   TextDirection direction = TextDirection.rtl,
 }) async {
   tester.view.physicalSize = size;
@@ -81,6 +148,7 @@ Future<void> _pumpSettings(
           restoreBackup: restoreBackup,
           launchExternalUrl: launchExternalUrl,
           updateSource: updateSource,
+          updateService: updateService,
           updateInstaller: updateInstaller,
           currentVersion: '0.1.0',
         ),
@@ -453,8 +521,139 @@ void main() {
     await tester.tap(find.byTooltip('كيف يعمل التحديث؟'));
     await tester.pumpAndSettle();
     expect(find.textContaining('لا يُثبَّت شيء بصمت'), findsOneWidget);
-    expect(find.textContaining('رقم الإصدار فقط'), findsOneWidget);
+    // The words must describe the request the code actually makes: a fixed
+    // address, and nothing about the person or their app version.
+    expect(
+      find.textContaining('لا يُرسل مع السؤال أي شيء عنك'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('ومغادرة هذه الشاشة أثناء التنزيل تُلغيه'),
+      findsOneWidget,
+    );
+    // A digest arriving is not a publisher: the card says so, and it says
+    // where the identity check happens, because that is what makes a foreign
+    // package unusable rather than merely unlikely.
+    expect(find.textContaining('ولا تُثبت من'), findsOneWidget);
+    expect(
+      find.textContaining('توقيعَ الحزمة بتوقيع التطبيق المثبَّت'),
+      findsOneWidget,
+    );
+    // Retired claims, kept as assertions: a sentence about what is sent is a
+    // promise the request must keep, and the request sends no version at all.
+    for (final retired in ['يُرسل رقم الإصدار', 'رقم الإصدار فقط']) {
+      expect(
+        find.textContaining(retired),
+        findsNothing,
+        reason: 'the card claims it sends "$retired"',
+      );
+    }
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('leaving the screen while a download runs cancels it', (
+    tester,
+  ) async {
+    final service = _ScriptedService(
+      source: _FakeSource(_updateInfo()),
+      answer: DownloadResult.success('/tmp/scan-id-update.apk'),
+      hold: true,
+    );
+    await _pumpSettings(tester, updateService: service);
+    await _startDownload(tester);
+    expect(find.text('إلغاء التنزيل'), findsOneWidget);
+    expect(service.cancellation, isNotNull);
+    expect(service.cancellation!.isCancelled, isFalse);
+
+    // The person walks away mid-download. The screen is gone, so nothing may
+    // be reported to it any more, and the read it started must not outlive it.
+    await tester.pumpWidget(const AppShell(home: SizedBox()));
+    await tester.pump();
+    expect(service.cancellation!.isCancelled, isTrue);
+
+    // The answer arrives after the screen is gone: no exception, and no half a
+    // install started behind a closed window.
+    service.release.complete();
+    await tester.pump();
+    expect(service.installAsked, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the cancel button cancels the download the card started', (
+    tester,
+  ) async {
+    final service = _ScriptedService(
+      source: _FakeSource(_updateInfo()),
+      answer: DownloadResult.error('أُلغي التنزيل.'),
+      hold: true,
+    );
+    await _pumpSettings(tester, updateService: service);
+    await _startDownload(tester);
+
+    expect(service.cancellation!.isCancelled, isFalse);
+    await tester.tap(find.text('إلغاء التنزيل'));
+    await tester.pump();
+    expect(service.cancellation!.isCancelled, isTrue);
+
+    // The read ends on the person's answer, the card explains the cancellation,
+    // and a package nobody waited for is never handed to an installer.
+    service.release.complete();
+    await tester.pump();
+    expect(find.textContaining('أُلغي التنزيل'), findsOneWidget);
+    expect(service.installAsked, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed download is shown and leaves the card usable', (
+    tester,
+  ) async {
+    final service = _ScriptedService(
+      source: _FakeSource(_updateInfo()),
+      answer: DownloadResult.error('انقطع الاتصال قبل اكتمال الحزمة.'),
+    );
+    await _pumpSettings(tester, updateService: service);
+    await _startDownload(tester);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('انقطع الاتصال قبل اكتمال الحزمة'),
+      findsOneWidget,
+    );
+    // A download that did not finish never reaches an installer.
+    expect(service.installAsked, isFalse);
+    // The buttons come back: a failed check that stays disabled would need a
+    // restart of the app to retry.
+    final checked = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'التحقق من التحديث'),
+    );
+    expect(checked.onPressed, isNotNull);
+    expect(find.text('إلغاء التنزيل'), findsNothing);
+  });
+
+  testWidgets('a package refused for its signature is named as refused', (
+    tester,
+  ) async {
+    final service = _ScriptedService(
+      source: _FakeSource(_updateInfo()),
+      answer: DownloadResult.success('/tmp/scan-id-update.apk'),
+      installResult: InstallResult.error(
+        'لم تُفتح شاشة التثبيت: توقيع الحزمة ليس توقيع هذا التطبيق المثبَّت.',
+      ),
+    );
+    await _pumpSettings(tester, updateService: service);
+    await _startDownload(tester);
+    await tester.pumpAndSettle();
+
+    expect(service.installAsked, isTrue);
+    expect(
+      find.descendant(
+        of: find.byType(InfoBanner),
+        matching: find.textContaining('توقيع الحزمة ليس توقيع هذا التطبيق'),
+      ),
+      findsOneWidget,
+    );
+    // The one sentence this outcome must never produce.
+    expect(find.textContaining('اكتمل التحديث'), findsNothing);
   });
 
   testWidgets('maintenance says so when there is nothing to delete', (

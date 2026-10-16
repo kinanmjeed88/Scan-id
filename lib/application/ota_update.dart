@@ -188,8 +188,9 @@ class UpdateInfo {
   final String? summary;
   final int? size;
 
-  /// SHA-256 advertised by the release API, if present. Installation remains
-  /// disabled until publisher signing/installer integration is configured.
+  /// SHA-256 advertised by the release API, if present. It proves the bytes
+  /// that arrived are the bytes that were published; it says nothing about who
+  /// published them, which the platform checks at install time.
   final String? sha256;
 
   bool get isNewer => compareVersions(newVersion, currentVersion) > 0;
@@ -766,9 +767,14 @@ class UpdateService {
 
   /// Hands a verified package to [installer].
   ///
-  /// Verification is corruption detection, not authorization: what makes an
-  /// install acceptable is the digest check above plus the system installer's
-  /// own confirmation. With no installer configured this build refuses the
+  /// Verification is corruption detection, not authorization: this digest is
+  /// published by the same account as the asset, so matching it cannot prove a
+  /// publisher. Authorization belongs to the platform, which compares the
+  /// package's signer with this app's own certificate and with the certificate
+  /// the build was configured with, and refuses before the installer is opened
+  /// (see `UpdateInstaller.kt`). What makes an install acceptable to the
+  /// person remains the system installer's own confirmation. With no installer
+  /// configured this build refuses the
   /// operation and keeps the verified file, exactly as it did before native
   /// install integration existed, so a Windows package is never executed here.
   Future<InstallResult> installUpdate(

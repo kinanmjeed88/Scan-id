@@ -33,6 +33,22 @@ val keyAlias = providers.environmentVariable("KEYSTORE_KEY_ALIAS").orNull
     ?: localSigningProperties.getProperty("KEYSTORE_KEY_ALIAS")
 val keyPassword = providers.environmentVariable("KEYSTORE_KEY_PASSWORD").orNull
     ?: localSigningProperties.getProperty("KEYSTORE_KEY_PASSWORD")
+// SHA-256 of the certificate a legitimate update package must be signed with. It
+// is not a secret: the release workflows compare this same value against the
+// keystore they sign with and against the APK they built, and an app that cannot
+// reach it refuses to install anything. An empty value means this build carries no
+// pin of its own, so the installer falls back to the signature of the app already
+// installed on the device, and refuses when even that cannot be read.
+val expectedCertSha256 = (
+    providers.environmentVariable("EXPECTED_CERT_SHA256").orNull
+        ?: localSigningProperties.getProperty("EXPECTED_CERT_SHA256")
+    )
+    ?.trim()
+    ?.lowercase()
+    .orEmpty()
+// A buildConfigField writes source text, so the constant it defines needs quotes.
+val expectedCertSha256Literal = "\"$expectedCertSha256\""
+
 // Release variants must never fall back to the debug key. The explicit environment
 // flag also protects CI jobs whose requested task names are indirect.
 val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
@@ -68,6 +84,14 @@ if (requireReleaseSigning && !hasAllSigningValues) {
             "Missing: " + missingSigningValues.joinToString(", ") + "."
     )
 }
+// A pin that is present must be the digest shape the release workflows compare, so
+// a typo cannot silently disable the in-app publisher check on every installed app.
+if (expectedCertSha256.isNotEmpty() && !Regex("^[0-9a-f]{64}$").matches(expectedCertSha256)) {
+    throw GradleException(
+        "EXPECTED_CERT_SHA256 must be the 64 hex digits of the release certificate " +
+            "digest; the supplied value is not that shape."
+    )
+}
 
 // Also inspect the resolved task graph so aggregate invocations (for example `build`)
 // cannot package a release variant using the debug fallback below.
@@ -79,6 +103,15 @@ gradle.taskGraph.whenReady {
     }
     if (requestsReleasePackage && !hasAllSigningValues) {
         throw GradleException("Release APK/AAB packaging requires a configured release keystore.")
+    }
+    if (requestsReleasePackage && expectedCertSha256.isEmpty()) {
+        // Packaging without the pin would ship an app whose update path has no
+        // anchor to compare a package's signer with. Fail here instead of leaving
+        // every installed build to trust whatever its feed returns.
+        throw GradleException(
+            "Release APK/AAB packaging requires EXPECTED_CERT_SHA256, the " +
+                "certificate fingerprint an update package must be signed with."
+        )
     }
 }
 
@@ -171,6 +204,12 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
+    // The update installer reads the release certificate pin out of BuildConfig,
+    // and AGP 8 stopped generating that class unless a build asks for it.
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "iq.scanid.scan_id"
@@ -180,6 +219,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Compiled in so a downloaded package can be checked against the publisher
+        // this build was signed with, without asking a network what is true.
+        buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", expectedCertSha256Literal)
     }
 
     if (releaseKeyStoreFile != null) {

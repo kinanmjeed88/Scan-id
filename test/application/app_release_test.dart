@@ -37,6 +37,34 @@ void main() {
       isNot(contains('_appVersion')),
       reason: 'a second version constant would be free to disagree',
     );
+
+    // Publishing must commit both files the bump rewrote. Staging only the
+    // pubspec would tag a branch whose installed app still compares updates
+    // against the previous release — an update that offers the same version
+    // forever — and would leave the branch red on the test you are reading.
+    expect(
+      workflow,
+      contains('git add pubspec.yaml lib/application/app_release.dart'),
+      reason: 'the release commit must stage the version the app reads',
+    );
+    // The proof is not the staging but the commit: a `git add` of a file that
+    // no longer holds that line would be a silent success.
+    expect(workflow, contains('git show --name-only --format= HEAD'));
+    expect(
+      workflow,
+      contains('git show HEAD:lib/application/app_release.dart'),
+      reason: 'the tagged commit must be checked before the tag is pushed',
+    );
+    for (final retired in [
+      'lib/presentation/settings_screen.dart',
+      'lib/presentation/app.dart',
+    ]) {
+      expect(
+        workflow,
+        isNot(contains(retired)),
+        reason: '$retired holds no version to publish',
+      );
+    }
   });
 
   test('the update feed is named in code, never on screen', () {

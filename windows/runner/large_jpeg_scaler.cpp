@@ -35,6 +35,7 @@ using MethodResult = flutter::MethodResult<EncodableValue>;
 constexpr int64_t kMaxInputBytes = 20LL * 1024 * 1024;
 constexpr int64_t kMaxSourcePixels = 32'000'000;
 constexpr int64_t kMaxWorkingPixels = 4'000'000;
+constexpr int64_t kMaxFullResolutionCropPixels = 16'000'000;
 constexpr uint32_t kMaxOutputBytes = 20U * 1024U * 1024U;
 constexpr UINT kMaxPreviewLongEdge = 1200;
 constexpr UINT kMinPreviewShortSide = 40;
@@ -63,6 +64,20 @@ std::optional<int64_t> GetInteger(const EncodableMap& arguments,
   return std::nullopt;
 }
 
+std::optional<double> GetNumber(const EncodableMap& arguments,
+                                const char* key) {
+  const auto found = arguments.find(EncodableValue(key));
+  if (found == arguments.end()) return std::nullopt;
+  if (const auto* value = std::get_if<double>(&found->second)) return *value;
+  if (const auto* value = std::get_if<int32_t>(&found->second)) {
+    return static_cast<double>(*value);
+  }
+  if (const auto* value = std::get_if<int64_t>(&found->second)) {
+    return static_cast<double>(*value);
+  }
+  return std::nullopt;
+}
+
 const std::vector<uint8_t>* GetBytes(const EncodableMap& arguments,
                                      const char* key) {
   const auto found = arguments.find(EncodableValue(key));
@@ -83,6 +98,47 @@ bool HasSafeScaleBudgets(uint64_t source_bytes, int64_t source_width,
          target_width <= 65535 && target_height <= 65535 &&
          target_width * target_height <= kMaxWorkingPixels &&
          max_pixels == target_width * target_height;
+}
+
+bool HasSafeCropBudgets(uint64_t source_bytes, int64_t source_width,
+                        int64_t source_height, int64_t orientation,
+                        double left, double top, double right, double bottom,
+                        int64_t max_pixels) {
+  return source_bytes > 0 &&
+         source_bytes <= static_cast<uint64_t>(kMaxInputBytes) &&
+         source_width > 0 && source_height > 0 && source_width <= 65535 &&
+         source_height <= 65535 &&
+         source_width * source_height <= kMaxSourcePixels && orientation >= 1 &&
+         orientation <= 8 && std::isfinite(left) && std::isfinite(top) &&
+         std::isfinite(right) && std::isfinite(bottom) && left >= 0.0 &&
+         top >= 0.0 && right <= 1.0 && bottom <= 1.0 && left < right &&
+         top < bottom && max_pixels == kMaxFullResolutionCropPixels;
+}
+
+std::pair<double, double> RawPointFromOriented(
+    double x, double y, UINT width, UINT height, int orientation) {
+  switch (orientation) {
+    case 1:
+      return {x, y};
+    case 2:
+      return {static_cast<double>(width) - x, y};
+    case 3:
+      return {static_cast<double>(width) - x,
+              static_cast<double>(height) - y};
+    case 4:
+      return {x, static_cast<double>(height) - y};
+    case 5:
+      return {y, x};
+    case 6:
+      return {y, static_cast<double>(height) - x};
+    case 7:
+      return {static_cast<double>(width) - y,
+              static_cast<double>(height) - x};
+    case 8:
+      return {static_cast<double>(width) - y, x};
+    default:
+      return {x, y};
+  }
 }
 
 WICBitmapTransformOptions ExifTransform(int orientation) {
@@ -315,6 +371,191 @@ bool ScaleJpegWic(const LargeJpegScaleRequest& request,
                  encoded.begin() + static_cast<size_t>(position.QuadPart));
   return true;
 }
+bool CropJpegRegionWic(const LargeJpegScaleRequest& request,
+                       std::vector<uint8_t>* output, std::string* error) {
+  const auto fail = [error](const char* message) {
+    *error = message;
+    return false;
+  };
+  if (!HasSafeCropBudgets(
+          request.bytes.size(), request.source_width, request.source_height,
+          request.orientation, request.left, request.top, request.right,
+          request.bottom, request.max_pixels)) {
+    return fail("Full-resolution JPEG crop parameters exceed the safe budget.");
+  }
+
+  ComPtr<IWICImagingFactory> factory;
+  HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                               CLSCTX_INPROC_SERVER,
+                               IID_PPV_ARGS(factory.GetAddressOf()));
+  if (FAILED(hr)) return fail("WIC is unavailable.");
+  ComPtr<IWICStream> input_stream;
+  if (FAILED(factory->CreateStream(input_stream.GetAddressOf())) ||
+      request.bytes.size() > std::numeric_limits<DWORD>::max() ||
+      FAILED(input_stream->InitializeFromMemory(
+          const_cast<BYTE*>(reinterpret_cast<const BYTE*>(request.bytes.data())),
+          static_cast<DWORD>(request.bytes.size())))) {
+    return fail("Could not read the bounded JPEG source.");
+  }
+  ComPtr<IWICBitmapDecoder> decoder;
+  if (FAILED(factory->CreateDecoderFromStream(input_stream.Get(), nullptr,
+                                               WICDecodeMetadataCacheOnLoad,
+                                               decoder.GetAddressOf()))) {
+    return fail("Unsupported or corrupt JPEG.");
+  }
+  UINT frame_count = 0;
+  if (FAILED(decoder->GetFrameCount(&frame_count)) || frame_count != 1) {
+    return fail("Animated or multi-frame JPEG is unsupported.");
+  }
+  ComPtr<IWICBitmapFrameDecode> frame;
+  if (FAILED(decoder->GetFrame(0, frame.GetAddressOf()))) {
+    return fail("Could not read the JPEG frame.");
+  }
+  UINT source_width = 0, source_height = 0;
+  if (FAILED(frame->GetSize(&source_width, &source_height)) ||
+      source_width != static_cast<UINT>(request.source_width) ||
+      source_height != static_cast<UINT>(request.source_height)) {
+    return fail("The JPEG header does not match its decoded frame.");
+  }
+
+  const bool swaps_axes = request.orientation >= 5 && request.orientation <= 8;
+  const UINT oriented_width = swaps_axes ? source_height : source_width;
+  const UINT oriented_height = swaps_axes ? source_width : source_height;
+  const double ox0 = std::floor(request.left * oriented_width);
+  const double oy0 = std::floor(request.top * oriented_height);
+  const double ox1 = std::ceil(request.right * oriented_width);
+  const double oy1 = std::ceil(request.bottom * oriented_height);
+  if (!(ox0 >= 0.0 && oy0 >= 0.0 && ox1 <= oriented_width &&
+        oy1 <= oriented_height && ox0 < ox1 && oy0 < oy1)) {
+    return fail("The normalized JPEG crop is empty or out of bounds.");
+  }
+  const std::array<std::pair<double, double>, 4> corners = {
+      RawPointFromOriented(ox0, oy0, source_width, source_height,
+                            static_cast<int>(request.orientation)),
+      RawPointFromOriented(ox1, oy0, source_width, source_height,
+                            static_cast<int>(request.orientation)),
+      RawPointFromOriented(ox1, oy1, source_width, source_height,
+                            static_cast<int>(request.orientation)),
+      RawPointFromOriented(ox0, oy1, source_width, source_height,
+                            static_cast<int>(request.orientation)),
+  };
+  double min_x = corners.front().first, max_x = min_x;
+  double min_y = corners.front().second, max_y = min_y;
+  for (const auto& corner : corners) {
+    min_x = std::min(min_x, corner.first);
+    max_x = std::max(max_x, corner.first);
+    min_y = std::min(min_y, corner.second);
+    max_y = std::max(max_y, corner.second);
+  }
+  const int64_t raw_left = std::clamp<int64_t>(
+      static_cast<int64_t>(std::floor(min_x)), 0, source_width);
+  const int64_t raw_top = std::clamp<int64_t>(
+      static_cast<int64_t>(std::floor(min_y)), 0, source_height);
+  const int64_t raw_right = std::clamp<int64_t>(
+      static_cast<int64_t>(std::ceil(max_x)), 0, source_width);
+  const int64_t raw_bottom = std::clamp<int64_t>(
+      static_cast<int64_t>(std::ceil(max_y)), 0, source_height);
+  const int64_t crop_width = raw_right - raw_left;
+  const int64_t crop_height = raw_bottom - raw_top;
+  if (crop_width <= 0 || crop_height <= 0) {
+    return fail("The JPEG crop is empty.");
+  }
+  if (crop_width * crop_height > request.max_pixels) {
+    return fail("The full-resolution JPEG crop exceeds the 16 MP pixel budget.");
+  }
+
+  // IWICBitmapSourceTransform supports downsampling but the in-box Windows
+  // JPEG codec rejects rectangular CopyPixels requests on some supported JPEGs.
+  // A WIC bitmap clipper keeps the same raw source rectangle lazy: the PNG
+  // encoder pulls only this bounded region and we never materialize the full
+  // source raster or silently resize the crop.
+  WICRect crop_rect{static_cast<INT>(raw_left), static_cast<INT>(raw_top),
+                    static_cast<INT>(crop_width),
+                    static_cast<INT>(crop_height)};
+  ComPtr<IWICBitmapClipper> clipper;
+  if (FAILED(factory->CreateBitmapClipper(clipper.GetAddressOf())) ||
+      FAILED(clipper->Initialize(frame.Get(), &crop_rect))) {
+    return fail("The Windows JPEG codec cannot clip the requested source region.");
+  }
+  UINT clipped_width = 0, clipped_height = 0;
+  if (FAILED(clipper->GetSize(&clipped_width, &clipped_height)) ||
+      clipped_width != static_cast<UINT>(crop_width) ||
+      clipped_height != static_cast<UINT>(crop_height)) {
+    return fail("The Windows JPEG codec changed the requested crop dimensions.");
+  }
+  ComPtr<IWICBitmapSource> cropped_source;
+  if (FAILED(clipper.As(&cropped_source))) {
+    return fail("Could not prepare the bounded JPEG source region.");
+  }
+  ComPtr<IWICBitmapSource> oriented_source;
+  if (request.orientation == 1) {
+    oriented_source = cropped_source;
+  } else {
+    ComPtr<IWICBitmapFlipRotator> rotator;
+    if (FAILED(factory->CreateBitmapFlipRotator(rotator.GetAddressOf())) ||
+        FAILED(rotator->Initialize(
+            cropped_source.Get(),
+            ExifTransform(static_cast<int>(request.orientation))))) {
+      return fail("Could not apply JPEG EXIF orientation to the crop.");
+    }
+    oriented_source = rotator;
+  }
+  ComPtr<IWICFormatConverter> rgba_converter;
+  if (FAILED(factory->CreateFormatConverter(rgba_converter.GetAddressOf())) ||
+      FAILED(rgba_converter->Initialize(
+          oriented_source.Get(), GUID_WICPixelFormat32bppBGRA,
+          WICBitmapDitherTypeNone, nullptr, 0.0,
+          WICBitmapPaletteTypeCustom))) {
+    return fail("Could not convert the full-resolution crop for PNG encoding.");
+  }
+  ComPtr<IWICBitmapSource> png_source;
+  if (FAILED(rgba_converter.As(&png_source))) {
+    return fail("Could not prepare the full-resolution crop for PNG encoding.");
+  }
+  UINT output_width = 0, output_height = 0;
+  if (FAILED(png_source->GetSize(&output_width, &output_height)) ||
+      output_width == 0 || output_height == 0 ||
+      static_cast<int64_t>(output_width) * output_height > request.max_pixels) {
+    return fail("The full-resolution crop exceeds the pixel budget after orientation.");
+  }
+  std::vector<BYTE> encoded(kMaxOutputBytes);
+  ComPtr<IWICStream> output_stream;
+  if (FAILED(factory->CreateStream(output_stream.GetAddressOf())) ||
+      FAILED(output_stream->InitializeFromMemory(encoded.data(),
+                                                 kMaxOutputBytes))) {
+    return fail("Could not create the bounded PNG crop output stream.");
+  }
+  ComPtr<IWICBitmapEncoder> encoder;
+  if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr,
+                                    encoder.GetAddressOf())) ||
+      FAILED(encoder->Initialize(output_stream.Get(), WICBitmapEncoderNoCache))) {
+    return fail("Could not encode the full-resolution crop.");
+  }
+  ComPtr<IWICBitmapFrameEncode> output_frame;
+  ComPtr<IPropertyBag2> properties;
+  if (FAILED(encoder->CreateNewFrame(output_frame.GetAddressOf(),
+                                     properties.GetAddressOf())) ||
+      FAILED(output_frame->Initialize(properties.Get())) ||
+      FAILED(output_frame->SetSize(output_width, output_height))) {
+    return fail("Could not create the full-resolution PNG frame.");
+  }
+  WICPixelFormatGUID output_format = GUID_WICPixelFormat32bppBGRA;
+  if (FAILED(output_frame->SetPixelFormat(&output_format)) ||
+      !IsEqualGUID(output_format, GUID_WICPixelFormat32bppBGRA) ||
+      FAILED(output_frame->WriteSource(png_source.Get(), nullptr)) ||
+      FAILED(output_frame->Commit()) || FAILED(encoder->Commit())) {
+    return fail("The full-resolution PNG crop could not be written safely.");
+  }
+  LARGE_INTEGER zero{};
+  ULARGE_INTEGER position{};
+  if (FAILED(output_stream->Seek(zero, STREAM_SEEK_CUR, &position)) ||
+      position.QuadPart == 0 || position.QuadPart > kMaxOutputBytes) {
+    return fail("The full-resolution PNG crop exceeds the output byte budget.");
+  }
+  output->assign(encoded.begin(),
+                 encoded.begin() + static_cast<size_t>(position.QuadPart));
+  return true;
+}
 
 class ScopedComApartment {
  public:
@@ -341,8 +582,15 @@ LargeJpegScaleResult ScaleJpegOnWorker(
   try {
     std::vector<uint8_t> output;
     std::string error;
-    if (!ScaleJpegWic(request, &output, &error)) {
-      return LargeJpegScaleResult::Failure("scale_failed", std::move(error));
+    const bool completed = request.full_resolution_crop
+        ? CropJpegRegionWic(request, &output, &error)
+        : ScaleJpegWic(request, &output, &error);
+    if (!completed) {
+      const char* code = request.full_resolution_crop &&
+                  error.find("budget") != std::string::npos
+          ? "crop_too_large"
+          : "scale_failed";
+      return LargeJpegScaleResult::Failure(code, std::move(error));
     }
     return LargeJpegScaleResult::Success(std::move(output));
   } catch (const std::bad_alloc&) {
@@ -592,7 +840,9 @@ LargeJpegScalerChannel::LargeJpegScalerChannel(
       [weak_state, wake, operation = std::move(operation)](
           const flutter::MethodCall<EncodableValue>& call,
           std::unique_ptr<MethodResult> result) mutable {
-        if (call.method_name() != "scaleJpeg") {
+        const bool is_scale = call.method_name() == "scaleJpeg";
+        const bool is_crop = call.method_name() == "cropJpegRegion";
+        if (!is_scale && !is_crop) {
           result->NotImplemented();
           return;
         }
@@ -606,20 +856,50 @@ LargeJpegScalerChannel::LargeJpegScalerChannel(
         const auto width = GetInteger(*arguments, "sourceWidth");
         const auto height = GetInteger(*arguments, "sourceHeight");
         const auto orientation = GetInteger(*arguments, "orientation");
-        const auto target_width = GetInteger(*arguments, "targetWidth");
-        const auto target_height = GetInteger(*arguments, "targetHeight");
         const auto max_pixels = GetInteger(*arguments, "maxPixels");
         if (bytes == nullptr || !width || !height || !orientation ||
-            !target_width || !target_height || !max_pixels) {
+            !max_pixels) {
           ReplyWithError(std::move(result), "invalid_request",
                          "Invalid image parameters.");
           return;
         }
-        if (!HasSafeScaleBudgets(bytes->size(), *width, *height, *orientation,
-                                 *target_width, *target_height, *max_pixels)) {
-          ReplyWithError(std::move(result), "scale_failed",
-                         "Image dimensions exceed the safe scaling budget.");
-          return;
+        LargeJpegScaleRequest request;
+        request.bytes = *bytes;
+        request.source_width = *width;
+        request.source_height = *height;
+        request.orientation = *orientation;
+        request.max_pixels = *max_pixels;
+        if (is_scale) {
+          const auto target_width = GetInteger(*arguments, "targetWidth");
+          const auto target_height = GetInteger(*arguments, "targetHeight");
+          if (!target_width || !target_height ||
+              !HasSafeScaleBudgets(bytes->size(), *width, *height,
+                                   *orientation, *target_width, *target_height,
+                                   *max_pixels)) {
+            ReplyWithError(std::move(result), "scale_failed",
+                           "Image dimensions exceed the safe scaling budget.");
+            return;
+          }
+          request.target_width = *target_width;
+          request.target_height = *target_height;
+        } else {
+          const auto left = GetNumber(*arguments, "left");
+          const auto top = GetNumber(*arguments, "top");
+          const auto right = GetNumber(*arguments, "right");
+          const auto bottom = GetNumber(*arguments, "bottom");
+          if (!left || !top || !right || !bottom ||
+              !HasSafeCropBudgets(bytes->size(), *width, *height,
+                                  *orientation, *left, *top, *right, *bottom,
+                                  *max_pixels)) {
+            ReplyWithError(std::move(result), "invalid_request",
+                           "Invalid bounded JPEG crop parameters.");
+            return;
+          }
+          request.full_resolution_crop = true;
+          request.left = *left;
+          request.top = *top;
+          request.right = *right;
+          request.bottom = *bottom;
         }
 
         auto state = weak_state.lock();
@@ -643,15 +923,6 @@ LargeJpegScalerChannel::LargeJpegScalerChannel(
             return;
           }
           request_id = registration.request_id;
-
-          LargeJpegScaleRequest request;
-          request.bytes = *bytes;
-          request.source_width = *width;
-          request.source_height = *height;
-          request.orientation = *orientation;
-          request.target_width = *target_width;
-          request.target_height = *target_height;
-          request.max_pixels = *max_pixels;
 
           const auto request_token = *request_id;
           const auto worker_operation = operation;

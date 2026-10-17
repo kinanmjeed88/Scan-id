@@ -23,8 +23,11 @@ DocumentItem block(
   sizeConfirmed: true,
 );
 
-Project page(List<DocumentItem> items) =>
-    projectFixture(assets: [assetFixture()], items: items);
+Project page(List<DocumentItem> items, {int pageCount = 1}) => projectFixture(
+  assets: [assetFixture()],
+  items: items,
+  pageCount: pageCount,
+);
 
 void main() {
   test('moveToPage creates a new page and keeps the document printable', () {
@@ -53,11 +56,14 @@ void main() {
 
   test('a full target page rejects the move without changing source state', () {
     final one = block('one', 20, 20);
-    final full = block('full', 10, 10, width: 190, height: 277);
-    final p = page([
-      one,
-      full,
-    ]).copyWith(pageCount: 2, items: [one, full.copyWith(pageIndex: 1)]);
+    final full = block(
+      'full',
+      10,
+      10,
+      width: 190,
+      height: 277,
+    ).copyWith(pageIndex: 1);
+    final p = page([one, full], pageCount: 2);
     final before = p.toJson();
 
     expect(

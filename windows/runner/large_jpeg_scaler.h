@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-/// Parameters passed to one bounded native JPEG scale operation.
+/// Parameters passed to one bounded native JPEG operation.
 struct LargeJpegScaleRequest {
   std::vector<uint8_t> bytes;
   int64_t source_width = 0;
@@ -21,6 +21,16 @@ struct LargeJpegScaleRequest {
   int64_t target_width = 0;
   int64_t target_height = 0;
   int64_t max_pixels = 0;
+
+  /// True only for `cropJpegRegion`: an EXIF-oriented normalized rectangle is
+  /// decoded at native density, never sampled. It shares the same bounded
+  /// worker/channel as scaling so no completion can race Flutter's platform
+  /// thread.
+  bool full_resolution_crop = false;
+  double left = 0.0;
+  double top = 0.0;
+  double right = 0.0;
+  double bottom = 0.0;
 };
 
 /// A sampled PNG, or the platform error that should be returned to Dart.
@@ -41,7 +51,8 @@ struct LargeJpegScaleResult {
 };
 
 /// Injectable operation seam for deterministic native channel tests. The
-/// production default remains the bounded WIC sampled decoder.
+/// production default is the bounded WIC sampled decoder or bounded native
+/// full-resolution region decoder, selected by the request.
 using LargeJpegScaleOperation =
     std::function<LargeJpegScaleResult(const LargeJpegScaleRequest&)>;
 
@@ -49,8 +60,9 @@ using LargeJpegScaleOperation =
 /// APIs itself; the channel drains and completes replies on its owner thread.
 using LargeJpegPlatformWake = std::function<bool()>;
 
-/// Windows channel for WIC's sampled JPEG decode. Requests outside the fixed
-/// source/working budgets fail closed; no full-frame resize fallback exists.
+/// Windows channel for WIC sampled JPEG decode and bounded full-resolution
+/// JPEG region decode. Requests outside fixed source/output budgets fail closed;
+/// neither path falls back to full-frame resize or crop downsampling.
 class LargeJpegScalerChannel {
  public:
   explicit LargeJpegScalerChannel(

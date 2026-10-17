@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
+import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/crop_draft.dart';
@@ -13,6 +14,7 @@ import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
+import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/imaging/large_jpeg_plan.dart';
 import 'package:scan_id/persistence/large_jpeg_scaler.dart';
@@ -251,6 +253,62 @@ class _FakeLargeJpegScaler implements LargeJpegScaler {
   }
 }
 
+class _FullResolutionCropCall {
+  const _FullResolutionCropCall({
+    required this.source,
+    required this.sourceWidth,
+    required this.sourceHeight,
+    required this.orientation,
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+
+  final Uint8List source;
+  final int sourceWidth;
+  final int sourceHeight;
+  final int orientation;
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+}
+
+class _FakeFullResolutionJpegCropper implements FullResolutionJpegCropper {
+  _FakeFullResolutionJpegCropper(this.crop, {this.failure});
+  final Uint8List crop;
+  final Exception? failure;
+  final calls = <_FullResolutionCropCall>[];
+
+  @override
+  Future<Uint8List> cropJpegRegion({
+    required Uint8List source,
+    required int sourceWidth,
+    required int sourceHeight,
+    required int orientation,
+    required double left,
+    required double top,
+    required double right,
+    required double bottom,
+  }) async {
+    calls.add(
+      _FullResolutionCropCall(
+        source: Uint8List.fromList(source),
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+        orientation: orientation,
+        left: left,
+        top: top,
+        right: right,
+        bottom: bottom,
+      ),
+    );
+    if (failure != null) throw failure!;
+    return Uint8List.fromList(crop);
+  }
+}
+
 void main() {
   late Directory root;
   late LocalProjectRepository projects;
@@ -269,6 +327,7 @@ void main() {
 
   ProjectService service({
     Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
+    FullResolutionJpegCropper? fullResolutionJpegCropper,
     bool smartRecognitionEnabled = true,
     bool multiDocumentSegmentationEnabled = true,
   }) => ProjectService(
@@ -278,6 +337,8 @@ void main() {
     smartRecognitionEnabled: smartRecognitionEnabled,
     multiDocumentSegmentationEnabled: multiDocumentSegmentationEnabled,
     segmenter: segmenter,
+    fullResolutionJpegCropper:
+        fullResolutionJpegCropper ?? _FakeFullResolutionJpegCropper(_photo()),
   );
 
   test(
@@ -761,7 +822,170 @@ void main() {
   );
 
   test(
-    'a cropped large source reprocesses from its stable sample without moving a locked item',
+    'large-source regions use immutable originals and keep untrusted native crops unwarped',
+    () async {
+      final original = _jpegWithExifOrientation(5000, 4000, 6);
+      final working = Uint8List.fromList(
+        img.encodePng(img.Image(width: 800, height: 1000)),
+      );
+      final nativeCrop = Uint8List.fromList(
+        img.encodePng(img.Image(width: 1600, height: 1000)),
+      );
+      final scaler = _FakeLargeJpegScaler(working);
+      final cropper = _FakeFullResolutionJpegCropper(nativeCrop);
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final s = service(
+        segmenter: _twoUnresolved,
+        fullResolutionJpegCropper: cropper,
+      );
+      var project = await s.create('قص المصدر الأصلي الكبير');
+      project = (await s.importImages(project, [
+        ImportSource('مصدر-موجه.jpg', () => Stream.value(original)),
+      ])).project;
+      final source = project.assets.single;
+      expect(source.hasScaledLargeSource, isTrue);
+
+      final report = await s.arrangeImportedImages(project, [source.id]);
+      final result = report.project;
+      final derived = result.assets
+          .where((asset) => asset.id != source.id)
+          .toList();
+
+      expect(report.notDetected, 2);
+      expect(result.documents, hasLength(2));
+      expect(derived, hasLength(2));
+      final derivedDimensions = derived
+          .map((asset) => [asset.width, asset.height])
+          .toList();
+      expect(derivedDimensions, [
+        [1600, 1000],
+        [1600, 1000],
+      ]);
+      expect(
+        result.documents.every(
+          (record) => record.sides.single.detection!.polygon == null,
+        ),
+        isTrue,
+        reason:
+            'an untrusted detection must remain available for manual review',
+      );
+      expect(cropper.calls, hasLength(2));
+      expect(
+        cropper.calls
+            .map((call) => [call.left, call.top, call.right, call.bottom])
+            .toList(),
+        [
+          [.1, .1, .9, .45],
+          [.1, .55, .9, .95],
+        ],
+      );
+      for (final call in cropper.calls) {
+        expect(
+          call.source,
+          original,
+          reason:
+              'native extraction must receive the immutable JPEG, not its sample',
+        );
+        expect(
+          [call.sourceWidth, call.sourceHeight, call.orientation],
+          [5000, 4000, 6],
+        );
+      }
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        original,
+      );
+    },
+  );
+
+  test(
+    'large-source trusted corners are remapped to the returned crop before warping',
+    () async {
+      final original = _jpegSofOnly(5000, 5000);
+      final scaler = _FakeLargeJpegScaler(_photo());
+      final fullDensityCrop = Uint8List.fromList(
+        img.encodePng(img.Image(width: 1600, height: 1000)),
+      );
+      final cropper = _FakeFullResolutionJpegCropper(fullDensityCrop);
+      assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
+      final s = service(
+        segmenter: _oneValidCard,
+        fullResolutionJpegCropper: cropper,
+      );
+      var project = await s.create('إعادة تعيين زوايا المصدر الكبير');
+      project = (await s.importImages(project, [
+        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+      ])).project;
+
+      final report = await s.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+      final derived = report.project.assets.singleWhere(
+        (asset) => asset.id != project.assets.single.id,
+      );
+
+      expect(report.cropped, 1);
+      expect(cropper.calls, hasLength(1));
+      expect(
+        [
+          cropper.calls.single.left,
+          cropper.calls.single.top,
+          cropper.calls.single.right,
+          cropper.calls.single.bottom,
+        ],
+        [.1, .1, .9, .6045],
+      );
+      // Full crop-local corners occupy the 1600 by 1000 native output; without
+      // remapping they would rectify only the old .8 by .5045 sub-rectangle.
+      expect(derived.width, closeTo(1586, 2));
+      expect(derived.height, closeTo(1000, 2));
+    },
+  );
+
+  test(
+    'a rejected full-resolution crop leaves the large source unchanged with no partial derived document',
+    () async {
+      final original = _jpegSofOnly(5000, 5000);
+      assets = LocalAssetRepository(
+        projects.files,
+        largeJpegScaler: _FakeLargeJpegScaler(_photo()),
+      );
+      final cropper = _FakeFullResolutionJpegCropper(
+        _photo(),
+        failure: const ValidationException('المنطقة أكبر من حد المعالجة.'),
+      );
+      final s = service(
+        segmenter: _oneValidCard,
+        fullResolutionJpegCropper: cropper,
+      );
+      var project = await s.create('رفض قص كبير');
+      project = (await s.importImages(project, [
+        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+      ])).project;
+      final source = project.assets.single;
+      final revision = project.revision;
+
+      final report = await s.arrangeImportedImages(project, [source.id]);
+
+      expect(report.notDetected, 1);
+      expect(
+        report.project.revision,
+        revision,
+        reason: 'failed native extraction must not commit a half-image',
+      );
+      expect(report.project.assets, hasLength(1));
+      expect(report.project.items, isEmpty);
+      expect(report.project.documents, isEmpty);
+      expect(cropper.calls, hasLength(1));
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        original,
+      );
+    },
+  );
+
+  test(
+    'a cropped large source reprocesses from its original without moving a locked item',
     () async {
       final original = _jpegSofOnly(5000, 5000);
       final scaler = _FakeLargeJpegScaler(_photo());
@@ -771,13 +995,14 @@ void main() {
       project = (await s.importImages(project, [
         ImportSource('بطاقة.jpg', () => Stream.value(original)),
       ])).project;
-      final initialAsset = project.assets.single;
-      final baseRaster = initialAsset.processingInputPath;
-      expect(initialAsset.hasScaledLargeSource, isTrue);
+      final source = project.assets.single;
+      final baseRaster = source.processingInputPath;
+      expect(source.hasScaledLargeSource, isTrue);
 
-      project = (await s.arrangeImportedImages(project, [
-        initialAsset.id,
-      ])).project;
+      project = (await s.arrangeImportedImages(project, [source.id])).project;
+      final derived = project.assets.singleWhere(
+        (asset) => asset.id != source.id,
+      );
       final firstPlacement = project.items.single.copyWith(
         x: 31,
         y: 42,
@@ -786,39 +1011,60 @@ void main() {
       project = await projects.save(project.copyWith(items: [firstPlacement]));
       final itemId = project.items.single.id;
       final recordId = project.documents.single.id;
-      final firstRevision = project.assets.single.workingPath;
-      expect(firstRevision, isNot(baseRaster));
-      expect(project.assets.single.processingInputPath, baseRaster);
+      final firstRevision = derived.workingPath;
+      expect(project.assets, hasLength(2));
+      expect(project.items.single.assetId, derived.id);
+      expect(
+        project.assets
+            .firstWhere((asset) => asset.id == source.id)
+            .processingInputPath,
+        baseRaster,
+      );
       expect(await assets.resolve(baseRaster), isNotNull);
 
-      final report = await s.reprocessImages(project, [initialAsset.id]);
+      final report = await s.reprocessImages(project, [source.id]);
       final refreshed = report!.project;
-      expect(refreshed.assets, hasLength(1));
+      final refreshedSource = refreshed.assets.singleWhere(
+        (asset) => asset.id == source.id,
+      );
+      final refreshedDerived = refreshed.assets.singleWhere(
+        (asset) => asset.id == derived.id,
+      );
+      expect(refreshed.assets, hasLength(2));
       expect(refreshed.items, hasLength(1));
       expect(refreshed.documents, hasLength(1));
       expect(refreshed.items.single.id, itemId);
+      expect(refreshed.items.single.assetId, derived.id);
       expect(refreshed.documents.single.id, recordId);
       expect(refreshed.items.single.toJson(), firstPlacement.toJson());
-      expect(refreshed.assets.single.workingPath, isNot(firstRevision));
-      expect(refreshed.assets.single.processingInputPath, baseRaster);
+      expect(refreshedDerived.workingPath, isNot(firstRevision));
+      expect(refreshedSource.processingInputPath, baseRaster);
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
         await (await assets.resolve(
-          refreshed.assets.single.originalPath,
+          refreshedSource.originalPath,
         )).readAsBytes(),
         original,
       );
 
-      final again = await s.reprocessImages(refreshed, [initialAsset.id]);
+      final again = await s.reprocessImages(refreshed, [source.id]);
       expect(again!.project.items, hasLength(1));
       expect(again.project.documents, hasLength(1));
-      expect(again.project.assets, hasLength(1));
+      expect(again.project.assets, hasLength(2));
       expect(again.project.items.single.toJson(), firstPlacement.toJson());
       expect(again.project.documents.single.id, recordId);
+      expect(
+        again.project.assets
+            .singleWhere((asset) => asset.id == derived.id)
+            .workingPath,
+        isNot(refreshedDerived.workingPath),
+      );
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
         await (await assets.resolve(
-          again.project.assets.single.originalPath,
+          again.project.assets
+              .singleWhere((asset) => asset.id == source.id)
+              .originalPath,
         )).readAsBytes(),
         original,
       );

@@ -245,6 +245,28 @@ class TestBinaryMessenger final : public flutter::BinaryMessenger {
     return SendMethod("scaleJpeg", EncodableValue(std::move(arguments)));
   }
 
+  std::future<RawResponse> SendCrop(
+      const std::vector<uint8_t>& bytes, int64_t source_width,
+      int64_t source_height, int64_t orientation, double left, double top,
+      double right, double bottom,
+      int64_t max_pixels = 16'000'000) {
+    EncodableMap arguments;
+    arguments.emplace(EncodableValue("bytes"), EncodableValue(bytes));
+    arguments.emplace(EncodableValue("sourceWidth"),
+                      EncodableValue(source_width));
+    arguments.emplace(EncodableValue("sourceHeight"),
+                      EncodableValue(source_height));
+    arguments.emplace(EncodableValue("orientation"),
+                      EncodableValue(orientation));
+    arguments.emplace(EncodableValue("left"), EncodableValue(left));
+    arguments.emplace(EncodableValue("top"), EncodableValue(top));
+    arguments.emplace(EncodableValue("right"), EncodableValue(right));
+    arguments.emplace(EncodableValue("bottom"), EncodableValue(bottom));
+    arguments.emplace(EncodableValue("maxPixels"),
+                      EncodableValue(max_pixels));
+    return SendMethod("cropJpegRegion", EncodableValue(std::move(arguments)));
+  }
+
   bool HasHandler(const std::string& channel) const {
     std::lock_guard<std::mutex> lock(handlers_mutex_);
     return handlers_.find(channel) != handlers_.end();
@@ -437,6 +459,46 @@ void TestInputValidationAndUnknownMethod() {
         "invalid requests reached the asynchronous image operation");
 }
 
+void TestFullResolutionCropDispatchAndValidation() {
+  TestBinaryMessenger messenger;
+  TestPlatformPump pump;
+  std::vector<LargeJpegScaleRequest> received;
+  std::mutex received_mutex;
+  LargeJpegScaleOperation operation =
+      [&received, &received_mutex](const LargeJpegScaleRequest& request) {
+        std::lock_guard<std::mutex> lock(received_mutex);
+        received.push_back(request);
+        return LargeJpegScaleResult::Success({0xc0, 0x0c});
+      };
+  LargeJpegScalerChannel channel(&messenger, pump.WakeCallback(), operation);
+
+  auto invalid_budget = messenger.SendCrop({0x41}, 400, 200, 6, 0.1, 0.2,
+                                           0.8, 0.9, 4'000'000);
+  CheckScaleError(invalid_budget.get(), "invalid_request", "crop");
+  auto pending = messenger.SendCrop({0x41, 0x42}, 400, 200, 6, 0.1, 0.2,
+                                    0.8, 0.9);
+  const auto response = DecodeResponse(
+      RawResponse{AwaitResponse(pump, channel, pending)});
+  Check(response.success && response.value_is_bytes &&
+            response.bytes == std::vector<uint8_t>({0xc0, 0x0c}),
+        "full-resolution crop request did not return its worker result");
+  {
+    std::lock_guard<std::mutex> lock(received_mutex);
+    Check(received.size() == 1,
+          "invalid crop request reached the asynchronous operation");
+    const auto& request = received.front();
+    Check(request.full_resolution_crop && request.source_width == 400 &&
+              request.source_height == 200 && request.orientation == 6 &&
+              request.max_pixels == 16'000'000 && request.left == 0.1 &&
+              request.top == 0.2 && request.right == 0.8 &&
+              request.bottom == 0.9 &&
+              request.bytes == std::vector<uint8_t>({0x41, 0x42}),
+          "crop request bounds or immutable source bytes changed in transit");
+  }
+  Check(messenger.DuplicateReplies() == 0,
+        "full-resolution crop completed a method call more than once");
+}
+
 void TestWorkerThreadDispatchAndRequestAssociation() {
   TestBinaryMessenger messenger;
   TestPlatformPump pump;
@@ -536,6 +598,34 @@ void TestWicSuccessDimensionsOrientationAndSourcePreservation() {
         "WIC decode or sampled conversion modified the input JPEG bytes");
   Check(messenger.DuplicateReplies() == 0,
         "WIC success completed a method call more than once");
+}
+
+void TestWicFullResolutionCropDimensionsOrientationAndSourcePreservation() {
+  TestBinaryMessenger messenger;
+  TestPlatformPump pump;
+  LargeJpegScalerChannel channel(&messenger, pump.WakeCallback());
+
+  const auto jpeg = MakeSyntheticJpeg(512, 256);
+  const auto original = jpeg;
+  // Orientation six has an oriented 256 by 512 canvas. This request is its
+  // central half, which must remain full density (128 by 256) after rotation.
+  auto pending = messenger.SendCrop(jpeg, 512, 256, 6, 0.25, 0.25, 0.75, 0.75);
+  const auto response = DecodeResponse(
+      RawResponse{AwaitResponse(pump, channel, pending)});
+  if (!response.success || !response.value_is_bytes) {
+    throw std::runtime_error(
+        "WIC did not return a full-resolution cropped PNG: " +
+        response.error_code + " " + response.error_message);
+  }
+  const auto dimensions = ReadPngDimensions(response.bytes);
+  Check(dimensions.first == 128 && dimensions.second == 256,
+        "WIC crop did not preserve the selected EXIF-oriented dimensions");
+  Check(static_cast<uint64_t>(dimensions.first) * dimensions.second == 32768,
+        "WIC crop unexpectedly sampled the requested full-resolution region");
+  Check(jpeg == original,
+        "WIC crop modified the input JPEG bytes");
+  Check(messenger.DuplicateReplies() == 0,
+        "WIC crop completed a method call more than once");
 }
 
 void TestDecodeConversionAndEncodeFailuresReturnErrors() {
@@ -729,8 +819,10 @@ void TestEngineShutdownDropsCallbacksWithoutRetainingWindow() {
 int main() {
   try {
     TestInputValidationAndUnknownMethod();
+    TestFullResolutionCropDispatchAndValidation();
     TestWorkerThreadDispatchAndRequestAssociation();
     TestWicSuccessDimensionsOrientationAndSourcePreservation();
+    TestWicFullResolutionCropDimensionsOrientationAndSourcePreservation();
     TestDecodeConversionAndEncodeFailuresReturnErrors();
     TestConcurrencyLimitRejectsExcessWork();
     TestPluginShutdownCancelsInFlightAndDropsLateResult();

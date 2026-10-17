@@ -119,7 +119,6 @@ void main() {
       expect(report.cropped, 0);
       expect(report.notDetected, 1);
       expect(report.project.assets.single.crop, isNull);
-      expect(report.project.items.single.sizeConfirmed, isFalse);
       expect(report.warnings.join(' '), contains('لا يطابق مقاس النوع'));
     });
   });

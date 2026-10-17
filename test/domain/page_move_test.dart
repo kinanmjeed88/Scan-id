@@ -55,19 +55,10 @@ void main() {
   });
 
   test('a full target page rejects the move without changing source state', () {
-    final p = page(
-      [
-        block('one', 20, 20),
-        block(
-          'full',
-          10,
-          10,
-          width: 190,
-          height: 277,
-        ).copyWith(pageIndex: 1),
-      ],
-      pageCount: 2,
-    );
+    final p = page([
+      block('one', 20, 20),
+      block('full', 10, 10, width: 190, height: 277).copyWith(pageIndex: 1),
+    ], pageCount: 2);
     final before = p.toJson();
 
     expect(

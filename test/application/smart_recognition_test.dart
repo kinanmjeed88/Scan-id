@@ -6,7 +6,6 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
-import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';

@@ -1452,15 +1452,21 @@ class SmartIntake {
           header.width * header.height <= maxScalableJpegSourcePixels,
       'الأصل الكبير ليس JPEG صالحاً للقص كامل الدقة.',
     );
+    // A detector's rectangular region and its trusted fitted quad are separate
+    // measurements. Include the latter exactly when it extends a rounded
+    // component box, rather than clipping a valid corner or inventing a clamp.
+    final cropBounds = detection.hasUsableQuad
+        ? _boundsIncludingCorners(left, top, right, bottom, detection.corners!)
+        : (left: left, top: top, right: right, bottom: bottom);
     final bytes = await fullResolutionJpegCropper.cropJpegRegion(
       source: sourceBytes,
       sourceWidth: header.width,
       sourceHeight: header.height,
       orientation: header.orientation,
-      left: left,
-      top: top,
-      right: right,
-      bottom: bottom,
+      left: cropBounds.left,
+      top: cropBounds.top,
+      right: cropBounds.right,
+      bottom: cropBounds.bottom,
     );
     final croppedHeader = inspectImageHeader(bytes);
     require(
@@ -1482,13 +1488,15 @@ class SmartIntake {
     final localCorners = [
       for (final corner in detection.corners!)
         Point2(
-          (corner.x - left) / (right - left),
-          (corner.y - top) / (bottom - top),
+          (corner.x - cropBounds.left) /
+              (cropBounds.right - cropBounds.left),
+          (corner.y - cropBounds.top) /
+              (cropBounds.bottom - cropBounds.top),
         ),
     ];
-    // Segmenter bounds include a measured margin around a trusted quad. If a
-    // future producer violates that relationship, fail rather than clamping a
-    // geometry we no longer know describes the extracted pixels.
+    // The request bounds above include every trusted measured corner. Keep this
+    // guard so future coordinate changes cannot silently warp geometry that no
+    // longer describes the extracted pixels.
     require(
       localCorners.every(
         (corner) =>
@@ -1520,6 +1528,45 @@ class SmartIntake {
       outputHeight: recipe.geometry.outputHeight,
       trustworthy: true,
       recipe: recipe,
+    );
+  }
+
+  ({double left, double top, double right, double bottom})
+  _boundsIncludingCorners(
+    double left,
+    double top,
+    double right,
+    double bottom,
+    List<Point2> corners,
+  ) {
+    require(corners.length == 4, 'زوايا المستمسك غير صالحة.');
+    require(
+      corners.every(
+        (corner) =>
+            corner.x.isFinite &&
+            corner.y.isFinite &&
+            corner.x >= 0 &&
+            corner.x <= 1 &&
+            corner.y >= 0 &&
+            corner.y <= 1,
+      ),
+      'زوايا المستمسك خارج الصورة.',
+    );
+    var cropLeft = left;
+    var cropTop = top;
+    var cropRight = right;
+    var cropBottom = bottom;
+    for (final corner in corners) {
+      if (corner.x < cropLeft) cropLeft = corner.x;
+      if (corner.y < cropTop) cropTop = corner.y;
+      if (corner.x > cropRight) cropRight = corner.x;
+      if (corner.y > cropBottom) cropBottom = corner.y;
+    }
+    return (
+      left: cropLeft,
+      top: cropTop,
+      right: cropRight,
+      bottom: cropBottom,
     );
   }
 

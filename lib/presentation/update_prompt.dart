@@ -169,11 +169,7 @@ class _StartupUpdateCheckState extends State<StartupUpdateCheck> {
 /// service before an installer is offered anything, and a package the platform
 /// refuses is reported as refused — never as completed.
 class _UpdateDownloadDialog extends StatefulWidget {
-  const _UpdateDownloadDialog({
-    required this.service,
-    required this.update,
-    super.key,
-  });
+  const _UpdateDownloadDialog({required this.service, required this.update});
 
   final UpdateService service;
   final UpdateInfo update;

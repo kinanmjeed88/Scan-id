@@ -10,6 +10,7 @@ import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';

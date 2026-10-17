@@ -1000,7 +1000,9 @@ void main() {
       expect(source.hasScaledLargeSource, isTrue);
 
       project = (await s.arrangeImportedImages(project, [source.id])).project;
-      final derived = project.assets.singleWhere((asset) => asset.id != source.id);
+      final derived = project.assets.singleWhere(
+        (asset) => asset.id != source.id,
+      );
       final firstPlacement = project.items.single.copyWith(
         x: 31,
         y: 42,
@@ -1012,8 +1014,12 @@ void main() {
       final firstRevision = derived.workingPath;
       expect(project.assets, hasLength(2));
       expect(project.items.single.assetId, derived.id);
-      expect(project.assets.firstWhere((asset) => asset.id == source.id).processingInputPath,
-          baseRaster);
+      expect(
+        project.assets
+            .firstWhere((asset) => asset.id == source.id)
+            .processingInputPath,
+        baseRaster,
+      );
       expect(await assets.resolve(baseRaster), isNotNull);
 
       final report = await s.reprocessImages(project, [source.id]);
@@ -1035,7 +1041,9 @@ void main() {
       expect(refreshedSource.processingInputPath, baseRaster);
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
-        await (await assets.resolve(refreshedSource.originalPath)).readAsBytes(),
+        await (await assets.resolve(
+          refreshedSource.originalPath,
+        )).readAsBytes(),
         original,
       );
 
@@ -1046,13 +1054,17 @@ void main() {
       expect(again.project.items.single.toJson(), firstPlacement.toJson());
       expect(again.project.documents.single.id, recordId);
       expect(
-        again.project.assets.singleWhere((asset) => asset.id == derived.id).workingPath,
+        again.project.assets
+            .singleWhere((asset) => asset.id == derived.id)
+            .workingPath,
         isNot(refreshedDerived.workingPath),
       );
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
         await (await assets.resolve(
-          again.project.assets.singleWhere((asset) => asset.id == source.id).originalPath,
+          again.project.assets
+              .singleWhere((asset) => asset.id == source.id)
+              .originalPath,
         )).readAsBytes(),
         original,
       );

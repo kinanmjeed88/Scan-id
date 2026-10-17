@@ -20,6 +20,7 @@ import '../domain/arrangement.dart';
 import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
@@ -27,10 +28,12 @@ import '../domain/recognition_routing.dart';
 import '../domain/side_pairing.dart';
 import '../domain/validation.dart';
 import '../imaging/document_segmenter.dart';
+import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
 import '../imaging/region_crop.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
+import 'full_resolution_jpeg_cropper.dart';
 import 'ids.dart';
 import 'image_reader.dart';
 import 'ocr_engine.dart';
@@ -109,6 +112,7 @@ class SmartIntake {
     this.worker = const RecognitionBatchWorker(),
     this.warp = defaultWarp,
     this.cropRegion = defaultRegionCrop,
+    this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.thresholds = defaultThresholds,
   });
 
@@ -128,6 +132,10 @@ class SmartIntake {
   /// without a trustworthy quadrilateral is preserved instead of dropped.
   final Future<Uint8List> Function(Uint8List originalBytes, List<double> region)
   cropRegion;
+
+  /// Native full-density cropper used only for sources that were sampled during
+  /// import because their JPEG raster exceeded the Dart image budget.
+  final FullResolutionJpegCropper fullResolutionJpegCropper;
   final RecognitionThresholds thresholds;
 
   Future<AutomaticLayoutReport> run(
@@ -758,9 +766,7 @@ class SmartIntake {
 
     Uint8List? originalBytes;
     try {
-      originalBytes = await readBoundedImage(
-        (await assets.resolve(sourceAsset.processingInputPath)).openRead(),
-      );
+      originalBytes = await _readRegionSource(sourceAsset);
       var position = 0;
       for (final detection in analyzed.analysis.allRegions) {
         cancellation?.throwIfCancelled();
@@ -791,7 +797,7 @@ class SmartIntake {
           );
           continue;
         }
-        final output = await _renderRegion(
+        final output = await _renderAnalyzedRegion(
           originalBytes,
           analyzed,
           current.catalog,
@@ -1292,14 +1298,12 @@ class SmartIntake {
     final sourceAsset = analyzed.asset;
     Uint8List? originalBytes;
     try {
-      originalBytes = await readBoundedImage(
-        (await assets.resolve(sourceAsset.processingInputPath)).openRead(),
-      );
+      originalBytes = await _readRegionSource(sourceAsset);
       var position = 0;
       for (final detection in detections) {
         cancellation?.throwIfCancelled();
         final kind = detection.classification.kind;
-        final output = await _renderRegion(
+        final output = await _renderAnalyzedRegion(
           originalBytes,
           analyzed,
           current.catalog,
@@ -1398,6 +1402,119 @@ class SmartIntake {
       originalBytes = null;
     }
     return current;
+  }
+
+  /// Reads the immutable source for a derived region. A normally sized asset
+  /// uses its original directly. A large JPEG was deliberately sampled at
+  /// import, but its segmented regions must come from the untouched JPEG rather
+  /// than the 4 MP working proxy; [fullResolutionJpegCropper] extracts just the
+  /// region under a separate native memory budget.
+  Future<Uint8List> _readRegionSource(ImageAsset asset) async =>
+      readBoundedImage(
+        (await assets.resolve(
+          asset.hasScaledLargeSource
+              ? asset.originalPath
+              : asset.processingInputPath,
+        )).openRead(),
+      );
+
+  Future<_RegionOutput> _renderAnalyzedRegion(
+    Uint8List sourceBytes,
+    _Analyzed analyzed,
+    DocumentSizeCatalog catalog,
+    DetectionAnalysis detection,
+  ) async {
+    final asset = analyzed.asset;
+    final region = detection.region;
+    if (!asset.hasScaledLargeSource || region == null) {
+      return _renderRegion(sourceBytes, analyzed, catalog, detection);
+    }
+    require(region.length == 4, 'حدود منطقة JPEG غير صالحة.');
+    final left = region[0], top = region[1], right = region[2], bottom = region[3];
+    require(
+      [left, top, right, bottom].every((value) => value.isFinite) &&
+          left >= 0 &&
+          top >= 0 &&
+          right <= 1 &&
+          bottom <= 1 &&
+          left < right &&
+          top < bottom,
+      'حدود منطقة JPEG غير صالحة.',
+    );
+    final header = inspectImageHeader(sourceBytes);
+    require(
+      header.encoding == ImageEncoding.jpeg &&
+          header.width * header.height <= maxScalableJpegSourcePixels,
+      'الأصل الكبير ليس JPEG صالحاً للقص كامل الدقة.',
+    );
+    final bytes = await fullResolutionJpegCropper.cropJpegRegion(
+      source: sourceBytes,
+      sourceWidth: header.width,
+      sourceHeight: header.height,
+      orientation: header.orientation,
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+    );
+    final croppedHeader = inspectImageHeader(bytes);
+    require(
+      croppedHeader.encoding == ImageEncoding.png &&
+          withinImageBudget(croppedHeader.width, croppedHeader.height),
+      'منطقة JPEG كاملة الدقة غير صالحة.',
+    );
+    if (!detection.hasUsableQuad) {
+      // The native rectangle IS the measured region. Keeping its pixels as-is
+      // avoids a second decode/re-encode and never invents a quadrilateral.
+      return _RegionOutput(
+        bytes: bytes,
+        corners: null,
+        outputWidth: null,
+        outputHeight: null,
+        trustworthy: false,
+      );
+    }
+    final localCorners = [
+      for (final corner in detection.corners!)
+        Point2(
+          (corner.x - left) / (right - left),
+          (corner.y - top) / (bottom - top),
+        ),
+    ];
+    // Segmenter bounds include a measured margin around a trusted quad. If a
+    // future producer violates that relationship, fail rather than clamping a
+    // geometry we no longer know describes the extracted pixels.
+    require(
+      localCorners.every(
+        (corner) =>
+            corner.x >= 0 && corner.x <= 1 && corner.y >= 0 && corner.y <= 1,
+      ),
+      'زوايا المستمسك خارج المنطقة المقاسة.',
+    );
+    final kind = detection.classification.kind;
+    final estimate = CropDraft(
+      corners: localCorners,
+      adjustments: asset.adjustments,
+    ).toRecipe(croppedHeader.width, croppedHeader.height);
+    final size = catalog.sizeFor(
+      kind,
+      landscape: estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+    );
+    final recipe = size == null
+        ? estimate
+        : CropDraft(
+            corners: localCorners,
+            adjustments: asset.adjustments,
+            aspectRatio: size.width / size.height,
+          ).toRecipe(croppedHeader.width, croppedHeader.height);
+    return _RegionOutput(
+      bytes: await warp(bytes, recipe),
+      corners: detection.corners,
+      outputWidth: recipe.geometry.outputWidth,
+      outputHeight: recipe.geometry.outputHeight,
+      trustworthy: true,
+      recipe: recipe,
+    );
   }
 
   /// Renders one detected region into the bytes of its derived image.

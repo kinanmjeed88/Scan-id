@@ -16,6 +16,7 @@ import 'camera_capture.dart';
 import 'project_recovery.dart';
 import 'ids.dart';
 import 'image_reader.dart';
+import 'full_resolution_jpeg_cropper.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 import 'smart_recognition.dart';
@@ -175,6 +176,7 @@ class ProjectService {
     this.recovery,
     this.maintenance,
     this.segmenter,
+    this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.smartRecognitionEnabled =
         smart_recognition_flag.smartRecognitionEnabled,
     this.multiDocumentSegmentationEnabled =
@@ -191,6 +193,11 @@ class ProjectService {
   /// Test seam for the multi-document segmentation stage; null means the
   /// real classical segmenter (off the UI isolate).
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
+
+  /// Extracts a measured region from a sampled JPEG's immutable original at
+  /// native density. Kept injectable because a real platform channel is not
+  /// available to the Dart test runner.
+  final FullResolutionJpegCropper fullResolutionJpegCropper;
 
   /// App-level Phase 1B gate. Production defaults to the disabled build flag;
   /// tests can explicitly opt in to exercise the implementation behind it.
@@ -383,6 +390,7 @@ class ProjectService {
         assets: assets,
         editor: smartEditor,
         segment: segmenter ?? defaultSegment,
+        fullResolutionJpegCropper: fullResolutionJpegCropper,
       ).run(
         project,
         assetIds,
@@ -511,6 +519,7 @@ class ProjectService {
               assets: assets,
               editor: editor,
               segment: (_) async => segmentation,
+              fullResolutionJpegCropper: fullResolutionJpegCropper,
             ).run(
               current,
               [id],

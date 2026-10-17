@@ -41,6 +41,8 @@ jobs:
       contents: read
       actions: read
     env:
+      # Repository secret, separate from the dashboard's Actions:write PAT.
+      # Fine-grained PAT: this repository only, Contents read/write, Actions read.
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       version_file: lib/application/app_release.dart
     outputs:
@@ -654,6 +656,8 @@ jobs:
       group: publish-release-management
       cancel-in-progress: false
     env:
+      # Same repository secret; Contents: write is used for the release commit,
+      # tag, and assets. Never expose this token in the dashboard.
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
     steps:
@@ -777,6 +781,13 @@ jobs:
           fi
           git commit -m "release: $tag+$NEW_BUILD" \
             -m "$RELEASE_NOTES"
+          committed_files="$(git show --name-only --format= HEAD | sort)"
+          expected_files="$(printf '%s\n' lib/application/app_release.dart pubspec.yaml | sort)"
+          if [[ "$committed_files" != "$expected_files" ]]; then
+            echo "::error title=release-commit::Release commit contains unexpected files."
+            printf 'Committed files:\n%s\n' "$committed_files"
+            exit 1
+          fi
           git show HEAD:lib/application/app_release.dart |
             grep -qF "const String appVersion = '$NEW_VERSION'" || {
               echo "::error title=release-commit::Committed appVersion mismatch."

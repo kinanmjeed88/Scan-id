@@ -1,16 +1,19 @@
-// Scan-id Release Dashboard - secure, no secrets in browser
-// Reads real data via public GitHub API, writes via Actions dispatch link (auth in GitHub UI)
+// Scan-id Release Dashboard.
+// Reads public release data and dispatches the workflow with a short-lived,
+// user-entered token. The token is never persisted or placed in a URL/log.
 (function () {
   const OWNER = 'kinanmjeed88';
   const REPO = 'Scan-id';
   const API_BASE = 'https://api.github.com/repos/' + OWNER + '/' + REPO;
   const RAW_PUBSPEC = 'https://raw.githubusercontent.com/' + OWNER + '/' + REPO + '/searchidf/pubspec.yaml';
+  const WORKFLOW_ID = 'release-management.yml';
+  const WORKFLOW_REF = 'searchidf';
   const EL = {};
 
   function $(id) { return document.getElementById(id); }
 
   function initEls() {
-    ['global-alert','status-loading','status-error','status-grid','code-version','code-branch','build-number','active-branch','active-branch-meta','last-tag','last-tag-date','last-release','last-release-date','android-status','android-link','windows-status','windows-link','signature-status','signature-meta','last-updated','refresh-btn','mismatch-warning','ota-compat','new-version','new-build','release-notes','target-android','target-windows','err-version','err-build','err-notes','err-targets','change-summary','sum-current','sum-proposed','sum-type','form-error','form-success','btn-create','btn-copy-gh','btn-open-actions','gh-command','cmd-text','copy-cmd','action-steps','recent-runs','runs-list','page-built'].forEach(function (id) { EL[id] = $(id); });
+    ['global-alert','status-loading','status-error','status-grid','code-version','code-branch','build-number','active-branch','active-branch-meta','last-tag','last-tag-date','last-release','last-release-date','android-status','android-link','windows-status','windows-link','signature-status','signature-meta','last-updated','refresh-btn','mismatch-warning','ota-compat','new-version','new-build','release-notes','target-android','target-windows','release-form','release-token','err-version','err-build','err-notes','err-targets','err-token','change-summary','sum-current','sum-proposed','sum-type','form-error','form-success','btn-create','btn-copy-gh','btn-open-actions','gh-command','cmd-text','copy-cmd','action-steps','recent-runs','runs-list','page-built'].forEach(function (id) { EL[id] = $(id); });
   }
 
   // --- SemVer 2.0.0 port from Dart (_SemVersion) ---
@@ -24,6 +27,13 @@
     }
     return { major: m[1], minor: m[2], patch: m[3], prerelease: pr, core: m[1]+'.'+m[2]+'.'+m[3], prStr: m[4]||'', build: m[5]||'' };
   }
+  function parseReleaseVersion(v){
+    var parsed = parseSemVer(v);
+    // The workflow adds `build_number` to pubspec itself; accepting +metadata
+    // here would send a version it will reject or duplicate the build suffix.
+    return parsed && !parsed.build ? parsed : null;
+  }
+
   function compareSemVer(a, b) {
     var pa = parseSemVer(a), pb = parseSemVer(b);
     if (!pa || !pb) throw new Error('Invalid SemVer: '+(pa?b:a));
@@ -83,7 +93,7 @@
   var state = {
     currentCore: null, currentBuild: null, currentPubspec: null,
     lastTag: null, lastRelease: null, lastReleaseDate: null,
-    defaultBranch: 'searchidf'
+    defaultBranch: 'searchidf', dispatching: false
   };
 
   async function fetchJSON(url, opts){
@@ -286,25 +296,41 @@
     setText('sum-current', cur);
     setText('sum-proposed', prop);
     try {
-      if (!parseSemVer(v)) { setText('sum-type','صيغة غير صالحة'); return; }
+      var proposed = parseReleaseVersion(v);
+      if (!proposed) { setText('sum-type','صيغة غير صالحة؛ رقم البناء منفصل'); return; }
       var cmp = compareSemVer(v, state.currentCore);
-      var type = cmp>0 ? (v.split('.')[2]!==state.currentCore.split('.')[2] ? 'patch': v.split('.')[1]!==state.currentCore.split('.')[1] ? 'minor':'major') : cmp===0 ? 'نفس Core (build فقط)' : 'أقدم!';
+      var current = parseSemVer(state.currentCore);
+      var type = cmp>0 ? (proposed.major!==current.major ? 'major': proposed.minor!==current.minor ? 'minor':'patch') : cmp===0 ? 'نفس Core (build فقط)' : 'أقدم!';
       setText('sum-type', type + (cmp<=0?' ⚠':' ✓'));
     } catch(e){ setText('sum-type','خطأ: '+e.message); }
     show(EL['change-summary'], true);
   }
 
-  function validate(){
+  function selectedTargets(){
+    var android = EL['target-android'].checked;
+    var windows = EL['target-windows'].checked;
+    if (android && windows) return 'both';
+    if (android) return 'android';
+    if (windows) return 'windows';
+    return '';
+  }
+
+  function shellQuote(value){
+    return "'" + String(value).replace(/'/g, "'\\''") + "'";
+  }
+
+  function validate(requireToken){
     var ok = true;
     var v = EL['new-version'].value.trim();
     var b = EL['new-build'].value.trim();
     var notes = EL['release-notes'].value.trim();
-    var targets = [EL['target-android'].checked, EL['target-windows'].checked];
+    var targets = selectedTargets();
+    var token = EL['release-token'].value.trim();
     // reset
-    ['err-version','err-build','err-notes','err-targets','form-error'].forEach(function(id){ show(EL[id], false); });
+    ['err-version','err-build','err-notes','err-targets','err-token','form-error'].forEach(function(id){ show(EL[id], false); });
     // version
     if (!v) { show(EL['err-version'], true); EL['err-version'].textContent='مطلوب'; ok=false; }
-    else if (!parseSemVer(v)) { show(EL['err-version'], true); EL['err-version'].textContent='صيغة SemVer غير صالحة (مثال 0.1.1 أو 1.0.0-rc.1)'; ok=false; }
+    else if (!parseReleaseVersion(v)) { show(EL['err-version'], true); EL['err-version'].textContent='صيغة SemVer غير صالحة؛ لا تضف +build metadata لأن رقم البناء في حقل مستقل (مثال 0.1.1 أو 1.0.0-rc.1)'; ok=false; }
     else if (state.currentCore) {
       try {
         if (compareSemVer(v, state.currentCore) <=0) { show(EL['err-version'], true); EL['err-version'].textContent='يجب أن يكون أحدث من الكود الحالي ('+state.currentCore+')'; ok=false; }
@@ -324,8 +350,10 @@
     if (!notes) { show(EL['err-notes'], true); EL['err-notes'].textContent='مطلوب'; ok=false; }
     else if (notes.length<3) { show(EL['err-notes'], true); EL['err-notes'].textContent='قصير جداً (≥3)'; ok=false; }
     else if (notes.length>5000) { show(EL['err-notes'], true); EL['err-notes'].textContent='طويل جداً (>5000)'; ok=false; }
-    // targets
-    if (!targets[0] && !targets[1]) { show(EL['err-targets'], true); EL['err-targets'].textContent='اختر نظاماً واحداً على الأقل'; ok=false; }
+    // targets (the workflow accepts `both`, not `android,windows`)
+    if (!targets) { show(EL['err-targets'], true); EL['err-targets'].textContent='اختر نظاماً واحداً على الأقل'; ok=false; }
+    // Dashboard tokens are used only by the dispatch request and are not stored.
+    if (requireToken && !token) { show(EL['err-token'], true); EL['err-token'].textContent='أدخل توكن الإطلاق المؤقت لإرسال الطلب إلى GitHub'; ok=false; }
     // branch check
     if (state.defaultBranch !== 'searchidf') {
       // This is just warning in UI, hard check in Workflow
@@ -337,19 +365,73 @@
     var v = EL['new-version'].value.trim();
     var b = EL['new-build'].value.trim();
     var notes = EL['release-notes'].value.trim();
-    var targets = (EL['target-android'].checked?'android':'') + (EL['target-android'].checked && EL['target-windows'].checked?',':'') + (EL['target-windows'].checked?'windows':'');
-    if (!v || !b) return '';
-    var cmd = 'gh workflow run release-management.yml --ref searchidf -f version='+v+' -f build_number='+b+' -f release_notes="'+notes.replace(/"/g,'\\"')+'" -f targets='+targets;
-    return cmd;
+    var targets = selectedTargets();
+    if (!v || !b || !targets) return '';
+    return 'gh workflow run ' + WORKFLOW_ID + ' --ref ' + WORKFLOW_REF +
+      ' -f version=' + shellQuote(v) +
+      ' -f build_number=' + shellQuote(b) +
+      ' -f release_notes=' + shellQuote(notes) +
+      ' -f targets=' + shellQuote(targets);
+  }
+
+  async function dispatchRelease(token, release){
+    var response;
+    try {
+      response = await fetch(API_BASE + '/actions/workflows/' + WORKFLOW_ID + '/dispatches', {
+        method: 'POST',
+        mode: 'cors',
+        cache: 'no-store',
+        credentials: 'omit',
+        redirect: 'error',
+        referrerPolicy: 'no-referrer',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        },
+        body: JSON.stringify({
+          ref: WORKFLOW_REF,
+          inputs: {
+            version: release.version,
+            build_number: release.build,
+            release_notes: release.notes,
+            targets: release.targets
+          }
+        })
+      });
+    } catch{
+      throw new Error('تعذر الاتصال بـ GitHub API. تحقق من الشبكة أو إعدادات المتصفح؛ لا تعاود الإرسال قبل مراجعة التشغيلات الأخيرة فقد يكون الطلب وصل.');
+    }
+
+    if (response.status === 204) return;
+    var payload = await response.json().catch(function(){ return {}; });
+    var detail = payload && payload.message ? String(payload.message).slice(0, 240) : '';
+    var message;
+    if (response.status === 401) {
+      message = 'توكن اللوحة غير صالح أو منتهي الصلاحية.';
+    } else if (response.status === 403) {
+      message = 'رفض GitHub الطلب: امنح توكن اللوحة صلاحية Actions: write لهذا المستودع فقط، وتأكد من تفعيل Actions.';
+    } else if (response.status === 404) {
+      message = 'لم يجد GitHub سير العمل أو لم يسمح التوكن بالوصول إليه؛ تحقق من وجود release-management.yml على الفرع الافتراضي وصلاحية Actions: write.';
+    } else if (response.status === 422) {
+      message = 'رفض GitHub مدخلات تشغيل سير العمل (HTTP 422). تحقق من قيم الإصدار والنظام المستهدف.';
+    } else {
+      message = 'تعذر إطلاق سير العمل (HTTP ' + response.status + ').';
+    }
+    if (detail) message += ' ' + detail;
+    var dispatchError = new Error(message);
+    dispatchError.status = response.status;
+    throw dispatchError;
   }
 
   async function loadRecentRuns(){
     try {
-      var data = await fetchJSON(API_BASE + '/actions/workflows/release-management.yml/runs?per_page=3');
+      var data = await fetchJSON(API_BASE + '/actions/workflows/' + WORKFLOW_ID + '/runs?per_page=3', { cache: 'no-store' });
       var runs = data.workflow_runs||[];
       if (!runs.length) {
         // fallback to any workflow
-        var any = await fetchJSON(API_BASE + '/actions/runs?per_page=3');
+        var any = await fetchJSON(API_BASE + '/actions/runs?per_page=3', { cache: 'no-store' });
         runs = any.workflow_runs.slice(0,3);
       }
       if (!runs.length) return;
@@ -371,14 +453,75 @@
     } catch(e){}
   }
 
+  async function submitRelease(){
+    if (state.dispatching) return;
+    if (!validate(true)) {
+      show(EL['form-error'], true);
+      EL['form-error'].textContent='صحّح الحقول المطلوبة قبل إرسال الطلب.';
+      return;
+    }
+
+    var releaseToken = EL['release-token'].value.trim();
+    var release = {
+      version: EL['new-version'].value.trim(),
+      build: EL['new-build'].value.trim(),
+      notes: EL['release-notes'].value.trim(),
+      targets: selectedTargets()
+    };
+    var runUrl = 'https://github.com/' + OWNER + '/' + REPO + '/actions/workflows/' + WORKFLOW_ID;
+
+    show(EL['form-error'], false);
+    show(EL['form-success'], false);
+    show(EL['gh-command'], false);
+    show(EL['action-steps'], true);
+    state.dispatching = true;
+    EL['btn-create'].disabled = true;
+    EL['btn-create'].setAttribute('aria-busy', 'true');
+    EL['btn-create'].textContent = 'جارٍ إرسال طلب البناء...';
+    // Clear the visible field immediately. The token is only kept in this
+    // function's memory for the single HTTPS request; it is never persisted.
+    EL['release-token'].value = '';
+
+    try {
+      await dispatchRelease(releaseToken, release);
+      show(EL['form-success'], true);
+      EL['form-success'].textContent = 'استلم GitHub طلب الإصدار ' + release.version + '+' + release.build +
+        ' (' + release.targets + '). يجري البناء والنشر في الخلفية؛ سيظهر التشغيل هنا بعد قليل. بعد نجاح النشر يصبح الإصدار متاحاً لفحص OTA داخل التطبيق.';
+      var link = document.createElement('a');
+      link.href = runUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'فتح سجل Actions اختيارياً';
+      EL['form-success'].appendChild(document.createElement('br'));
+      EL['form-success'].appendChild(link);
+      window.setTimeout(loadRecentRuns, 2500);
+      window.setTimeout(loadStatus, 7000);
+    } catch(error){
+      show(EL['form-error'], true);
+      EL['form-error'].textContent = error.message || 'فشل إرسال طلب البناء إلى GitHub.';
+    } finally {
+      // Best-effort clearing of the transient JavaScript reference.
+      releaseToken = '';
+      state.dispatching = false;
+      EL['btn-create'].disabled = false;
+      EL['btn-create'].removeAttribute('aria-busy');
+      EL['btn-create'].textContent = 'إرسال وبدء البناء والنشر';
+    }
+  }
+
   function bindEvents(){
     ['new-version','new-build','release-notes','target-android','target-windows'].forEach(function(id){
       var el = EL[id];
-      if (el) el.addEventListener('input', function(){ validate(); updateSummary(); updateGhCommand(); });
+      if (el) el.addEventListener('input', function(){ validate(false); updateSummary(); updateGhCommand(); });
+    });
+    EL['release-token'].addEventListener('input', function(){ show(EL['err-token'], false); });
+    EL['release-form'].addEventListener('submit', function(event){
+      event.preventDefault();
+      submitRelease();
     });
     EL['refresh-btn'].addEventListener('click', loadStatus);
     EL['btn-copy-gh'].addEventListener('click', function(){
-      if (!validate()) return;
+      if (!validate(false)) return;
       var cmd = buildGhCommand();
       show(EL['gh-command'], true);
       EL['cmd-text'].textContent = cmd;
@@ -389,34 +532,12 @@
       navigator.clipboard.writeText(txt).then(function(){
         EL['copy-cmd'].textContent='✓ نُسخ';
         setTimeout(function(){ EL['copy-cmd'].textContent='نسخ'; },1500);
+      }).catch(function(){
+        EL['copy-cmd'].textContent='تعذر النسخ';
+        setTimeout(function(){ EL['copy-cmd'].textContent='نسخ'; },1500);
       });
     });
-    EL['btn-create'].addEventListener('click', function(){
-      if (!validate()) {
-        show(EL['form-error'], true);
-        EL['form-error'].textContent='صحّح الأخطاء قبل المتابعة.';
-        return;
-      }
-      show(EL['form-error'], false);
-      show(EL['form-success'], false);
-      var v = EL['new-version'].value.trim();
-      var b = EL['new-build'].value.trim();
-      var notes = EL['release-notes'].value.trim();
-      var targets = (EL['target-android'].checked?'android,':'')+(EL['target-windows'].checked?'windows':'');
-      targets = targets.replace(/,$/,'');
-      var url = 'https://github.com/' + OWNER + '/' + REPO + '/actions/workflows/release-management.yml';
-      show(EL['gh-command'], true);
-      EL['cmd-text'].textContent = buildGhCommand();
-      show(EL['action-steps'], false);
-      // Deep link to Actions: we cannot prefill, so show instructions
-      if (confirm('سيتم فتح صفحة Actions في تبويب جديد. سجّل دخولك إلى GitHub ثم اضغط Run workflow وأدخل:\n\nversion: '+v+'\nbuild_number: '+b+'\nrelease_notes: '+notes+'\n\nاضغط موافق للمتابعة.')) {
-        window.open(url, '_blank');
-        show(EL['form-success'], true);
-        EL['form-success'].textContent = 'تم فتح صفحة Actions. أكمل العملية هناك — الـ Workflow سيتحقق من الصلاحيات والـ SemVer والـ Tag المكرر قبل أي كتابة.';
-        var br = document.createElement('br'); EL['form-success'].appendChild(br);
-        var sm = document.createElement('small'); sm.textContent = 'الأمر المحلي: '; var code = document.createElement('code'); code.textContent = buildGhCommand(); sm.appendChild(code); EL['form-success'].appendChild(sm);
-      }
-    });
+    EL['btn-create'].addEventListener('click', submitRelease);
   }
 
   function updateGhCommand(){

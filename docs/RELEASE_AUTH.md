@@ -1,29 +1,33 @@
 # مصادقة إدارة الإصدارات — Scan-id
 
-## المبدأ
-- **لا PAT ثابت في الصفحة:** `admin/index.html` و`admin/app.js` لا يحتويان أي سر. تحقق: `grep -r token admin/` → 0 (كلمة token تظهر فقط في التوثيق).
-- **الجهة الموثوقة:** GitHub Actions فقط (`release-management.yml`) يملك `GITHUB_TOKEN` مع `contents: write` في مهمة النشر، وباقي المهام `read`.
-- **التحقق من الهوية:** كل تشغيل يفحص `actor permission` عبر `gh api repos/<repo>/collaborators/<actor>/permission` — يجب أن يكون `admin/write/maintain`، وإلا يفشل.
+## التوكنان منفصلان
 
-## كيف يُطلق الإصدار بأمان
-1. المستخدم يفتح `https://kinanmjeed88.github.io/Scan-id/admin/` (Pages من `searchidf /`).
-2. يملأ `version, build_number, release_notes, targets` — الواجهة تتحقق محلياً بـ SemVer نفس منطق Dart (`_SemVersion.parse`).
-3. يضغط **إنشاء إصدار ونشر** → تُبنى `gh workflow run release-management.yml -f version=...` **ولا يُرسل PAT** — يُعرض الأمر للنسخ + زر **فتح Actions**.
-4. المستخدم يسجل دخوله إلى GitHub (مصادقة GitHub نفسها) → `Actions → Release Management → Run workflow` → يلصق القيم → `Run`.
-5. الـ Workflow يتحقق من `github.ref == refs/heads/searchidf`, `concurrency: release-management`, عدم وجود نشر متزامن, SemVer, عدم تكرار Tag, `build_number` موجب, `release_notes` 3–5000, اختلاف كود/Release → ثم يحدّث `pubspec.yaml` + `app.dart` بعد التحقق فقط (لا `git checkout --` للتراجع).
+1. **توكن لوحة الإدارة (لإطلاق التشغيل فقط):** تكتب Fine-grained PAT في حقل كلمة المرور عند كل إرسال. يحتاج صلاحية `Actions: write` لمستودع `kinanmjeed88/Scan-id` فقط. يرسله المتصفح مباشرةً إلى GitHub API عبر HTTPS لطلب `workflow_dispatch` على الفرع `searchidf`، ثم يُفرغ الحقل ولا يُحفظ في `localStorage` أو `sessionStorage` أو URL أو السجلات. لا يمكن لصفحة GitHub Pages قراءة أسرار Actions. لا تلصق في هذا الحقل سر `RELEASE_TOKEN`.
+2. **سر سير العمل `RELEASE_TOKEN` (للكتابة والنشر من Actions):** أضفه كـ **Repository secret** بالاسم الدقيق `RELEASE_TOKEN` من `Settings → Secrets and variables → Actions`. لا تضفه كـ Variable أو كسرّ خاص ببيئة `android-signing`؛ سير التحقق والنشر يقرؤه عبر `${{ secrets.RELEASE_TOKEN }}`. استخدم Fine-grained PAT مقيّداً بهذا المستودع، بصلاحية `Contents: read and write` و`Actions: read`، وحدد مدة صلاحية مناسبة. هذا السر يبقى داخل GitHub Actions ولا يصل إلى صفحة الإدارة.
 
-## الصلاحيات الدنيا
-- `validate`: `contents: read, actions: read`
-- `update-version`/`build`: `contents: read`
-- `publish`: `contents: write` فقط هنا
-- `windows`: `contents: read`
+لا تضع أيّاً من قيم التوكن في ملفات المستودع أو في المحادثة. صلاحية Actions في توكن اللوحة تمنح إمكانية إطلاق سير العمل؛ لذلك اجعله محدوداً بالمستودع، قصير العمر، ولا تستخدم توكن الكتابة الأوسع `RELEASE_TOKEN` في المتصفح. ما يزال التوكن المؤقت متاحاً لشفرة الصفحة أثناء الإرسال، لذا لا تستخدمه إلا من النسخة الموثوقة من لوحة الإدارة.
 
-## الخيارات المستقبلية (غير مفعّلة الآن)
-- **PAT مؤقت fine-grained** (`contents:write, actions:write`, expiry 7 أيام) يُدخل في حقل مؤقت لا يُخزن (`let token` في الذاكرة يُمسح بعد `fetch`), لكنه غير موصى به — الوثيقة الحالية تفضّل Deep-link.
-- **GitHub App** مع `permissions: contents:write, actions:write` و`OAuth PKCE` — يتطلب خادم تبادل code→token (خارج Pages). إذا احتاج المالك إعداده، سيُضاف `admin/backend` منفصل.
+## طريقة الإطلاق ومسار التحديث
 
-## ماذا لا يحدث
-- لا يُخزن PAT في `localStorage/sessionStorage` أو `URL` أو سجلات.
-- لا يُطبع Secret في logs (فقط أسماء: `KEYSTORE_BASE64: present/MISSING`).
-- لا يُنشأ Tag/Release قبل نجاح `analyze, test, build, sign`.
-- لا Force Push, لا حذف Tags/Releases, لا دمج PRs تلقائياً.
+1. افتح `https://kinanmjeed88.github.io/Scan-id/admin/`.
+2. أدخل `version`, `build_number`, `release_notes`, النظام المستهدف، وتوكن اللوحة المؤقت.
+3. يتحقق المتصفح من المدخلات ثم يرسل `POST /repos/kinanmjeed88/Scan-id/actions/workflows/release-management.yml/dispatches` مع `ref: searchidf`. عند نجاح الإرسال يبقى المستخدم في الصفحة، ويعرض اللوح رسالة القبول ويحدّث قائمة التشغيلات. قيم `targets` المسموحة هي `both`, `android`, أو `windows`.
+4. يتحقق Workflow مجدداً من `github.ref == refs/heads/searchidf` وأن `github.actor` هو مالك المستودع، ومن `concurrency`, وSemVer, ورقم البناء، وملاحظات الإصدار، وعدم تكرار Tag/Release.
+5. ينفّذ Workflow: التحقق → تحديث `pubspec.yaml` و`lib/application/app_release.dart` → الاختبارات والبناء للنظام/الأنظمة المختارة → فحص التوقيع والأصول → دفع التغيير وإنشاء Tag وGitHub Release والتحقق من SHA-256.
+6. بعد نجاح النشر، تصبح الأصول متاحة لفحص OTA داخل التطبيق. لا يُثبّت التطبيق التحديث بصمت؛ يتبع التطبيق آلية التحقق والتأكيد المعتادة.
+
+استجابة GitHub الناجحة لإطلاق `workflow_dispatch` هي `204`؛ تعني قبول الطلب فقط، لا نجاح البناء. راجع التشغيلات الأخيرة من نفس الصفحة، أو افتح سجل Actions يدوياً عند الحاجة. فشل الاختبارات أو التوقيع أو النشر سيبقى فشلاً ولن يُنشر إصدار OTA غير مكتمل.
+
+## حدود الصلاحيات
+
+- `validate`: صلاحيات `GITHUB_TOKEN` هي `contents: read` و`actions: read`؛ يستخدم قراءة المستودع و`RELEASE_TOKEN` لاستدعاءات GitHub API.
+- `update-version`, `build`, و`windows`: `contents: read` فقط.
+- `publish`: `contents: write`؛ يستخدم `RELEASE_TOKEN` للـ commit/tag/push وإنشاء الـ Release.
+- توكن لوحة الإدارة: `Actions: write` فقط لإطلاق Workflow، منفصل عن سر النشر.
+
+## ما لا يحدث
+
+- لا يُضمَّن أي توكن ثابت في الصفحة أو الشيفرة.
+- لا تُخزَّن قيمة توكن اللوحة في المتصفح ولا توضع في URL أو نصوص الصفحة أو السجلات.
+- لا يُنشأ Release قبل نجاح متطلبات البناء والتحقق.
+- لا Force Push، ولا حذف Tags/Releases، ولا تثبيت صامت على أجهزة المستخدمين.

@@ -1430,7 +1430,10 @@ class SmartIntake {
       return _renderRegion(sourceBytes, analyzed, catalog, detection);
     }
     require(region.length == 4, 'حدود منطقة JPEG غير صالحة.');
-    final left = region[0], top = region[1], right = region[2], bottom = region[3];
+    final left = region[0],
+        top = region[1],
+        right = region[2],
+        bottom = region[3];
     require(
       [left, top, right, bottom].every((value) => value.isFinite) &&
           left >= 0 &&
@@ -1498,7 +1501,8 @@ class SmartIntake {
     ).toRecipe(croppedHeader.width, croppedHeader.height);
     final size = catalog.sizeFor(
       kind,
-      landscape: estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+      landscape:
+          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
     );
     final recipe = size == null
         ? estimate

@@ -75,20 +75,18 @@ class PlatformFullResolutionJpegCropper
       'منطقة JPEG كاملة الدقة غير صالحة.',
     );
     try {
-      final result = await channel.invokeMethod<Uint8List>(
-        'cropJpegRegion',
-        <String, Object>{
-          'bytes': source,
-          'sourceWidth': sourceWidth,
-          'sourceHeight': sourceHeight,
-          'orientation': orientation,
-          'left': left,
-          'top': top,
-          'right': right,
-          'bottom': bottom,
-          'maxPixels': maxImportPixels,
-        },
-      );
+      final result = await channel
+          .invokeMethod<Uint8List>('cropJpegRegion', <String, Object>{
+            'bytes': source,
+            'sourceWidth': sourceWidth,
+            'sourceHeight': sourceHeight,
+            'orientation': orientation,
+            'left': left,
+            'top': top,
+            'right': right,
+            'bottom': bottom,
+            'maxPixels': maxImportPixels,
+          });
       if (result == null) {
         throw const ValidationException('تعذر استخراج منطقة JPEG كاملة الدقة.');
       }

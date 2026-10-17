@@ -612,8 +612,11 @@ void TestWicFullResolutionCropDimensionsOrientationAndSourcePreservation() {
   auto pending = messenger.SendCrop(jpeg, 512, 256, 6, 0.25, 0.25, 0.75, 0.75);
   const auto response = DecodeResponse(
       RawResponse{AwaitResponse(pump, channel, pending)});
-  Check(response.success && response.value_is_bytes,
-        "WIC did not return a full-resolution cropped PNG");
+  if (!response.success || !response.value_is_bytes) {
+    throw std::runtime_error(
+        "WIC did not return a full-resolution cropped PNG: " +
+        response.error_code + " " + response.error_message);
+  }
   const auto dimensions = ReadPngDimensions(response.bytes);
   Check(dimensions.first == 128 && dimensions.second == 256,
         "WIC crop did not preserve the selected EXIF-oriented dimensions");

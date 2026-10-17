@@ -1488,10 +1488,8 @@ class SmartIntake {
     final localCorners = [
       for (final corner in detection.corners!)
         Point2(
-          (corner.x - cropBounds.left) /
-              (cropBounds.right - cropBounds.left),
-          (corner.y - cropBounds.top) /
-              (cropBounds.bottom - cropBounds.top),
+          (corner.x - cropBounds.left) / (cropBounds.right - cropBounds.left),
+          (corner.y - cropBounds.top) / (cropBounds.bottom - cropBounds.top),
         ),
     ];
     // The request bounds above include every trusted measured corner. Keep this
@@ -1562,12 +1560,7 @@ class SmartIntake {
       if (corner.x > cropRight) cropRight = corner.x;
       if (corner.y > cropBottom) cropBottom = corner.y;
     }
-    return (
-      left: cropLeft,
-      top: cropTop,
-      right: cropRight,
-      bottom: cropBottom,
-    );
+    return (left: cropLeft, top: cropTop, right: cropRight, bottom: cropBottom);
   }
 
   /// Renders one detected region into the bytes of its derived image.

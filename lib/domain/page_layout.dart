@@ -490,15 +490,59 @@ DocumentItem? _findPlacement(
   bool allowOverlap,
 ) {
   final b = item.bounds;
-  const step = 1.0;
-  for (double by = area.y; by + b.height <= area.bottom + 1e-7; by += step) {
-    for (double bx = area.x; bx + b.width <= area.right + 1e-7; bx += step) {
-      final candidate = item.copyWith(
-        x: bx + (b.width - item.width) / 2,
-        y: by + (b.height - item.height) / 2,
-      );
-      if (_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
-        return candidate;
+
+  // Candidate positions come from the edges of the printable area and of the
+  // existing documents (plus the required gap), not from a 1 mm scan. This
+  // keeps the search O(n^2) instead of O(area) while remaining exhaustive for
+  // orthogonal rectangle placement: any feasible placement can be slid left and
+  // up until its left edge touches either the printable edge or another
+  // document's right edge (plus gap), and likewise for its top edge.
+  final xs = <double>{area.x};
+  final ys = <double>{area.y};
+  for (final other in others) {
+    xs.add(other.bounds.right + gx);
+    xs.add(other.bounds.x);
+    ys.add(other.bounds.bottom + gy);
+    ys.add(other.bounds.y);
+  }
+  final candidates = <(double, double)>[];
+  for (final bx in xs) {
+    for (final by in ys) {
+      if (bx + b.width <= area.right + 1e-7 &&
+          by + b.height <= area.bottom + 1e-7 &&
+          bx >= area.x - 1e-7 &&
+          by >= area.y - 1e-7) {
+        candidates.add((bx, by));
+      }
+    }
+  }
+  candidates.sort((a, c) {
+    final by = a.$2.compareTo(c.$2);
+    if (by != 0) return by;
+    return a.$1.compareTo(c.$1);
+  });
+  for (final (bx, by) in candidates) {
+    final candidate = item.copyWith(
+      x: bx + (b.width - item.width) / 2,
+      y: by + (b.height - item.height) / 2,
+    );
+    if (_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
+      return candidate;
+    }
+  }
+
+  // Fallback: a coarse 5 mm scan, then a 1 mm scan, only if the edge-based
+  // search found nothing. This guards against any case the edge set missed.
+  for (final step in [5.0, 1.0]) {
+    for (double by = area.y; by + b.height <= area.bottom + 1e-7; by += step) {
+      for (double bx = area.x; bx + b.width <= area.right + 1e-7; bx += step) {
+        final candidate = item.copyWith(
+          x: bx + (b.width - item.width) / 2,
+          y: by + (b.height - item.height) / 2,
+        );
+        if (_validPlacement(candidate, area, others, gx, gy, allowOverlap)) {
+          return candidate;
+        }
       }
     }
   }

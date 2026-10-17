@@ -10,8 +10,10 @@ import '../application/contracts.dart';
 import '../application/ota_update.dart';
 import '../application/project_service.dart';
 import '../application/update_installer.dart';
+import '../application/update_setup.dart';
 import '../domain/project.dart';
 import 'shared.dart';
+import 'update_prompt.dart';
 
 typedef ExternalUrlLauncher = Future<bool> Function(Uri uri);
 typedef SaveBackup = Future<bool> Function(Project project);
@@ -744,9 +746,11 @@ class _OtaUpdateCard extends StatefulWidget {
 class _OtaUpdateCardState extends State<_OtaUpdateCard> {
   static const String _explanation =
       'ماذا يفعل الفحص: يسأل مصدر الإصدارات الرسمي — عبر اتصال آمن — هل نُشر '
-      'إصدار أحدث من هذا، ثم يخبرك بالنتيجة. لا يُرسل مع السؤال أي شيء عنك: لا '
-      'رقم إصدارك ولا اسمك ولا أي صورة؛ الطلب عنوان ثابت في نطاق مصدر '
-      'الإصدارات، ويرى ذلك المصدر عنوان شبكتك ووقت الطلب كما في أي اتصال.\n\n'
+      'إصدار أحدث من هذا، ثم يخبرك بالنتيجة. يتكرر هذا السؤال مرة واحدة عند '
+      'بدء التطبيق، بصمت: لا يظهر منه شيء إن لم يوجد أحدث أو تعذّر الاتصال، '
+      'ولا ينزّل شيئاً. ثم تسأله أنت متى شئت من هنا. لا يُرسل مع السؤال أي '
+      'شيء عنك: لا رقم إصدارك ولا اسمك ولا أي صورة؛ الطلب عنوان ثابت في نطاق '
+      'مصدر الإصدارات، ويرى ذلك المصدر عنوان شبكتك ووقت الطلب كما في أي اتصال.\n\n'
       'بعد «تنزيل التحديث»: تُنزَّل الحزمة إلى مساحة التطبيق الخاصة بها وتُطابق '
       'بصمتها المنشورة، وهي مطابقة تُثبت أن الملف وصل كما نُشر ولا تُثبت من '
       'نشره؛ لذلك يقارن التطبيق قبل فتح المثبت توقيعَ الحزمة بتوقيع التطبيق '
@@ -790,6 +794,12 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
   UpdateService _service() {
     final injected = widget.service;
     if (injected != null) return injected;
+    // Production takes the same factory the startup check takes, so the card
+    // and the check cannot disagree about the platform or the installer. A
+    // test that injects a source or an installer keeps its own composition.
+    if (widget.source == null && widget.installer == null) {
+      return buildPlatformUpdateService(version: _version);
+    }
     return UpdateService(
       source: _source,
       currentVersion: _version,
@@ -841,47 +851,14 @@ class _OtaUpdateCardState extends State<_OtaUpdateCard> {
       _installer == null ? 'تنزيل وتحقّق' : 'تنزيل وتثبيت';
 
   Future<void> _present(UpdateInfo update) async {
-    final notes = update.size == null
-        ? 'تُطابق الحزمة بصمتها المنشورة، ويُطابق توقيعها توقيعُ التطبيق المثبَّت '
-              'على جهازك.'
-        : 'حجم التحديث ${(update.size! / (1024 * 1024)).toStringAsFixed(1)} '
-              'MiB. تُطابق الحزمة بصمتها المنشورة، ويُطابق توقيعها توقيعُ '
-              'التطبيق المثبَّت على جهازك.';
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('يتوفر إصدار أحدث'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('الإصدار الحالي: $_version'),
-            Text('الإصدار الجديد: ${update.newVersion}'),
-            const SizedBox(height: 8),
-            Text(notes),
-            const SizedBox(height: 8),
-            Text(
-              _installer == null
-                  ? 'يُحفظ الملف مُتحقَّقاً منه في مساحة التطبيق، ولا يُشغَّل '
-                        'شيء تلقائياً.'
-                  : 'بعدها يفتح النظام شاشة التثبيت لتؤكّدها أنت.',
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('لاحقاً'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(_downloadLabel),
-          ),
-        ],
-      ),
+    await showUpdateOffer(
+      context,
+      update: update,
+      currentVersion: _version,
+      canInstall: _installer != null,
+      downloadLabel: _downloadLabel,
+      onDownload: () => _download(update),
     );
-    if (!mounted) return;
-    if (go ?? false) await _download(update);
   }
 
   Future<void> _download(UpdateInfo update) async {

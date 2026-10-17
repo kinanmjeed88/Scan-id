@@ -11,6 +11,8 @@ import 'application/project_service.dart';
 import 'application/native_documents.dart';
 import 'application/camera_capture.dart';
 import 'application/native_camera.dart';
+import 'application/ota_update.dart';
+import 'application/update_setup.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
@@ -95,6 +97,12 @@ class _Bootstrap extends StatefulWidget {
 
 class _BootstrapState extends State<_Bootstrap> {
   late Future<ProjectService> _service = _openStorage();
+
+  /// Built once. The feed and the installer do not depend on which project is
+  /// open or whether storage had to be recovered, and a service rebuilt per
+  /// frame would ask the release feed again on every rebuild.
+  final UpdateService _updates = buildPlatformUpdateService();
+
   Future<void> _recover() async {
     try {
       await (await _service).projects.close();
@@ -120,6 +128,7 @@ class _BootstrapState extends State<_Bootstrap> {
           service: snapshot.requireData,
           pickImages: _pickImages,
           recoverStorage: _recover,
+          updateService: _updates,
         );
       }
       return AppShell(

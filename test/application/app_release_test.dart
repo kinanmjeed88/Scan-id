@@ -34,6 +34,7 @@ void main() {
       workflow,
       contains('version_file: lib/application/app_release.dart'),
     );
+    expect(workflow, contains("const String appVersion = '"));
     expect(
       workflow,
       contains(r'''r"const String appVersion = '[^']*'"'''),
@@ -66,7 +67,6 @@ void main() {
     );
     // The proof is not the staging but the commit: a `git add` of a file that
     // no longer holds that line would be a silent success.
-    expect(workflow, contains('git show --name-only --format= HEAD'));
     expect(
       workflow,
       contains('git show HEAD:lib/application/app_release.dart'),

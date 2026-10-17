@@ -351,6 +351,14 @@ class LayoutEditorController extends ChangeNotifier {
     }
   }
 
+  /// Moves the selected document to [targetPage], creating that page when it
+  /// does not exist yet. The document is kept editable and its size unchanged.
+  Future<void> moveToPage(int targetPage) async {
+    final item = active;
+    if (item == null) return;
+    await edit((p) => PageLayout.moveToPage(p, item.id, targetPage));
+  }
+
   /// Removes every page without documents and closes the gaps.
   Future<void> removeEmptyPages() => edit((p) {
     final used = {

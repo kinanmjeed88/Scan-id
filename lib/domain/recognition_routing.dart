@@ -23,6 +23,14 @@ enum AutomationMode {
 
 /// The shipped automation mode. reviewAll: recognition proposes, the user
 /// disposes; high-confidence results are marked eligible but still reviewable.
+///
+/// Scope honesty (boundary audits, second review §1.1): this mode governs
+/// only whether a Smart Recognition RECORD stays listed in that pipeline's
+/// review queue. It never gated cropping, derived-asset creation or A4
+/// placement in any intake path, and the legacy single-document path —
+/// which creates no recognition record at all — is guarded instead by the
+/// boundary decision gate in `boundary_decision.dart`. Do not cite this
+/// mode as crop-safety evidence.
 const automationMode = AutomationMode.reviewAll;
 
 /// Provisional routing thresholds (AUDIT.md §F). Routing heuristics only.

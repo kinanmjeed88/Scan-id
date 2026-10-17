@@ -685,10 +685,20 @@ List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
         : candidate.region;
     var duplicate = false;
     for (final existing in kept) {
-      final other = existing.corners != null
-          ? _quadBounds(existing.corners!)
-          : existing.region;
-      if (_normalizedIou(bounds, other) > .5) {
+      // Boundary audit D8: two tilted cards can share most of their
+      // bounding BOX while their actual quadrilaterals barely overlap.
+      // When both candidates carry quads, suppression compares the quads
+      // themselves; the box comparison remains only for candidates whose
+      // boundary was never resolved.
+      final overlap = candidate.corners != null && existing.corners != null
+          ? _quadIou(candidate.corners!, existing.corners!)
+          : _normalizedIou(
+              bounds,
+              existing.corners != null
+                  ? _quadBounds(existing.corners!)
+                  : existing.region,
+            );
+      if (overlap > .5) {
         duplicate = true;
         break;
       }
@@ -714,6 +724,60 @@ List<double> _quadBounds(List<Point2> corners) {
   }
   return [left, top, right, bottom];
 }
+
+/// IoU of two convex quadrilaterals (normalized coordinates, CropGeometry
+/// ring order), via Sutherland–Hodgman clipping of one ring by the other.
+double _quadIou(List<Point2> a, List<Point2> b) {
+  final areaA = _polygonAreaAbs(a);
+  final areaB = _polygonAreaAbs(b);
+  if (areaA <= 0 || areaB <= 0) return 0;
+  var clipped = [...a];
+  final orientation = _signedArea(b) >= 0 ? 1.0 : -1.0;
+  for (var edge = 0; edge < 4 && clipped.isNotEmpty; edge++) {
+    final start = b[edge];
+    final end = b[(edge + 1) % 4];
+    double side(Point2 p) =>
+        orientation *
+        ((end.x - start.x) * (p.y - start.y) -
+            (end.y - start.y) * (p.x - start.x));
+    final next = <Point2>[];
+    for (var i = 0; i < clipped.length; i++) {
+      final current = clipped[i];
+      final previous = clipped[(i + clipped.length - 1) % clipped.length];
+      final currentSide = side(current);
+      final previousSide = side(previous);
+      final currentIn = currentSide >= 0;
+      final previousIn = previousSide >= 0;
+      if (currentIn != previousIn) {
+        final t = previousSide / (previousSide - currentSide);
+        next.add(
+          Point2(
+            previous.x + (current.x - previous.x) * t,
+            previous.y + (current.y - previous.y) * t,
+          ),
+        );
+      }
+      if (currentIn) next.add(current);
+    }
+    clipped = next;
+  }
+  if (clipped.length < 3) return 0;
+  final intersection = _polygonAreaAbs(clipped);
+  final union = areaA + areaB - intersection;
+  return union <= 0 ? 0 : intersection / union;
+}
+
+double _signedArea(List<Point2> polygon) {
+  var sum = 0.0;
+  for (var i = 0; i < polygon.length; i++) {
+    final a = polygon[i];
+    final b = polygon[(i + 1) % polygon.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
+
+double _polygonAreaAbs(List<Point2> polygon) => _signedArea(polygon).abs();
 
 double _normalizedIou(List<double> a, List<double> b) {
   final left = math.max(a[0], b[0]);

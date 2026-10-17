@@ -16,38 +16,41 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  test('sends bounded normalized full-resolution crop request unchanged', () async {
-    MethodCall? captured;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          captured = call;
-          return Uint8List.fromList([137, 80, 78, 71]);
-        });
+  test(
+    'sends bounded normalized full-resolution crop request unchanged',
+    () async {
+      MethodCall? captured;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            captured = call;
+            return Uint8List.fromList([137, 80, 78, 71]);
+          });
 
-    final result = await cropper.cropJpegRegion(
-      source: Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
-      sourceWidth: 5000,
-      sourceHeight: 4000,
-      orientation: 6,
-      left: .1,
-      top: .2,
-      right: .8,
-      bottom: .9,
-    );
+      final result = await cropper.cropJpegRegion(
+        source: Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+        sourceWidth: 5000,
+        sourceHeight: 4000,
+        orientation: 6,
+        left: .1,
+        top: .2,
+        right: .8,
+        bottom: .9,
+      );
 
-    expect(result, [137, 80, 78, 71]);
-    expect(captured!.method, 'cropJpegRegion');
-    final arguments = captured!.arguments! as Map<Object?, Object?>;
-    expect(arguments['bytes'], [0xff, 0xd8, 0xff, 0xd9]);
-    expect(arguments['sourceWidth'], 5000);
-    expect(arguments['sourceHeight'], 4000);
-    expect(arguments['orientation'], 6);
-    expect(arguments['left'], .1);
-    expect(arguments['top'], .2);
-    expect(arguments['right'], .8);
-    expect(arguments['bottom'], .9);
-    expect(arguments['maxPixels'], 16000000);
-  });
+      expect(result, [137, 80, 78, 71]);
+      expect(captured!.method, 'cropJpegRegion');
+      final arguments = captured!.arguments! as Map<Object?, Object?>;
+      expect(arguments['bytes'], [0xff, 0xd8, 0xff, 0xd9]);
+      expect(arguments['sourceWidth'], 5000);
+      expect(arguments['sourceHeight'], 4000);
+      expect(arguments['orientation'], 6);
+      expect(arguments['left'], .1);
+      expect(arguments['top'], .2);
+      expect(arguments['right'], .8);
+      expect(arguments['bottom'], .9);
+      expect(arguments['maxPixels'], 16000000);
+    },
+  );
 
   test('rejects malformed bounds before invoking native code', () async {
     var called = false;

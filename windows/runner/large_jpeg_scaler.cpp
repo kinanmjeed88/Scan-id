@@ -464,59 +464,38 @@ bool CropJpegRegionWic(const LargeJpegScaleRequest& request,
     return fail("The full-resolution JPEG crop exceeds the 16 MP pixel budget.");
   }
 
-  // The JPEG codec receives a raw source rectangle and the requested output
-  // is that exact size: no sampled decode or resize is permitted in this path.
-  ComPtr<IWICBitmapSourceTransform> transform;
-  if (FAILED(frame.As(&transform))) {
-    return fail("This Windows JPEG codec cannot crop the source safely.");
-  }
-  WICPixelFormatGUID pixel_format = GUID_WICPixelFormat32bppBGRA;
-  if (FAILED(transform->GetClosestPixelFormat(&pixel_format))) {
-    return fail("The Windows JPEG codec returned an unsupported pixel format.");
-  }
-  UINT channels = 0;
-  if (IsEqualGUID(pixel_format, GUID_WICPixelFormat32bppBGRA)) {
-    channels = 4;
-  } else if (IsEqualGUID(pixel_format, GUID_WICPixelFormat24bppBGR) ||
-             IsEqualGUID(pixel_format, GUID_WICPixelFormat24bppRGB)) {
-    channels = 3;
-  } else if (IsEqualGUID(pixel_format, GUID_WICPixelFormat8bppGray)) {
-    channels = 1;
-  } else {
-    return fail("The Windows JPEG codec returned an unsupported pixel format.");
-  }
-  const uint64_t stride64 = static_cast<uint64_t>(crop_width) * channels;
-  const uint64_t byte_count64 = stride64 * crop_height;
-  if (stride64 > std::numeric_limits<UINT>::max() ||
-      byte_count64 > std::numeric_limits<UINT>::max()) {
-    return fail("The full-resolution JPEG crop exceeds the byte budget.");
-  }
-  const UINT stride = static_cast<UINT>(stride64);
-  const UINT byte_count = static_cast<UINT>(byte_count64);
-  std::vector<BYTE> pixels(byte_count);
+  // IWICBitmapSourceTransform supports downsampling but the in-box Windows
+  // JPEG codec rejects rectangular CopyPixels requests on some supported JPEGs.
+  // A WIC bitmap clipper keeps the same raw source rectangle lazy: the PNG
+  // encoder pulls only this bounded region and we never materialize the full
+  // source raster or silently resize the crop.
   WICRect crop_rect{static_cast<INT>(raw_left), static_cast<INT>(raw_top),
-                    static_cast<INT>(crop_width), static_cast<INT>(crop_height)};
-  if (FAILED(transform->CopyPixels(
-          &crop_rect, static_cast<UINT>(crop_width),
-          static_cast<UINT>(crop_height), &pixel_format,
-          WICBitmapTransformRotate0, stride, byte_count, pixels.data()))) {
-    return fail("The Windows JPEG codec refused full-resolution region decoding.");
+                    static_cast<INT>(crop_width),
+                    static_cast<INT>(crop_height)};
+  ComPtr<IWICBitmapClipper> clipper;
+  if (FAILED(factory->CreateBitmapClipper(clipper.GetAddressOf())) ||
+      FAILED(clipper->Initialize(frame.Get(), &crop_rect))) {
+    return fail("The Windows JPEG codec cannot clip the requested source region.");
   }
-  ComPtr<IWICBitmap> bitmap;
-  if (FAILED(factory->CreateBitmapFromMemory(
-          static_cast<UINT>(crop_width), static_cast<UINT>(crop_height),
-          pixel_format, stride, byte_count, pixels.data(),
-          bitmap.GetAddressOf()))) {
-    return fail("Could not construct the full-resolution crop.");
+  UINT clipped_width = 0, clipped_height = 0;
+  if (FAILED(clipper->GetSize(&clipped_width, &clipped_height)) ||
+      clipped_width != static_cast<UINT>(crop_width) ||
+      clipped_height != static_cast<UINT>(crop_height)) {
+    return fail("The Windows JPEG codec changed the requested crop dimensions.");
+  }
+  ComPtr<IWICBitmapSource> cropped_source;
+  if (FAILED(clipper.As(&cropped_source))) {
+    return fail("Could not prepare the bounded JPEG source region.");
   }
   ComPtr<IWICBitmapSource> oriented_source;
   if (request.orientation == 1) {
-    oriented_source = bitmap;
+    oriented_source = cropped_source;
   } else {
     ComPtr<IWICBitmapFlipRotator> rotator;
     if (FAILED(factory->CreateBitmapFlipRotator(rotator.GetAddressOf())) ||
         FAILED(rotator->Initialize(
-            bitmap.Get(), ExifTransform(static_cast<int>(request.orientation))))) {
+            cropped_source.Get(),
+            ExifTransform(static_cast<int>(request.orientation))))) {
       return fail("Could not apply JPEG EXIF orientation to the crop.");
     }
     oriented_source = rotator;

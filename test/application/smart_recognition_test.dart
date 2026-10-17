@@ -847,12 +847,17 @@ void main() {
 
       final report = await s.arrangeImportedImages(project, [source.id]);
       final result = report.project;
-      final derived = result.assets.where((asset) => asset.id != source.id).toList();
+      final derived = result.assets
+          .where((asset) => asset.id != source.id)
+          .toList();
 
       expect(report.notDetected, 2);
       expect(result.documents, hasLength(2));
       expect(derived, hasLength(2));
-      expect(derived.map((asset) => [asset.width, asset.height]).toList(), [
+      final derivedDimensions = derived
+          .map((asset) => [asset.width, asset.height])
+          .toList();
+      expect(derivedDimensions, [
         [1600, 1000],
         [1600, 1000],
       ]);
@@ -874,9 +879,16 @@ void main() {
         ],
       );
       for (final call in cropper.calls) {
-        expect(call.source, original,
-            reason: 'native extraction must receive the immutable JPEG, not its sample');
-        expect([call.sourceWidth, call.sourceHeight, call.orientation], [5000, 4000, 6]);
+        expect(
+          call.source,
+          original,
+          reason:
+              'native extraction must receive the immutable JPEG, not its sample',
+        );
+        expect(
+          [call.sourceWidth, call.sourceHeight, call.orientation],
+          [5000, 4000, 6],
+        );
       }
       expect(
         await (await assets.resolve(source.originalPath)).readAsBytes(),
@@ -890,9 +902,10 @@ void main() {
     () async {
       final original = _jpegSofOnly(5000, 5000);
       final scaler = _FakeLargeJpegScaler(_photo());
-      final cropper = _FakeFullResolutionJpegCropper(
-        Uint8List.fromList(img.encodePng(img.Image(width: 1600, height: 1000))),
+      final fullDensityCrop = Uint8List.fromList(
+        img.encodePng(img.Image(width: 1600, height: 1000)),
       );
+      final cropper = _FakeFullResolutionJpegCropper(fullDensityCrop);
       assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
       final s = service(
         segmenter: _oneValidCard,
@@ -914,8 +927,12 @@ void main() {
       expect(report.cropped, 1);
       expect(cropper.calls, hasLength(1));
       expect(
-        [cropper.calls.single.left, cropper.calls.single.top,
-         cropper.calls.single.right, cropper.calls.single.bottom],
+        [
+          cropper.calls.single.left,
+          cropper.calls.single.top,
+          cropper.calls.single.right,
+          cropper.calls.single.bottom,
+        ],
         [.1, .1, .9, .6045],
       );
       // Full crop-local corners occupy the 1600 by 1000 native output; without
@@ -951,8 +968,11 @@ void main() {
       final report = await s.arrangeImportedImages(project, [source.id]);
 
       expect(report.notDetected, 1);
-      expect(report.project.revision, revision,
-          reason: 'failed native extraction must not commit a half-image');
+      expect(
+        report.project.revision,
+        revision,
+        reason: 'failed native extraction must not commit a half-image',
+      );
       expect(report.project.assets, hasLength(1));
       expect(report.project.items, isEmpty);
       expect(report.project.documents, isEmpty);

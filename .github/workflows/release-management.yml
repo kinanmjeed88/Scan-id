@@ -1,4 +1,4 @@
-Name: Release Management (Dashboard)
+name: Release Management (Dashboard)
 
 on:
   workflow_dispatch:
@@ -75,7 +75,6 @@ jobs:
           owner="${{ github.repository_owner }}"
           echo "Actor: $actor, Owner: $owner"
           
-          # التحقق المباشر من مالك المستودع دون استدعاء API خارجي يطلب توكن خاص
           if [[ "$actor" != "$owner" ]] && [[ "$actor" != "kinanmjeed88" ]]; then
             echo "::error title=auth::المستخدم $actor ليس مالك المستودع — رُفض الطلب"
             exit 1
@@ -89,16 +88,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-
           echo "Ref: $REF"
-
           if [[ "$REF" != "refs/heads/searchidf" ]]; then
             echo "::error title=branch::The target branch must be searchidf."
             exit 1
           fi
-
           default=$(gh api "repos/$REPOSITORY" --jq '.default_branch')
-
           if [[ "$default" != "searchidf" ]]; then
             echo "::error title=branch::The default branch is $default, not searchidf."
             exit 1
@@ -111,19 +106,15 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-
           runs=$(gh api \
             "repos/$REPOSITORY/actions/workflows/release-management.yml/runs?status=in_progress&per_page=100")
-
           count=$(printf '%s' "$runs" | jq \
             '[.workflow_runs[] | select(.head_branch=="searchidf")] | length')
-
           if [[ "$count" -gt 1 ]]; then
             echo "::error title=concurrency::Another release workflow is running ($count)."
             gh api "repos/$REPOSITORY/actions/runs/$RUN_ID" --jq '.html_url'
             exit 1
           fi
-
           echo "No concurrent release detected."
 
       - name: Gather current state
@@ -134,39 +125,31 @@ jobs:
           NEW_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-
           ver=$(grep -E '^version:' pubspec.yaml |
             sed -E 's/version:[[:space:]]*//; s/"//g; s/'"'"'//g' |
             tr -d '[:space:]')
-
           core="${ver%%+*}"
           if [[ "$ver" == *"+"* ]]; then
             build="${ver#*+}"
           else
             build="0"
           fi
-
           echo "pubspec=$ver" >> "$GITHUB_OUTPUT"
           echo "core=$core" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
-
           last_release=""
           last_tag=""
-
           if rel=$(gh api "repos/$REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null); then
             last_release="$rel"
           else
             echo "No latest release found."
           fi
-
           if tags=$(gh api "repos/$REPOSITORY/tags?per_page=1" --jq '.[0].name // empty' 2>/dev/null); then
             last_tag="$tags"
           fi
-
           echo "last_release=$last_release" >> "$GITHUB_OUTPUT"
           echo "last_tag=$last_tag" >> "$GITHUB_OUTPUT"
           echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-
           echo "Current version: $ver"
           echo "Last release: ${last_release:-none}"
           echo "Last tag: ${last_tag:-none}"
@@ -185,24 +168,19 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-
           semver_core='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
-
           if ! [[ "$NEW_VERSION" =~ $semver_core ]]; then
             echo "::error title=validation::Invalid version: $NEW_VERSION"
             exit 1
           fi
-
           if ! [[ "$NEW_BUILD" =~ ^[0-9]+$ ]] || (( 10#$NEW_BUILD < 1 )); then
             echo "::error title=validation::Build number must be a positive integer."
             exit 1
           fi
-
           if (( ${#RELEASE_NOTES} < 3 || ${#RELEASE_NOTES} > 5000 )); then
             echo "::error title=validation::Release notes must be between 3 and 5000 characters."
             exit 1
           fi
-
           case "$TARGETS" in
             both|android|windows) ;;
             *)
@@ -210,18 +188,14 @@ jobs:
               exit 1
               ;;
           esac
-
           python3 - "$CURRENT_CORE" "$NEW_VERSION" "$LAST_RELEASE" <<'PY'
           import re
           import sys
-
           current, new, last_release = sys.argv[1:4]
-
           pattern = re.compile(
               r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
               r'(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$'
           )
-
           def parse(value):
               match = pattern.fullmatch(value)
               if not match:
@@ -235,21 +209,17 @@ jobs:
                   tuple(map(int, match.group(1, 2, 3))),
                   identifiers
               )
-
           def compare(a, b):
               av, ap = parse(a)
               bv, bp = parse(b)
-
               if av != bv:
                   return (av > bv) - (av < bv)
-
               if not ap and not bp:
                   return 0
               if not ap:
                   return 1
               if not bp:
                   return -1
-
               for x, y in zip(ap, bp):
                   if x == y:
                       continue
@@ -259,13 +229,10 @@ jobs:
                   if xn != yn:
                       return -1 if xn else 1
                   return (x > y) - (x < y)
-
               return (len(ap) > len(bp)) - (len(ap) < len(bp))
-
           try:
               if compare(new, current) <= 0:
                   raise ValueError(f"New version {new} must be newer than current version {current}")
-
               if last_release:
                   last = last_release.removeprefix("v")
                   if last.startswith("release-"):
@@ -277,24 +244,19 @@ jobs:
               print(f"::error title=validation::{exc}")
               sys.exit(1)
           PY
-
           tag="v$NEW_VERSION"
-
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
             echo "::error title=validation::Tag $tag already exists."
             exit 1
           fi
-
           if gh api "repos/$REPOSITORY/releases/tags/$tag" >/dev/null 2>&1; then
             echo "::error title=validation::Release $tag already exists."
             exit 1
           fi
-
           if [[ "$NEW_VERSION" == "$CURRENT_CORE" ]] && (( 10#$NEW_BUILD <= 10#$CURRENT_BUILD )); then
             echo "::error title=validation::Build number must increase for the same version."
             exit 1
           fi
-
           {
             echo "## Release summary"
             echo "- Current: $CURRENT_CORE+$CURRENT_BUILD"
@@ -305,7 +267,6 @@ jobs:
             echo "### Release notes"
             printf '%s\n' "$RELEASE_NOTES"
           } >> "$GITHUB_STEP_SUMMARY"
-
           echo "::notice title=validation::Inputs validated."
 
   update-version:
@@ -334,31 +295,24 @@ jobs:
           NEW_BUILD: ${{ inputs.build_number }}
         run: |
           set -euo pipefail
-
           new_pubspec="${NEW_VERSION}+${NEW_BUILD}"
           version_file="lib/application/app_release.dart"
-
           test -f pubspec.yaml
           test -f "$version_file"
-
           sed -i -E "s/^version:.*/version: ${new_pubspec}/" pubspec.yaml
-
           grep -qF "version: $new_pubspec" pubspec.yaml || {
             echo "::error::pubspec.yaml update failed"
             exit 1
           }
-
           grep -q "const String appVersion = '" "$version_file" || {
             echo "::error::$version_file does not contain the expected appVersion declaration."
             exit 1
           }
-
           VERSION_VALUE="$NEW_VERSION" python3 - "$version_file" <<'PY'
           import os
           import pathlib
           import re
           import sys
-
           path = pathlib.Path(sys.argv[1])
           text = path.read_text()
           updated, count = re.subn(
@@ -371,15 +325,12 @@ jobs:
               raise SystemExit("Expected exactly one appVersion declaration.")
           path.write_text(updated)
           PY
-
           grep -qF "const String appVersion = '$NEW_VERSION'" "$version_file" || {
             echo "::error::app_release.dart update failed"
             exit 1
           }
-
           changed=$(git diff --name-only)
           allowed=$'pubspec.yaml\nlib/application/app_release.dart'
-
           while IFS= read -r file; do
             [[ -z "$file" ]] && continue
             if ! grep -Fxq "$file" <<< "$allowed"; then
@@ -388,11 +339,9 @@ jobs:
               exit 1
             fi
           done <<< "$changed"
-
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "new_build=$NEW_BUILD" >> "$GITHUB_OUTPUT"
           echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-
           mkdir -p /tmp/version-bump
           cp pubspec.yaml /tmp/version-bump/
           cp "$version_file" /tmp/version-bump/app_release.dart.bak
@@ -492,18 +441,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           missing=()
           [[ -n "${KEYSTORE_BASE64:-}" ]] || missing+=("KEYSTORE_BASE64")
           [[ -n "${KEYSTORE_STORE_PASSWORD:-}" ]] || missing+=("KEYSTORE_STORE_PASSWORD")
           [[ -n "${KEYSTORE_KEY_ALIAS:-}" ]] || missing+=("KEYSTORE_KEY_ALIAS")
           [[ -n "${KEYSTORE_KEY_PASSWORD:-}" ]] || missing+=("KEYSTORE_KEY_PASSWORD")
-
           if (( ${#missing[@]} > 0 )); then
             echo "::error::Missing signing secrets: ${missing[*]}"
             exit 1
           fi
-
           python tool/ci_gate.py android-release flutter build apk --release
 
       - name: Verify APK signature
@@ -511,20 +457,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           apk='build/app/outputs/flutter-apk/app-release.apk'
           test -s "$apk" || {
             echo "::error title=signing-verify::Release APK missing or empty."
             exit 1
           }
-
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n1)"
           test -n "$apksigner" || {
             echo "::error title=signing-verify::apksigner not found."
             exit 1
           }
-
           report="/tmp/apksigner-verify.txt"
           "$apksigner" verify --verbose --print-certs "$apk" > "$report" 2>&1 || {
             cat "$report"
@@ -532,58 +475,46 @@ jobs:
             exit 1
           }
           cat "$report"
-
           digest_line="$(grep -iE 'certificate.*sha-256 digest' "$report" |
             grep -iv 'public key' | head -n1 || true)"
-
           if [[ -z "$digest_line" ]]; then
             digest_line="$(grep -iE 'sha-256 digest' "$report" |
               grep -iv 'public key' | head -n1 || true)"
           fi
-
           observed="$(printf '%s' "$digest_line" |
             sed -E 's/.*digest:[[:space:]]*//I' |
             tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
-
           if [[ ! "$observed" =~ ^[0-9a-f]{64}$ ]]; then
             echo "::error title=signing-verify::Could not parse signer certificate SHA-256."
             exit 1
           fi
-
           signers="$(grep -i -m1 'number of signers' "$report" |
             sed -E 's/.*:[[:space:]]*//' | tr -d '[:space:]' || true)"
-
           if [[ "$signers" =~ ^[0-9]+$ ]] && (( signers != 1 )); then
             echo "::error title=signing-verify::Expected exactly one APK signer; found $signers."
             exit 1
           fi
-
           aapt2="$(find "$sdk/build-tools" -type f -name aapt2 -print | sort -V | tail -n1)"
           test -n "$aapt2" || {
             echo "::error title=signing-verify::aapt2 not found."
             exit 1
           }
-
           "$aapt2" dump badging "$apk" > /tmp/apk-badging.txt 2>&1 || {
             echo "::error title=signing-verify::Could not inspect APK manifest."
             exit 1
           }
-
           grep -q '^package:' /tmp/apk-badging.txt || {
             echo "::error title=signing-verify::APK package information is missing."
             exit 1
           }
-
           if grep -q 'application-debuggable' /tmp/apk-badging.txt; then
             echo "::error title=signing-verify::Release APK is debuggable."
             exit 1
           fi
-
           if [[ "$observed" != "$EXPECTED_CERT_SHA256" ]]; then
             echo "::error title=signing-verify::APK certificate fingerprint does not match the expected certificate."
             exit 1
           fi
-
           echo "APK signature and certificate fingerprint verified."
 
       - name: Upload APK artifact
@@ -668,15 +599,12 @@ jobs:
           if ((Get-Item $zip).Length -eq 0) {
             throw "Windows ZIP is empty"
           }
-
           $check = Join-Path $env:RUNNER_TEMP "zip-check"
           if (Test-Path $check) { Remove-Item $check -Recurse -Force }
           Expand-Archive -Path $zip -DestinationPath $check -Force
-
           if (-not (Test-Path "$check/scan_id.exe")) {
             throw "ZIP missing scan_id.exe"
           }
-
           Remove-Item $check -Recurse -Force
           Write-Host "Windows ZIP verified."
 
@@ -780,63 +708,50 @@ jobs:
           TARGETS: ${{ inputs.targets }}
         run: |
           set -euo pipefail
-
           ver=$(grep -E '^version:' pubspec.yaml |
             sed -E 's/version:[[:space:]]*//; s/"//g; s/'"'"'//g' |
             tr -d '[:space:]')
-
           core="${ver%%+*}"
           build="${ver#*+}"
-
           [[ "$core" == "$NEW_VERSION" ]] || {
             echo "::error title=release-verify::Version mismatch."
             exit 1
           }
-
           [[ "$build" == "$NEW_BUILD" ]] || {
             echo "::error title=release-verify::Build number mismatch."
             exit 1
           }
-
           mkdir -p release-ready
-
           if [[ "$TARGETS" == "both" || "$TARGETS" == "android" ]]; then
             apk="release-assets/android/app-release.apk"
             test -s "$apk" || {
               echo "::error::APK missing."
               exit 1
             }
-
             cp "$apk" "release-ready/scan-id-android-${NEW_VERSION}.apk"
             echo "APK SHA256: $(sha256sum "$apk" | awk '{print $1}')"
           fi
-
           if [[ "$TARGETS" == "both" || "$TARGETS" == "windows" ]]; then
             zip="release-assets/windows/scan-id-windows.zip"
             test -s "$zip" || {
               echo "::error::Windows ZIP missing."
               exit 1
             }
-
             unzip -t "$zip" >/dev/null || {
               echo "::error::Windows ZIP is invalid."
               exit 1
             }
-
             unzip -Z1 "$zip" | grep -qiE '(^|/)scan_id\.exe$' || {
               echo "::error::Windows ZIP does not contain scan_id.exe."
               exit 1
             }
-
             cp "$zip" "release-ready/scan-id-windows-${NEW_VERSION}.zip"
             echo "Windows ZIP SHA256: $(sha256sum "$zip" | awk '{print $1}')"
           fi
-
           (
             cd release-ready
             sha256sum -- *.apk *.zip 2>/dev/null | sort > SHA256SUMS.txt
           )
-
           cp release-ready/SHA256SUMS.txt /tmp/local-hashes.txt
           cat release-ready/SHA256SUMS.txt
 
@@ -848,35 +763,26 @@ jobs:
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-
           tag="v$NEW_VERSION"
-
           git config user.name "Scan-id Release"
           git config user.email "actions@github.com"
-
           git add pubspec.yaml lib/application/app_release.dart
-
           if git diff --cached --quiet; then
             echo "::error::No version changes to commit."
             exit 1
           fi
-
           git commit -m "release: $tag+$NEW_BUILD" \
             -m "$RELEASE_NOTES"
-
           git show HEAD:lib/application/app_release.dart |
             grep -qF "const String appVersion = '$NEW_VERSION'" || {
               echo "::error title=release-commit::Committed appVersion mismatch."
               exit 1
             }
-
           git push origin HEAD:searchidf
-
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
             echo "::error::Tag $tag already exists."
             exit 1
           fi
-
           git tag -a "$tag" -m "Release $tag"
           git push origin "$tag"
 
@@ -888,9 +794,7 @@ jobs:
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
-
           tag="v$NEW_VERSION"
-
           gh release create "$tag" \
             --repo "$REPOSITORY" \
             --title "Scan-id $tag" \
@@ -906,13 +810,10 @@ jobs:
           TARGETS: ${{ inputs.targets }}
         run: |
           set -euo pipefail
-
           tag="v$NEW_VERSION"
           sleep 5
-
           json=$(gh release view "$tag" --repo "$REPOSITORY" --json assets --jq '.assets')
           echo "$json" | jq .
-
           if [[ "$TARGETS" == "both" || "$TARGETS" == "android" ]]; then
             jq -e --arg name "scan-id-android-${NEW_VERSION}.apk" \
               '.[] | select(.name == $name)' <<< "$json" >/dev/null || {
@@ -920,7 +821,6 @@ jobs:
                 exit 1
               }
           fi
-
           if [[ "$TARGETS" == "both" || "$TARGETS" == "windows" ]]; then
             jq -e --arg name "scan-id-windows-${NEW_VERSION}.zip" \
               '.[] | select(.name == $name)' <<< "$json" >/dev/null || {
@@ -928,33 +828,25 @@ jobs:
                 exit 1
               }
           fi
-
           jq -e '.[] | select(.name == "SHA256SUMS.txt")' <<< "$json" >/dev/null || {
-            echo "::error::SHA256SUMS.txt is missing."
-            exit 1
+                echo "::error::SHA256SUMS.txt is missing."
+                exit 1
           }
-
           while read -r hash fname; do
             [[ -z "${fname:-}" ]] && continue
-
             remote_digest=$(jq -r --arg name "$fname" \
               '.[] | select(.name == $name) | .digest // empty' <<< "$json")
-
             if [[ -z "$remote_digest" ]]; then
               echo "::error::GitHub did not return a digest for $fname."
               exit 1
             fi
-
             remote_hash="${remote_digest#sha256:}"
-
             if [[ "$remote_hash" != "$hash" ]]; then
               echo "::error::SHA-256 mismatch for $fname."
               exit 1
             fi
-
             echo "SHA-256 verified: $fname"
           done < /tmp/local-hashes.txt
-
           {
             echo "## Release published and verified"
             echo "- Tag: $tag"
@@ -962,5 +854,4 @@ jobs:
             echo "- Assets:"
             jq -r '.[].name | "- " + .' <<< "$json"
           } >> "$GITHUB_STEP_SUMMARY"
-
           echo "::notice::Release $tag published and asset digests verified."

@@ -985,7 +985,7 @@ void main() {
   );
 
   test(
-    'a cropped large source reprocesses from its stable sample without moving a locked item',
+    'a cropped large source reprocesses from its original without moving a locked item',
     () async {
       final original = _jpegSofOnly(5000, 5000);
       final scaler = _FakeLargeJpegScaler(_photo());
@@ -995,13 +995,12 @@ void main() {
       project = (await s.importImages(project, [
         ImportSource('بطاقة.jpg', () => Stream.value(original)),
       ])).project;
-      final initialAsset = project.assets.single;
-      final baseRaster = initialAsset.processingInputPath;
-      expect(initialAsset.hasScaledLargeSource, isTrue);
+      final source = project.assets.single;
+      final baseRaster = source.processingInputPath;
+      expect(source.hasScaledLargeSource, isTrue);
 
-      project = (await s.arrangeImportedImages(project, [
-        initialAsset.id,
-      ])).project;
+      project = (await s.arrangeImportedImages(project, [source.id])).project;
+      final derived = project.assets.singleWhere((asset) => asset.id != source.id);
       final firstPlacement = project.items.single.copyWith(
         x: 31,
         y: 42,
@@ -1010,39 +1009,50 @@ void main() {
       project = await projects.save(project.copyWith(items: [firstPlacement]));
       final itemId = project.items.single.id;
       final recordId = project.documents.single.id;
-      final firstRevision = project.assets.single.workingPath;
-      expect(firstRevision, isNot(baseRaster));
-      expect(project.assets.single.processingInputPath, baseRaster);
+      final firstRevision = derived.workingPath;
+      expect(project.assets, hasLength(2));
+      expect(project.items.single.assetId, derived.id);
+      expect(project.assets.firstWhere((asset) => asset.id == source.id).processingInputPath,
+          baseRaster);
       expect(await assets.resolve(baseRaster), isNotNull);
 
-      final report = await s.reprocessImages(project, [initialAsset.id]);
+      final report = await s.reprocessImages(project, [source.id]);
       final refreshed = report!.project;
-      expect(refreshed.assets, hasLength(1));
+      final refreshedSource = refreshed.assets.singleWhere(
+        (asset) => asset.id == source.id,
+      );
+      final refreshedDerived = refreshed.assets.singleWhere(
+        (asset) => asset.id == derived.id,
+      );
+      expect(refreshed.assets, hasLength(2));
       expect(refreshed.items, hasLength(1));
       expect(refreshed.documents, hasLength(1));
       expect(refreshed.items.single.id, itemId);
+      expect(refreshed.items.single.assetId, derived.id);
       expect(refreshed.documents.single.id, recordId);
       expect(refreshed.items.single.toJson(), firstPlacement.toJson());
-      expect(refreshed.assets.single.workingPath, isNot(firstRevision));
-      expect(refreshed.assets.single.processingInputPath, baseRaster);
+      expect(refreshedDerived.workingPath, isNot(firstRevision));
+      expect(refreshedSource.processingInputPath, baseRaster);
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
-        await (await assets.resolve(
-          refreshed.assets.single.originalPath,
-        )).readAsBytes(),
+        await (await assets.resolve(refreshedSource.originalPath)).readAsBytes(),
         original,
       );
 
-      final again = await s.reprocessImages(refreshed, [initialAsset.id]);
+      final again = await s.reprocessImages(refreshed, [source.id]);
       expect(again!.project.items, hasLength(1));
       expect(again.project.documents, hasLength(1));
-      expect(again.project.assets, hasLength(1));
+      expect(again.project.assets, hasLength(2));
       expect(again.project.items.single.toJson(), firstPlacement.toJson());
       expect(again.project.documents.single.id, recordId);
+      expect(
+        again.project.assets.singleWhere((asset) => asset.id == derived.id).workingPath,
+        isNot(refreshedDerived.workingPath),
+      );
       expect(await (await assets.resolve(baseRaster)).exists(), isTrue);
       expect(
         await (await assets.resolve(
-          again.project.assets.single.originalPath,
+          again.project.assets.singleWhere((asset) => asset.id == source.id).originalPath,
         )).readAsBytes(),
         original,
       );

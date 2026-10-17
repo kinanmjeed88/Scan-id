@@ -1148,14 +1148,16 @@ class SmartIntake {
       onRejected(analysis.rejectedRegions);
     }
 
-    if (analysis.needsMultiIntake) {
+    if (analysis.needsMultiIntake || asset.hasScaledLargeSource) {
       // A source holding more than one measured region NEVER goes through the
       // single-document path: that path crops the SOURCE asset to the one quad
       // it found, which would make every other region of the photo
       // unrecoverable (ADR-003). Every region is preserved instead — resolved
       // ones as rectified crops, unresolved ones as reviewable region crops.
-      // A single unresolved region also needs this preservation path, but is
-      // not counted as a multi-document image in the report.
+      // A sampled large JPEG takes this same source-preserving path even for a
+      // single trusted region: its native full-density crop is a derived asset,
+      // not an edit of the 4 MP working proxy. A single unresolved region also
+      // needs this preservation path, but is not counted as multi-document.
       if (analysis.allRegions.length > 1) onMulti();
       return _applyMultiDocument(
         current,

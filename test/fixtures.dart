@@ -3,6 +3,7 @@ import 'package:scan_id/domain/recognition.dart';
 
 Project projectFixture({
   String id = 'project1',
+  int pageCount = 1,
   List<ImageAsset> assets = const [],
   List<DocumentItem> items = const [],
   List<DocumentRecord> documents = const [],
@@ -12,6 +13,7 @@ Project projectFixture({
   name: 'مستمسكات العائلة',
   createdAt: DateTime.utc(2026, 10, 6),
   updatedAt: DateTime.utc(2026, 10, 6),
+  pageCount: pageCount,
   assets: assets,
   items: items,
   documents: documents,

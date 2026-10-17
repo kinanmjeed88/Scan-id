@@ -68,7 +68,9 @@ void main() {
       expect(itemIn(saved, 'pair-a').pageIndex, isNull);
       expect(itemIn(saved, 'pair-b').pageIndex, isNull);
       expect(
-        find.textContaining('مستمسك بقي خارج الورقة؛ راجع حالة كل عنصر'),
+        find.textContaining(
+          'مستمسك بقي خارج الورقة؛ لم يُصغّر أو يُقص أي مستمسك',
+        ),
         findsOneWidget,
       );
       expect(_reason(tester, 'legacy'), 'sizeUnconfirmed');

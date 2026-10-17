@@ -121,7 +121,7 @@
             <div class="form-group">
               <label for="new-version">الإصدار الجديد <span class="required">*</span></label>
               <input id="new-version" type="text" placeholder="0.1.1" required autocomplete="off" dir="ltr">
-              <div class="hint">SemVer صارم: X.Y.Z أو X.Y.Z-prerelease (يرفض 01.0.0)</div>
+              <div class="hint">SemVer صارم: X.Y.Z أو X.Y.Z-prerelease؛ لا تضف +build لأن رقم البناء له حقل مستقل</div>
               <div id="err-version" class="field-error hidden"></div>
             </div>
             <div class="form-group">
@@ -146,6 +146,13 @@
             <div class="hint">حسب آلية النشر الفعلية — APK + ZIP فقط</div>
             <div id="err-targets" class="field-error hidden"></div>
           </div>
+          <div class="form-group">
+            <label for="release-token">توكن مؤقت لإطلاق البناء <span class="required">*</span></label>
+            <input id="release-token" type="password" required autocomplete="off" autocapitalize="off" spellcheck="false" dir="ltr" aria-describedby="token-hint">
+            <div id="token-hint" class="hint">Fine-grained PAT لمستودع Scan-id فقط وبصلاحية Actions: write. يُرسل مباشرة إلى GitHub API لإطلاق سير العمل، ثم يُمسح من الحقل ولا يُحفظ في المتصفح.</div>
+            <div class="hint token-warning">لا تلصق هنا سر المستودع <code>RELEASE_TOKEN</code>؛ هذا السر مخصص لـ Actions. توكن اللوحة يمر مؤقتاً عبر JavaScript الصفحة، لذا استخدم توكناً محدود الصلاحية ولا تدخله إلا في النسخة الموثوقة من اللوحة.</div>
+            <div id="err-token" class="field-error hidden"></div>
+          </div>
           <div id="change-summary" class="summary hidden">
             <h3>ملخص التغيير</h3>
             <div class="summary-grid">
@@ -155,8 +162,8 @@
               <div><span class="muted">نوع التغيير</span><span id="sum-type">—</span></div>
             </div>
           </div>
-          <div id="form-error" class="alert alert-error hidden"></div>
-          <div id="form-success" class="alert alert-success hidden"></div>
+          <div id="form-error" class="alert alert-error hidden" role="alert"></div>
+          <div id="form-success" class="alert alert-success hidden" role="status" aria-live="polite"></div>
         </form>
       </section>
 
@@ -166,9 +173,9 @@
           <h2 id="actions-title">الإجراءات</h2>
         </div>
         <div class="actions">
-          <button id="btn-create" class="btn btn-primary btn-large">إنشاء إصدار ونشر</button>
-          <button id="btn-copy-gh" class="btn btn-secondary">نسخ أمر gh CLI</button>
-          <a id="btn-open-actions" href="https://github.com/kinanmjeed88/Scan-id/actions/workflows/release-management.yml" target="_blank" rel="noopener" class="btn btn-secondary">فتح Actions</a>
+          <button id="btn-create" type="button" class="btn btn-primary btn-large">إرسال وبدء البناء والنشر</button>
+          <button id="btn-copy-gh" type="button" class="btn btn-secondary">نسخ أمر gh CLI (بديل)</button>
+          <a id="btn-open-actions" href="https://github.com/kinanmjeed88/Scan-id/actions/workflows/release-management.yml" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">سجل Actions (اختياري)</a>
         </div>
         <div id="action-steps" class="steps hidden">
           <h3>سير العملية المتوقع (16 خطوة)</h3>
@@ -179,10 +186,10 @@
             <li>التحقق SemVer / Build / منع التكرار</li>
             <li>فحص التزامن (concurrency)</li>
             <li>عرض ملخص قبل التنفيذ</li>
-            <li>تحديث pubspec.yaml و app.dart</li>
-            <li>التحقق من نطاق التغيير (3 ملفات فقط)</li>
+            <li>تحديث pubspec.yaml و app_release.dart</li>
+            <li>التحقق من نطاق التغيير (ملفا الإصدار فقط)</li>
             <li>تشغيل analyze &amp; test</li>
-            <li>بناء Android + Windows</li>
+            <li>بناء الأنظمة المختارة</li>
             <li>التحقق من APK signature و ZIP</li>
             <li>إنشاء SHA-256</li>
             <li>التحقق من عدم وجود Tag مكرر</li>
@@ -199,7 +206,7 @@
           <pre><code id="cmd-text"></code></pre>
         </div>
         <div class="alert alert-info">
-          <strong>الأمان:</strong> لا يُرسل أي PAT من هذه الصفحة. الإنشاء يتم عبر GitHub Actions بمصادقة GitHub نفسها. راجع <a href="https://github.com/kinanmjeed88/Scan-id/blob/searchidf/docs/RELEASE_AUTH.md" target="_blank">وثيقة المصادقة</a>.
+          <strong>المصادقة:</strong> التوكن المؤقت في الحقل يُرسل إلى GitHub API لإطلاق سير العمل فقط، ولا يُخزَّن بشكل دائم أو يُعرض كنص. سر المستودع <code>RELEASE_TOKEN</code> منفصل ويُستخدم داخل Actions لدفع ملفات الإصدار ونشره. راجع <a href="https://github.com/kinanmjeed88/Scan-id/blob/searchidf/docs/RELEASE_AUTH.md" target="_blank" rel="noopener noreferrer">وثيقة المصادقة</a>.
         </div>
         <div id="recent-runs" class="recent-runs hidden">
           <h3>آخر 3 تشغيلات لإدارة الإصدارات</h3>
@@ -211,8 +218,8 @@
         <h2>كيف تعمل؟</h2>
         <ul>
           <li><strong>القراءة:</strong> الصفحة تستخدم GitHub API العام (<code>api.github.com</code>) بدون مصادقة لعرض الحالة — لا تحتاج PAT.</li>
-          <li><strong>الكتابة:</strong> عند الضغط «إنشاء إصدار» تُبنى <code>gh workflow run</code> أو رابط Actions — أنت تسجل دخولك في GitHub وتنفّذ بنفسك. الـ Workflow يتحقق من <code>actor == collaborator</code> و<code>ref == searchidf</code> و<code>permissions: contents: write</code> فقط في مهمة النشر.</li>
-          <li><strong>لا أسرار في المتصفح:</strong> ابحث في المصدر — لا يوجد <code>token</code> ثابت. PAT المؤقت (إن استخدمته يدوياً) لا يُخزن أبداً.</li>
+          <li><strong>إطلاق البناء:</strong> يُرسل الزر المدخلات مباشرةً إلى <code>workflow_dispatch</code> على الفرع <code>searchidf</code> ويبقى في الصفحة؛ يلزم PAT مؤقت بصلاحية <code>Actions: write</code> على هذا المستودع فقط.</li>
+          <li><strong>فصل الأسرار:</strong> لا يُخزَّن توكن اللوحة بشكل دائم في المتصفح، وسر المستودع <code>RELEASE_TOKEN</code> لا يُقرأ من الصفحة؛ يستخدمه الـ Workflow داخلياً لدفع ملفات الإصدار وإنشاء الـ Tag وRelease.</li>
         </ul>
       </section>
     </main>

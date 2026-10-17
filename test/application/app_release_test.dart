@@ -37,6 +37,21 @@ void main() {
     expect(workflow, contains("const String appVersion = '"));
     expect(
       workflow,
+      contains(r'''r"const String appVersion = '[^']*'"'''),
+      reason: 'the workflow must replace the single appVersion declaration',
+    );
+    expect(
+      workflow,
+      contains('os.environ["VERSION_VALUE"]'),
+      reason: 'the validated version must enter the Python rewrite as data',
+    );
+    expect(
+      workflow,
+      contains(r'''grep -qF "const String appVersion = '$NEW_VERSION'"'''),
+      reason: 'the rewritten version must be checked before it is packaged',
+    );
+    expect(
+      workflow,
       isNot(contains('_appVersion')),
       reason: 'a second version constant would be free to disagree',
     );

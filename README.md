@@ -163,10 +163,10 @@ flutter test
   المنشور.
 
 - **لوحة الإدارة:** افتح [لوحة الإدارة](https://kinanmjeed88.github.io/Scan-id/admin/) (Arabic RTL) — تعرض الحالة المباشرة: إصدار `pubspec.yaml` الأخير، رقم البناء، آخر Tag/Release، توافق OTA (APK+ZIP+digest)، وحالة توقيع APK.
-- **إنشاء إصدار:** أدخل `version` (SemVer صارم بلا `v`, بلا صفر بادئ زائد) + `build_number` + `release_notes` + النظام المستهدف — تتحقق الواجهة محلياً من أن الإصدار أحدث من الحالي وآخر Release وغير مكرر. اضغط **إنشاء إصدار ونشر** لعرض أمر `gh workflow run release-management.yml -f ...` + رابط فتح Actions.
-- **مسار النشر:** `validate → update-version → build (android) → windows → publish`؛ `concurrency: release-management` يمنع التزامن، `permissions: contents:read` عامة و`contents:write` في النشر فقط، تحقق `SemVer/build/tag/actor` قبل الكتابة، توقيع APK بـ SHA256 مع `EXPECTED_CERT_SHA256`, تحقق OTA عبر `jq` لـ `hasApk&&hasWindows&&digest!=null`.
-- **الأمان:** لا يُرسل PAT من الصفحة — المصادقة في GitHub Actions (`GITHUB_TOKEN`), باقي التفاصيل في [وثيقة المصادقة](docs/RELEASE_AUTH.md).
-- يدوياً: `gh workflow run release-management.yml -f version=0.2.0 -f build_number=2 -f release_notes="..." -f targets=both` على فرع `searchidf`.
+- **إنشاء إصدار:** أدخل `version` (SemVer صارم بلا `v` أو أصفار بادئة) + `build_number` + `release_notes` + الأنظمة المستهدفة، ثم توكن لوحة مؤقتاً بصلاحية `Actions: write` على المستودع فقط. يرسل الزر `workflow_dispatch` مباشرةً إلى `searchidf` ويبقى في الصفحة؛ اختيار Android وWindows معاً يُرسل `targets=both` كما يتوقع الـ Workflow.
+- **مسار النشر:** `validate → update-version → build (android) → windows → publish`؛ `concurrency: release-management` يمنع التزامن، وتُفحص `SemVer/build/tag/actor` قبل الكتابة، ويُتحقق توقيع APK بـ SHA256 مع `EXPECTED_CERT_SHA256` وأصول OTA وبصماتها.
+- **الأمان:** توكن اللوحة المؤقت منفصل عن سر المستودع `RELEASE_TOKEN`. أضف `RELEASE_TOKEN` كـ Repository secret (وليس Variable) بصلاحيات Fine-grained `Contents: read and write` و`Actions: read`؛ يستخدمه Workflow داخلياً للدفع والنشر ولا يمكن لصفحة Pages قراءته. لا تحفظ الصفحة توكن اللوحة بشكل دائم. راجع [وثيقة المصادقة](docs/RELEASE_AUTH.md).
+- يدوياً: `gh workflow run release-management.yml --ref searchidf -f version=0.2.0 -f build_number=2 -f release_notes="..." -f targets=both`. بعد نجاح البناء والنشر تصبح الحزمة متاحة لفحص OTA في التطبيق؛ لا يتم تثبيتها بصمت.
 
 ## التوثيق
 

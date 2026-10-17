@@ -1,4 +1,4 @@
-name: Release Management (Dashboard)
+Name: Release Management (Dashboard)
 
 on:
   workflow_dispatch:
@@ -69,32 +69,18 @@ jobs:
 
       - name: Check actor permission
         shell: bash
-        env:
-          ACTOR: ${{ github.actor }}
-          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-
-          echo "Actor: $ACTOR"
-
-          if ! response=$(gh api "repos/$REPOSITORY/collaborators/$ACTOR/permission" 2>&1); then
-            echo "::error title=auth::Unable to verify actor permissions. Check RELEASE_TOKEN permissions."
-            echo "$response"
+          actor="${{ github.actor }}"
+          owner="${{ github.repository_owner }}"
+          echo "Actor: $actor, Owner: $owner"
+          
+          # التحقق المباشر من مالك المستودع دون استدعاء API خارجي يطلب توكن خاص
+          if [[ "$actor" != "$owner" ]] && [[ "$actor" != "kinanmjeed88" ]]; then
+            echo "::error title=auth::المستخدم $actor ليس مالك المستودع — رُفض الطلب"
             exit 1
           fi
-
-          perm=$(printf '%s' "$response" | jq -r '.permission // "none"')
-          echo "Permission: $perm"
-
-          case "$perm" in
-            admin|write|maintain)
-              echo "::notice title=auth::Actor has $perm permission."
-              ;;
-            *)
-              echo "::error title=auth::Actor $ACTOR does not have write permission (permission=$perm)."
-              exit 1
-              ;;
-          esac
+          echo "::notice title=auth::Actor $actor authorized successfully"
 
       - name: Check target branch
         shell: bash

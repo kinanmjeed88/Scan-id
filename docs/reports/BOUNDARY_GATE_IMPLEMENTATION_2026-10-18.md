@@ -55,10 +55,16 @@ decision: *adopt a modified direction before implementation*). Branch
   count, never execution proof.
 - Real execution is via GitHub Actions `verify.yml` on this branch's final
   SHA (format gate, `flutter analyze --fatal-infos`, full `flutter test`,
-  Android debug APK, Windows build): results recorded in the PR/session
-  report for the final commit. The formatter's own output was applied by CI
-  via the repo's `[format]` mechanism (bot commit on this branch), exactly
-  as the workflow is designed to do.
+  Android debug APK, Windows build). CI history on this branch, honestly:
+  run on `19a0e46` failed only the format gate (no local SDK — the repo's
+  `[format]` mechanism applied the formatter's own output as bot commit
+  `4815271`); run on `4f06e0b` passed format, failed analyze on the new test
+  file's API usage (fixed in `fdb7570`); run on `fdb7570` passed analyze and
+  executed the suite — 725 passed, exactly the 4 failures analysed in this
+  report's conflict decisions (2 pre-existing tests proving D4 is designed
+  behaviour, 1 pre-existing labelled-import crop falsifying the 4% bound,
+  1 over-strict assertion of this change) — all resolved in `40b33f9`; the
+  final run on this document's own commit is the green-or-reported verdict.
 
 ## Unresolved (owner decisions / external evidence)
 

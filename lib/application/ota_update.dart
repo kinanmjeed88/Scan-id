@@ -36,7 +36,7 @@ Future<Directory> updateDownloadDirectory() async => Directory(
 );
 
 /// A check must answer even when a captive portal or a dead DNS swallows the
-/// socket: the release feed never gets to hold the settings screen open.
+/// socket: the release feed never gets to hold the screen that asked open.
 const Duration updateConnectTimeout = Duration(seconds: 10);
 const Duration updateReadTimeout = Duration(seconds: 30);
 const Duration updateCheckTimeout = Duration(seconds: 25);
@@ -149,7 +149,7 @@ UpdateFailure classifyUpdateError(Object error) {
 /// A client whose every phase can end: connecting, waiting for headers and
 /// reading a body. `HttpClient` alone has no read timeout at all, so a server
 /// that accepts the connection and then says nothing would hold the check open
-/// for as long as the settings screen is open.
+/// for as long as the surface that asked for it stays open.
 HttpClient _newUpdateClient() =>
     HttpClient()..connectionTimeout = updateConnectTimeout;
 

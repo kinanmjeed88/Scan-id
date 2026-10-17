@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../application/app_release.dart';
+import '../application/ota_update.dart';
 import '../application/project_service.dart';
 import '../domain/project.dart';
 import 'project_screen.dart';
 import 'settings_screen.dart';
 import 'shared.dart';
+import 'update_prompt.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({required this.home, super.key});
@@ -36,17 +38,27 @@ class ScanIdApp extends StatelessWidget {
     required this.service,
     required this.pickImages,
     this.recoverStorage,
+    this.updateService,
     super.key,
   });
   final ProjectService service;
   final PickImages pickImages;
   final Future<void> Function()? recoverStorage;
+
+  /// The release feed this run checks once, as the app opens. `null` disables
+  /// the startup check: a widget test or any host with no published release
+  /// should not open a socket it never asked for.
+  final UpdateService? updateService;
+
   @override
   Widget build(BuildContext context) => AppShell(
-    home: ProjectsScreen(
-      service: service,
-      pickImages: pickImages,
-      recoverStorage: recoverStorage,
+    home: StartupUpdateCheck(
+      service: updateService,
+      child: ProjectsScreen(
+        service: service,
+        pickImages: pickImages,
+        recoverStorage: recoverStorage,
+      ),
     ),
   );
 }
@@ -284,7 +296,9 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
       children: [
         const Text(
           'معالجة محلية دون رفع. تبقى صورك على هذا الجهاز؛ الاتصال بالشبكة '
-          'يُفتح لفحص التحديث عند طلبك فقط.',
+          'يُفتح لفحص الإصدارات عند بدء التطبيق ومرة أخرى إن طلبته من '
+          'الإعدادات، ولتنزيل التحديث الذي توافق عليه فقط. لا يُرسل مع الفحص '
+          'أي شيء عنك ولا عن مشاريعك.',
         ),
         const SizedBox(height: 12),
         const InfoBanner(

@@ -264,6 +264,7 @@ class ProjectService {
       assets: assets,
       editor: smartEditor,
       segment: segmenter ?? defaultSegment,
+      fullResolutionJpegCropper: fullResolutionJpegCropper,
     ).reprocess(
       project,
       assetIds,

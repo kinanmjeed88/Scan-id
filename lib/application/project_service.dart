@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../domain/arrangement.dart';
+import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/image_deletion.dart';
@@ -690,16 +691,49 @@ class ProjectService {
               suggestion.kind,
               landscape: outputWidth >= outputHeight,
             );
-            final recipe = size == null
-                ? estimate
-                : CropDraft(
-                    corners: corners,
-                    adjustments: asset.adjustments,
-                    aspectRatio: size.width / size.height,
-                  ).toRecipe(source.width, source.height);
-            current = await applyCrop(current, asset, recipe);
-            asset = current.assets.firstWhere((entry) => entry.id == id);
-            cropped++;
+            // Boundary gate (boundary audits D1/D3/D10): a detector proposal
+            // is a claim, not a crop permission. It becomes a saved crop only
+            // when verifyBoundary accepts it — geometry sound AND its
+            // measured shape able to claim the physical size classification
+            // would impose on it. Any other outcome keeps the whole frame
+            // for manual cropping, with the measured reason told to the user
+            // instead of a silently stretched or mis-sized crop. Note this
+            // gate is what guards cropping here; the Smart Recognition
+            // automationMode (reviewAll) never did — it only keeps records
+            // listed in that pipeline's review queue.
+            final decision = verifyBoundary(
+              BoundaryProposal(
+                producer: BoundaryProducer.wholeFrameDetector,
+                corners: corners,
+                imposedAspect: size == null
+                    ? null
+                    : (size.width >= size.height
+                          ? size.width / size.height
+                          : size.height / size.width),
+                imposedKindLabel: suggestion.kind.label,
+              ),
+              sourceWidth: source.width,
+              sourceHeight: source.height,
+            );
+            if (decision.kind != BoundaryDecisionKind.accepted) {
+              notDetected++;
+              for (final reason in decision.verification.reasons) {
+                warnings.add(
+                  '${asset.name}: ${boundaryReviewReasonMessage(reason)}',
+                );
+              }
+            } else {
+              final recipe = size == null
+                  ? estimate
+                  : CropDraft(
+                      corners: corners,
+                      adjustments: asset.adjustments,
+                      aspectRatio: size.width / size.height,
+                    ).toRecipe(source.width, source.height);
+              current = await applyCrop(current, asset, recipe);
+              asset = current.assets.firstWhere((entry) => entry.id == id);
+              cropped++;
+            }
           }
         } on RevisionConflict {
           rethrow;

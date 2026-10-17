@@ -25,3 +25,5 @@ windows/flutter/ephemeral/
 local-data/
 diagnostics/
 __pycache__/
+# Scratch copy of the bumped version files staged by the release workflow.
+version-bump/

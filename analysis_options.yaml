@@ -1,6 +1,12 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  # The release workflow stages its bumped pubspec in version-bump/ before it is
+  # applied and removed. A stray copy left in a workspace is a second package
+  # root, so the analyzer resolves the root pubspec's asset paths against it and
+  # fails on asset_does_not_exist. The real pubspec is still analyzed.
+  exclude:
+    - version-bump/**
   language:
     strict-casts: true
     strict-inference: true

@@ -113,10 +113,9 @@ void main() {
           () => Stream.value(bytes),
         ),
       ]);
-      final second = await service.arrangeImportedImages(
-        imported.project,
-        [imported.project.assets.last.id],
-      );
+      final second = await service.arrangeImportedImages(imported.project, [
+        imported.project.assets.last.id,
+      ]);
 
       expect(
         second.project.items
@@ -139,10 +138,7 @@ void main() {
         project.copyWith(paper: PaperSettings(margins: Margins.all(20))),
       );
       project = (await service.importImages(project, [
-        ImportSource(
-          'بطاقة التموينية.png',
-          () => Stream.value(bytes),
-        ),
+        ImportSource('بطاقة التموينية.png', () => Stream.value(bytes)),
       ])).project;
 
       final report = await service.arrangeImportedImages(project, [

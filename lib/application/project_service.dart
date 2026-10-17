@@ -424,10 +424,7 @@ class ProjectService {
     final pendingIds = <String>[];
     for (final id in ids) {
       final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
-      require(
-        assetIndex >= 0,
-        'الصورة المراد ترتيبها ليست ضمن المشروع.',
-      );
+      require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
       if (!project.items.any((item) => item.assetId == id)) pendingIds.add(id);
     }
 
@@ -508,19 +505,21 @@ class ProjectService {
         // Pass the already measured result through the existing multi-document
         // intake so it is not segmented a second time. Defer placement until all
         // sources in this import batch have staged their new items.
-        final report = await SmartIntake(
-          projects: projects,
-          assets: assets,
-          editor: editor,
-          segment: (_) async => segmentation,
-        ).run(
-          current,
-          [id],
-          keepPlaced: keepPlaced,
-          deferArrangement: true,
-          cancellation: cancellation,
-          onProgress: (value) => progress(index + value.completed, value.stage),
-        );
+        final report =
+            await SmartIntake(
+              projects: projects,
+              assets: assets,
+              editor: editor,
+              segment: (_) async => segmentation,
+            ).run(
+              current,
+              [id],
+              keepPlaced: keepPlaced,
+              deferArrangement: true,
+              cancellation: cancellation,
+              onProgress: (value) =>
+                  progress(index + value.completed, value.stage),
+            );
         merge(report);
         hasNewItems = hasNewItems || report.project.items.length > beforeItems;
         index++;
@@ -594,7 +593,9 @@ class ProjectService {
     }
     if ((cancellation?.isCancelled ?? false) &&
         !warnings.any((warning) => warning.contains('أُلغيت العملية'))) {
-      warnings.add('أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.');
+      warnings.add(
+        'أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.',
+      );
     }
 
     return AutomaticLayoutReport(
@@ -745,7 +746,9 @@ class ProjectService {
     }
 
     if (cancellation?.isCancelled ?? false) {
-      warnings.add('أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.');
+      warnings.add(
+        'أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.',
+      );
     }
     if (newItems.isEmpty) {
       return AutomaticLayoutReport(

@@ -93,7 +93,10 @@ void main() {
     await tapKey(tester, const Key('rb-undo'));
     saved = harness.saved;
     expect(itemIn(saved, 'move-me').pageIndex, 0);
-    expect([itemIn(saved, 'move-me').width, itemIn(saved, 'move-me').height], [52, 34]);
+    expect(
+      [itemIn(saved, 'move-me').width, itemIn(saved, 'move-me').height],
+      [52, 34],
+    );
     expect(saved.layout.autoFlow, isTrue);
 
     await tapKey(tester, const Key('rb-redo'));

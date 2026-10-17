@@ -114,9 +114,11 @@ void main() {
     final first = _sizedDoc('fixed-a', 50, 30).copyWith(x: 10, y: 10);
     final second = _sizedDoc('fixed-b', 50, 30).copyWith(x: 62, y: 10);
     final added = _sizedDoc('new', 40, 30, page: null).copyWith(x: 5, y: 5);
-    final project = _project([first, second, added]).copyWith(
-      layout: LayoutSettings(strategy: ArrangementStrategy.compact),
-    );
+    final project = _project([
+      first,
+      second,
+      added,
+    ]).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
 
     final result = arrangeDocuments(project, keepPlaced: true);
 
@@ -133,12 +135,18 @@ void main() {
     expect(autoLayoutStatus(project, oversized), AutoLayoutStatus.tooLarge);
     expect(
       unplacedDocumentMessage(project, oversized),
-      allOf(contains('لا يلائم المساحة القابلة للطباعة'), contains('بلا تصغير أو قص')),
+      allOf(
+        contains('لا يلائم المساحة القابلة للطباعة'),
+        contains('بلا تصغير أو قص'),
+      ),
     );
 
     final fitting = _sizedDoc('fitting', 80, 50, page: null);
     final fittingProject = _project([fitting]);
-    expect(autoLayoutStatus(fittingProject, fitting), AutoLayoutStatus.eligible);
+    expect(
+      autoLayoutStatus(fittingProject, fitting),
+      AutoLayoutStatus.eligible,
+    );
     expect(
       unplacedDocumentMessage(fittingProject, fitting),
       allOf(contains('لا توجد مساحة كافية'), contains('بلا تصغير أو قص')),

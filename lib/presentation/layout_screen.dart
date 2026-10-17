@@ -305,10 +305,12 @@ class _LayoutScreenState extends State<LayoutScreen> {
     final movePageEntries = <RibbonMenuEntry<int>>[
       if (item != null)
         for (var page = 0; page < project.pageCount; page++)
-          if (page != item.pageIndex)
-            RibbonMenuEntry(page, 'صفحة ${page + 1}'),
+          if (page != item.pageIndex) RibbonMenuEntry(page, 'صفحة ${page + 1}'),
       if (project.pageCount < maxArrangedPages)
-        RibbonMenuEntry(project.pageCount, 'صفحة جديدة (${project.pageCount + 1})'),
+        RibbonMenuEntry(
+          project.pageCount,
+          'صفحة جديدة (${project.pageCount + 1})',
+        ),
     ];
     return [
       RibbonTab(

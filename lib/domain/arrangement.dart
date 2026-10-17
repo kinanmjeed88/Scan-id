@@ -70,8 +70,7 @@ AutoLayoutStatus autoLayoutStatus(
 /// makes that explicit for both an oversized item and a full-page result.
 String unplacedDocumentMessage(Project project, DocumentItem item) {
   final asset = project.assets.firstWhere((entry) => entry.id == item.assetId);
-  final label =
-      'مستمسك «${asset.name}» (${item.documentKind.label})';
+  final label = 'مستمسك «${asset.name}» (${item.documentKind.label})';
   final size =
       '${item.width.toStringAsFixed(1)} × ${item.height.toStringAsFixed(1)} مم';
   return switch (autoLayoutStatus(project, item)) {

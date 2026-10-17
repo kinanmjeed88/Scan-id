@@ -66,12 +66,11 @@ void main() {
   });
 
   test('page move preserves dimensions and preview/export page membership', () {
-    final original = block('one', 20, 20).copyWith(
-      width: 48,
-      height: 32,
-      keepAspectRatio: true,
-      rotation: 90,
-    );
+    final original = block(
+      'one',
+      20,
+      20,
+    ).copyWith(width: 48, height: 32, keepAspectRatio: true, rotation: 90);
     final other = block('two', 90, 20);
     final moved = PageLayout.moveToPage(page([original, other]), 'one', 1);
     final item = moved.items.firstWhere((entry) => entry.id == 'one');

@@ -102,28 +102,25 @@ void main() {
     expect(decision.acceptedCorners, isNull);
   });
 
-  test(
-    'measured shape contradicting the imposed catalog size is review, '
-    'not a silent stretch (D3/D10)',
-    () {
-      final decision = verifyBoundary(
-        BoundaryProposal(
-          producer: BoundaryProducer.wholeFrameDetector,
-          corners: goodQuad(), // measured 1.60 (an ID-1 shape)
-          imposedAspect: 287 / 52, // claimed ration-card shape
-          imposedKindLabel: 'البطاقة التموينية',
-        ),
-        sourceWidth: width,
-        sourceHeight: height,
-      );
-      expect(decision.kind, BoundaryDecisionKind.needsReview);
-      expect(decision.acceptedCorners, isNull);
-      expect(
-        decision.verification.reasons,
-        contains(BoundaryReviewReason.aspectMismatch),
-      );
-    },
-  );
+  test('measured shape contradicting the imposed catalog size is review, '
+      'not a silent stretch (D3/D10)', () {
+    final decision = verifyBoundary(
+      BoundaryProposal(
+        producer: BoundaryProducer.wholeFrameDetector,
+        corners: goodQuad(), // measured 1.60 (an ID-1 shape)
+        imposedAspect: 287 / 52, // claimed ration-card shape
+        imposedKindLabel: 'البطاقة التموينية',
+      ),
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    expect(decision.kind, BoundaryDecisionKind.needsReview);
+    expect(decision.acceptedCorners, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.aspectMismatch),
+    );
+  });
 
   test('a quad that does not describe its measured region needs review', () {
     final decision = verifyBoundary(

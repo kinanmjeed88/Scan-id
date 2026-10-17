@@ -99,41 +99,38 @@ void main() {
       },
     );
 
-    test(
-      'D3/D10: a filename label cannot impose a contradicting catalog '
-      'aspect on measured corners',
-      () async {
-        final pipeline = RecognitionPipeline(
-          segment: (_) async => SegmentationResult(
-            candidates: [
-              SegmentCandidate(
-                corners: _quad(), // measured aspect ~1.6
-                region: const [.1, .1, .9, .9],
-              ),
-            ],
-          ),
-          suggestSingle: (_) async => null,
-        );
-        final result = await pipeline.analyze(
-          PipelineImageInput(
-            assetId: 'asset1',
-            name: 'البطاقة التموينية.png', // filename claims the ration kind
-            previewBytes: _bytes,
-            sourceWidth: 1600,
-            sourceHeight: 1000,
-            importIndex: 0,
-          ),
-        );
-        final detection = result.detections.single;
-        expect(detection.corners, isNull);
-        expect(detection.hasUsableQuad, isFalse);
-        expect(detection.boundary, DetectionBoundary.rejected);
-        expect(
-          result.issues.map((issue) => issue.category),
-          contains(RecognitionErrorCategory.geometryFailure),
-        );
-      },
-    );
+    test('D3/D10: a filename label cannot impose a contradicting catalog '
+        'aspect on measured corners', () async {
+      final pipeline = RecognitionPipeline(
+        segment: (_) async => SegmentationResult(
+          candidates: [
+            SegmentCandidate(
+              corners: _quad(), // measured aspect ~1.6
+              region: const [.1, .1, .9, .9],
+            ),
+          ],
+        ),
+        suggestSingle: (_) async => null,
+      );
+      final result = await pipeline.analyze(
+        PipelineImageInput(
+          assetId: 'asset1',
+          name: 'البطاقة التموينية.png', // filename claims the ration kind
+          previewBytes: _bytes,
+          sourceWidth: 1600,
+          sourceHeight: 1000,
+          importIndex: 0,
+        ),
+      );
+      final detection = result.detections.single;
+      expect(detection.corners, isNull);
+      expect(detection.hasUsableQuad, isFalse);
+      expect(detection.boundary, DetectionBoundary.rejected);
+      expect(
+        result.issues.map((issue) => issue.category),
+        contains(RecognitionErrorCategory.geometryFailure),
+      );
+    });
   });
 
   group('legacy single-document path (ProjectService)', () {
@@ -161,9 +158,7 @@ void main() {
       project = (await service.importImages(project, [
         ImportSource(name, () => Stream.value(bytes)),
       ])).project;
-      return service.arrangeImportedImages(project, [
-        project.assets.single.id,
-      ]);
+      return service.arrangeImportedImages(project, [project.assets.single.id]);
     }
 
     test(
@@ -176,17 +171,14 @@ void main() {
       },
     );
 
-    test(
-      'D1/D10: a filename-imposed aspect that contradicts the detected '
-      'boundary blocks the crop and keeps the whole frame',
-      () async {
-        final report = await importNamed('البطاقة التموينية.png');
-        expect(report.cropped, 0);
-        expect(report.notDetected, 1);
-        expect(report.project.assets.single.crop, isNull);
-        expect(report.project.items.single.sizeConfirmed, isFalse);
-        expect(report.warnings.join(' '), contains('لا يطابق مقاس النوع'));
-      },
-    );
+    test('D1/D10: a filename-imposed aspect that contradicts the detected '
+        'boundary blocks the crop and keeps the whole frame', () async {
+      final report = await importNamed('البطاقة التموينية.png');
+      expect(report.cropped, 0);
+      expect(report.notDetected, 1);
+      expect(report.project.assets.single.crop, isNull);
+      expect(report.project.items.single.sizeConfirmed, isFalse);
+      expect(report.warnings.join(' '), contains('لا يطابق مقاس النوع'));
+    });
   });
 }

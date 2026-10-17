@@ -44,7 +44,13 @@ import 'quad_assessment.dart';
 /// Who produced a boundary claim. Recorded so a later proposer (e.g. a
 /// learned model behind its own licence/evidence gate) can be swapped in
 /// without changing the decision contract or rewriting provenance.
-enum BoundaryProducer { detector, segmenter, wholeFrameDetector, manual, learnedModel }
+enum BoundaryProducer {
+  detector,
+  segmenter,
+  wholeFrameDetector,
+  manual,
+  learnedModel,
+}
 
 /// The three outcomes a boundary claim may receive.
 ///
@@ -218,7 +224,10 @@ BoundaryDecision verifyBoundary(
       centreY += point.y / 4;
     }
     final overlaps =
-        maxX > region[0] && minX < region[2] && maxY > region[1] && minY < region[3];
+        maxX > region[0] &&
+        minX < region[2] &&
+        maxY > region[1] &&
+        minY < region[3];
     final centreInside =
         centreX >= region[0] &&
         centreX <= region[2] &&
@@ -244,16 +253,17 @@ BoundaryDecision verifyBoundary(
 
 /// Arabic, user-facing explanation of one review reason. The caller owns
 /// prefixing the image name; this text owns saying what happens next.
-String boundaryReviewReasonMessage(BoundaryReviewReason reason) =>
-    switch (reason) {
-      BoundaryReviewReason.noBoundary =>
-        'لم تُقترح حدود للمستمسك؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
-      BoundaryReviewReason.notABoundary =>
-        'اقتراح الحدود غير صالح شكلاً؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
-      BoundaryReviewReason.geometryRejected =>
-        'الحدود المقترحة مرفوضة هندسياً؛ بقيت الصورة كاملة لتُقصّ يدوياً قبل أي قصّ.',
-      BoundaryReviewReason.aspectMismatch =>
-        'شكل الحدود المقترحة لا يطابق مقاس النوع المتعرّف عليه؛ لم يُفرض المقاس ولم يُقصّ تلقائياً — راجع القص يدوياً.',
-      BoundaryReviewReason.quadOutsideRegion =>
-        'الحدود المقترحة لا تصف المنطقة المقاسة؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
-    };
+String boundaryReviewReasonMessage(
+  BoundaryReviewReason reason,
+) => switch (reason) {
+  BoundaryReviewReason.noBoundary =>
+    'لم تُقترح حدود للمستمسك؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
+  BoundaryReviewReason.notABoundary =>
+    'اقتراح الحدود غير صالح شكلاً؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
+  BoundaryReviewReason.geometryRejected =>
+    'الحدود المقترحة مرفوضة هندسياً؛ بقيت الصورة كاملة لتُقصّ يدوياً قبل أي قصّ.',
+  BoundaryReviewReason.aspectMismatch =>
+    'شكل الحدود المقترحة لا يطابق مقاس النوع المتعرّف عليه؛ لم يُفرض المقاس ولم يُقصّ تلقائياً — راجع القص يدوياً.',
+  BoundaryReviewReason.quadOutsideRegion =>
+    'الحدود المقترحة لا تصف المنطقة المقاسة؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
+};

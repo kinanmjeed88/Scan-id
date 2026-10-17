@@ -690,15 +690,14 @@ List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
       // When both candidates carry quads, suppression compares the quads
       // themselves; the box comparison remains only for candidates whose
       // boundary was never resolved.
-      final overlap =
-          candidate.corners != null && existing.corners != null
-              ? _quadIou(candidate.corners!, existing.corners!)
-              : _normalizedIou(
-                  bounds,
-                  existing.corners != null
-                      ? _quadBounds(existing.corners!)
-                      : existing.region,
-                );
+      final overlap = candidate.corners != null && existing.corners != null
+          ? _quadIou(candidate.corners!, existing.corners!)
+          : _normalizedIou(
+              bounds,
+              existing.corners != null
+                  ? _quadBounds(existing.corners!)
+                  : existing.region,
+            );
       if (overlap > .5) {
         duplicate = true;
         break;

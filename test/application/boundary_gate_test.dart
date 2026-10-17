@@ -16,15 +16,6 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 /// D10) and for what AutomationMode.reviewAll does — and does not — mean.
 final _bytes = Uint8List.fromList([1, 2, 3]);
 
-PipelineImageInput _input() => PipelineImageInput(
-  assetId: 'asset1',
-  name: 'صورة.png',
-  previewBytes: _bytes,
-  sourceWidth: 1600,
-  sourceHeight: 1000,
-  importIndex: 0,
-);
-
 List<Point2> _quad() => [
   Point2(.1, .1),
   Point2(.9, .1),

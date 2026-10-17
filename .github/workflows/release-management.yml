@@ -389,6 +389,12 @@ jobs:
           cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E 'appVersion' lib/application/app_release.dart
+          # The scratch copy must leave the workspace before any gate runs. A
+          # second pubspec.yaml under the project root makes the analyzer treat
+          # this folder as its own package root, so it resolves the root
+          # pubspec's asset paths against it and reports asset_does_not_exist,
+          # which `flutter analyze --fatal-infos` turns into a failed build.
+          rm -rf version-bump
 
       - uses: actions/setup-java@v5
         with:
@@ -569,6 +575,12 @@ jobs:
           cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E 'appVersion' lib/application/app_release.dart
+          # The scratch copy must leave the workspace before any gate runs. A
+          # second pubspec.yaml under the project root makes the analyzer treat
+          # this folder as its own package root, so it resolves the root
+          # pubspec's asset paths against it and reports asset_does_not_exist,
+          # which `flutter analyze --fatal-infos` turns into a failed build.
+          rm -rf version-bump
 
       - uses: subosito/flutter-action@v2
         with:
@@ -693,6 +705,12 @@ jobs:
           cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E "const String appVersion = '" lib/application/app_release.dart
+          # The scratch copy must leave the workspace before any gate runs. A
+          # second pubspec.yaml under the project root makes the analyzer treat
+          # this folder as its own package root, so it resolves the root
+          # pubspec's asset paths against it and reports asset_does_not_exist,
+          # which `flutter analyze --fatal-infos` turns into a failed build.
+          rm -rf version-bump
 
       - name: Download Android APK
         if: inputs.targets == 'android' || inputs.targets == 'both'

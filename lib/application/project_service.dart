@@ -20,6 +20,8 @@ import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 import 'smart_recognition.dart';
 import 'smart_recognition_flag.dart' as smart_recognition_flag;
+import 'multi_document_segmentation_flag.dart'
+    as multi_document_segmentation_flag;
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
 import '../imaging/document_segmenter.dart';
@@ -175,6 +177,8 @@ class ProjectService {
     this.segmenter,
     this.smartRecognitionEnabled =
         smart_recognition_flag.smartRecognitionEnabled,
+    this.multiDocumentSegmentationEnabled =
+        multi_document_segmentation_flag.multiDocumentSegmentationEnabled,
   });
   final ProjectBackups? backups;
   final CameraCapture? camera;
@@ -191,6 +195,10 @@ class ProjectService {
   /// App-level Phase 1B gate. Production defaults to the disabled build flag;
   /// tests can explicitly opt in to exercise the implementation behind it.
   final bool smartRecognitionEnabled;
+
+  /// Independent import policy. It only segments candidate multi-document
+  /// photos; it never enables full Smart Recognition for single-image imports.
+  final bool multiDocumentSegmentationEnabled;
 
   /// New projects use 5 mm margins (so a 287 mm ration card fits an A4
   /// height) and inherit the editable document sizes of the most recently
@@ -350,32 +358,24 @@ class ProjectService {
     );
   }
 
-  /// The automatic intake pipeline for newly imported images:
+  /// The automatic intake pipeline for newly imported images.
   ///
-  /// 1. detect the document boundary and recognise the category from the
-  ///    filename or the boundary shape;
-  /// 2. crop along the boundary, rectified to the category's exact aspect
-  ///    ratio so the printed document is not stretched;
-  /// 3. give the document its catalog size (unified card, residence card,
-  ///    passport, ration card) and arrange every unlocked document over as
-  ///    many A4 pages as needed, in category order.
+  /// Full Smart Recognition remains behind [smartRecognitionEnabled]. The
+  /// independent multi-document policy first runs only the classical local
+  /// segmenter; when it finds more than one usable region, that cached result is
+  /// handed to SmartIntake for derived crops and human review. Zero or one
+  /// region, a pre-cropped source, or a segmentation failure keeps the existing
+  /// single-document import path.
   ///
-  /// Documents of an unknown category stay off the sheet until the user picks
-  /// a category from the ribbon. Every step is saved and can be undone or
-  /// corrected (crop handles, category, size) afterwards.
-  ///
-  /// With [keepPlaced] the documents already on the sheet stay where they
-  /// are and only the new ones are placed into free space.
+  /// [keepPlaced] defaults to true: importing a new document must not move
+  /// documents that are already on a page. Sizes are never silently changed.
   Future<AutomaticLayoutReport> arrangeImportedImages(
     Project project,
     Iterable<String> assetIds, {
-    bool keepPlaced = false,
+    bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
   }) async {
-    // Smart Recognition intake: segmentation, geometry scoring, hybrid
-    // classification, records and review routing. Turning the app-level
-    // flag off restores the legacy path below byte-for-byte.
     final smartEditor = imageEditor;
     if (smartRecognitionEnabled && smartEditor != null) {
       return SmartIntake(
@@ -391,17 +391,262 @@ class ProjectService {
         onProgress: onProgress,
       );
     }
+
+    if (multiDocumentSegmentationEnabled && smartEditor != null) {
+      return _arrangeWithMultiDocumentSegmentation(
+        project,
+        assetIds,
+        editor: smartEditor,
+        keepPlaced: keepPlaced,
+        cancellation: cancellation,
+        onProgress: onProgress,
+      );
+    }
+
+    return _arrangeLegacyImportedImages(
+      project,
+      assetIds,
+      keepPlaced: keepPlaced,
+      cancellation: cancellation,
+      onProgress: onProgress,
+    );
+  }
+
+  Future<AutomaticLayoutReport> _arrangeWithMultiDocumentSegmentation(
+    Project project,
+    Iterable<String> assetIds, {
+    required ImageEditor editor,
+    required bool keepPlaced,
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
+    final ids = assetIds.toSet().toList();
+    final pendingIds = <String>[];
+    for (final id in ids) {
+      final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
+      require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
+      if (!project.items.any((item) => item.assetId == id)) pendingIds.add(id);
+    }
+
+    var current = project;
+    var cropped = 0;
+    var notDetected = 0;
+    var recognized = 0;
+    var needsReview = 0;
+    var multiDocumentImages = 0;
+    var rejectedRegions = 0;
+    final rejectedByReason = <RegionRejection, int>{};
+    final warnings = <String>[];
+    final segments = <String, SegmentationResult>{};
+    final segmentationWarnings = <String, String>{};
+
+    void merge(AutomaticLayoutReport report) {
+      current = report.project;
+      cropped += report.cropped;
+      notDetected += report.notDetected;
+      recognized += report.recognized;
+      needsReview += report.needsReview;
+      multiDocumentImages += report.multiDocumentImages;
+      rejectedRegions += report.rejectedRegions;
+      for (final entry in report.rejectedByReason.entries) {
+        rejectedByReason.update(
+          entry.key,
+          (value) => value + entry.value,
+          ifAbsent: () => entry.value,
+        );
+      }
+      warnings.addAll(report.warnings);
+    }
+
+    void progress(int completed, String stage) => onProgress?.call(
+      BatchProgress(
+        total: pendingIds.length,
+        completed: completed,
+        stage: stage,
+      ),
+    );
+
+    progress(0, 'فحص تقسيم الصور');
+    for (var index = 0; index < pendingIds.length; index++) {
+      if (cancellation?.isCancelled ?? false) break;
+      final id = pendingIds[index];
+      final asset = project.assets.firstWhere((entry) => entry.id == id);
+      // Multi-region coordinates are measured against the pristine source.
+      // A manually cropped/revised asset stays on its established single-image
+      // path so those coordinates can never be applied to different pixels.
+      if (asset.crop == null && !asset.userAuthoredCrop) {
+        try {
+          final source = await editor.open(asset);
+          final result = await (segmenter ?? defaultSegment)(source.preview);
+          segments[id] = result;
+        } on RevisionConflict {
+          rethrow;
+        } catch (error) {
+          segmentationWarnings[id] =
+              '${asset.name}: تعذر فحص التقسيم متعدد المستمسكات؛ '
+              'استُخدم مسار الاستيراد المعتاد (${userError(error)}).';
+        }
+      }
+      progress(index + 1, 'فحص تقسيم الصور');
+    }
+
+    bool isMultiDocumentSource(String id) {
+      final segmentation = segments[id];
+      return segmentation != null && segmentation.candidates.length > 1;
+    }
+
+    var hasNewItems = false;
+    var index = 0;
+    while (index < pendingIds.length && !(cancellation?.isCancelled ?? false)) {
+      final id = pendingIds[index];
+      if (isMultiDocumentSource(id)) {
+        final segmentation = segments[id]!;
+        final beforeItems = current.items.length;
+        // Pass the already measured result through the existing multi-document
+        // intake so it is not segmented a second time. Defer placement until all
+        // sources in this import batch have staged their new items.
+        final report =
+            await SmartIntake(
+              projects: projects,
+              assets: assets,
+              editor: editor,
+              segment: (_) async => segmentation,
+            ).run(
+              current,
+              [id],
+              keepPlaced: keepPlaced,
+              deferArrangement: true,
+              cancellation: cancellation,
+              onProgress: (value) =>
+                  progress(index + value.completed, value.stage),
+            );
+        merge(report);
+        hasNewItems = hasNewItems || report.project.items.length > beforeItems;
+        index++;
+        progress(index, 'إضافة المستمسكات');
+        continue;
+      }
+
+      // Process adjacent singleton/fallback images together. This preserves the
+      // legacy batch packing behavior instead of letting an earlier item from
+      // the same import become a fixed obstacle for a later one.
+      final firstIndex = index;
+      final fallbackIds = <String>[];
+      while (index < pendingIds.length &&
+          !isMultiDocumentSource(pendingIds[index])) {
+        fallbackIds.add(pendingIds[index]);
+        index++;
+      }
+      final beforeItems = current.items.length;
+      final report = await _arrangeLegacyImportedImages(
+        current,
+        fallbackIds,
+        keepPlaced: keepPlaced,
+        deferArrangement: true,
+        cancellation: cancellation,
+        onProgress: (value) =>
+            progress(firstIndex + value.completed, value.stage),
+      );
+      merge(report);
+      hasNewItems = hasNewItems || report.project.items.length > beforeItems;
+      for (final fallbackId in fallbackIds) {
+        final asset = current.assets.firstWhere(
+          (entry) => entry.id == fallbackId,
+        );
+        final segmentation = segments[fallbackId];
+        final refused = segmentation?.rejected ?? const <RejectedRegion>[];
+        if (refused.isNotEmpty) {
+          rejectedRegions += refused.length;
+          for (final entry in rejectionTally(refused).entries) {
+            rejectedByReason.update(
+              entry.key,
+              (value) => value + entry.value,
+              ifAbsent: () => entry.value,
+            );
+          }
+          final message = rejectedRegionsMessage(refused);
+          if (message != null) warnings.add('${asset.name}: $message');
+        }
+        final failure = segmentationWarnings[fallbackId];
+        if (failure != null) warnings.add(failure);
+      }
+      progress(index, 'إضافة المستمسكات');
+    }
+
+    if (hasNewItems) {
+      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+      current = await projects.save(arrangement.result);
+      if (arrangement.unplaced.isNotEmpty) {
+        warnings.add(
+          '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+          'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
+        );
+        for (final id in arrangement.unplaced) {
+          final item = current.items.firstWhere((entry) => entry.id == id);
+          warnings.add(unplacedDocumentMessage(current, item));
+        }
+      }
+      for (final id in arrangement.awaitingSize) {
+        final item = current.items.firstWhere((entry) => entry.id == id);
+        warnings.add(unplacedDocumentMessage(current, item));
+      }
+    }
+    if ((cancellation?.isCancelled ?? false) &&
+        !warnings.any((warning) => warning.contains('أُلغيت العملية'))) {
+      warnings.add(
+        'أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.',
+      );
+    }
+
+    return AutomaticLayoutReport(
+      project: current,
+      cropped: cropped,
+      notDetected: notDetected,
+      recognized: recognized,
+      needsReview: needsReview,
+      multiDocumentImages: multiDocumentImages,
+      rejectedRegions: rejectedRegions,
+      rejectedByReason: rejectedByReason,
+      warnings: warnings,
+    );
+  }
+
+  /// The pre-existing single-document path. Kept separate from multi-region
+  /// dispatch so singleton images retain their old crop/classification behavior.
+  Future<AutomaticLayoutReport> _arrangeLegacyImportedImages(
+    Project project,
+    Iterable<String> assetIds, {
+    bool keepPlaced = true,
+    bool deferArrangement = false,
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
     var recognized = 0;
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
+    final ids = assetIds.toSet().toList();
 
-    for (final id in assetIds.toSet()) {
+    void progress(int completed) => onProgress?.call(
+      BatchProgress(
+        total: ids.length,
+        completed: completed,
+        stage: 'تحليل الصور',
+      ),
+    );
+
+    progress(0);
+    for (var index = 0; index < ids.length; index++) {
+      if (cancellation?.isCancelled ?? false) break;
+      final id = ids[index];
       final assetIndex = current.assets.indexWhere((entry) => entry.id == id);
       require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
-      if (current.items.any((item) => item.assetId == id)) continue;
+      if (current.items.any((item) => item.assetId == id)) {
+        progress(index + 1);
+        continue;
+      }
       var asset = current.assets[assetIndex];
       DocumentTypeSuggestion? suggestion;
 
@@ -497,8 +742,14 @@ class ProjectService {
           sizeConfirmed: catalogSize != null,
         ),
       );
+      progress(index + 1);
     }
 
+    if (cancellation?.isCancelled ?? false) {
+      warnings.add(
+        'أُلغيت العملية؛ بقيت الصور غير المعالجة محفوظة في المشروع.',
+      );
+    }
     if (newItems.isEmpty) {
       return AutomaticLayoutReport(
         project: current,
@@ -509,13 +760,25 @@ class ProjectService {
       );
     }
     current = current.copyWith(items: [...current.items, ...newItems]);
-    final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
-    current = await projects.save(arrangement.result);
-    if (arrangement.unplaced.isNotEmpty) {
-      warnings.add(
-        '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
-        'راجع الحالة الفردية وتأكد من وجود مساحة كافية لكل مجموعة.',
-      );
+    if (deferArrangement) {
+      current = await projects.save(current);
+    } else {
+      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+      current = await projects.save(arrangement.result);
+      if (arrangement.unplaced.isNotEmpty) {
+        warnings.add(
+          '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+          'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
+        );
+        for (final id in arrangement.unplaced) {
+          final item = current.items.firstWhere((entry) => entry.id == id);
+          warnings.add(unplacedDocumentMessage(current, item));
+        }
+      }
+      for (final id in arrangement.awaitingSize) {
+        final item = current.items.firstWhere((entry) => entry.id == id);
+        warnings.add(unplacedDocumentMessage(current, item));
+      }
     }
     return AutomaticLayoutReport(
       project: current,

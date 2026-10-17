@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -268,131 +269,244 @@ void main() {
 
   ProjectService service({
     Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
+    bool smartRecognitionEnabled = true,
+    bool multiDocumentSegmentationEnabled = true,
   }) => ProjectService(
     projects,
     assets,
     imageEditor: LocalImageEditor(projects.files),
-    smartRecognitionEnabled: true,
+    smartRecognitionEnabled: smartRecognitionEnabled,
+    multiDocumentSegmentationEnabled: multiDocumentSegmentationEnabled,
     segmenter: segmenter,
   );
 
-  test('one photo of two cards becomes two placed documents', () async {
-    final s = service(segmenter: _twoCards);
-    var project = await s.create('مستندان');
+  test(
+    'one photo of two cards takes the independent multi-only path',
+    () async {
+      final s = service(segmenter: _twoCards, smartRecognitionEnabled: false);
+      expect(s.smartRecognitionEnabled, isFalse);
+      var project = await s.create('مستندان');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('بطاقتان.png', () => Stream.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final originalPath = project.assets.single.originalPath;
+
+      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final result = report.project;
+
+      expect(report.multiDocumentImages, 1);
+      expect(report.cropped, 2);
+      expect(report.needsReview, 2);
+      expect(recordsNeedingReview(report.project), hasLength(2));
+      expect(result.assets, hasLength(3), reason: 'original + two derived');
+      expect(result.items, hasLength(2));
+      expect(result.documents, hasLength(2));
+      // The original image bytes are untouched (ADR-003).
+      expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+      // No item points at the source photo; each item has its derived asset.
+      expect(result.items.every((i) => i.assetId != sourceId), isTrue);
+      for (final item in result.items) {
+        expect(item.documentKind, DocumentKind.unifiedNationalId);
+        expect(item.sizeConfirmed, isTrue);
+        expect(item.pageIndex, 0);
+        expect([item.width, item.height], [85.6, 53.98]);
+      }
+      // Derived assets carry readable Arabic names and rectified shapes.
+      final derived = result.assets.where((a) => a.id != sourceId).toList();
+      expect(derived[0].name, contains('مستند 1'));
+      expect(derived[1].name, contains('مستند 2'));
+      for (final asset in derived) {
+        expect(asset.width / asset.height, closeTo(85.6 / 53.98, .02));
+      }
+      // Records: recognition truth, provenance back to the source photo.
+      for (final record in result.documents) {
+        expect(record.provenance.sourceImageId, sourceId);
+        expect(record.sides.single.detection!.producer, 'document-segmenter');
+        expect(
+          record.recognition!.documentKind,
+          DocumentKind.unifiedNationalId,
+        );
+        // Two cards on ONE photo are never two sides of one card.
+        expect(record.pairing, PairingState.single);
+        expect(record.pairedDocumentId, isNull);
+      }
+      expect(result.layoutGroups, isEmpty);
+      // The result equals what was saved.
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
+
+  test(
+    'a multi-source import batch arranges every new region together',
+    () async {
+      final s = service(segmenter: _twoCards, smartRecognitionEnabled: false);
+      var project = await s.create('أربع مناطق');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('الصورة الأولى.png', () => Stream.value(bytes)),
+        ImportSource('الصورة الثانية.png', () => Stream.value(bytes)),
+      ])).project;
+
+      final report = await s.arrangeImportedImages(
+        project,
+        project.assets.map((asset) => asset.id),
+      );
+
+      expect(report.multiDocumentImages, 2);
+      expect(report.cropped, 4);
+      expect(report.project.items, hasLength(4));
+      expect(report.project.items.every((item) => item.pageIndex == 0), isTrue);
+      expect(inspectLayout(report.project), isEmpty);
+      expect(recordsNeedingReview(report.project), hasLength(4));
+    },
+  );
+
+  test('one candidate stays on the legacy single-document path', () async {
+    final s = service(segmenter: _oneValidCard, smartRecognitionEnabled: false);
+    var project = await s.create('مستند واحد');
     final bytes = _photo();
     project = (await s.importImages(project, [
-      ImportSource('بطاقتان.png', () => Stream.value(bytes)),
+      ImportSource('بطاقة.png', () => Stream.value(bytes)),
     ])).project;
     final sourceId = project.assets.single.id;
-    final originalPath = project.assets.single.originalPath;
 
     final report = await s.arrangeImportedImages(project, [sourceId]);
-    final result = report.project;
 
-    expect(report.multiDocumentImages, 1);
-    expect(report.cropped, 2);
-    expect(result.assets, hasLength(3), reason: 'original + two derived');
-    expect(result.items, hasLength(2));
-    expect(result.documents, hasLength(2));
-    // The original image bytes are untouched (ADR-003).
-    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
-    // No item points at the source photo; each item has its derived asset.
-    expect(result.items.every((i) => i.assetId != sourceId), isTrue);
-    for (final item in result.items) {
-      expect(item.documentKind, DocumentKind.unifiedNationalId);
-      expect(item.sizeConfirmed, isTrue);
-      expect(item.pageIndex, 0);
-      expect([item.width, item.height], [85.6, 53.98]);
-    }
-    // Derived assets carry readable Arabic names and rectified shapes.
-    final derived = result.assets.where((a) => a.id != sourceId).toList();
-    expect(derived[0].name, contains('مستند 1'));
-    expect(derived[1].name, contains('مستند 2'));
-    for (final asset in derived) {
-      expect(asset.width / asset.height, closeTo(85.6 / 53.98, .02));
-    }
-    // Records: recognition truth, provenance back to the source photo.
-    for (final record in result.documents) {
-      expect(record.provenance.sourceImageId, sourceId);
-      expect(record.sides.single.detection!.producer, 'document-segmenter');
-      expect(record.recognition!.documentKind, DocumentKind.unifiedNationalId);
-      // Two cards on ONE photo are never two sides of one card.
-      expect(record.pairing, PairingState.single);
-      expect(record.pairedDocumentId, isNull);
-    }
-    expect(result.layoutGroups, isEmpty);
-    // The result equals what was saved (single final save).
-    expect((await projects.get(result.id)).toJson(), result.toJson());
+    expect(report.multiDocumentImages, 0);
+    expect(report.project.documents, isEmpty);
+    expect(report.project.items, hasLength(1));
+    expect(report.project.items.single.assetId, sourceId);
+    expect(report.project.assets, hasLength(1));
   });
 
-  test('a photo with an unresolvable region keeps BOTH documents', () async {
-    final s = service(segmenter: _cardPlusUnresolved);
-    var project = await s.create('مستندان أحدهما بلا حدود');
-    final bytes = _photo();
+  test('segmentation failure falls back with an explicit warning', () async {
+    final s = service(
+      segmenter: (_) async =>
+          throw StateError('synthetic segmentation failure'),
+      smartRecognitionEnabled: false,
+    );
+    var project = await s.create('رجوع آمن');
+    final bytes = img.encodePng(img.Image(width: 400, height: 300));
     project = (await s.importImages(project, [
-      ImportSource('صورة.png', () => Stream.value(bytes)),
+      ImportSource('single.png', () => Stream.value(bytes)),
     ])).project;
     final sourceId = project.assets.single.id;
-    final originalPath = project.assets.single.originalPath;
 
     final report = await s.arrangeImportedImages(project, [sourceId]);
-    final result = report.project;
 
-    // No document is lost: both measured regions became documents.
-    expect(result.items, hasLength(2));
-    expect(result.documents, hasLength(2));
-    expect(result.assets, hasLength(3), reason: 'original + two derived');
-
-    // The original source image is untouched (ADR-003) and — critically —
-    // was NOT cropped to the one quad that was found, which would have made
-    // the second region unrecoverable.
-    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
-    final source = result.assets.firstWhere((a) => a.id == sourceId);
-    expect(source.crop, isNull);
-    expect(result.items.any((i) => i.assetId == sourceId), isFalse);
-
-    // No duplicate items and no duplicate asset references.
-    expect(result.items.map((i) => i.id).toSet(), hasLength(2));
-    expect(result.items.map((i) => i.assetId).toSet(), hasLength(2));
-    expect(result.documents.map((d) => d.id).toSet(), hasLength(2));
-
-    // The unresolved region is preserved as an un-warped crop of the
-    // measured bounds: nothing was invented for it.
-    final unresolvedRecord = result.documents.firstWhere(
-      (d) => d.sides.single.detection!.polygon == null,
-    );
-    final unresolvedItem = result.items.firstWhere(
-      (i) => i.documentId == unresolvedRecord.id,
-    );
-    final unresolvedAsset = result.assets.firstWhere(
-      (a) => a.id == unresolvedItem.assetId,
-    );
-    expect(unresolvedAsset.width, closeTo(600, 2));
-    expect(unresolvedAsset.height, closeTo(380, 2));
-    // An unrectified crop never claims a confirmed catalog size.
-    expect(unresolvedItem.sizeConfirmed, isFalse);
-
-    // The resolved region is still a properly rectified document.
-    final resolvedRecord = result.documents.firstWhere(
-      (d) => d.sides.single.detection!.polygon != null,
-    );
-    final resolvedItem = result.items.firstWhere(
-      (i) => i.documentId == resolvedRecord.id,
-    );
-    expect(resolvedItem.documentKind, DocumentKind.unifiedNationalId);
-    expect(resolvedItem.sizeConfirmed, isTrue);
-
-    // The user is told what happened and how to finish the job.
+    expect(report.project.items, hasLength(1));
+    expect(report.project.documents, isEmpty);
     expect(
-      report.warnings.join('\n'),
-      contains('يدوياً'),
-      reason: 'an unresolved region must be reported, never silent',
+      report.warnings.any(
+        (warning) => warning.contains('تعذر فحص التقسيم متعدد المستمسكات'),
+      ),
+      isTrue,
     );
-    expect(report.notDetected, 1);
-
-    // Placement remains the deterministic engine's job (ADR-002).
-    expect((await projects.get(result.id)).toJson(), result.toJson());
   });
+
+  test(
+    'disabling the separate policy leaves imports on the legacy path',
+    () async {
+      var segmented = false;
+      final s = service(
+        segmenter: (bytes) async {
+          segmented = true;
+          return _twoCards(bytes);
+        },
+        smartRecognitionEnabled: false,
+        multiDocumentSegmentationEnabled: false,
+      );
+      var project = await s.create('سياسة التقسيم متوقفة');
+      project = (await s.importImages(project, [
+        ImportSource('two-cards.png', () => Stream.value(_photo())),
+      ])).project;
+
+      final report = await s.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+
+      expect(segmented, isFalse);
+      expect(report.project.items, hasLength(1));
+      expect(report.project.documents, isEmpty);
+    },
+  );
+
+  test(
+    'multi-only import keeps an unresolved region for manual review',
+    () async {
+      final s = service(
+        segmenter: _cardPlusUnresolved,
+        smartRecognitionEnabled: false,
+      );
+      var project = await s.create('مستندان أحدهما بلا حدود');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final originalPath = project.assets.single.originalPath;
+
+      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final result = report.project;
+
+      // No document is lost: both measured regions became documents.
+      expect(result.items, hasLength(2));
+      expect(result.documents, hasLength(2));
+      expect(result.assets, hasLength(3), reason: 'original + two derived');
+
+      // The original source image is untouched (ADR-003) and — critically —
+      // was NOT cropped to the one quad that was found, which would have made
+      // the second region unrecoverable.
+      expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+      final source = result.assets.firstWhere((a) => a.id == sourceId);
+      expect(source.crop, isNull);
+      expect(result.items.any((i) => i.assetId == sourceId), isFalse);
+
+      // No duplicate items and no duplicate asset references.
+      expect(result.items.map((i) => i.id).toSet(), hasLength(2));
+      expect(result.items.map((i) => i.assetId).toSet(), hasLength(2));
+      expect(result.documents.map((d) => d.id).toSet(), hasLength(2));
+
+      // The unresolved region is preserved as an un-warped crop of the
+      // measured bounds: nothing was invented for it.
+      final unresolvedRecord = result.documents.firstWhere(
+        (d) => d.sides.single.detection!.polygon == null,
+      );
+      final unresolvedItem = result.items.firstWhere(
+        (i) => i.documentId == unresolvedRecord.id,
+      );
+      final unresolvedAsset = result.assets.firstWhere(
+        (a) => a.id == unresolvedItem.assetId,
+      );
+      expect(unresolvedAsset.width, closeTo(600, 2));
+      expect(unresolvedAsset.height, closeTo(380, 2));
+      // An unrectified crop never claims a confirmed catalog size.
+      expect(unresolvedItem.sizeConfirmed, isFalse);
+
+      // The resolved region is still a properly rectified document.
+      final resolvedRecord = result.documents.firstWhere(
+        (d) => d.sides.single.detection!.polygon != null,
+      );
+      final resolvedItem = result.items.firstWhere(
+        (i) => i.documentId == resolvedRecord.id,
+      );
+      expect(resolvedItem.documentKind, DocumentKind.unifiedNationalId);
+      expect(resolvedItem.sizeConfirmed, isTrue);
+
+      // The user is told what happened and how to finish the job.
+      expect(
+        report.warnings.join('\n'),
+        contains('يدوياً'),
+        reason: 'an unresolved region must be reported, never silent',
+      );
+      expect(report.notDetected, 1);
+
+      // Placement remains the deterministic engine's job (ADR-002).
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
 
   test(
     'a multi-region photo with no trustworthy quad still keeps every region',
@@ -421,6 +535,7 @@ void main() {
       // Nothing was warped, so nothing is counted as cropped.
       expect(report.cropped, 0);
       expect(report.notDetected, 2);
+      expect(report.multiDocumentImages, 1);
       expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
       final source = result.assets.firstWhere((a) => a.id == sourceId);
       expect(source.crop, isNull);

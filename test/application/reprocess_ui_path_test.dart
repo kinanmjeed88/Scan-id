@@ -549,10 +549,9 @@ void main() {
       );
     }
 
-    // The reprocess entry point no longer takes a keepPlaced flag at all, so
-    // there is exactly ONE behaviour to test — which is the fix: preserving
-    // the sheet can no longer depend on the automatic-flow setting. Both flow
-    // modes are asserted to produce the same, preserving, result.
+    // Reprocessing is not an import/arrangement path and deliberately has no
+    // keepPlaced option. Both flow modes must therefore produce the same
+    // recognition-only result without re-laying out the existing sheet.
     for (final autoFlow in [true, false]) {
       test('autoFlow = $autoFlow: existing layout is preserved', () async {
         final arranged = await importAndArrange(
@@ -566,9 +565,8 @@ void main() {
         expect(first.items.first.locked, isTrue);
         expect(first.items.first.groupId, 'group-a');
 
-        // autoFlow only ever reached the service as `keepPlaced: !autoFlow`.
-        // With that parameter gone the call is identical in both modes, and
-        // this is exactly the call the controller makes.
+        // The reprocess call is identical in both flow modes and cannot
+        // trigger a full arrangement.
         final result = (await service(
           segmenter: _bothResolved,
         ).reprocessImages(first, uiAssetIds(first)))!.project;

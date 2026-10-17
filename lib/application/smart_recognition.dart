@@ -134,6 +134,7 @@ class SmartIntake {
     Project project,
     Iterable<String> assetIds, {
     bool keepPlaced = false,
+    bool deferArrangement = false,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
   }) async {
@@ -278,13 +279,27 @@ class SmartIntake {
       documents: [...current.documents, ...newDocuments],
       layoutGroups: [...current.layoutGroups, ...newGroups],
     );
-    final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
-    current = await projects.save(arrangement.result);
-    if (arrangement.unplaced.isNotEmpty) {
-      warnings.add(
-        '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
-        'راجع حالة العناصر والمساحة المتاحة لكل مجموعة.',
-      );
+    if (deferArrangement) {
+      // Multi-only dispatch may stage several sources independently, then
+      // arrange every newly produced item together around the pre-existing sheet.
+      current = await projects.save(current);
+    } else {
+      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+      current = await projects.save(arrangement.result);
+      if (arrangement.unplaced.isNotEmpty) {
+        warnings.add(
+          '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+          'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
+        );
+        for (final id in arrangement.unplaced) {
+          final item = current.items.firstWhere((entry) => entry.id == id);
+          warnings.add(unplacedDocumentMessage(current, item));
+        }
+      }
+      for (final id in arrangement.awaitingSize) {
+        final item = current.items.firstWhere((entry) => entry.id == id);
+        warnings.add(unplacedDocumentMessage(current, item));
+      }
     }
     return AutomaticLayoutReport(
       project: current,
@@ -544,8 +559,16 @@ class SmartIntake {
     if (arrangement.unplaced.isNotEmpty) {
       warnings.add(
         '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
-        'راجع حالة العناصر والمساحة المتاحة لكل مجموعة.',
+        'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
       );
+      for (final id in arrangement.unplaced) {
+        final item = current.items.firstWhere((entry) => entry.id == id);
+        warnings.add(unplacedDocumentMessage(current, item));
+      }
+    }
+    for (final id in arrangement.awaitingSize) {
+      final item = current.items.firstWhere((entry) => entry.id == id);
+      warnings.add(unplacedDocumentMessage(current, item));
     }
     return AutomaticLayoutReport(
       project: current,
@@ -1127,7 +1150,7 @@ class SmartIntake {
       // ones as rectified crops, unresolved ones as reviewable region crops.
       // A single unresolved region also needs this preservation path, but is
       // not counted as a multi-document image in the report.
-      if (analysis.multi) onMulti();
+      if (analysis.allRegions.length > 1) onMulti();
       return _applyMultiDocument(
         current,
         analyzed,

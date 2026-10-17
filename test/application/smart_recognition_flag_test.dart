@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/multi_document_segmentation_flag.dart';
 import 'package:scan_id/application/smart_recognition_flag.dart';
 
 /// Smart Recognition remains opt-in and OFF in the shipping configuration;
@@ -11,5 +12,10 @@ void main() {
   test('the disabled app-level flag denies both request states', () {
     expect(smartRecognitionAllows(false), isFalse);
     expect(smartRecognitionAllows(true), isFalse);
+  });
+
+  test('multi-document segmentation is a separate import policy', () {
+    expect(multiDocumentSegmentationEnabled, isTrue);
+    expect(smartRecognitionEnabled, isFalse);
   });
 }

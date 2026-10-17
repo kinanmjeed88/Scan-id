@@ -85,13 +85,14 @@ void main() {
     await root.delete(recursive: true);
   });
 
-  /// A project whose intake produced two derived assets from one photo.
+  /// A project whose multi-only intake produced two derived assets from one
+  /// photo while full Smart Recognition remains disabled.
   Future<Project> projectWithDerived() async {
     final service = ProjectService(
       projects,
       assets,
       imageEditor: editor,
-      smartRecognitionEnabled: true,
+      smartRecognitionEnabled: false,
       segmenter: _twoCards,
     );
     var project = await service.create('مستندات مشتقة');

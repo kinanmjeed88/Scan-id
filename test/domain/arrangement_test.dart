@@ -110,6 +110,49 @@ DocumentRecord _linkedRecord({
 );
 
 void main() {
+  test('keepPlaced adds around old items despite a later larger gap', () {
+    final first = _sizedDoc('fixed-a', 50, 30).copyWith(x: 10, y: 10);
+    final second = _sizedDoc('fixed-b', 50, 30).copyWith(x: 62, y: 10);
+    final added = _sizedDoc('new', 40, 30, page: null).copyWith(x: 5, y: 5);
+    final project = _project([
+      first,
+      second,
+      added,
+    ]).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.compact));
+
+    final result = arrangeDocuments(project, keepPlaced: true);
+
+    expect(result.unplaced, isEmpty);
+    expect(result.result.items[0].toJson(), first.toJson());
+    expect(result.result.items[1].toJson(), second.toJson());
+    expect(result.result.items[2].pageIndex, 0);
+    expect(inspectLayout(result.result), isEmpty);
+  });
+
+  test('unplaced explanations distinguish size from lack of page space', () {
+    final oversized = _sizedDoc('wide', 250, 300, page: null);
+    final project = _project([oversized]);
+    expect(autoLayoutStatus(project, oversized), AutoLayoutStatus.tooLarge);
+    expect(
+      unplacedDocumentMessage(project, oversized),
+      allOf(
+        contains('لا يلائم المساحة القابلة للطباعة'),
+        contains('بلا تصغير أو قص'),
+      ),
+    );
+
+    final fitting = _sizedDoc('fitting', 80, 50, page: null);
+    final fittingProject = _project([fitting]);
+    expect(
+      autoLayoutStatus(fittingProject, fitting),
+      AutoLayoutStatus.eligible,
+    );
+    expect(
+      unplacedDocumentMessage(fittingProject, fitting),
+      allOf(contains('لا توجد مساحة كافية'), contains('بلا تصغير أو قص')),
+    );
+  });
+
   test('categories are laid out in order: ID, residence, passport, ration', () {
     final project = _project([
       _doc('passport', DocumentKind.passport),

@@ -62,7 +62,7 @@ class IntakeRunner {
   IntakeRunner({
     required this.service,
     required this.project,
-    this.keepPlaced = false,
+    this.keepPlaced = true,
   });
 
   final ProjectService service;
@@ -171,7 +171,7 @@ Future<IntakeRun?> runIntakeWithProgress(
   required ProjectService service,
   required Project project,
   required List<ImportSource> sources,
-  bool keepPlaced = false,
+  bool keepPlaced = true,
 }) {
   final runner = IntakeRunner(
     service: service,

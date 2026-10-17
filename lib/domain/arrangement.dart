@@ -64,6 +64,32 @@ AutoLayoutStatus autoLayoutStatus(
   return AutoLayoutStatus.eligible;
 }
 
+/// Actionable reason an automatic arrangement left [item] off the sheet.
+///
+/// Placement never changes a document's dimensions to make it fit; the message
+/// makes that explicit for both an oversized item and a full-page result.
+String unplacedDocumentMessage(Project project, DocumentItem item) {
+  final asset = project.assets.firstWhere((entry) => entry.id == item.assetId);
+  final label = 'مستمسك «${asset.name}» (${item.documentKind.label})';
+  final size =
+      '${item.width.toStringAsFixed(1)} × ${item.height.toStringAsFixed(1)} مم';
+  return switch (autoLayoutStatus(project, item)) {
+    AutoLayoutStatus.locked =>
+      '$label مثبت خارج الورقة؛ حرّره قبل وضعه تلقائياً.',
+    AutoLayoutStatus.sizeUnconfirmed =>
+      '$label بقي خارج الورقة لأن القياس غير مؤكّد؛ حدّد النوع أو أدخل قياساً وثبّته.',
+    AutoLayoutStatus.tooLarge =>
+      '$label ($size) لا يلائم المساحة القابلة للطباعة'
+          '${project.layout.allowRotation ? ' حتى بعد التدوير' : ' في اتجاهه الحالي'}؛ '
+          'بقي محفوظاً بلا تصغير أو قص.',
+    AutoLayoutStatus.groupNeedsSpace =>
+      '$label جزء من مجموعة لا تتسع كاملةً؛ أبقينا عناصرها خارج الورقة بدلاً من فصلها.',
+    AutoLayoutStatus.eligible =>
+      '$label ($size): لا توجد مساحة كافية في الصفحات المتاحة؛ '
+          'بقي محفوظاً بلا تصغير أو قص.',
+  };
+}
+
 /// Outcome of [arrangeDocuments]. Sizes never change; only positions, page
 /// numbers and (when allowed) a 90° turn.
 class ArrangementResult {

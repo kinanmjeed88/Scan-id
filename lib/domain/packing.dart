@@ -66,8 +66,8 @@ PackingProposal proposePacking(
     for (final other in fixed.take(i)) {
       final b = other.bounds;
       require(
-        !_gapOverlap(a, b, gx, gy),
-        'العناصر المحفوظة موضعياً متداخلة أو لا تحترم الفجوات المختارة.',
+        !a.overlaps(b),
+        'العناصر المحفوظة موضعياً متداخلة فعلياً؛ لا يمكن إنشاء اقتراح آمن.',
       );
     }
   }
@@ -145,11 +145,6 @@ PackingProposal proposePacking(
   );
 }
 
-bool _gapOverlap(RectMm a, RectMm b, double x, double y) =>
-    a.x < b.right + x - 1e-7 &&
-    a.right + x > b.x + 1e-7 &&
-    a.y < b.bottom + y - 1e-7 &&
-    a.bottom + y > b.y + 1e-7;
 List<RectMm> _subtract(List<RectMm> free, RectMm used) {
   final split = <RectMm>[];
   for (final r in free) {

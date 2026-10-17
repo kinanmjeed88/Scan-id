@@ -174,6 +174,40 @@ void main() {
     },
   );
   test(
+    'fixed non-overlapping documents survive a smaller-than-configured gap',
+    () {
+      final p = page([
+        card('fixed-a', 50, 30, x: 10, y: 10),
+        card('fixed-b', 50, 30, x: 62, y: 10),
+        card('new', 40, 30, page: null),
+      ]);
+      final proposal = proposePacking(
+        p,
+        includeLocked: false,
+        allowRotation: false,
+        onlyUnplaced: true,
+      );
+
+      expect(proposal.result.items[0].toJson(), p.items[0].toJson());
+      expect(proposal.result.items[1].toJson(), p.items[1].toJson());
+      expect(proposal.result.items[2].pageIndex, 0);
+      expect(proposal.unplaced, isEmpty);
+      final added = proposal.result.items[2].bounds;
+      for (final fixed in proposal.result.items.take(2)) {
+        final bounds = fixed.bounds;
+        expect(
+          added.right + p.layout.horizontalGap <= bounds.x + 1e-6 ||
+              bounds.right + p.layout.horizontalGap <= added.x + 1e-6 ||
+              added.bottom + p.layout.verticalGap <= bounds.y + 1e-6 ||
+              bounds.bottom + p.layout.verticalGap <= added.y + 1e-6,
+          isTrue,
+          reason: 'new item must still respect the chosen gap',
+        );
+      }
+    },
+  );
+
+  test(
     'other pages are unchanged and unplaced items can move to another page',
     () {
       final p = page([

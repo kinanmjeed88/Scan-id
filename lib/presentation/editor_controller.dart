@@ -272,6 +272,10 @@ class LayoutEditorController extends ChangeNotifier {
     );
     if (!ok || outcome == null) return;
     final result = outcome!;
+    final details = _placementDetails(result.result, [
+      ...result.unplaced,
+      ...result.awaitingSize,
+    ]);
     final parts = [
       'نتيجة الترتيب: ${result.pageCount} صفحة',
       if (result.takenOffSheet.isNotEmpty)
@@ -279,24 +283,48 @@ class LayoutEditorController extends ChangeNotifier {
       if (result.awaitingSize.isNotEmpty)
         '${result.awaitingSize.length} بانتظار تحديد النوع',
       if (result.unplaced.isNotEmpty)
-        '${result.unplaced.length} مستمسك بقي خارج الورقة؛ راجع حالة كل عنصر',
+        '${result.unplaced.length} مستمسك بقي خارج الورقة؛ لم يُصغّر أو يُقص أي مستمسك',
     ];
-    _say(parts.join(' · '));
+    _say('${parts.join(' · ')}${details.isEmpty ? '' : '\n$details'}');
   }
 
   Future<void> setAutoFlow(bool value) async {
     if (value == autoFlow) return;
+    ArrangementResult? outcome;
     final saved = await run(
       () => session.apply((project) {
         final changed = project.copyWith(
           layout: project.layout.copyWith(autoFlow: value),
         );
-        return value ? arrangeDocuments(changed).result : changed;
+        if (!value) return changed;
+        outcome = arrangeDocuments(changed);
+        return outcome!.result;
       }),
     );
     if (saved && value) {
-      _say('أُعيد تشغيل «الترتيب المستمر» وحُفظ الاختيار لهذا المشروع.');
+      final details = outcome == null
+          ? ''
+          : _placementDetails(outcome!.result, [
+              ...outcome!.unplaced,
+              ...outcome!.awaitingSize,
+            ]);
+      _say(
+        'أُعيد تشغيل «الترتيب المستمر» وحُفظ الاختيار لهذا المشروع.'
+        '${details.isEmpty ? '' : '\n$details'}',
+      );
     }
+  }
+
+  String _placementDetails(Project project, Iterable<String> ids) {
+    final unique = ids.toSet().toList();
+    return [
+      for (final id in unique.take(3))
+        unplacedDocumentMessage(
+          project,
+          project.items.firstWhere((item) => item.id == id),
+        ),
+      if (unique.length > 3) 'وتوجد ${unique.length - 3} حالات أخرى.',
+    ].join('\n');
   }
 
   Future<void> setStrategy(ArrangementStrategy strategy) =>
@@ -351,12 +379,22 @@ class LayoutEditorController extends ChangeNotifier {
     }
   }
 
-  /// Moves the selected document to [targetPage], creating that page when it
-  /// does not exist yet. The document is kept editable and its size unchanged.
+  /// Moves only the selected document to [targetPage], creating that page when
+  /// it does not exist yet. The manual page move is one undoable edit; it does
+  /// not trigger autoFlow over the rest of the project.
   Future<void> moveToPage(int targetPage) async {
     final item = active;
-    if (item == null) return;
-    await edit((p) => PageLayout.moveToPage(p, item.id, targetPage));
+    if (item == null || selected.length != 1) return;
+    final moved = await edit(
+      (p) => PageLayout.moveToPage(p, item.id, targetPage),
+      layout: false,
+      manual: true,
+    );
+    if (moved) {
+      visiblePage = targetPage;
+      pendingScrollPage = targetPage;
+      _notify();
+    }
   }
 
   /// Removes every page without documents and closes the gaps.
@@ -662,7 +700,7 @@ class LayoutEditorController extends ChangeNotifier {
     final runner = IntakeRunner(
       service: service,
       project: session.current,
-      keepPlaced: !autoFlow,
+      keepPlaced: true,
     );
     _intake = runner;
     IntakeRun? outcome;
@@ -703,11 +741,26 @@ class LayoutEditorController extends ChangeNotifier {
       // without this the refusals would be invisible at this entry point while
       // the very same import from the project screen reports them.
       final refused = r.rejectedSummary;
+      final intakeWarnings = r.warnings
+          .where(
+            (warning) =>
+                warning.startsWith('مستمسك «') ||
+                warning.contains('تعذر فحص التقسيم متعدد المستمسكات') ||
+                warning.contains('أُلغيت العملية'),
+          )
+          .toList();
+      final intakeDetails = [
+        ...intakeWarnings.take(3),
+        if (intakeWarnings.length > 3)
+          'وتوجد ${intakeWarnings.length - 3} حالات أخرى.',
+      ].join('\n');
       _say(
         'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
         '${r.needsReview > 0 ? ' · للمراجعة ${r.needsReview}' : ''}'
+        '${r.unplaced > 0 ? ' · خارج الورق ${r.unplaced}' : ''}'
         '${failures > 0 ? ' · تعذر استيراد $failures' : ''}'
-        '${refused == null ? '' : '\n$refused'}',
+        '${refused == null ? '' : '\n$refused'}'
+        '${intakeDetails.isEmpty ? '' : '\n$intakeDetails'}',
       );
     }
   }

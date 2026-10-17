@@ -91,6 +91,79 @@ void main() {
     },
   );
 
+  test(
+    'adding another document leaves previously placed documents unchanged',
+    () async {
+      final bytes = img.encodePng(img.Image(width: 860, height: 540));
+      var project = await service.create('حفظ الترتيب الموجود');
+      project = (await service.importImages(project, [
+        ImportSource(
+          'البطاقة الوطنية الموحدة الأولى.png',
+          () => Stream.value(bytes),
+        ),
+      ])).project;
+      final first = await service.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+      final existing = first.project.items.single;
+
+      final imported = await service.importImages(first.project, [
+        ImportSource(
+          'البطاقة الوطنية الموحدة الثانية.png',
+          () => Stream.value(bytes),
+        ),
+      ]);
+      final second = await service.arrangeImportedImages(
+        imported.project,
+        [imported.project.assets.last.id],
+      );
+
+      expect(
+        second.project.items
+            .firstWhere((item) => item.id == existing.id)
+            .toJson(),
+        existing.toJson(),
+      );
+      expect(second.project.items, hasLength(2));
+      expect(second.project.items.last.pageIndex, 0);
+      expect(inspectLayout(second.project), isEmpty);
+    },
+  );
+
+  test(
+    'an oversized document is retained and the report names the reason',
+    () async {
+      final bytes = img.encodePng(img.Image(width: 300, height: 400));
+      var project = await service.create('مقاس أكبر من الورقة');
+      project = await projects.save(
+        project.copyWith(paper: PaperSettings(margins: Margins.all(20))),
+      );
+      project = (await service.importImages(project, [
+        ImportSource(
+          'بطاقة التموينية.png',
+          () => Stream.value(bytes),
+        ),
+      ])).project;
+
+      final report = await service.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+
+      expect(report.project.items.single.pageIndex, isNull);
+      expect(
+        [report.project.items.single.width, report.project.items.single.height],
+        [52, 287],
+      );
+      expect(
+        report.warnings.join('\n'),
+        allOf(
+          contains('لا يلائم المساحة القابلة للطباعة'),
+          contains('بلا تصغير أو قص'),
+        ),
+      );
+    },
+  );
+
   test('Phase 1B reprocessing is disabled unless explicitly enabled', () async {
     final bytes = img.encodePng(img.Image(width: 120, height: 90));
     final created = await service.create('بدون تعرف');

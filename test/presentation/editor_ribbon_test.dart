@@ -52,6 +52,57 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('page menu moves only the selection and one undo restores it', (
+    tester,
+  ) async {
+    final movedItem = placedDocument(
+      'move-me',
+      'asset1',
+      DocumentKind.unifiedNationalId,
+      x: 10,
+      y: 10,
+      w: 52,
+      h: 34,
+    );
+    final unchangedItem = placedDocument(
+      'stay',
+      'asset2',
+      DocumentKind.passport,
+      x: 10,
+      y: 70,
+    );
+    final harness = await EditorHarness.pump(
+      tester,
+      project: editorProject(items: [movedItem, unchangedItem], pageCount: 2),
+    );
+
+    await tapKey(tester, const Key('page-item-move-me'));
+    await tapKey(tester, const Key('ribbon-tab-document'));
+    expect(find.byKey(const Key('rb-move-page')), findsOneWidget);
+    await _choose(tester, 'rb-move-page', 'صفحة 2');
+
+    var saved = harness.saved;
+    final moved = itemIn(saved, 'move-me');
+    expect(moved.pageIndex, 1);
+    expect([moved.width, moved.height], [52, 34]);
+    expect(itemIn(saved, 'stay').toJson(), unchangedItem.toJson());
+    expect(saved.layout.autoFlow, isFalse);
+    expect(find.byKey(const Key('page-item-move-me')), findsOneWidget);
+
+    await tapKey(tester, const Key('ribbon-tab-home'));
+    await tapKey(tester, const Key('rb-undo'));
+    saved = harness.saved;
+    expect(itemIn(saved, 'move-me').pageIndex, 0);
+    expect([itemIn(saved, 'move-me').width, itemIn(saved, 'move-me').height], [52, 34]);
+    expect(saved.layout.autoFlow, isTrue);
+
+    await tapKey(tester, const Key('rb-redo'));
+    saved = harness.saved;
+    expect(itemIn(saved, 'move-me').pageIndex, 1);
+    expect(saved.layout.autoFlow, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'kind gallery applies the catalog size at once and arranges by category',
     (tester) async {

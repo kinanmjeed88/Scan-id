@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../application/project_service.dart';
+import '../domain/arrangement.dart' show maxArrangedPages;
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/page_layout.dart';
@@ -301,6 +302,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
     final hasSelection = item != null;
     final project = c.project;
     final editable = hasSelection && !c.selectedItems.every((e) => e.locked);
+    final movePageEntries = <RibbonMenuEntry<int>>[
+      if (item != null)
+        for (var page = 0; page < project.pageCount; page++)
+          if (page != item.pageIndex)
+            RibbonMenuEntry(page, 'صفحة ${page + 1}'),
+      if (project.pageCount < maxArrangedPages)
+        RibbonMenuEntry(project.pageCount, 'صفحة جديدة (${project.pageCount + 1})'),
+    ];
     return [
       RibbonTab(
         id: 'file',
@@ -870,6 +879,29 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       onPressed: busy || item.locked ? null : c.sendBackward,
                     ),
                   ],
+                ),
+              ],
+            ),
+            RibbonGroup(
+              label: 'الصفحة',
+              children: [
+                RibbonMenuButton<int>(
+                  key: const Key('rb-move-page'),
+                  icon: Icons.drive_file_move_outline,
+                  label: 'نقل إلى صفحة',
+                  large: true,
+                  tooltip: item != null && !item.sizeConfirmed
+                      ? 'أكّد قياس المستمسك قبل نقله إلى صفحة.'
+                      : 'انقل المستمسك المحدد مع الحفاظ على مقاسه؛ اختر صفحة جديدة إذا لزم الأمر',
+                  enabled:
+                      !busy &&
+                      c.selected.length == 1 &&
+                      item != null &&
+                      item.sizeConfirmed &&
+                      !item.locked &&
+                      movePageEntries.isNotEmpty,
+                  onSelected: c.moveToPage,
+                  entries: movePageEntries,
                 ),
               ],
             ),

@@ -71,6 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # version_file=lib/application/app_release.dart
           actor="${{ github.actor }}"
           owner="${{ github.repository_owner }}"
           echo "Actor: $actor, Owner: $owner"
@@ -829,8 +830,8 @@ jobs:
               }
           fi
           jq -e '.[] | select(.name == "SHA256SUMS.txt")' <<< "$json" >/dev/null || {
-                echo "::error::SHA256SUMS.txt is missing."
-                exit 1
+            echo "::error::SHA256SUMS.txt is missing."
+            exit 1
           }
           while read -r hash fname; do
             [[ -z "${fname:-}" ]] && continue

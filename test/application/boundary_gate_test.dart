@@ -5,10 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
-import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/ocr_evidence.dart';
+import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -56,6 +54,7 @@ void main() {
         var suggestCalls = 0;
         final pipeline = RecognitionPipeline(
           segment: (_) async => SegmentationResult(
+            multi: false,
             candidates: [
               SegmentCandidate(
                 region: const [.1, .1, .9, .9],
@@ -70,7 +69,7 @@ void main() {
         );
         final result = await pipeline.analyze(_input());
         expect(suggestCalls, 1);
-        expect(result.unresolved, isEmpty);
+        expect(result.unresolvedRegions, isEmpty);
         expect(result.detections, hasLength(1));
         expect(result.detections.single.hasUsableQuad, isTrue);
       },
@@ -82,6 +81,7 @@ void main() {
         var suggestCalls = 0;
         final pipeline = RecognitionPipeline(
           segment: (_) async => SegmentationResult(
+            multi: true,
             candidates: [
               SegmentCandidate(region: const [0, 0, .45, .45], reason: 'x'),
               SegmentCandidate(region: const [.5, .5, 1, 1], reason: 'x'),
@@ -95,7 +95,7 @@ void main() {
         final result = await pipeline.analyze(_input());
         expect(suggestCalls, 0);
         expect(result.detections, isEmpty);
-        expect(result.unresolved, hasLength(2));
+        expect(result.unresolvedRegions, hasLength(2));
       },
     );
 
@@ -103,10 +103,12 @@ void main() {
         'aspect on measured corners', () async {
       final pipeline = RecognitionPipeline(
         segment: (_) async => SegmentationResult(
+          multi: false,
           candidates: [
             SegmentCandidate(
               corners: _quad(), // measured aspect ~1.6
               region: const [.1, .1, .9, .9],
+              reason: 'measured',
             ),
           ],
         ),
@@ -167,7 +169,7 @@ void main() {
         final report = await importNamed('بطاقة.png');
         expect(report.cropped, 1);
         expect(report.project.items, hasLength(1));
-        expect(report.project.assets.single.hasCrop, isTrue);
+        expect(report.project.assets.single.crop, isNotNull);
       },
     );
 

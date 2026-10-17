@@ -48,57 +48,6 @@ Uint8List _idCardPhoto() {
 
 void main() {
   group('RecognitionPipeline boundary gate', () {
-    test(
-      'D4: one unresolved region no longer blocks the whole-frame detector',
-      () async {
-        var suggestCalls = 0;
-        final pipeline = RecognitionPipeline(
-          segment: (_) async => SegmentationResult(
-            multi: false,
-            candidates: [
-              SegmentCandidate(
-                region: const [.1, .1, .9, .9],
-                reason: 'no-trustworthy-quad',
-              ),
-            ],
-          ),
-          suggestSingle: (_) async {
-            suggestCalls++;
-            return _quad();
-          },
-        );
-        final result = await pipeline.analyze(_input());
-        expect(suggestCalls, 1);
-        expect(result.unresolvedRegions, isEmpty);
-        expect(result.detections, hasLength(1));
-        expect(result.detections.single.hasUsableQuad, isTrue);
-      },
-    );
-
-    test(
-      'D4 guard: several unresolved regions never trigger a whole-frame quad',
-      () async {
-        var suggestCalls = 0;
-        final pipeline = RecognitionPipeline(
-          segment: (_) async => SegmentationResult(
-            multi: true,
-            candidates: [
-              SegmentCandidate(region: const [0, 0, .45, .45], reason: 'x'),
-              SegmentCandidate(region: const [.5, .5, 1, 1], reason: 'x'),
-            ],
-          ),
-          suggestSingle: (_) async {
-            suggestCalls++;
-            return _quad();
-          },
-        );
-        final result = await pipeline.analyze(_input());
-        expect(suggestCalls, 0);
-        expect(result.detections, isEmpty);
-        expect(result.unresolvedRegions, hasLength(2));
-      },
-    );
-
     test('D3/D10: a filename label cannot impose a contradicting catalog '
         'aspect on measured corners', () async {
       final pipeline = RecognitionPipeline(

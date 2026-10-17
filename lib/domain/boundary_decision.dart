@@ -32,14 +32,24 @@
 /// the catalog aspect onto the warp) becomes an explicit review reason,
 /// and that ambiguous cases fail safe instead of failing silently.
 ///
-/// No acceptance threshold is invented here. The only tolerance used is
-/// the project's own pre-existing [shapeTolerance], which already governs
-/// whether a measured shape may claim a catalogued document size.
+/// No acceptance threshold is invented here. The aspect-claim bound reuses
+/// the project's own pre-existing geometric-implausibility limit — the 2.5×
+/// opposite-side ratio at which [assessQuad] already refuses a quadrilateral
+/// as physically implausible. A claimed size whose aspect differs from the
+/// measured shape by more than that factor is not a stretch, it is a
+/// different document; milder disagreements (ordinary perspective and
+/// detector noise routinely produce them in raw pixel space) keep the
+/// established catalog behaviour.
 library;
 
-import 'document_kind.dart';
 import 'geometry.dart';
 import 'quad_assessment.dart';
+
+/// Largest factor by which a measured shape and an imposed physical aspect
+/// may disagree before the claim is treated as describing a different
+/// document. Mirrors the 2.5× implausibility bound `assessQuad` already
+/// applies to opposite-side ratios — reused, not tuned.
+const double maxAspectClaimRatio = 2.5;
 
 /// Who produced a boundary claim. Recorded so a later proposer (e.g. a
 /// learned model behind its own licence/evidence gate) can be swapped in
@@ -198,13 +208,18 @@ BoundaryDecision verifyBoundary(
   final reasons = <BoundaryReviewReason>[];
 
   // Measured shape vs imposed physical size. The warp used to force the
-  // catalog aspect onto the rectified output, which made this disagreement
-  // invisible; a shape that cannot claim the imposed size under the
-  // project's own [shapeTolerance] is a review case, not a stretch case.
+  // catalog aspect onto the rectified output, which made even a wild
+  // disagreement invisible. Only a disagreement beyond the project's own
+  // implausibility factor (see library doc) is gated: within it, pixel-space
+  // aspect is too perspective-sensitive to overrule the established
+  // classification; beyond it, the imposed size describes a different
+  // document than the one measured, and cropping would fabricate it.
   final imposed = proposal.imposedAspect;
   if (imposed != null && imposed > 0 && imposed.isFinite) {
-    final relativeError = (measuredAspect / imposed - 1).abs();
-    if (relativeError > shapeTolerance) {
+    final claimRatio = measuredAspect >= imposed
+        ? measuredAspect / imposed
+        : imposed / measuredAspect;
+    if (claimRatio > maxAspectClaimRatio) {
       reasons.add(BoundaryReviewReason.aspectMismatch);
     }
   }

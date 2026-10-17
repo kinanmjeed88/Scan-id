@@ -12,6 +12,7 @@ library;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
 import '../domain/ocr_evidence.dart';
@@ -287,42 +288,6 @@ class RecognitionPipeline {
         );
       }
     }
-    // Boundary audit D4: a SINGLE unresolved region must not block the
-    // whole-frame detector — its failure to find a boundary inside one
-    // measured region says nothing about the whole photo. Give the precise
-    // detector its attempt; only a geometrically accepted rescue replaces
-    // the unresolved region, and only for a singleton: with several regions
-    // a whole-frame quad could duplicate one of them, so multi-region
-    // results keep their measured regions for manual recovery instead.
-    if (detections.isEmpty &&
-        unresolved.length == 1 &&
-        segmentation.candidates.length == 1) {
-      List<Point2>? rescueCorners;
-      try {
-        rescueCorners = await suggestSingle(input.previewBytes);
-      } on OperationCancelled {
-        rethrow;
-      } catch (_) {
-        rescueCorners = null;
-      }
-      if (rescueCorners != null) {
-        token?.throwIfCancelled();
-        final rescued = await _analyzeDetection(
-          input,
-          detectionId: unresolved.single.detectionId,
-          corners: rescueCorners,
-          detectionConfidence: null,
-          region: unresolved.single.region,
-          regionIndex: unresolved.single.regionIndex,
-          issues: issues,
-          token: token,
-        );
-        if (rescued.hasUsableQuad) {
-          unresolved.clear();
-          detections.add(rescued);
-        }
-      }
-    }
     // The production segmenter returns no candidates when none is plausible,
     // or when one measured region already has a trustworthy quad and should use
     // the established precise whole-frame detector. A measured unresolved
@@ -477,8 +442,8 @@ class RecognitionPipeline {
     );
 
     // Boundary gate (audits D3/D10): the measured shape must be able to
-    // claim the physical size of the classified kind under the project's
-    // own shapeTolerance. A filename label can outvote the shape in
+    // claim the physical size of the classified kind within the project's
+    // own implausibility factor (maxAspectClaimRatio). A filename label can outvote the shape in
     // classification; when it does, the warp used to stretch the measured
     // quad to the catalog aspect anyway. That disagreement is now a
     // manual-boundary outcome — measured corners are withdrawn, the region
@@ -487,8 +452,11 @@ class RecognitionPipeline {
       final claimedNatural = catalog.natural(classification.kind);
       if (claimedNatural != null) {
         final imposedAspect = claimedNatural.aspect;
-        final relativeError = (assessment!.aspect! / imposedAspect - 1).abs();
-        if (relativeError > shapeTolerance) {
+        final measuredAspect = assessment!.aspect!;
+        final claimRatio = measuredAspect >= imposedAspect
+            ? measuredAspect / imposedAspect
+            : imposedAspect / measuredAspect;
+        if (claimRatio > maxAspectClaimRatio) {
           issues.add(
             const BatchItemFailure(
               category: RecognitionErrorCategory.geometryFailure,

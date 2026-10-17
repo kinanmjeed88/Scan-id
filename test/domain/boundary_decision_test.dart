@@ -122,6 +122,30 @@ void main() {
     );
   });
 
+  test(
+    'a mild measured-vs-imposed disagreement (perspective-grade) still '
+    'accepts: pixel aspect is not a tight claim',
+    () {
+      // Drawn/measured 1.50 shape against the ID-1 size 1.586 (factor 1.06,
+      // far inside the project's 2.5x implausibility bound).
+      final decision = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.wholeFrameDetector,
+          corners: [
+            Point2(.1, .1),
+            Point2(.85, .1),
+            Point2(.85, .9),
+            Point2(.1, .9),
+          ],
+          imposedAspect: 85.6 / 53.98,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(decision.kind, BoundaryDecisionKind.accepted);
+    },
+  );
+
   test('a quad that does not describe its measured region needs review', () {
     final decision = verifyBoundary(
       BoundaryProposal(

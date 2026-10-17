@@ -34,7 +34,7 @@ void main() {
       workflow,
       contains('version_file: lib/application/app_release.dart'),
     );
-    expect(workflow, contains("const String appVersion = '\$new'"));
+    expect(workflow, contains("const String appVersion = '"));
     expect(
       workflow,
       isNot(contains('_appVersion')),

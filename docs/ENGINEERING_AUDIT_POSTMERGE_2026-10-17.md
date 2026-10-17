@@ -182,7 +182,7 @@ b83eaf1  Merge PR #25 (a82e036: إصلاح version-bump في سير الإصدا
 | بناء Android debug APK | بوابة CI | `50ca010` | نجاح | — |
 | بناء Android موقّع + Windows | سير الإصدار | `b83eaf1` | نجاح (run ‏39038991796) | ⚠ بنى من شجرة حمراء — انظر R1 |
 | Windows (ضمن التحقق) | بوابة CI | `50ca010` و`b83eaf1` | نجاح | — |
-| GitHub Actions على SHA الجلسة | `gh run list/view` + annotations API | — | مُتابعة في هذا التدقيق حتى النتيجة النهائية (§11) | — |
+| GitHub Actions على SHA الجلسة | `gh run list/view` + annotations API | `70cba4d` | **نجاح كامل** — run ‏39042191404: ‏android + windows خضران بكل الخطوات (format/analyze/tests/حد التوقيع/تدقيق التصدير/build debug APK/بناء Windows واختباراته) | — |
 
 **فحوص غير منفذة وسببها:** flutter analyze/test/build محلياً — غياب SDK وحجب مصادر تنزيله؛ بناء Windows محلياً — لا بيئة Windows في هذه البيئة.
 
@@ -224,9 +224,13 @@ b83eaf1  Merge PR #25 (a82e036: إصلاح version-bump في سير الإصدا
 
 ## 11. خطة العلاج مرتبة بالأولوية
 
-### P0-1 (منفّذ في هذه الجلسة): دمج إصلاحات D1–D4 — **تم التنفيذ**
+### P0-1 (منفّذ في هذه الجلسة): دمج إصلاحات D1–D4 — **تم التنفيذ وتحقق CI بالنجاح**
 
-**الحالة:** دُمج `origin/arena/8dd38d84-scan-id@50ca010` في `arena/91874c67-scan-id` بدمج نظيف (`9bbf59d`، 4 ملفات، +10/−7). تحقق بعد الدمج: إصلاحات D1–D4 حاضرة في الملفات الأربعة، إصلاح `a82e036` محفوظ كاملاً، و`python3 tool/check_source.py` نجح على الشجرة المدمجة (180 ملفاً، 701 اختباراً معلناً). يتبقى: CI أخضر على SHA الدفع النهائي (متابعة حية أدناه).
+**الحالة:** دُمج `origin/arena/8dd38d84-scan-id@50ca010` في `arena/91874c67-scan-id` بدمج نظيف (`9bbf59d`، 4 ملفات، +10/−7). تحقق بعد الدمج: إصلاحات D1–D4 حاضرة في الملفات الأربعة، إصلاح `a82e036` محفوظ كاملاً، و`python3 tool/check_source.py` نجح على الشجرة المدمجة (180 ملفاً، 701 اختباراً معلناً).
+
+**نتيجة CI الفعلية على SHA الدفع:** run ‏`39042191404` على `70cba4dd9ca727ebf95ee3b671b54bc9c2b4fad3` = **success** بالكامل:
+- job ‏`android`: كل الخطوات خضراء — تدقيق المصدر، بوابة `dart format`، **`Flutter analyze`** (الخطوة التي كانت فاشلة على `b83eaf1`)، **`Flutter tests`**، حارس رفض البناء دون توقيع، تدقيق التصدير المستقل، بناء Android debug APK، إثبات تنسيق apksigner.
+- job ‏`windows / windows`: بناء Windows release + اختبارات انحدار الـscaler الأصلية + ZIP المحمول — كلها خضراء.
 - **المشكلة:** D1–D4. **السبب الجذري المعالج:** العيوب الأربعة نفسها دون تجاوز أي بوابة.
 - **الملفات:** `lib/presentation/layout_screen.dart`، `test/application/smart_recognition_test.dart`، `test/domain/page_move_test.dart`، `test/presentation/off_sheet_tray_test.dart`.
 - **التصميم:** دمج git لفرع `origin/arena/8dd38d84-scan-id@50ca010` في `arena/91874c67-scan-id` — يحفظ نسب الالتزامات التي أثبتت CI خضراء (بدل إعادة تطبيق يدوي)، ويجمع معه إصلاح `a82e036`. تحقق مسبق: `git merge-tree` نظيف بلا تعارضات، والجانبان لم يلمسا نفس الملفات (قاعدة `f3c38df`).

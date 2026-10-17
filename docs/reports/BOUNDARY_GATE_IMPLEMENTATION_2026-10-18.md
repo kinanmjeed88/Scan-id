@@ -63,8 +63,11 @@ decision: *adopt a modified direction before implementation*). Branch
   executed the suite — 725 passed, exactly the 4 failures analysed in this
   report's conflict decisions (2 pre-existing tests proving D4 is designed
   behaviour, 1 pre-existing labelled-import crop falsifying the 4% bound,
-  1 over-strict assertion of this change) — all resolved in `40b33f9`; the
-  final run on this document's own commit is the green-or-reported verdict.
+  1 over-strict assertion of this change) — all resolved in `40b33f9`. After
+  formatter and assertion hygiene commits, **run 39075441797 on `b882a7f` is
+  fully green: android (format gate, analyze, full test suite, debug APK,
+  export audit) and windows jobs both succeed.** This closing documentation
+  commit re-runs the same gates on the final SHA.
 
 ## Unresolved (owner decisions / external evidence)
 

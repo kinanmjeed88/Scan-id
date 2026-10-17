@@ -42,6 +42,7 @@ jobs:
       actions: read
     env:
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      version_file: lib/application/app_release.dart
     outputs:
       current_core: ${{ steps.current.outputs.core }}
       current_build: ${{ steps.current.outputs.build }}
@@ -71,7 +72,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # version_file=lib/application/app_release.dart
           actor="${{ github.actor }}"
           owner="${{ github.repository_owner }}"
           echo "Actor: $actor, Owner: $owner"
@@ -294,10 +294,10 @@ jobs:
         env:
           NEW_VERSION: ${{ inputs.version }}
           NEW_BUILD: ${{ inputs.build_number }}
+          version_file: lib/application/app_release.dart
         run: |
           set -euo pipefail
           new_pubspec="${NEW_VERSION}+${NEW_BUILD}"
-          version_file="lib/application/app_release.dart"
           test -f pubspec.yaml
           test -f "$version_file"
           sed -i -E "s/^version:.*/version: ${new_pubspec}/" pubspec.yaml
@@ -343,15 +343,16 @@ jobs:
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "new_build=$NEW_BUILD" >> "$GITHUB_OUTPUT"
           echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          mkdir -p /tmp/version-bump
-          cp pubspec.yaml /tmp/version-bump/
-          cp "$version_file" /tmp/version-bump/app_release.dart.bak
+          
+          mkdir -p version-bump
+          cp pubspec.yaml version-bump/
+          cp "$version_file" version-bump/app_release.dart.bak
 
       - name: Upload version bump artifact
         uses: actions/upload-artifact@v6
         with:
           name: version-bump
-          path: /tmp/version-bump/
+          path: version-bump/
           retention-days: 7
           if-no-files-found: error
 
@@ -376,14 +377,14 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: version-bump
-          path: /tmp/version-bump
+          path: version-bump
 
       - name: Apply version bump
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
+          cp version-bump/pubspec.yaml pubspec.yaml
+          cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E 'appVersion' lib/application/app_release.dart
 
@@ -556,14 +557,14 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: version-bump
-          path: /tmp/version-bump
+          path: version-bump
 
       - name: Apply version bump
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
+          cp version-bump/pubspec.yaml pubspec.yaml
+          cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E 'appVersion' lib/application/app_release.dart
 
@@ -603,9 +604,11 @@ jobs:
           $check = Join-Path $env:RUNNER_TEMP "zip-check"
           if (Test-Path $check) { Remove-Item $check -Recurse -Force }
           Expand-Archive -Path $zip -DestinationPath $check -Force
+
           if (-not (Test-Path "$check/scan_id.exe")) {
             throw "ZIP missing scan_id.exe"
           }
+
           Remove-Item $check -Recurse -Force
           Write-Host "Windows ZIP verified."
 
@@ -676,14 +679,14 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: version-bump
-          path: /tmp/version-bump
+          path: version-bump
 
       - name: Apply version bump
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/version-bump/pubspec.yaml pubspec.yaml
-          cp /tmp/version-bump/app_release.dart.bak lib/application/app_release.dart
+          cp version-bump/pubspec.yaml pubspec.yaml
+          cp version-bump/app_release.dart.bak lib/application/app_release.dart
           grep -E '^version:' pubspec.yaml
           grep -E "const String appVersion = '" lib/application/app_release.dart
 

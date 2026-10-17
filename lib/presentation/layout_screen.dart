@@ -892,13 +892,12 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   icon: Icons.drive_file_move_outline,
                   label: 'نقل إلى صفحة',
                   large: true,
-                  tooltip: item != null && !item.sizeConfirmed
+                  tooltip: !item.sizeConfirmed
                       ? 'أكّد قياس المستمسك قبل نقله إلى صفحة.'
                       : 'انقل المستمسك المحدد مع الحفاظ على مقاسه؛ اختر صفحة جديدة إذا لزم الأمر',
                   enabled:
                       !busy &&
                       c.selected.length == 1 &&
-                      item != null &&
                       item.sizeConfirmed &&
                       !item.locked &&
                       movePageEntries.isNotEmpty,

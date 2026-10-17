@@ -866,7 +866,8 @@ void main() {
           (record) => record.sides.single.detection!.polygon == null,
         ),
         isTrue,
-        reason: 'an untrusted detection must remain available for manual review',
+        reason:
+            'an untrusted detection must remain available for manual review',
       );
       expect(cropper.calls, hasLength(2));
       expect(
@@ -916,10 +917,9 @@ void main() {
         ImportSource('بطاقة.jpg', () => Stream.value(original)),
       ])).project;
 
-      final report = await s.arrangeImportedImages(
-        project,
-        [project.assets.single.id],
-      );
+      final report = await s.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
       final derived = report.project.assets.singleWhere(
         (asset) => asset.id != project.assets.single.id,
       );

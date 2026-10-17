@@ -39,8 +39,7 @@ abstract interface class FullResolutionJpegCropper {
 /// Android and Windows implementation backed by the bounded native JPEG
 /// channel. The platform side owns JPEG region decoding so Dart never decodes a
 /// 16–32 MP source merely to keep one detected document.
-class PlatformFullResolutionJpegCropper
-    implements FullResolutionJpegCropper {
+class PlatformFullResolutionJpegCropper implements FullResolutionJpegCropper {
   const PlatformFullResolutionJpegCropper({this.channel = _channel});
 
   static const MethodChannel _channel = MethodChannel('iq.scanid/large_jpeg');

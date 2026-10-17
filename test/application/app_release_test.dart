@@ -30,7 +30,10 @@ void main() {
 
     const workflowPath = '.github/workflows/release-management.yml';
     final workflow = File(workflowPath).readAsStringSync();
-    expect(workflow, contains('version_file: lib/application/app_release.dart'));
+    expect(
+      workflow,
+      contains('version_file: lib/application/app_release.dart'),
+    );
     expect(
       workflow,
       contains(r'''r"const String appVersion = '[^']*'"'''),

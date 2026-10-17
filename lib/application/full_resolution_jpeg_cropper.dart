@@ -9,8 +9,6 @@
 /// rather than sampled down and described as full resolution.
 library;
 
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 import '../domain/image_limits.dart';

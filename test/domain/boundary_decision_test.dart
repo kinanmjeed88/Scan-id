@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/validation.dart';
 
 /// The Proposal → Verification → Decision contract (boundary audits D1–D3).
 /// These tests pin the GATE's required outcomes — what may become a crop —
@@ -29,8 +30,19 @@ void main() {
     );
     expect(decision.kind, BoundaryDecisionKind.accepted);
     expect(decision.acceptedCorners, hasLength(4));
+    expect(decision.cropAuthorization, isNotNull);
     expect(decision.verification.reasons, isEmpty);
     expect(decision.verification.measuredAspect, closeTo(1.6, .02));
+    final recipe = recipeFromAcceptedBoundary(
+      decision.cropAuthorization!,
+      sourceWidth: width,
+      sourceHeight: height,
+      orientedOutputAspect: 85.6 / 53.98,
+    );
+    expect(
+      recipe.geometry.outputWidth / recipe.geometry.outputHeight,
+      closeTo(85.6 / 53.98, .02),
+    );
   });
 
   test('no proposed boundary is a review outcome, never an acceptance', () {
@@ -41,6 +53,7 @@ void main() {
     );
     expect(decision.kind, BoundaryDecisionKind.needsReview);
     expect(decision.acceptedCorners, isNull);
+    expect(decision.cropAuthorization, isNull);
     expect(
       decision.verification.reasons,
       contains(BoundaryReviewReason.noBoundary),
@@ -116,9 +129,31 @@ void main() {
     );
     expect(decision.kind, BoundaryDecisionKind.needsReview);
     expect(decision.acceptedCorners, isNull);
+    expect(decision.cropAuthorization, isNull);
     expect(
       decision.verification.reasons,
       contains(BoundaryReviewReason.aspectMismatch),
+    );
+  });
+
+  test('an accepted claim cannot be warped to a different catalog ratio', () {
+    final decision = verifyBoundary(
+      BoundaryProposal(
+        producer: BoundaryProducer.wholeFrameDetector,
+        corners: goodQuad(),
+        imposedAspect: 85.6 / 53.98,
+      ),
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    expect(
+      () => recipeFromAcceptedBoundary(
+        decision.cropAuthorization!,
+        sourceWidth: width,
+        sourceHeight: height,
+        orientedOutputAspect: 287 / 52,
+      ),
+      throwsA(isA<ValidationException>()),
     );
   });
 

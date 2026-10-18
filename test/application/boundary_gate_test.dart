@@ -120,6 +120,85 @@ void main() {
       expect(report.notDetected, 1);
       expect(report.project.assets.single.crop, isNull);
       expect(report.warnings.join(' '), contains('لا يطابق مقاس النوع'));
+      final item = report.project.items.single;
+      expect(item.sizeConfirmed, isFalse);
+      expect(
+        [item.width, item.height],
+        isNot([52, 287]),
+        reason:
+            'a refused boundary must not be placed at the contradicted size',
+      );
+    });
+
+    test('production multi path cannot warp a contradicted boundary', () async {
+      final gated = ProjectService(
+        projects,
+        LocalAssetRepository(projects.files),
+        imageEditor: LocalImageEditor(projects.files),
+        segmenter: (_) async => SegmentationResult(
+          multi: true,
+          candidates: [
+            // Pixel aspect on the 640×480 fixture is the ID-1 shape, so a
+            // ration-card filename contradicts it by more than 2.5×.
+            SegmentCandidate(
+              region: [.05, .08, .45, .416],
+              corners: [
+                Point2(.05, .08),
+                Point2(.45, .08),
+                Point2(.45, .416),
+                Point2(.05, .416),
+              ],
+              reason: 'measured',
+            ),
+            SegmentCandidate(
+              region: [.55, .50, .95, .836],
+              corners: [
+                Point2(.55, .50),
+                Point2(.95, .50),
+                Point2(.95, .836),
+                Point2(.55, .836),
+              ],
+              reason: 'measured',
+            ),
+          ],
+        ),
+      );
+      var project = await gated.create('تعدد');
+      final bytes = _idCardPhoto();
+      project = (await gated.importImages(project, [
+        ImportSource('البطاقة التموينية.png', () => Stream.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final report = await gated.arrangeImportedImages(project, [sourceId]);
+      expect(gated.smartRecognitionEnabled, isFalse);
+      expect(gated.multiDocumentSegmentationEnabled, isTrue);
+      expect(report.cropped, 0);
+      expect(
+        report.project.assets.singleWhere((asset) => asset.id == sourceId).crop,
+        isNull,
+      );
+      expect(report.project.items, hasLength(2));
+      expect(
+        report.project.items.every((item) => !item.sizeConfirmed),
+        isTrue,
+      );
+      expect(
+        report.project.items.every(
+          (item) =>
+              item.width / item.height < 4 && item.height / item.width < 4,
+        ),
+        isTrue,
+        reason: 'neither derived crop was stretched to the ration-card ratio',
+      );
+      final source = report.project.assets.singleWhere(
+        (asset) => asset.id == sourceId,
+      );
+      expect(
+        await (await LocalAssetRepository(
+          projects.files,
+        ).resolve(source.originalPath)).readAsBytes(),
+        bytes,
+      );
     });
   });
 }

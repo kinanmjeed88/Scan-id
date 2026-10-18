@@ -17,7 +17,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../domain/arrangement.dart';
+import '../domain/boundary_decision.dart';
 import '../domain/crop_draft.dart';
+import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
@@ -1177,28 +1179,20 @@ class SmartIntake {
     // recognition record carrying the measured evidence.
     final detection = analysis.detections.first;
     final kind = detection.classification.kind;
-    if (detection.hasUsableQuad) {
-      // The exact legacy sequence: estimate the free crop, orient the
-      // catalog size to it, then rectify to the catalog aspect ratio.
-      final estimate = CropDraft(
-        corners: detection.corners!,
-        adjustments: asset.adjustments,
-      ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-      final size = current.catalog.sizeFor(
-        kind,
-        landscape:
-            estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
-      );
-      final recipe = size == null
-          ? estimate
-          : CropDraft(
-              corners: detection.corners!,
-              adjustments: asset.adjustments,
-              aspectRatio: size.width / size.height,
-            ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+    final automaticRecipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: analyzed.sourceWidth,
+      sourceHeight: analyzed.sourceHeight,
+      adjustments: asset.adjustments,
+      catalog: current.catalog,
+    );
+    if (automaticRecipe != null) {
+      // Catalog aspect is applied only by recipeFromAcceptedBoundary, and
+      // only when it is the claim the decision already accepted. A refused
+      // or missing authorization cannot reach createRevision.
       final updated = (await editor.createRevision(
         asset,
-        recipe,
+        automaticRecipe,
       )).clearUserAuthoredCrop();
       // Deferred to the batch commit: a revision saved on its own, whose
       // document record then failed to be created, leaves the source asset
@@ -1208,6 +1202,10 @@ class SmartIntake {
       replacedAssets[asset.id] = updated;
       asset = updated;
       onCropped();
+    } else if (detection.boundary == DetectionBoundary.rejected) {
+      onNotDetected();
+      // The measured refusal is already in analysis.issues, copied above.
+      // Do not also claim that no boundary was found.
     } else {
       onNotDetected();
       warnings.add(
@@ -1216,10 +1214,17 @@ class SmartIntake {
       );
     }
 
-    final catalogSize = current.catalog.sizeFor(
-      kind,
-      landscape: asset.width >= asset.height,
-    );
+    // A proposed boundary that the decision refused must not keep a catalog
+    // size: that was how a filename label placed an uncropped photo at the
+    // contradicted physical size. No proposal (undetected) keeps the
+    // existing filename confirmation.
+    final boundaryRefused = detection.boundary == DetectionBoundary.rejected;
+    final catalogSize = boundaryRefused
+        ? null
+        : current.catalog.sizeFor(
+            kind,
+            landscape: asset.width >= asset.height,
+          );
     final size =
         catalogSize ??
         provisionalSize(width: asset.width, height: asset.height);
@@ -1485,11 +1490,28 @@ class SmartIntake {
         trustworthy: false,
       );
     }
+    // The stored corners are the authorized quadrilateral. The values below are
+    // that same quadrilateral rewritten into the extracted buffer — not a new
+    // boundary and not a different claim.
+    final authorizedCorners = detection.cropAuthorization!.corners;
+    require(
+      detection.corners?.length == authorizedCorners.length,
+      'إعادة تعيين JPEG يجب أن تستخدم زوايا القرار المقبول نفسها.',
+    );
+    for (var i = 0; i < authorizedCorners.length; i++) {
+      require(
+        detection.corners![i].x == authorizedCorners[i].x &&
+            detection.corners![i].y == authorizedCorners[i].y,
+        'إعادة تعيين JPEG يجب أن تستخدم زوايا القرار المقبول نفسها.',
+      );
+    }
+    final spanX = cropBounds.right - cropBounds.left;
+    final spanY = cropBounds.bottom - cropBounds.top;
     final localCorners = [
-      for (final corner in detection.corners!)
+      for (final corner in authorizedCorners)
         Point2(
-          (corner.x - cropBounds.left) / (cropBounds.right - cropBounds.left),
-          (corner.y - cropBounds.top) / (cropBounds.bottom - cropBounds.top),
+          (corner.x - cropBounds.left) / spanX,
+          (corner.y - cropBounds.top) / spanY,
         ),
     ];
     // The request bounds above include every trusted measured corner. Keep this
@@ -1502,23 +1524,23 @@ class SmartIntake {
       ),
       'زوايا المستمسك خارج المنطقة المقاسة.',
     );
-    final kind = detection.classification.kind;
-    final estimate = CropDraft(
-      corners: localCorners,
+    final recipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: croppedHeader.width,
+      sourceHeight: croppedHeader.height,
       adjustments: asset.adjustments,
-    ).toRecipe(croppedHeader.width, croppedHeader.height);
-    final size = catalog.sizeFor(
-      kind,
-      landscape:
-          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+      catalog: catalog,
+      coordinateFrameCorners: localCorners,
     );
-    final recipe = size == null
-        ? estimate
-        : CropDraft(
-            corners: localCorners,
-            adjustments: asset.adjustments,
-            aspectRatio: size.width / size.height,
-          ).toRecipe(croppedHeader.width, croppedHeader.height);
+    if (recipe == null) {
+      return _RegionOutput(
+        bytes: bytes,
+        corners: null,
+        outputWidth: null,
+        outputHeight: null,
+        trustworthy: false,
+      );
+    }
     return _RegionOutput(
       bytes: await warp(bytes, recipe),
       corners: detection.corners,
@@ -1565,10 +1587,10 @@ class SmartIntake {
 
   /// Renders one detected region into the bytes of its derived image.
   ///
-  /// A trustworthy quadrilateral is rectified to the catalog aspect ratio; an
-  /// unresolved region is kept as a plain axis-aligned crop of the measured
-  /// bounds — no guessed rectangle, no warp. Either way the ORIGINAL source
-  /// bytes are only ever READ (ADR-003).
+  /// An accepted boundary is perspective-corrected, and the catalog aspect is
+  /// applied only when it is the claim that decision already accepted. Anything
+  /// else is an axis-aligned crop of the measured bounds — no guessed
+  /// rectangle, no warp. The original bytes are only ever read (ADR-003).
   Future<_RegionOutput> _renderRegion(
     Uint8List originalBytes,
     _Analyzed analyzed,
@@ -1590,23 +1612,25 @@ class SmartIntake {
         trustworthy: false,
       );
     }
-    final kind = detection.classification.kind;
-    final estimate = CropDraft(
-      corners: detection.corners!,
+    final recipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: analyzed.sourceWidth,
+      sourceHeight: analyzed.sourceHeight,
       adjustments: analyzed.asset.adjustments,
-    ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-    final size = catalog.sizeFor(
-      kind,
-      landscape:
-          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+      catalog: catalog,
     );
-    final recipe = size == null
-        ? estimate
-        : CropDraft(
-            corners: detection.corners!,
-            adjustments: analyzed.asset.adjustments,
-            aspectRatio: size.width / size.height,
-          ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+    if (recipe == null) {
+      return _RegionOutput(
+        bytes: await cropRegion(
+          originalBytes,
+          detection.region ?? fullFrameRegion,
+        ),
+        corners: null,
+        outputWidth: null,
+        outputHeight: null,
+        trustworthy: false,
+      );
+    }
     return _RegionOutput(
       bytes: await warp(originalBytes, recipe),
       corners: detection.corners,
@@ -1614,6 +1638,39 @@ class SmartIntake {
       outputHeight: recipe.geometry.outputHeight,
       trustworthy: true,
       recipe: recipe,
+    );
+  }
+
+  /// Automatic perspective recipe, or null when the shared decision did not
+  /// accept the claim. Catalog aspect is taken from the kind the decision
+  /// already checked; a different ratio cannot be substituted here.
+  ImageEditRecipe? _authorizedWarpRecipe(
+    DetectionAnalysis detection, {
+    required int sourceWidth,
+    required int sourceHeight,
+    required ImageAdjustments adjustments,
+    required DocumentSizeCatalog catalog,
+    List<Point2>? coordinateFrameCorners,
+  }) {
+    final authorization = detection.cropAuthorization;
+    if (authorization == null) return null;
+    final frame = coordinateFrameCorners ?? authorization.corners;
+    final estimate = CropDraft(
+      corners: frame,
+      adjustments: adjustments,
+    ).toRecipe(sourceWidth, sourceHeight);
+    final size = catalog.sizeFor(
+      detection.classification.kind,
+      landscape:
+          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+    );
+    return recipeFromAcceptedBoundary(
+      authorization,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+      adjustments: adjustments,
+      orientedOutputAspect: size == null ? null : size.width / size.height,
+      coordinateFrameCorners: coordinateFrameCorners,
     );
   }
 

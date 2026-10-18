@@ -42,8 +42,11 @@
 /// established catalog behaviour.
 library;
 
+import 'crop_draft.dart';
 import 'geometry.dart';
+import 'image_adjustments.dart';
 import 'quad_assessment.dart';
+import 'validation.dart';
 
 /// Largest factor by which a measured shape and an imposed physical aspect
 /// may disagree before the claim is treated as describing a different
@@ -157,6 +160,25 @@ class BoundaryDecision {
   /// The corners a crop may use — present only when [kind] is accepted.
   List<Point2>? get acceptedCorners =>
       kind == BoundaryDecisionKind.accepted ? proposal.corners : null;
+
+  /// Permission to build an automatic perspective crop. Null unless [kind] is
+  /// [BoundaryDecisionKind.accepted]. There is no other constructor.
+  AutomaticCropAuthorization? get cropAuthorization =>
+      kind == BoundaryDecisionKind.accepted
+          ? AutomaticCropAuthorization._(this)
+          : null;
+}
+
+/// The only permission an automatic intake path may use to warp a source.
+///
+/// Manual crops ([userAuthoredCrop]) and recovery replay of an already stored
+/// recipe do not use this type. A caller cannot mint one from corners alone.
+class AutomaticCropAuthorization {
+  const AutomaticCropAuthorization._(this.decision);
+
+  final BoundaryDecision decision;
+
+  List<Point2> get corners => decision.acceptedCorners!;
 }
 
 /// Verifies [proposal] against the source dimensions it was measured on.
@@ -264,6 +286,56 @@ BoundaryDecision verifyBoundary(
       measuredAspect: measuredAspect,
     ),
   );
+}
+
+/// Perspective recipe for an automatic crop. Refuses to run without an
+/// accepted decision, and refuses a catalog ratio that is not the claim that
+/// decision already checked.
+///
+/// This does not invent a tolerance. [orientedOutputAspect] is applied only
+/// when its long/short value is the proposal's imposed aspect — the same
+/// claim [verifyBoundary] compared with [maxAspectClaimRatio]. Passing a
+/// different ratio is a contract error, not a silent stretch. Omitting it
+/// keeps the measured quadrilateral's own aspect: perspective correction
+/// without a catalog reshape.
+///
+/// [coordinateFrameCorners] is only a coordinate rewrite of the authorized
+/// quadrilateral (the full-resolution JPEG region buffer). It is not a new
+/// boundary and is ignored unless [authorization] is accepted.
+ImageEditRecipe recipeFromAcceptedBoundary(
+  AutomaticCropAuthorization authorization, {
+  required int sourceWidth,
+  required int sourceHeight,
+  ImageAdjustments? adjustments,
+  double? orientedOutputAspect,
+  List<Point2>? coordinateFrameCorners,
+}) {
+  final imposed = authorization.decision.proposal.imposedAspect;
+  if (orientedOutputAspect != null) {
+    require(
+      orientedOutputAspect.isFinite && orientedOutputAspect > 0,
+      'نسبة الإخراج المفروضة غير صالحة.',
+    );
+    require(
+      imposed != null && imposed.isFinite && imposed > 0,
+      'لا يجوز فرض نسبة كتالوج لم يقبلها قرار الحدود.',
+    );
+    final longShort = orientedOutputAspect >= 1
+        ? orientedOutputAspect
+        : 1 / orientedOutputAspect;
+    final delta = (longShort - imposed).abs();
+    require(
+      delta <= 1e-6 || delta / imposed <= 1e-6,
+      'نسبة الإخراج لا تطابق المقاس الذي قبله قرار الحدود.',
+    );
+  }
+  final corners = coordinateFrameCorners ?? authorization.corners;
+  require(corners.length == 4, 'زوايا القص التلقائي يجب أن تكون أربعًا.');
+  return CropDraft(
+    corners: corners,
+    adjustments: adjustments,
+    aspectRatio: orientedOutputAspect,
+  ).toRecipe(sourceWidth, sourceHeight);
 }
 
 /// Arabic, user-facing explanation of one review reason. The caller owns

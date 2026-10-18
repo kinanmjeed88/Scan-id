@@ -660,6 +660,7 @@ class ProjectService {
       }
       var asset = current.assets[assetIndex];
       DocumentTypeSuggestion? suggestion;
+      var refusedProposedBoundary = false;
 
       final editor = imageEditor;
       if (editor == null) {
@@ -715,22 +716,27 @@ class ProjectService {
               sourceWidth: source.width,
               sourceHeight: source.height,
             );
-            if (decision.kind != BoundaryDecisionKind.accepted) {
+            final authorization = decision.cropAuthorization;
+            if (authorization == null) {
               notDetected++;
+              refusedProposedBoundary = true;
+              suggestion = null;
               for (final reason in decision.verification.reasons) {
                 warnings.add(
                   '${asset.name}: ${boundaryReviewReasonMessage(reason)}',
                 );
               }
             } else {
-              final recipe = size == null
-                  ? estimate
-                  : CropDraft(
-                      corners: corners,
-                      adjustments: asset.adjustments,
-                      aspectRatio: size.width / size.height,
-                    ).toRecipe(source.width, source.height);
-              current = await applyCrop(current, asset, recipe);
+              current = await applyAuthorizedCrop(
+                current,
+                asset,
+                authorization,
+                sourceWidth: source.width,
+                sourceHeight: source.height,
+                orientedOutputAspect: size == null
+                    ? null
+                    : size.width / size.height,
+              );
               asset = current.assets.firstWhere((entry) => entry.id == id);
               cropped++;
             }
@@ -753,16 +759,21 @@ class ProjectService {
         fullFrame: true,
       );
       final kind = suggestion.kind;
-      final catalogSize = current.catalog.sizeFor(
-        kind,
-        landscape: asset.width >= asset.height,
-      );
+      // A boundary that was proposed and refused must not keep the catalog
+      // size of the filename or of the rejected estimate. No proposal at all
+      // keeps the existing filename confirmation for an already-cut scan.
+      final catalogSize = refusedProposedBoundary
+          ? null
+          : current.catalog.sizeFor(
+              kind,
+              landscape: asset.width >= asset.height,
+            );
       final size =
           catalogSize ??
           provisionalSize(width: asset.width, height: asset.height);
       if (catalogSize != null) {
         recognized++;
-      } else {
+      } else if (kind == DocumentKind.unknown) {
         warnings.add(
           '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
         );
@@ -897,8 +908,32 @@ class ProjectService {
     return editor!.createRevision(asset, recipe);
   }
 
-  /// Crop used by automatic layout. It deliberately does not mark a user
-  /// decision even though it shares the image-revision implementation.
+  /// Automatic intake crop. The recipe is built only from an accepted
+  /// boundary decision, so a caller cannot pass a raw quadrilateral and a
+  /// catalog ratio that the decision did not check.
+  Future<Project> applyAuthorizedCrop(
+    Project project,
+    ImageAsset asset,
+    AutomaticCropAuthorization authorization, {
+    required int sourceWidth,
+    required int sourceHeight,
+    double? orientedOutputAspect,
+  }) {
+    final recipe = recipeFromAcceptedBoundary(
+      authorization,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+      adjustments: asset.adjustments,
+      orientedOutputAspect: orientedOutputAspect,
+    );
+    return _applyCrop(project, asset, recipe, userAuthored: false);
+  }
+
+  /// Revision primitive used by tests and by [applyAuthorizedCrop] /
+  /// [applyManualCrop]. Production intake must not call this with a detector
+  /// quadrilateral; that path is [applyAuthorizedCrop]. Recovery replay and
+  /// color/rotation revisions are not boundary decisions and do not come here
+  /// from intake.
   Future<Project> applyCrop(
     Project project,
     ImageAsset asset,

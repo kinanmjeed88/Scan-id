@@ -316,10 +316,12 @@ ImageEditRecipe recipeFromAcceptedBoundary(
       orientedOutputAspect.isFinite && orientedOutputAspect > 0,
       'نسبة الإخراج المفروضة غير صالحة.',
     );
-    require(
-      imposed != null && imposed.isFinite && imposed > 0,
-      'لا يجوز فرض نسبة كتالوج لم يقبلها قرار الحدود.',
-    );
+    // require() does not promote, so the null check has to be a real branch.
+    if (imposed == null || !imposed.isFinite || imposed <= 0) {
+      throw ValidationException(
+        'لا يجوز فرض نسبة كتالوج لم يقبلها قرار الحدود.',
+      );
+    }
     final longShort = orientedOutputAspect >= 1
         ? orientedOutputAspect
         : 1 / orientedOutputAspect;

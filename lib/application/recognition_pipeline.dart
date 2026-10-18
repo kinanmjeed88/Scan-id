@@ -12,6 +12,7 @@ library;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
 import '../domain/ocr_evidence.dart';
@@ -439,6 +440,36 @@ class RecognitionPipeline {
         thresholds: thresholds,
       ),
     );
+
+    // Boundary gate (audits D3/D10): the measured shape must be able to
+    // claim the physical size of the classified kind within the project's
+    // own implausibility factor (maxAspectClaimRatio). A filename label can outvote the shape in
+    // classification; when it does, the warp used to stretch the measured
+    // quad to the catalog aspect anyway. That disagreement is now a
+    // manual-boundary outcome — measured corners are withdrawn, the region
+    // is kept for review, and no size may be claimed from them.
+    if (usableCorners != null && assessment?.aspect != null) {
+      final claimedNatural = catalog.natural(classification.kind);
+      if (claimedNatural != null) {
+        final imposedAspect = claimedNatural.aspect;
+        final measuredAspect = assessment!.aspect!;
+        final claimRatio = measuredAspect >= imposedAspect
+            ? measuredAspect / imposedAspect
+            : imposedAspect / measuredAspect;
+        if (claimRatio > maxAspectClaimRatio) {
+          issues.add(
+            const BatchItemFailure(
+              category: RecognitionErrorCategory.geometryFailure,
+              message:
+                  'شكل الحدود لا يطابق مقاس النوع المتعرّف عليه؛ '
+                  'حُفظت المنطقة كما هي لتُقصّ يدوياً من المحرر.',
+            ),
+          );
+          usableCorners = null;
+          boundary = DetectionBoundary.rejected;
+        }
+      }
+    }
 
     final natural = catalog.natural(classification.kind);
     final orientation = estimateOrientation(

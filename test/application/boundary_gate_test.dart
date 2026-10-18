@@ -3,10 +3,13 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
 import 'package:scan_id/application/recognition_worker.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -197,5 +200,128 @@ void main() {
         bytes,
       );
     });
+
+    test('a passport filename cannot stretch an ID-shaped quad', () async {
+      final inner = LocalImageEditor(projects.files);
+      final gated = ProjectService(
+        projects,
+        LocalAssetRepository(projects.files),
+        imageEditor: _FixedSuggest(inner, _idQuadOnSquare()),
+        segmenter: (_) async =>
+            const SegmentationResult(multi: false, candidates: []),
+      );
+      var project = await gated.create('جواز');
+      final bytes = _square();
+      project = (await gated.importImages(project, [
+        ImportSource('جواز السفر.png', () => Stream.value(bytes)),
+      ])).project;
+      final report = await gated.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+      final asset = report.project.assets.single;
+      final item = report.project.items.single;
+      expect(report.cropped, 1);
+      expect(item.sizeConfirmed, isFalse);
+      expect([item.width, item.height], isNot([125, 88]));
+      expect(asset.width / asset.height, closeTo(1.586, .04));
+      expect(asset.width / asset.height, isNot(closeTo(125 / 88, .02)));
+      expect(report.warnings.join(' '), contains('دون مطّ'));
+      expect(
+        await (await LocalAssetRepository(
+          projects.files,
+        ).resolve(asset.originalPath)).readAsBytes(),
+        bytes,
+      );
+    });
+
+    test(
+      'production multi path does not stretch ID quads to passport',
+      () async {
+        final gated = ProjectService(
+          projects,
+          LocalAssetRepository(projects.files),
+          imageEditor: LocalImageEditor(projects.files),
+          segmenter: (_) async => SegmentationResult(
+            multi: true,
+            candidates: [
+              SegmentCandidate(
+                region: const [.05, .05, .85, .554],
+                corners: _idQuadOnSquare(),
+                reason: 'measured',
+              ),
+              SegmentCandidate(
+                region: const [.10, .48, .90, .984],
+                corners: [
+                  Point2(.10, .48),
+                  Point2(.90, .48),
+                  Point2(.90, .984),
+                  Point2(.10, .984),
+                ],
+                reason: 'measured',
+              ),
+            ],
+          ),
+        );
+        var project = await gated.create('تعدد جواز');
+        final bytes = _square();
+        project = (await gated.importImages(project, [
+          ImportSource('جواز السفر.png', () => Stream.value(bytes)),
+        ])).project;
+        final sourceId = project.assets.single.id;
+        final report = await gated.arrangeImportedImages(project, [sourceId]);
+        expect(report.cropped, 2);
+        expect(report.project.items, hasLength(2));
+        expect(
+          report.project.items.every((item) => !item.sizeConfirmed),
+          isTrue,
+        );
+        expect(
+          report.project.items.every(
+            (item) => item.width != 125 || item.height != 88,
+          ),
+          isTrue,
+        );
+        final derived = report.project.assets.where((a) => a.id != sourceId);
+        expect(derived, hasLength(2));
+        for (final asset in derived) {
+          expect(asset.width / asset.height, closeTo(1.586, .04));
+          expect(asset.width / asset.height, isNot(closeTo(125 / 88, .02)));
+        }
+        expect(report.warnings.join(' '), contains('دون مطّ'));
+      },
+    );
   });
+}
+
+List<Point2> _idQuadOnSquare() => [
+  Point2(.05, .05),
+  Point2(.85, .05),
+  Point2(.85, .554),
+  Point2(.05, .554),
+];
+
+Uint8List _square() {
+  final image = img.Image(width: 1000, height: 1000);
+  img.fill(image, color: img.ColorRgb8(30, 40, 50));
+  return Uint8List.fromList(img.encodePng(image));
+}
+
+class _FixedSuggest implements ImageEditor {
+  _FixedSuggest(this.inner, this.corners);
+  final ImageEditor inner;
+  final List<Point2> corners;
+
+  @override
+  Future<EditorSource> open(ImageAsset asset) => inner.open(asset);
+
+  @override
+  Future<List<Point2>?> suggest(Uint8List preview) async => corners;
+
+  @override
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
+      inner.preview(asset, recipe);
+
+  @override
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
+      inner.createRevision(asset, recipe);
 }

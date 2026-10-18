@@ -661,6 +661,7 @@ class ProjectService {
       var asset = current.assets[assetIndex];
       DocumentTypeSuggestion? suggestion;
       var refusedProposedBoundary = false;
+      var catalogShapeUnconfirmed = false;
 
       final editor = imageEditor;
       if (editor == null) {
@@ -727,15 +728,22 @@ class ProjectService {
                 );
               }
             } else {
+              if (size != null && !decision.catalogShapeMatches) {
+                catalogShapeUnconfirmed = true;
+                warnings.add(
+                  '${asset.name}: ${catalogShapeUnconfirmedMessage()}',
+                );
+              }
               current = await applyAuthorizedCrop(
                 current,
                 asset,
                 authorization,
                 sourceWidth: source.width,
                 sourceHeight: source.height,
-                orientedOutputAspect: size == null
-                    ? null
-                    : size.width / size.height,
+                orientedOutputAspect:
+                    decision.catalogShapeMatches && size != null
+                    ? size.width / size.height
+                    : null,
               );
               asset = current.assets.firstWhere((entry) => entry.id == id);
               cropped++;
@@ -762,7 +770,10 @@ class ProjectService {
       // A boundary that was proposed and refused must not keep the catalog
       // size of the filename or of the rejected estimate. No proposal at all
       // keeps the existing filename confirmation for an already-cut scan.
-      final catalogSize = refusedProposedBoundary
+      // A refused proposal, or an accepted quadrilateral whose shape does not
+      // match the catalog within shapeTolerance, must not be placed at the
+      // catalog size: export fills that box and would stretch the image.
+      final catalogSize = refusedProposedBoundary || catalogShapeUnconfirmed
           ? null
           : current.catalog.sizeFor(
               kind,

@@ -364,8 +364,13 @@ class DocumentTypeSuggestion {
 }
 
 /// Relative aspect tolerance for recognising a category from the boundary
-/// shape. Perspective-corrected crops are typically within 2 %; the nearest
-/// candidates (residence 1.471 and passport 1.420) are 3.6 % apart.
+/// shape: `(measured / catalog - 1).abs()`. Perspective-corrected crops are
+/// typically within 2 %; the nearest candidates (residence 1.471 and passport
+/// 1.420) are 3.6 % apart, so shape alone cannot separate them.
+///
+/// The boundary decision uses this same constant, and no other, before an
+/// automatic warp may adopt the catalog aspect or `sizeConfirmed` may be set.
+/// See `BoundaryDecision.catalogShapeMatches`.
 const shapeTolerance = .04;
 
 /// Frame shapes of common cameras (4:3, 3:2, 16:9). An uncropped photo with

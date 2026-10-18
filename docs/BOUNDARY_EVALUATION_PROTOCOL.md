@@ -53,7 +53,25 @@ available for every image the gate refuses.
 
 Thresholds are set from the measurements above, on the frozen evaluation
 set, with the silent-false-accept class weighted first. No threshold is
-invented in code before that evidence exists — which is why
-`lib/domain/boundary_decision.dart` today uses only the project's
-pre-existing `shapeTolerance` and structural checks, and invents no new
-numeric cut-offs.
+invented in code before that evidence exists.
+
+`lib/domain/boundary_decision.dart` therefore uses only constants the
+project already had, for two different comparisons:
+
+- `shapeTolerance` (`0.04` in `lib/domain/document_kind.dart`) is the
+  relative error `(measured / imposed - 1).abs()`. Classification already
+  uses it. An automatic warp may adopt the catalog aspect, and
+  `sizeConfirmed` may be set, only inside this tolerance. Export fills the
+  item box (`BoxFit.fill`), so a confirmed catalog size the pixels do not
+  match would stretch the document.
+- `maxAspectClaimRatio` (`2.5`) is the opposite-edge implausibility bound
+  `assessQuad` already applies, reused as an outer claim refusal:
+  `max(measured, imposed) / min(measured, imposed)`. Above it the imposed
+  size is a different document and no automatic warp runs. It is not a
+  permission to stretch every milder disagreement onto the catalog ratio.
+  Among the catalogued cards it separates the ration card (~5.52) from
+  ID-1 (~1.59); it does not separate ID, residence and passport.
+
+Structural checks (`assessQuad`: convexity, area, edge length, opposite-edge
+ratio) are unchanged. Nothing here is a new cutoff, and nothing here is a
+measurement of the real document edge.

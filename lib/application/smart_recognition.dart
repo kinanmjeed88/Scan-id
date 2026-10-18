@@ -879,12 +879,20 @@ class SmartIntake {
         'حُفظت المنطقة كما هي لتُقصّ يدوياً من المحرر.',
       );
     }
-    final catalogSize = output.trustworthy
-        ? current.catalog.sizeFor(
-            kind,
-            landscape: derived.width >= derived.height,
-          )
-        : null;
+    final catalogSize = _confirmedCatalogSize(
+      current,
+      detection,
+      warped: output.trustworthy,
+      landscape: derived.width >= derived.height,
+    );
+    if (output.trustworthy &&
+        catalogSize == null &&
+        kind != DocumentKind.unknown) {
+      warnings.add(
+        '${sourceAsset.name} (مستند $position): '
+        '${catalogShapeUnconfirmedMessage()}',
+      );
+    }
     final itemSize =
         catalogSize ??
         provisionalSize(width: derived.width, height: derived.height);
@@ -969,9 +977,12 @@ class SmartIntake {
   }) {
     if (item.locked) return item;
     final kind = detection.classification.kind;
-    final catalogSize = trustworthy
-        ? current.catalog.sizeFor(kind, landscape: asset.width >= asset.height)
-        : null;
+    final catalogSize = _confirmedCatalogSize(
+      current,
+      detection,
+      warped: trustworthy,
+      landscape: asset.width >= asset.height,
+    );
     final confidence =
         detection.classification.confidences.finalConfidence?.value ??
         item.recognitionConfidence;
@@ -984,13 +995,31 @@ class SmartIntake {
           'بقي المستند بموضعه وحجمه الحالي لتفادي إفساد ترتيب الورقة. '
           'راجعه من تبويب «المستمسك».',
         );
+      } else if (_shapeUnconfirmed(detection)) {
+        onPlacedSizeKept(
+          '${asset.name}: ${catalogShapeUnconfirmedMessage()} '
+          'بقي المستند بموضعه الحالي.',
+        );
       }
       return item.copyWith(
         documentKind: kind,
         recognitionConfidence: confidence,
       );
     }
-    if (catalogSize == null) return item;
+    if (catalogSize == null) {
+      if (!_shapeUnconfirmed(detection)) return item;
+      final provisional = provisionalSize(
+        width: asset.width,
+        height: asset.height,
+      );
+      return item.copyWith(
+        width: provisional.width,
+        height: provisional.height,
+        documentKind: kind,
+        sizeConfirmed: false,
+        recognitionConfidence: confidence,
+      );
+    }
     return item.copyWith(
       width: catalogSize.width,
       height: catalogSize.height,
@@ -1219,7 +1248,11 @@ class SmartIntake {
     // contradicted physical size. No proposal (undetected) keeps the
     // existing filename confirmation.
     final boundaryRefused = detection.boundary == DetectionBoundary.rejected;
-    final catalogSize = boundaryRefused
+    final shapeUnconfirmed = _shapeUnconfirmed(detection);
+    if (shapeUnconfirmed) {
+      warnings.add('${asset.name}: ${catalogShapeUnconfirmedMessage()}');
+    }
+    final catalogSize = boundaryRefused || shapeUnconfirmed
         ? null
         : current.catalog.sizeFor(kind, landscape: asset.width >= asset.height);
     final size =
@@ -1336,13 +1369,22 @@ class SmartIntake {
         newAssets.add(derived);
         if (output.trustworthy) onCropped();
         // An unresolved region was never rectified, so its size is NOT
-        // confirmed: claiming a catalog size here would distort the print.
-        final catalogSize = output.trustworthy
-            ? current.catalog.sizeFor(
-                kind,
-                landscape: derived.width >= derived.height,
-              )
-            : null;
+        // confirmed. A rectified region whose measured shape misses the
+        // catalog tolerance is not confirmed either: export would stretch it.
+        final catalogSize = _confirmedCatalogSize(
+          current,
+          detection,
+          warped: output.trustworthy,
+          landscape: derived.width >= derived.height,
+        );
+        if (output.trustworthy &&
+            catalogSize == null &&
+            kind != DocumentKind.unknown) {
+          warnings.add(
+            '${sourceAsset.name} (مستند ${position + 1}): '
+            '${catalogShapeUnconfirmedMessage()}',
+          );
+        }
         final itemSize =
             catalogSize ??
             provisionalSize(width: derived.width, height: derived.height);
@@ -1638,9 +1680,34 @@ class SmartIntake {
     );
   }
 
+  /// Catalog millimetres only when the warp happened and the measured shape
+  /// matches that catalog size within classification tolerance. A merely
+  /// accepted quadrilateral is not enough: export fills the item box.
+  PhysicalSizeMm? _confirmedCatalogSize(
+    Project current,
+    DetectionAnalysis detection, {
+    required bool warped,
+    required bool landscape,
+  }) {
+    if (!warped || detection.boundaryDecision?.catalogShapeMatches != true) {
+      return null;
+    }
+    return current.catalog.sizeFor(
+      detection.classification.kind,
+      landscape: landscape,
+    );
+  }
+
+  bool _shapeUnconfirmed(DetectionAnalysis detection) {
+    final decision = detection.boundaryDecision;
+    return decision != null &&
+        decision.kind == BoundaryDecisionKind.accepted &&
+        !decision.catalogShapeMatches;
+  }
+
   /// Automatic perspective recipe, or null when the shared decision did not
-  /// accept the claim. Catalog aspect is taken from the kind the decision
-  /// already checked; a different ratio cannot be substituted here.
+  /// accept the claim. Catalog aspect is applied only when that decision's
+  /// measurement matches the claim within [shapeTolerance].
   ImageEditRecipe? _authorizedWarpRecipe(
     DetectionAnalysis detection, {
     required int sourceWidth,
@@ -1661,12 +1728,19 @@ class SmartIntake {
       landscape:
           estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
     );
+    // Catalog aspect is a second permission. Acceptance only allows perspective
+    // correction of the measured quadrilateral. Applying the catalog ratio
+    // when the measurement disagrees would stretch the warp, and export then
+    // stretches again into the catalog millimetre box.
+    final matches = authorization.decision.catalogShapeMatches;
     return recipeFromAcceptedBoundary(
       authorization,
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
       adjustments: adjustments,
-      orientedOutputAspect: size == null ? null : size.width / size.height,
+      orientedOutputAspect: matches && size != null
+          ? size.width / size.height
+          : null,
       coordinateFrameCorners: coordinateFrameCorners,
     );
   }

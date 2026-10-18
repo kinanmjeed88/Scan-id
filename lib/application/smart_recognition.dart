@@ -1221,10 +1221,7 @@ class SmartIntake {
     final boundaryRefused = detection.boundary == DetectionBoundary.rejected;
     final catalogSize = boundaryRefused
         ? null
-        : current.catalog.sizeFor(
-            kind,
-            landscape: asset.width >= asset.height,
-          );
+        : current.catalog.sizeFor(kind, landscape: asset.width >= asset.height);
     final size =
         catalogSize ??
         provisionalSize(width: asset.width, height: asset.height);

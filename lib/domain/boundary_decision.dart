@@ -165,8 +165,8 @@ class BoundaryDecision {
   /// [BoundaryDecisionKind.accepted]. There is no other constructor.
   AutomaticCropAuthorization? get cropAuthorization =>
       kind == BoundaryDecisionKind.accepted
-          ? AutomaticCropAuthorization._(this)
-          : null;
+      ? AutomaticCropAuthorization._(this)
+      : null;
 }
 
 /// The only permission an automatic intake path may use to warp a source.

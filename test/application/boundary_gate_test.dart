@@ -178,10 +178,7 @@ void main() {
         isNull,
       );
       expect(report.project.items, hasLength(2));
-      expect(
-        report.project.items.every((item) => !item.sizeConfirmed),
-        isTrue,
-      );
+      expect(report.project.items.every((item) => !item.sizeConfirmed), isTrue);
       expect(
         report.project.items.every(
           (item) =>

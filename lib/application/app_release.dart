@@ -12,7 +12,7 @@
 // package filename — only whether an update exists and whether it is safe.
 
 /// The published version of this build, as `major.minor.patch` (SemVer).
-const String appVersion = '0.1.1';
+const String appVersion = '0.1.2';
 
 /// Account that owns the release feed the update check reads.
 const String releaseOwner = 'kinanmjeed88';

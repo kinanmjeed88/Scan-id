@@ -1,7 +1,7 @@
 name: scan_id
 description: Offline document workspace for Windows and Android.
 publish_to: none
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: '>=3.9.0 <4.0.0'

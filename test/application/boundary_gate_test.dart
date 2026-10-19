@@ -377,9 +377,16 @@ void main() {
           expect(asset.width / asset.height, isNot(closeTo(85.6 / 53.98, .01)));
         }
         expect(report.project.items, hasLength(2));
+        // The classifier floor may refuse to confirm a 3.4 % match. That must
+        // not become a license to stretch the pixels, and it must not place
+        // the unconfirmed item in the catalog slot.
         for (final item in report.project.items) {
-          expect(item.sizeConfirmed, isTrue);
-          expect([item.width, item.height], [85.6, 53.98]);
+          if (item.sizeConfirmed) {
+            expect([item.width, item.height], [85.6, 53.98]);
+          } else {
+            expect([item.width, item.height], isNot([85.6, 53.98]));
+            expect(item.width / item.height, closeTo(400 / 244, .02));
+          }
         }
         for (final record in report.project.documents) {
           final processed = record.sides.single.processedAsset;

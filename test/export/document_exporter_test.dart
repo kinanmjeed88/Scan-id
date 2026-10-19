@@ -230,4 +230,60 @@ void main() {
       );
     },
   );
+
+  test(
+    'a square slot does not stretch a wide image; the margin stays blank',
+    () async {
+      final image = img.Image(width: 80, height: 40);
+      img.fill(image, color: img.ColorRgb8(220, 0, 0));
+      final asset = await assets.importImage(
+        'project1',
+        'wide.png',
+        img.encodePng(image),
+      );
+      final placed = projectFixture(
+        assets: [asset],
+        items: [
+          DocumentItem(
+            id: 'box',
+            assetId: asset.id,
+            x: 10,
+            y: 10,
+            width: 40,
+            height: 40,
+            pageIndex: 0,
+            sizeConfirmed: true,
+          ),
+        ],
+      );
+      final fitted = containedDocumentRect(
+        itemX: 10,
+        itemY: 10,
+        itemWidth: 40,
+        itemHeight: 40,
+        imageWidth: asset.width,
+        imageHeight: asset.height,
+      );
+      expect(fitted.width / fitted.height, closeTo(2, 1e-9));
+      expect(
+        fitted.y,
+        closeTo(20, 1e-9),
+        reason: 'the unused band is a margin',
+      );
+      final working = await assets.resolve(asset.workingPath);
+      final raster = renderPage(
+        ExportPlan(placed, ExportProfile(format: ExportFormat.png)),
+        0,
+        {asset.id: working.path},
+      );
+      final scale = 300 / 25.4;
+      int pixel(double mm) => (mm * scale).floor();
+      final margin = raster.getPixel(pixel(30), pixel(12));
+      final center = raster.getPixel(pixel(30), pixel(30));
+      expect(margin.r, greaterThan(240));
+      expect(margin.g, greaterThan(240));
+      expect(center.r, greaterThan(180));
+      expect(center.g, lessThan(30));
+    },
+  );
 }

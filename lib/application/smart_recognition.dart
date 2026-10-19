@@ -18,7 +18,6 @@ import 'dart:typed_data';
 
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
-import '../domain/crop_draft.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
@@ -1213,12 +1212,11 @@ class SmartIntake {
       sourceWidth: analyzed.sourceWidth,
       sourceHeight: analyzed.sourceHeight,
       adjustments: asset.adjustments,
-      catalog: current.catalog,
     );
     if (automaticRecipe != null) {
-      // Catalog aspect is applied only by recipeFromAcceptedBoundary, and
-      // only when it is the claim the decision already accepted. A refused
-      // or missing authorization cannot reach createRevision.
+      // The recipe comes only from an accepted authorization and keeps the
+      // measured aspect. A refused or missing authorization cannot reach
+      // createRevision.
       final updated = (await editor.createRevision(
         asset,
         automaticRecipe,
@@ -1370,7 +1368,8 @@ class SmartIntake {
         if (output.trustworthy) onCropped();
         // An unresolved region was never rectified, so its size is NOT
         // confirmed. A rectified region whose measured shape misses the
-        // catalog tolerance is not confirmed either: export would stretch it.
+        // catalog tolerance is not confirmed either: the catalog slot would
+        // claim a physical size the pixels do not match.
         final catalogSize = _confirmedCatalogSize(
           current,
           detection,
@@ -1568,7 +1567,6 @@ class SmartIntake {
       sourceWidth: croppedHeader.width,
       sourceHeight: croppedHeader.height,
       adjustments: asset.adjustments,
-      catalog: catalog,
       coordinateFrameCorners: localCorners,
     );
     if (recipe == null) {
@@ -1626,14 +1624,15 @@ class SmartIntake {
 
   /// Renders one detected region into the bytes of its derived image.
   ///
-  /// An accepted boundary is perspective-corrected, and the catalog aspect is
-  /// applied only when it is the claim that decision already accepted. Anything
-  /// else is an axis-aligned crop of the measured bounds — no guessed
-  /// rectangle, no warp. The original bytes are only ever read (ADR-003).
+  /// An accepted boundary is perspective-corrected at its measured aspect.
+  /// The catalog millimetre slot is a later placement decision, not a warp
+  /// ratio. Anything else is an axis-aligned crop of the measured bounds —
+  /// no guessed rectangle, no warp. The original bytes are only ever read
+  /// (ADR-003).
   Future<_RegionOutput> _renderRegion(
     Uint8List originalBytes,
     _Analyzed analyzed,
-    DocumentSizeCatalog catalog,
+    DocumentSizeCatalog _,
     DetectionAnalysis detection,
   ) async {
     if (!detection.hasUsableQuad) {
@@ -1656,7 +1655,6 @@ class SmartIntake {
       sourceWidth: analyzed.sourceWidth,
       sourceHeight: analyzed.sourceHeight,
       adjustments: analyzed.asset.adjustments,
-      catalog: catalog,
     );
     if (recipe == null) {
       return _RegionOutput(
@@ -1706,41 +1704,22 @@ class SmartIntake {
   }
 
   /// Automatic perspective recipe, or null when the shared decision did not
-  /// accept the claim. Catalog aspect is applied only when that decision's
-  /// measurement matches the claim within [shapeTolerance].
+  /// accept the claim. The output keeps the measured aspect. A catalog size
+  /// is never an output ratio, including when [BoundaryDecision.catalogShapeMatches].
   ImageEditRecipe? _authorizedWarpRecipe(
     DetectionAnalysis detection, {
     required int sourceWidth,
     required int sourceHeight,
     required ImageAdjustments adjustments,
-    required DocumentSizeCatalog catalog,
     List<Point2>? coordinateFrameCorners,
   }) {
     final authorization = detection.cropAuthorization;
     if (authorization == null) return null;
-    final frame = coordinateFrameCorners ?? authorization.corners;
-    final estimate = CropDraft(
-      corners: frame,
-      adjustments: adjustments,
-    ).toRecipe(sourceWidth, sourceHeight);
-    final size = catalog.sizeFor(
-      detection.classification.kind,
-      landscape:
-          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
-    );
-    // Catalog aspect is a second permission. Acceptance only allows perspective
-    // correction of the measured quadrilateral. Applying the catalog ratio
-    // when the measurement disagrees would stretch the warp, and export then
-    // stretches again into the catalog millimetre box.
-    final matches = authorization.decision.catalogShapeMatches;
     return recipeFromAcceptedBoundary(
       authorization,
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
       adjustments: adjustments,
-      orientedOutputAspect: matches && size != null
-          ? size.width / size.height
-          : null,
       coordinateFrameCorners: coordinateFrameCorners,
     );
   }

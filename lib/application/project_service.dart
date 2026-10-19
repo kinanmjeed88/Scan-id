@@ -695,11 +695,11 @@ class ProjectService {
             );
             // Boundary gate (boundary audits D1/D3/D10): a detector proposal
             // is a claim, not a crop permission. It becomes a saved crop only
-            // when verifyBoundary accepts it — geometry sound AND its
-            // measured shape able to claim the physical size classification
-            // would impose on it. Any other outcome keeps the whole frame
-            // for manual cropping, with the measured reason told to the user
-            // instead of a silently stretched or mis-sized crop. Note this
+            // when verifyBoundary accepts it. Acceptance corrects perspective
+            // at the measured aspect; it does not impose the catalog ratio.
+            // Any other outcome keeps the whole frame for manual cropping,
+            // with the measured reason told to the user instead of a silently
+            // stretched or mis-sized crop. Note this
             // gate is what guards cropping here; the Smart Recognition
             // automationMode (reviewAll) never did — it only keeps records
             // listed in that pipeline's review queue.
@@ -740,10 +740,6 @@ class ProjectService {
                 authorization,
                 sourceWidth: source.width,
                 sourceHeight: source.height,
-                orientedOutputAspect:
-                    decision.catalogShapeMatches && size != null
-                    ? size.width / size.height
-                    : null,
               );
               asset = current.assets.firstWhere((entry) => entry.id == id);
               cropped++;
@@ -920,22 +916,20 @@ class ProjectService {
   }
 
   /// Automatic intake crop. The recipe is built only from an accepted
-  /// boundary decision, so a caller cannot pass a raw quadrilateral and a
-  /// catalog ratio that the decision did not check.
+  /// boundary decision. There is no catalog-aspect argument: acceptance
+  /// corrects perspective and keeps the measured aspect.
   Future<Project> applyAuthorizedCrop(
     Project project,
     ImageAsset asset,
     AutomaticCropAuthorization authorization, {
     required int sourceWidth,
     required int sourceHeight,
-    double? orientedOutputAspect,
   }) {
     final recipe = recipeFromAcceptedBoundary(
       authorization,
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
       adjustments: asset.adjustments,
-      orientedOutputAspect: orientedOutputAspect,
     );
     return _applyCrop(project, asset, recipe, userAuthored: false);
   }

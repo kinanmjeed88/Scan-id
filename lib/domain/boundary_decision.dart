@@ -41,12 +41,12 @@
 ///   size describes a different document (a ration card versus an ID card is
 ///   about 3.5×). It is not permission to reshape anything below it.
 /// - [shapeTolerance] (`0.04`) is the relative error classification already
-///   uses: `(measured / imposed - 1).abs()`. Only inside that tolerance may an
-///   automatic warp adopt the catalog aspect, and only then may `sizeConfirmed`
-///   be true. Perspective correction of the accepted quadrilateral otherwise
-///   keeps the measured aspect. Export draws with `BoxFit.fill` into the item
-///   box, so confirming a catalog size the pixels do not match would stretch
-///   the document a second time.
+///   uses: `(measured / imposed - 1).abs()`. Inside that tolerance the catalog
+///   millimetre slot may be used and `sizeConfirmed` may be true. It is not
+///   permission to change the warp's output aspect. Perspective correction
+///   always keeps the measured aspect. Export and the sheet preview fit the
+///   pixels uniformly inside the slot (`BoxFit.contain`); a residual ratio
+///   difference becomes a margin, never a stretch.
 library;
 
 import 'crop_draft.dart';
@@ -179,7 +179,8 @@ class BoundaryDecision {
   /// [BoundaryDecisionKind.accepted]. There is no other constructor.
   ///
   /// This permits correcting the accepted quadrilateral. It does not permit
-  /// changing its aspect. That second permission is [catalogShapeMatches].
+  /// changing its aspect. [catalogShapeMatches] only permits the catalog
+  /// millimetre slot and `sizeConfirmed`.
   AutomaticCropAuthorization? get cropAuthorization =>
       kind == BoundaryDecisionKind.accepted
       ? AutomaticCropAuthorization._(this)
@@ -191,9 +192,10 @@ class BoundaryDecision {
   ///
   /// False when the decision was not accepted, when no catalog aspect was
   /// claimed, or when the disagreement is larger than classification already
-  /// treats as a different shape. Callers must not pass a catalog ratio to
-  /// [recipeFromAcceptedBoundary], and must not set `sizeConfirmed`, unless
-  /// this is true.
+  /// treats as a different shape. Only then may a caller place the image in
+  /// the catalog millimetre slot and set `sizeConfirmed`. The warp itself
+  /// never adopts that ratio: [recipeFromAcceptedBoundary] has no output-aspect
+  /// argument.
   bool get catalogShapeMatches {
     if (kind != BoundaryDecisionKind.accepted) return false;
     final imposed = proposal.imposedAspect;
@@ -272,9 +274,9 @@ BoundaryDecision verifyBoundary(
 
   // Outer claim refusal only. Above [maxAspectClaimRatio] the imposed size
   // is a different document, so the claim is not accepted and no automatic
-  // warp runs. A milder disagreement is still not a license to reshape:
-  // [BoundaryDecision.catalogShapeMatches] is the only permission to adopt
-  // the catalog aspect, and it uses [shapeTolerance], not this factor.
+  // warp runs. A milder disagreement is still not a license to reshape.
+  // [BoundaryDecision.catalogShapeMatches] uses [shapeTolerance] and only
+  // permits the catalog millimetre slot, never a warp aspect.
   final imposed = proposal.imposedAspect;
   if (imposed != null && imposed > 0 && imposed.isFinite) {
     final claimRatio = measuredAspect >= imposed
@@ -328,15 +330,15 @@ BoundaryDecision verifyBoundary(
 }
 
 /// Perspective recipe for an automatic crop. Refuses to run without an
-/// accepted decision. Refuses a catalog ratio that is not the claim that
-/// decision already checked, and refuses that claim unless the measured
-/// shape matches it within [shapeTolerance].
+/// accepted decision. There is no output-aspect argument: a catalog ratio
+/// cannot be smuggled in after acceptance, whether or not
+/// [BoundaryDecision.catalogShapeMatches]. The measured quadrilateral's own
+/// aspect is the output aspect.
 ///
-/// Passing a catalog ratio the measurement does not match is a contract
-/// error, not a silent stretch. Omitting it keeps the measured
-/// quadrilateral's own aspect: perspective correction without a catalog
-/// reshape. [maxAspectClaimRatio] is not consulted here; a decision that
-/// was accepted under that outer bound is still not a reshape license.
+/// [maxAspectClaimRatio] is not consulted here. A decision accepted under
+/// that outer bound is still not a reshape license. Manual crops build their
+/// own [CropDraft] and may set an aspect the user chose; this function is
+/// not that path.
 ///
 /// [coordinateFrameCorners] is only a coordinate rewrite of the authorized
 /// quadrilateral (the full-resolution JPEG region buffer). It is not a new
@@ -346,41 +348,13 @@ ImageEditRecipe recipeFromAcceptedBoundary(
   required int sourceWidth,
   required int sourceHeight,
   ImageAdjustments? adjustments,
-  double? orientedOutputAspect,
   List<Point2>? coordinateFrameCorners,
 }) {
-  final imposed = authorization.decision.proposal.imposedAspect;
-  if (orientedOutputAspect != null) {
-    require(
-      orientedOutputAspect.isFinite && orientedOutputAspect > 0,
-      'نسبة الإخراج المفروضة غير صالحة.',
-    );
-    // require() does not promote, so the null check has to be a real branch.
-    if (imposed == null || !imposed.isFinite || imposed <= 0) {
-      throw ValidationException(
-        'لا يجوز فرض نسبة كتالوج لم يقبلها قرار الحدود.',
-      );
-    }
-    final longShort = orientedOutputAspect >= 1
-        ? orientedOutputAspect
-        : 1 / orientedOutputAspect;
-    final delta = (longShort - imposed).abs();
-    require(
-      delta <= 1e-6 || delta / imposed <= 1e-6,
-      'نسبة الإخراج لا تطابق المقاس الذي قبله قرار الحدود.',
-    );
-    require(
-      authorization.decision.catalogShapeMatches,
-      'لا يجوز مطّ الناتج إلى مقاس الكتالوج: الشكل المقاس لا يطابقه '
-      'ضمن تفاوت التصنيف.',
-    );
-  }
   final corners = coordinateFrameCorners ?? authorization.corners;
   require(corners.length == 4, 'زوايا القص التلقائي يجب أن تكون أربعًا.');
   return CropDraft(
     corners: corners,
     adjustments: adjustments,
-    aspectRatio: orientedOutputAspect,
   ).toRecipe(sourceWidth, sourceHeight);
 }
 

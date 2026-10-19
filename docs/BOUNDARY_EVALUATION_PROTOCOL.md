@@ -60,10 +60,11 @@ project already had, for two different comparisons:
 
 - `shapeTolerance` (`0.04` in `lib/domain/document_kind.dart`) is the
   relative error `(measured / imposed - 1).abs()`. Classification already
-  uses it. An automatic warp may adopt the catalog aspect, and
-  `sizeConfirmed` may be set, only inside this tolerance. Export fills the
-  item box (`BoxFit.fill`), so a confirmed catalog size the pixels do not
-  match would stretch the document.
+  uses it. Inside this tolerance the catalog millimetre slot may be used
+  and `sizeConfirmed` may be set. An automatic warp does not adopt the
+  catalog aspect at any disagreement, including inside this tolerance.
+  Export and the sheet preview fit the pixels uniformly inside the slot
+  (`BoxFit.contain`). A residual difference is a margin, not a stretch.
 - `maxAspectClaimRatio` (`2.5`) is the opposite-edge implausibility bound
   `assessQuad` already applies, reused as an outer claim refusal:
   `max(measured, imposed) / min(measured, imposed)`. Above it the imposed

@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/validation.dart';
+
 
 /// The Proposal → Verification → Decision contract (boundary audits D1–D3).
 /// These tests pin the GATE's required outcomes — what may become a crop —
@@ -19,7 +19,8 @@ void main() {
     Point2(.1, .9),
   ];
 
-  test('a sound quad whose shape can claim the imposed size is accepted', () {
+  test('a sound quad whose shape can claim the imposed size is accepted '
+      'without adopting the catalog aspect', () {
     final decision = verifyBoundary(
       BoundaryProposal(
         producer: BoundaryProducer.wholeFrameDetector,
@@ -39,11 +40,28 @@ void main() {
       decision.cropAuthorization!,
       sourceWidth: width,
       sourceHeight: height,
-      orientedOutputAspect: 85.6 / 53.98,
+    );
+    final measured = CropDraft(corners: goodQuad()).toRecipe(width, height);
+    final stretched = CropDraft(
+      corners: goodQuad(),
+      aspectRatio: 85.6 / 53.98,
+    ).toRecipe(width, height);
+    expect(
+      recipe.geometry.outputWidth / recipe.geometry.outputHeight,
+      closeTo(
+        measured.geometry.outputWidth / measured.geometry.outputHeight,
+        1e-9,
+      ),
     );
     expect(
       recipe.geometry.outputWidth / recipe.geometry.outputHeight,
-      closeTo(85.6 / 53.98, .02),
+      isNot(
+        closeTo(
+          stretched.geometry.outputWidth / stretched.geometry.outputHeight,
+          1e-4,
+        ),
+      ),
+      reason: 'shapeTolerance must not become a warp stretch',
     );
   });
 
@@ -138,7 +156,8 @@ void main() {
     );
   });
 
-  test('an accepted claim cannot be warped to a different catalog ratio', () {
+  test('an accepted claim keeps the measured aspect even when a manual '
+      'draft could impose a different ratio', () {
     final decision = verifyBoundary(
       BoundaryProposal(
         producer: BoundaryProducer.wholeFrameDetector,
@@ -148,19 +167,28 @@ void main() {
       sourceWidth: width,
       sourceHeight: height,
     );
+    final automatic = recipeFromAcceptedBoundary(
+      decision.cropAuthorization!,
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    final manual = CropDraft(
+      corners: goodQuad(),
+      aspectRatio: 287 / 52,
+    ).toRecipe(width, height);
     expect(
-      () => recipeFromAcceptedBoundary(
-        decision.cropAuthorization!,
-        sourceWidth: width,
-        sourceHeight: height,
-        orientedOutputAspect: 287 / 52,
+      automatic.geometry.outputWidth / automatic.geometry.outputHeight,
+      isNot(
+        closeTo(
+          manual.geometry.outputWidth / manual.geometry.outputHeight,
+          .02,
+        ),
       ),
-      throwsA(isA<ValidationException>()),
     );
   });
 
   test('inside 2.5 but outside shapeTolerance accepts the quad and '
-      'refuses the catalog reshape', () {
+      'keeps the measured aspect', () {
     // Measured ~1.60 versus passport 125/88 ≈ 1.420. Factor ≈ 1.13, inside
     // the outer 2.5 refusal, and relative error ≈ 12 %, outside shapeTolerance.
     // Acceptance must not become permission to stretch the warp.
@@ -175,15 +203,6 @@ void main() {
     );
     expect(decision.kind, BoundaryDecisionKind.accepted);
     expect(decision.catalogShapeMatches, isFalse);
-    expect(
-      () => recipeFromAcceptedBoundary(
-        decision.cropAuthorization!,
-        sourceWidth: width,
-        sourceHeight: height,
-        orientedOutputAspect: 125 / 88,
-      ),
-      throwsA(isA<ValidationException>()),
-    );
     final measured = recipeFromAcceptedBoundary(
       decision.cropAuthorization!,
       sourceWidth: width,

@@ -138,11 +138,12 @@ class PageCanvas extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // The picture fills the exact millimetre rectangle.
+                // Uniform fit inside the millimetre slot. A ratio difference
+                // becomes a margin; the pixels are not stretched to the slot.
                 if (asset != null)
                   imageBuilder?.call(asset, item) ??
                       FittedBox(
-                        fit: BoxFit.fill,
+                        fit: BoxFit.contain,
                         child: SizedBox(
                           width: asset.width.toDouble(),
                           height: asset.height.toDouble(),

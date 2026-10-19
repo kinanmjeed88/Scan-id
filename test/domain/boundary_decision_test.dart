@@ -3,7 +3,6 @@ import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 
-
 /// The Proposal → Verification → Decision contract (boundary audits D1–D3).
 /// These tests pin the GATE's required outcomes — what may become a crop —
 /// not the internals of any proposer.

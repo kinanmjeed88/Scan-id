@@ -229,9 +229,7 @@ Future<ExportBundle> _generate(
   );
   final imageAspect = imageWidth / imageHeight;
   final boxAspect = itemWidth / itemHeight;
-  final width = imageAspect >= boxAspect
-      ? itemWidth
-      : itemHeight * imageAspect;
+  final width = imageAspect >= boxAspect ? itemWidth : itemHeight * imageAspect;
   final height = imageAspect >= boxAspect
       ? itemWidth / imageAspect
       : itemHeight;

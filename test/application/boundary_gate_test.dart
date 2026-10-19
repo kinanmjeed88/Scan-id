@@ -351,12 +351,7 @@ void main() {
             candidates: [
               for (final quad in quads)
                 SegmentCandidate(
-                  region: [
-                    quad[0].x,
-                    quad[0].y,
-                    quad[2].x,
-                    quad[2].y,
-                  ],
+                  region: [quad[0].x, quad[0].y, quad[2].x, quad[2].y],
                   corners: quad,
                   reason: 'measured',
                 ),

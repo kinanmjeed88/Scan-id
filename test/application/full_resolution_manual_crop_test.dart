@@ -549,4 +549,20 @@ void main() {
     expect(await originalBytes(repaired.assets.single), jpeg);
   });
 
-  test('an ordinary image does not go through the
+  test('an ordinary image skips the JPEG region reader', () async {
+    final png = _solidPng(80, 40, 10, 20, 30);
+    final project = await service().create('صورة عادية');
+    final imported = await service().importImages(project, [
+      ImportSource('عادي.png', () => Stream.value(png)),
+    ]);
+    final saved = await service().applyManualCrop(
+      imported.project,
+      imported.project.assets.single,
+      _recipe(_wideQuad, outputWidth: 32, outputHeight: 16),
+    );
+
+    expect(reader.calls, isEmpty);
+    expect(saved.assets.single.hasScaledLargeSource, isFalse);
+    expect(saved.assets.single.userAuthoredCrop, isTrue);
+  });
+}

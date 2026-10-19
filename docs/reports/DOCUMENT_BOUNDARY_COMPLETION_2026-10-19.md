@@ -20,7 +20,9 @@
 
 `flutter` و`dart` غير موجودين في بيئة الكتابة. لم يُشغَّل `flutter test` ولا `flutter analyze` ولا بناء محلي. إثبات التنفيذ هو تشغيل GitHub Actions على الالتزام الذي يحتوي هذا الملف، لا تشغيل `dc16b65`.
 
-دفع أول `ff0722fe99a8df14361afe1d3a2f69d6e8dfe614` فشل التحليل والبناء: حذف استيراد `crop_draft.dart` أخفى `ImageEditRecipe`. التشغيل [39216034650](https://github.com/kinanmjeed88/Scan-id/actions/runs/39216034650) على ذلك الالتزام ليس نجاحًا. التنسيق في ذلك التشغيل كان `Formatted 188 files (0 changed)`. الإصلاح استعادة الاستيراد، بلا تغيير في العقد.
+دفع أول `ff0722fe99a8df14361afe1d3a2f69d6e8dfe614` فشل التحليل والبناء: حذف استيراد `crop_draft.dart` أخفى `ImageEditRecipe`. التشغيل [39216034650](https://github.com/kinanmjeed88/Scan-id/actions/runs/39216034650) على ذلك الالتزام ليس نجاحًا. التنسيق فيه كان `Formatted 188 files (0 changed)` ثم دفع المنسق `8c80143`. الإصلاح استعادة الاستيراد.
+
+دفع `7d8ab34ce11386b2b0ff4da5e8dace380738b825` نجح تحليله وبنى `scan_id.exe`، وفشل اختبار واحد: `large-source trusted corners are remapped…` توقع العرض 1586 (مطّ الكتالوج) وحصل 1600 (النسبة المقاسة). التشغيل [39216380025](https://github.com/kinanmjeed88/Scan-id/actions/runs/39216380025) ليس نجاحًا. التوقع عُدّل ليثبت 1600×1000، لا ليُعاد المطّ.
 
 ## 1. ما كان مغلقًا قبل هذا الالتزام، ولم يُعد اختراعه
 

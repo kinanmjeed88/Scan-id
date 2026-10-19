@@ -936,9 +936,10 @@ void main() {
         [.1, .1, .9, .6045],
       );
       // Full crop-local corners occupy the 1600 by 1000 native output; without
-      // remapping they would rectify only the old .8 by .5045 sub-rectangle.
-      expect(derived.width, closeTo(1586, 2));
-      expect(derived.height, closeTo(1000, 2));
+      // remapping they would rectify only the old .8 by .5045 sub-rectangle
+      // (about 1280 by 505). Catalog aspect must not shrink 1600 to 1586.
+      expect(derived.width, 1600);
+      expect(derived.height, 1000);
     },
   );
 

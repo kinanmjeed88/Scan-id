@@ -24,6 +24,24 @@
 
 دفع `7d8ab34ce11386b2b0ff4da5e8dace380738b825` نجح تحليله وبنى `scan_id.exe`، وفشل اختبار واحد: `large-source trusted corners are remapped…` توقع العرض 1586 (مطّ الكتالوج) وحصل 1600 (النسبة المقاسة). التشغيل [39216380025](https://github.com/kinanmjeed88/Scan-id/actions/runs/39216380025) ليس نجاحًا. التوقع عُدّل ليثبت 1600×1000، لا ليُعاد المطّ.
 
+### إثبات الالتزام `5bdd191`
+
+**[CI]** [Scan ID verification `39216894718`](https://github.com/kinanmjeed88/Scan-id/actions/runs/39216894718) — `conclusion: success` — `head_sha` هو `5bdd191ec2e643e881c932eb56091cc743694a1d`.
+
+| البوابة | النتيجة على هذا SHA |
+|---|---|
+| التنسيق | `Formatted 188 files (0 changed)` |
+| `Flutter analyze` | `No issues found! (ran in 18.1s)` |
+| `Flutter tests` | `+742: All tests passed!` |
+| تدقيق التصدير المستقل | نجح: صفحتا A4، مواضع ملمتر، دوران 90، PNG/JPEG عند 300 و600 |
+| APK أندرويد التجريبي | الخطوة نجحت. الأرشيف `scan-id-android-debug-apk` (78283460 بايت). هذا تنقيح، ليس إصدارًا موقّعًا |
+| Windows `windows-2022` | `scan_id.exe` بُني. الأرشيفان `scan-id-windows` و`scan-id-windows-zip` |
+| مقياس JPEG الأصلي | `1/1` نجح |
+
+صفحة التنزيل: https://github.com/kinanmjeed88/Scan-id/actions/runs/39216894718
+
+هذا إثبات لـ `5bdd191`، الذي يحتوي الكود والاختبار وهذا التقرير قبل إضافة هذه الفقرة. **لا يُنسب إلى التزام يُضاف بعده فقط ليسجّل الرابط.** Windows 7 لم يُبنَ. الإصدار الموقّع لم يُشغَّل على هذا الفرع.
+
 ## 1. ما كان مغلقًا قبل هذا الالتزام، ولم يُعد اختراعه
 
 على `dc16b65` / `fd75ed7`:

@@ -26,6 +26,7 @@ import 'multi_document_segmentation_flag.dart'
     as multi_document_segmentation_flag;
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
+import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/document_segmenter.dart';
 
 class ImportSource {
@@ -959,6 +960,13 @@ class ProjectService {
     ImageEditRecipe recipe, {
     required bool userAuthored,
   }) async {
+    if (asset.hasScaledLargeSource &&
+        coversOrientedFrame(manualCropBounds(recipe.geometry.corners))) {
+      throw const ValidationException(
+        'الصورة الكاملة أكبر من حد المعالجة كاملة الدقة (16 مليون بكسل). '
+        'لن يُستخدم التصغير الصامت. حدّد منطقة المستند داخل الحد.',
+      );
+    }
     var updated = await createImageRevision(project, asset, recipe);
     updated = userAuthored
         ? updated.markUserAuthoredCrop()

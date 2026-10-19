@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'application/full_resolution_jpeg_cropper.dart';
 import 'application/project_service.dart';
 import 'application/native_documents.dart';
 import 'application/camera_capture.dart';
@@ -58,17 +59,19 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
   } catch (_) {
     // Best effort: cleanup must never block access to the projects themselves.
   }
+  const fullResolution = PlatformFullResolutionJpegCropper();
+  final editor = LocalImageEditor(
+    repository.files,
+    readFullResolutionRegion: fullResolution.cropJpegRegion,
+  );
   return ProjectService(
     repository,
     assets,
     camera: Platform.isAndroid
         ? CameraCapture(repository, assets, NativeCamera())
         : null,
-    imageEditor: LocalImageEditor(repository.files),
-    recovery: LocalProjectRecovery(
-      repository,
-      LocalImageEditor(repository.files),
-    ),
+    imageEditor: editor,
+    recovery: LocalProjectRecovery(repository, editor),
     backups: LocalProjectBackups(repository, repository.files),
     maintenance: maintenance,
   );

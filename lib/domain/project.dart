@@ -312,8 +312,9 @@ class ImageAsset {
   final List<String> transforms;
 
   /// Whether this JPEG's current source bytes use the bounded sampling path.
-  /// Pixel operations must use [processingInputPath], never decode the full
-  /// [originalPath] raster.
+  /// Preview and recognition use [processingInputPath]. A final crop reads
+  /// [originalPath] through a bounded native region extract, never by decoding
+  /// the full raster in Dart.
   bool get hasScaledLargeSource {
     // Transformation history also records source replacements. The most recent
     // source boundary decides which bytes are current; later crop/reprocess
@@ -325,13 +326,16 @@ class ImageAsset {
     return false;
   }
 
-  /// Stable, bounded raster to use for every pixel operation on this asset.
+  /// Stable, bounded raster for preview, recognition and other operations that
+  /// must not decode a large JPEG.
   ///
   /// Ordinary sources stay on [originalPath]. For a sampled large JPEG the
   /// safe PNG working copy lives beside the current [originalPath], while
-  /// [workingPath] may later point to an edited crop/revision. Deriving this
-  /// path keeps recognition and manual cropping tied to the same coordinate
-  /// space across those edits without changing the persisted schema.
+  /// [workingPath] may later point to an edited crop/revision. Normalized
+  /// corners measured on this preview match the EXIF-oriented original,
+  /// because the sample is a uniform scale. A final crop must still read
+  /// [originalPath] and extract its region at native density; this path is
+  /// not that source.
   String get processingInputPath {
     if (!hasScaledLargeSource) return originalPath;
     final directory = originalPath.substring(0, originalPath.lastIndexOf('/'));

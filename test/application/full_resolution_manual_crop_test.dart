@@ -105,6 +105,65 @@ Uint8List _jpegWithExifOrientation(int width, int height, int orientation) =>
       ..._jpegSofOnly(width, height).skip(2),
     ]);
 
+/// Clips a fixed marker out of a known canvas using the requested region.
+///
+/// The marker is painted in canvas coordinates, then the requested rectangle
+/// is cut with the same floor/ceil snap as the native crop. A shifted request
+/// therefore moves the marker; it is not stamped at a fixed output pixel.
+img.Image _markedClip({
+  required int canvas,
+  required int markerX,
+  required int markerY,
+  required double left,
+  required double top,
+  required double right,
+  required double bottom,
+}) {
+  final x0 = (left * canvas).floor();
+  final y0 = (top * canvas).floor();
+  final x1 = (right * canvas).ceil();
+  final y1 = (bottom * canvas).ceil();
+  final image = img.Image(width: x1 - x0, height: y1 - y0);
+  img.fill(image, color: img.ColorRgb8(0, 0, 40));
+  final localX = markerX - x0;
+  final localY = markerY - y0;
+  if (localX >= 0 &&
+      localY >= 0 &&
+      localX < image.width &&
+      localY < image.height) {
+    image.setPixel(localX, localY, img.ColorRgb8(255, 0, 0));
+  }
+  return image;
+}
+
+Uint8List _markedClipPng(_RegionCall call, int markerX, int markerY) =>
+    Uint8List.fromList(
+      img.encodePng(
+        _markedClip(
+          canvas: 100,
+          markerX: markerX,
+          markerY: markerY,
+          left: call.left,
+          top: call.top,
+          right: call.right,
+          bottom: call.bottom,
+        ),
+      ),
+    );
+
+(int, int) _onlyRedPixel(img.Image image) {
+  (int, int)? found;
+  for (var y = 0; y < image.height; y++) {
+    for (var x = 0; x < image.width; x++) {
+      if (image.getPixel(x, y).r <= 200) continue;
+      expect(found, isNull, reason: 'the marker must be one pixel');
+      found = (x, y);
+    }
+  }
+  expect(found, isNotNull, reason: 'the marker pixel is missing');
+  return found!;
+}
+
 Uint8List _solidPng(int width, int height, int red, int green, int blue) {
   final image = img.Image(width: width, height: height);
   img.fill(image, color: img.ColorRgb8(red, green, blue));
@@ -207,6 +266,38 @@ void main() {
     expect(local[2].y, 1);
     expect(local[3].x, 0);
     expect(coversOrientedFrame(bounds), isFalse);
+  });
+
+  test('a shifted request moves the marker by the clipped pixels', () {
+    const canvas = 100;
+    const markerX = 37;
+    const markerY = 21;
+    final exact = _markedClip(
+      canvas: canvas,
+      markerX: markerX,
+      markerY: markerY,
+      left: 0.2,
+      top: 0.1,
+      right: 0.6,
+      bottom: 0.3,
+    );
+    final shifted = _markedClip(
+      canvas: canvas,
+      markerX: markerX,
+      markerY: markerY,
+      left: 0.25,
+      top: 0.15,
+      right: 0.65,
+      bottom: 0.35,
+    );
+    final exactPixel = _onlyRedPixel(exact);
+    final shiftedPixel = _onlyRedPixel(shifted);
+    expect(exactPixel, (
+      markerX - (0.2 * canvas).floor(),
+      markerY - (0.1 * canvas).floor(),
+    ));
+    expect(shiftedPixel.$1, lessThan(exactPixel.$1));
+    expect(shiftedPixel.$2, lessThan(exactPixel.$2));
   });
 
   test('an oversized span is refused before any downsample', () {
@@ -556,6 +647,93 @@ void main() {
     expect(image.getPixel(320, 160).r, greaterThan(200));
     _expectCorners(repaired.assets.single.crop!.corners, _wideQuad);
     expect(await originalBytes(repaired.assets.single), jpeg);
+  });
+
+  test(
+    'an extracted marker stays on the pixel implied by the request',
+    () async {
+      const canvas = 100;
+      const markerX = 37;
+      const markerY = 21;
+      reader = _RecordingReader(
+        (call) => _markedClipPng(call, markerX, markerY),
+      );
+      final jpeg = _jpegSofOnly(5000, 5000);
+      final imported = await importLarge(jpeg);
+      final width = (0.6 * canvas).ceil() - (0.2 * canvas).floor();
+      final height = (0.3 * canvas).ceil() - (0.1 * canvas).floor();
+      final saved = await service().applyManualCrop(
+        imported,
+        imported.assets.single,
+        _recipe(_wideQuad, outputWidth: width, outputHeight: height),
+      );
+      final image = await workingImage(saved.assets.single);
+      final call = reader.calls.single;
+      final x0 = (call.left * canvas).floor();
+      final y0 = (call.top * canvas).floor();
+
+      expect(call.left, 0.2);
+      expect(call.top, 0.1);
+      expect(call.right, 0.6);
+      expect(call.bottom, 0.3);
+      expect(call.source, jpeg);
+      expect([image.width, image.height], [
+        (call.right * canvas).ceil() - x0,
+        (call.bottom * canvas).ceil() - y0,
+      ]);
+      expect(_onlyRedPixel(image), (markerX - x0, markerY - y0));
+      expect(await originalBytes(saved.assets.single), jpeg);
+    },
+  );
+
+  test('a repeated crop keeps the new region marker', () async {
+    const canvas = 100;
+    const markerX = 35;
+    const markerY = 27;
+    reader = _RecordingReader(
+      (call) => _markedClipPng(call, markerX, markerY),
+    );
+    final jpeg = _jpegSofOnly(5000, 5000);
+    final imported = await importLarge(jpeg);
+    final firstWidth = (0.6 * canvas).ceil() - (0.2 * canvas).floor();
+    final firstHeight = (0.3 * canvas).ceil() - (0.1 * canvas).floor();
+    final first = await service().applyManualCrop(
+      imported,
+      imported.assets.single,
+      _recipe(
+        _wideQuad,
+        outputWidth: firstWidth,
+        outputHeight: firstHeight,
+      ),
+    );
+    final secondWidth = (0.5 * canvas).ceil() - (0.3 * canvas).floor();
+    final secondHeight = (0.3 * canvas).ceil() - (0.2 * canvas).floor();
+    final second = await service().applyManualCrop(
+      first,
+      first.assets.single,
+      _recipe(
+        _tighterQuad,
+        outputWidth: secondWidth,
+        outputHeight: secondHeight,
+      ),
+    );
+    final image = await workingImage(second.assets.single);
+    final call = reader.calls[1];
+    final x0 = (call.left * canvas).floor();
+    final y0 = (call.top * canvas).floor();
+
+    expect(reader.calls, hasLength(2));
+    expect(call.source, jpeg);
+    expect(call.left, 0.3);
+    expect(call.top, 0.2);
+    expect(call.right, 0.5);
+    expect(call.bottom, 0.3);
+    expect([image.width, image.height], [
+      (call.right * canvas).ceil() - x0,
+      (call.bottom * canvas).ceil() - y0,
+    ]);
+    expect(_onlyRedPixel(image), (markerX - x0, markerY - y0));
+    expect(await originalBytes(second.assets.single), jpeg);
   });
 
   test('an ordinary image skips the JPEG region reader', () async {

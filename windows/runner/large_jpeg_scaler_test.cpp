@@ -4,8 +4,10 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdint>
 #include <future>
@@ -13,6 +15,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -846,6 +849,368 @@ void TestEngineShutdownDropsCallbacksWithoutRetainingWindow() {
         "worker touched the stopped engine after teardown");
 }
 
+// Same flag order as ExifTransform in large_jpeg_scaler.cpp. Duplicated here
+// so a drift in the production flags fails the pixel comparison below.
+WICBitmapTransformOptions TestExifTransform(int orientation) {
+  switch (orientation) {
+    case 1:
+      return WICBitmapTransformRotate0;
+    case 2:
+      return WICBitmapTransformFlipHorizontal;
+    case 3:
+      return WICBitmapTransformRotate180;
+    case 4:
+      return WICBitmapTransformFlipVertical;
+    case 5:
+      return static_cast<WICBitmapTransformOptions>(
+          WICBitmapTransformFlipHorizontal | WICBitmapTransformRotate270);
+    case 6:
+      return WICBitmapTransformRotate90;
+    case 7:
+      return static_cast<WICBitmapTransformOptions>(
+          WICBitmapTransformFlipHorizontal | WICBitmapTransformRotate90);
+    case 8:
+      return WICBitmapTransformRotate270;
+    default:
+      return WICBitmapTransformRotate0;
+  }
+}
+
+struct BgraRaster {
+  UINT width = 0;
+  UINT height = 0;
+  std::vector<uint8_t> pixels;
+};
+
+BgraRaster CopyBgraSource(IWICBitmapSource* source, const char* stage) {
+  UINT width = 0, height = 0;
+  CheckHr(source->GetSize(&width, &height), stage);
+  Check(width > 0 && height > 0, stage);
+  BgraRaster raster;
+  raster.width = width;
+  raster.height = height;
+  raster.pixels.resize(static_cast<size_t>(width) * height * 4);
+  CheckHr(source->CopyPixels(nullptr, width * 4,
+                             static_cast<UINT>(raster.pixels.size()),
+                             raster.pixels.data()),
+          stage);
+  return raster;
+}
+
+BgraRaster DecodeEncodedImage(const std::vector<uint8_t>& encoded,
+                              const char* stage) {
+  ComPtr<IWICImagingFactory> factory;
+  CheckHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                           CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(factory.GetAddressOf())),
+          stage);
+  ComPtr<IWICStream> stream;
+  CheckHr(factory->CreateStream(stream.GetAddressOf()), stage);
+  CheckHr(stream->InitializeFromMemory(
+              const_cast<BYTE*>(reinterpret_cast<const BYTE*>(encoded.data())),
+              static_cast<DWORD>(encoded.size())),
+          stage);
+  ComPtr<IWICBitmapDecoder> decoder;
+  CheckHr(factory->CreateDecoderFromStream(stream.Get(), nullptr,
+                                           WICDecodeMetadataCacheOnDemand,
+                                           decoder.GetAddressOf()),
+          stage);
+  ComPtr<IWICBitmapFrameDecode> frame;
+  CheckHr(decoder->GetFrame(0, frame.GetAddressOf()), stage);
+  ComPtr<IWICFormatConverter> converted;
+  CheckHr(factory->CreateFormatConverter(converted.GetAddressOf()), stage);
+  CheckHr(converted->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA,
+                               WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeCustom),
+          stage);
+  return CopyBgraSource(converted.Get(), stage);
+}
+
+BgraRaster OrientDecodedFrame(const BgraRaster& source, int orientation) {
+  if (orientation == 1) return source;
+  ComPtr<IWICImagingFactory> factory;
+  CheckHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                           CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(factory.GetAddressOf())),
+          "could not create the orientation reference factory");
+  ComPtr<IWICBitmap> bitmap;
+  CheckHr(factory->CreateBitmapFromMemory(
+              source.width, source.height, GUID_WICPixelFormat32bppBGRA,
+              source.width * 4, static_cast<UINT>(source.pixels.size()),
+              const_cast<BYTE*>(source.pixels.data()), bitmap.GetAddressOf()),
+          "could not wrap the decoded JPEG for the orientation reference");
+  ComPtr<IWICBitmapFlipRotator> rotator;
+  CheckHr(factory->CreateBitmapFlipRotator(rotator.GetAddressOf()),
+          "could not create the orientation reference rotator");
+  CheckHr(rotator->Initialize(bitmap.Get(), TestExifTransform(orientation)),
+          "could not orient the full decoded frame");
+  ComPtr<IWICFormatConverter> converted;
+  CheckHr(factory->CreateFormatConverter(converted.GetAddressOf()),
+          "could not convert the oriented reference");
+  CheckHr(converted->Initialize(rotator.Get(), GUID_WICPixelFormat32bppBGRA,
+                               WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeCustom),
+          "could not convert the oriented reference pixels");
+  return CopyBgraSource(converted.Get(), "oriented reference copy");
+}
+
+BgraRaster ClipRaster(const BgraRaster& source, UINT left, UINT top, UINT width,
+                      UINT height) {
+  Check(left + width <= source.width && top + height <= source.height,
+        "reference crop is outside the oriented frame");
+  BgraRaster clipped;
+  clipped.width = width;
+  clipped.height = height;
+  clipped.pixels.resize(static_cast<size_t>(width) * height * 4);
+  for (UINT y = 0; y < height; ++y) {
+    const size_t from =
+        (static_cast<size_t>(top + y) * source.width + left) * 4;
+    const size_t to = static_cast<size_t>(y) * width * 4;
+    std::copy_n(source.pixels.begin() + static_cast<std::ptrdiff_t>(from),
+                width * 4,
+                clipped.pixels.begin() + static_cast<std::ptrdiff_t>(to));
+  }
+  return clipped;
+}
+
+std::vector<uint8_t> EncodePatternJpeg(UINT width, UINT height) {
+  ScopedTestComApartment com;
+  std::vector<BYTE> encoded(2 * 1024 * 1024);
+  ComPtr<IWICImagingFactory> factory;
+  CheckHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                           CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(factory.GetAddressOf())),
+          "could not create the pattern JPEG factory");
+  ComPtr<IWICStream> stream;
+  CheckHr(factory->CreateStream(stream.GetAddressOf()),
+          "could not create the pattern JPEG stream");
+  CheckHr(stream->InitializeFromMemory(encoded.data(),
+                                       static_cast<DWORD>(encoded.size())),
+          "could not initialize the pattern JPEG stream");
+  ComPtr<IWICBitmapEncoder> encoder;
+  CheckHr(factory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr,
+                                 encoder.GetAddressOf()),
+          "could not create the pattern JPEG encoder");
+  CheckHr(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache),
+          "could not initialize the pattern JPEG encoder");
+  ComPtr<IWICBitmapFrameEncode> frame;
+  ComPtr<IPropertyBag2> properties;
+  CheckHr(encoder->CreateNewFrame(frame.GetAddressOf(),
+                                  properties.GetAddressOf()),
+          "could not create the pattern JPEG frame");
+  CheckHr(frame->Initialize(properties.Get()),
+          "could not initialize the pattern JPEG frame");
+  CheckHr(frame->SetSize(width, height), "could not size the pattern JPEG");
+  WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+  CheckHr(frame->SetPixelFormat(&format),
+          "could not set the pattern JPEG format");
+  const UINT stride = width * 3;
+  std::vector<BYTE> pixels(static_cast<size_t>(stride) * height);
+  for (UINT y = 0; y < height; ++y) {
+    for (UINT x = 0; x < width; ++x) {
+      const size_t offset = static_cast<size_t>(y) * stride + x * 3;
+      const UINT tile_x = x / 8;
+      const UINT tile_y = y / 8;
+      pixels[offset] = static_cast<BYTE>(tile_x * 17);
+      pixels[offset + 1] = static_cast<BYTE>(tile_y * 23);
+      pixels[offset + 2] = static_cast<BYTE>((tile_x + tile_y) * 13);
+    }
+  }
+  CheckHr(frame->WritePixels(height, stride, static_cast<UINT>(pixels.size()),
+                             pixels.data()),
+          "could not write pattern JPEG pixels");
+  CheckHr(frame->Commit(), "could not commit the pattern JPEG frame");
+  CheckHr(encoder->Commit(), "could not commit the pattern JPEG");
+  LARGE_INTEGER zero{};
+  ULARGE_INTEGER position{};
+  CheckHr(stream->Seek(zero, STREAM_SEEK_CUR, &position),
+          "could not read the pattern JPEG length");
+  return std::vector<uint8_t>(
+      encoded.begin(), encoded.begin() + static_cast<size_t>(position.QuadPart));
+}
+
+// Measures the production crop against "orient the decoded frame, then clip".
+// A shifted, reflected, or rotated region fails even when the output size matches.
+void TestWicCropPixelsMatchOrientedFrame() {
+  constexpr UINT kRawWidth = 64;
+  constexpr UINT kRawHeight = 48;
+  constexpr double kLeft = 0.25;
+  constexpr double kTop = 0.25;
+  constexpr double kRight = 0.75;
+  constexpr double kBottom = 0.75;
+  const auto jpeg = EncodePatternJpeg(kRawWidth, kRawHeight);
+  const auto original = jpeg;
+
+  ScopedTestComApartment com;
+  const auto decoded = DecodeEncodedImage(jpeg, "pattern JPEG decode");
+  Check(decoded.width == kRawWidth && decoded.height == kRawHeight,
+        "pattern JPEG decoded at a different size");
+
+  TestBinaryMessenger messenger;
+  TestPlatformPump pump;
+  LargeJpegScalerChannel channel(&messenger, pump.WakeCallback());
+
+  for (int orientation = 1; orientation <= 8; ++orientation) {
+    const auto oriented = OrientDecodedFrame(decoded, orientation);
+    const UINT ox0 = static_cast<UINT>(std::floor(kLeft * oriented.width));
+    const UINT oy0 = static_cast<UINT>(std::floor(kTop * oriented.height));
+    const UINT ox1 = static_cast<UINT>(std::ceil(kRight * oriented.width));
+    const UINT oy1 = static_cast<UINT>(std::ceil(kBottom * oriented.height));
+    const auto reference = ClipRaster(oriented, ox0, oy0, ox1 - ox0, oy1 - oy0);
+
+    auto pending = messenger.SendCrop(jpeg, kRawWidth, kRawHeight, orientation,
+                                      kLeft, kTop, kRight, kBottom);
+    const auto response =
+        DecodeResponse(RawResponse{AwaitResponse(pump, channel, pending)});
+    if (!response.success || !response.value_is_bytes) {
+      throw std::runtime_error(
+          "WIC crop failed for orientation " + std::to_string(orientation) +
+          ": " + response.error_code + " " + response.error_message);
+    }
+    const auto actual = DecodeEncodedImage(response.bytes, "cropped PNG decode");
+    if (actual.width != reference.width || actual.height != reference.height) {
+      throw std::runtime_error(
+          "crop size deviation for orientation " + std::to_string(orientation) +
+          ": actual " + std::to_string(actual.width) + "x" +
+          std::to_string(actual.height) + " reference " +
+          std::to_string(reference.width) + "x" +
+          std::to_string(reference.height));
+    }
+
+    size_t mismatches = 0;
+    int max_delta = 0;
+    UINT first_x = 0, first_y = 0;
+    uint8_t first_actual[4] = {};
+    uint8_t first_expected[4] = {};
+    for (UINT y = 0; y < actual.height; ++y) {
+      for (UINT x = 0; x < actual.width; ++x) {
+        const size_t offset = (static_cast<size_t>(y) * actual.width + x) * 4;
+        int pixel_delta = 0;
+        for (int channel_index = 0; channel_index < 4; ++channel_index) {
+          const int delta = actual.pixels[offset + channel_index] >
+                                    reference.pixels[offset + channel_index]
+                                ? actual.pixels[offset + channel_index] -
+                                      reference.pixels[offset + channel_index]
+                                : reference.pixels[offset + channel_index] -
+                                      actual.pixels[offset + channel_index];
+          if (delta > pixel_delta) pixel_delta = delta;
+        }
+        if (pixel_delta == 0) continue;
+        if (mismatches == 0) {
+          first_x = x;
+          first_y = y;
+          for (int channel_index = 0; channel_index < 4; ++channel_index) {
+            first_actual[channel_index] = actual.pixels[offset + channel_index];
+            first_expected[channel_index] =
+                reference.pixels[offset + channel_index];
+          }
+        }
+        ++mismatches;
+        if (pixel_delta > max_delta) max_delta = pixel_delta;
+      }
+    }
+    if (mismatches != 0) {
+      std::ostringstream message;
+      message << "crop pixel deviation for orientation " << orientation
+              << ": mismatches=" << mismatches << " maxDelta=" << max_delta
+              << " first=(" << first_x << "," << first_y << ") actual="
+              << static_cast<int>(first_actual[0]) << ","
+              << static_cast<int>(first_actual[1]) << ","
+              << static_cast<int>(first_actual[2]) << ","
+              << static_cast<int>(first_actual[3]) << " expected="
+              << static_cast<int>(first_expected[0]) << ","
+              << static_cast<int>(first_expected[1]) << ","
+              << static_cast<int>(first_expected[2]) << ","
+              << static_cast<int>(first_expected[3]);
+      throw std::runtime_error(message.str());
+    }
+  }
+  Check(jpeg == original, "pixel crop modified the input JPEG bytes");
+  std::cout << "WIC crop pixel deviation orientations 1-8: maxDelta=0 "
+               "sizeError=0\n";
+}
+
+std::vector<uint8_t> EncodeSolidJpeg(UINT width, UINT height) {
+  ScopedTestComApartment com;
+  std::vector<BYTE> encoded(8 * 1024 * 1024);
+  ComPtr<IWICImagingFactory> factory;
+  CheckHr(CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+                           CLSCTX_INPROC_SERVER,
+                           IID_PPV_ARGS(factory.GetAddressOf())),
+          "could not create the solid JPEG factory");
+  ComPtr<IWICStream> stream;
+  CheckHr(factory->CreateStream(stream.GetAddressOf()),
+          "could not create the solid JPEG stream");
+  CheckHr(stream->InitializeFromMemory(encoded.data(),
+                                       static_cast<DWORD>(encoded.size())),
+          "could not initialize the solid JPEG stream");
+  ComPtr<IWICBitmapEncoder> encoder;
+  CheckHr(factory->CreateEncoder(GUID_ContainerFormatJpeg, nullptr,
+                                 encoder.GetAddressOf()),
+          "could not create the solid JPEG encoder");
+  CheckHr(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache),
+          "could not initialize the solid JPEG encoder");
+  ComPtr<IWICBitmapFrameEncode> frame;
+  ComPtr<IPropertyBag2> properties;
+  CheckHr(encoder->CreateNewFrame(frame.GetAddressOf(),
+                                  properties.GetAddressOf()),
+          "could not create the solid JPEG frame");
+  CheckHr(frame->Initialize(properties.Get()),
+          "could not initialize the solid JPEG frame");
+  CheckHr(frame->SetSize(width, height), "could not size the solid JPEG");
+  WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+  CheckHr(frame->SetPixelFormat(&format),
+          "could not set the solid JPEG format");
+  const UINT stride = width * 3;
+  std::vector<BYTE> row(stride, 40);
+  for (UINT y = 0; y < height; ++y) {
+    CheckHr(frame->WritePixels(1, stride, stride, row.data()),
+            "could not write a solid JPEG row");
+  }
+  CheckHr(frame->Commit(), "could not commit the solid JPEG frame");
+  CheckHr(encoder->Commit(), "could not commit the solid JPEG");
+  LARGE_INTEGER zero{};
+  ULARGE_INTEGER position{};
+  CheckHr(stream->Seek(zero, STREAM_SEEK_CUR, &position),
+          "could not read the solid JPEG length");
+  Check(position.QuadPart > 0 && position.QuadPart <= encoded.size(),
+        "solid JPEG did not fit the bounded encoder buffer");
+  return std::vector<uint8_t>(
+      encoded.begin(), encoded.begin() + static_cast<size_t>(position.QuadPart));
+}
+
+void TestWicCropRejectsRegionOverSixteenMegapixels() {
+  // 4096² is 16,777,216 pixels, above the 16,000,000 budget, and 64/4096
+  // is an exact binary fraction so the fitting region cannot drift by 1 px.
+  constexpr UINT kWidth = 4096;
+  constexpr UINT kHeight = 4096;
+  const auto jpeg = EncodeSolidJpeg(kWidth, kHeight);
+  const auto original = jpeg;
+  TestBinaryMessenger messenger;
+  TestPlatformPump pump;
+  LargeJpegScalerChannel channel(&messenger, pump.WakeCallback());
+
+  auto too_large =
+      messenger.SendCrop(jpeg, kWidth, kHeight, 1, 0.0, 0.0, 1.0, 1.0);
+  CheckScaleError(RawResponse{AwaitResponse(pump, channel, too_large, 120s)},
+                  "crop_too_large", "16 MP");
+
+  auto fitting = messenger.SendCrop(jpeg, kWidth, kHeight, 1, 0.0, 0.0,
+                                   64.0 / kWidth, 64.0 / kHeight);
+  const auto response = DecodeResponse(
+      RawResponse{AwaitResponse(pump, channel, fitting, 120s)});
+  if (!response.success || !response.value_is_bytes) {
+    throw std::runtime_error(
+        "a fitting region of an over-budget JPEG was rejected: " +
+        response.error_code + " " + response.error_message);
+  }
+  const auto dimensions = ReadPngDimensions(response.bytes);
+  Check(dimensions.first == 64 && dimensions.second == 64,
+        "fitting region was downsampled or shifted in size");
+  Check(jpeg == original,
+        "over-budget crop rejection modified the input JPEG bytes");
+}
+
 }  // namespace
 
 int main() {
@@ -856,6 +1221,8 @@ int main() {
     TestWorkerThreadDispatchAndRequestAssociation();
     TestWicSuccessDimensionsOrientationAndSourcePreservation();
     TestWicFullResolutionCropDimensionsOrientationAndSourcePreservation();
+    TestWicCropPixelsMatchOrientedFrame();
+    TestWicCropRejectsRegionOverSixteenMegapixels();
     TestDecodeConversionAndEncodeFailuresReturnErrors();
     TestConcurrencyLimitRejectsExcessWork();
     TestPluginShutdownCancelsInFlightAndDropsLateResult();

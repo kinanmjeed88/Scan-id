@@ -124,6 +124,14 @@ ImageEditRecipe _recipe(
   ImageAdjustments(),
 );
 
+void _expectCorners(List<Point2> actual, List<Point2> expected) {
+  expect(actual, hasLength(expected.length));
+  for (var i = 0; i < expected.length; i++) {
+    expect(actual[i].x, closeTo(expected[i].x, 1e-9));
+    expect(actual[i].y, closeTo(expected[i].y, 1e-9));
+  }
+}
+
 class _RegionCall {
   const _RegionCall({
     required this.source,

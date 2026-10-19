@@ -1681,7 +1681,8 @@ class SmartIntake {
 
   /// Catalog millimetres only when the warp happened and the measured shape
   /// matches that catalog size within classification tolerance. A merely
-  /// accepted quadrilateral is not enough: export fills the item box.
+  /// accepted quadrilateral is not enough: confirming that slot would claim a
+  /// size the pixels do not have. Export contains; it does not fill.
   PhysicalSizeMm? _confirmedCatalogSize(
     Project current,
     DetectionAnalysis detection, {

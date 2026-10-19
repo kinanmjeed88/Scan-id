@@ -20,6 +20,12 @@
 #include <variant>
 #include <vector>
 
+// Must stay identical to RawPointFromOriented in large_jpeg_scaler.cpp and
+// to NativeLargeJpegScaler.rawPoint. This declaration locks the Windows
+// inverse; it does not execute the Android bitmap transform.
+std::pair<double, double> RawPointFromOriented(
+    double x, double y, UINT width, UINT height, int orientation);
+
 namespace {
 using Microsoft::WRL::ComPtr;
 using flutter::EncodableMap;
@@ -437,6 +443,32 @@ std::vector<uint8_t> MakeSyntheticJpeg(UINT width, UINT height) {
       encoded.begin(), encoded.begin() + static_cast<size_t>(position.QuadPart));
 }
 
+void TestExifInverseMatchesSharedTable() {
+  const UINT width = 400;
+  const UINT height = 200;
+  const double x = 10;
+  const double y = 30;
+  const std::pair<double, double> expected[] = {
+      {10, 30},   // 1 identity
+      {390, 30},  // 2 mirror horizontal
+      {390, 170}, // 3 rotate 180
+      {10, 170},  // 4 mirror vertical
+      {30, 10},   // 5 transpose
+      {30, 190},  // 6 rotate 90 CW
+      {370, 190}, // 7 transverse
+      {370, 10},  // 8 rotate 270 CW
+  };
+  for (int orientation = 1; orientation <= 8; ++orientation) {
+    const auto point = RawPointFromOriented(x, y, width, height, orientation);
+    const auto& want = expected[orientation - 1];
+    if (point.first != want.first || point.second != want.second) {
+      throw std::runtime_error(
+          "EXIF inverse map drifted for orientation " +
+          std::to_string(orientation));
+    }
+  }
+}
+
 void TestInputValidationAndUnknownMethod() {
   TestBinaryMessenger messenger;
   TestPlatformPump pump;
@@ -818,6 +850,7 @@ void TestEngineShutdownDropsCallbacksWithoutRetainingWindow() {
 
 int main() {
   try {
+    TestExifInverseMatchesSharedTable();
     TestInputValidationAndUnknownMethod();
     TestFullResolutionCropDispatchAndValidation();
     TestWorkerThreadDispatchAndRequestAssociation();

@@ -768,7 +768,8 @@ class ProjectService {
       // keeps the existing filename confirmation for an already-cut scan.
       // A refused proposal, or an accepted quadrilateral whose shape does not
       // match the catalog within shapeTolerance, must not be placed at the
-      // catalog size: export fills that box and would stretch the image.
+      // catalog size. Export contains the image, so a wrong slot would be a
+      // false size confirmation and a margin, not a stretch.
       final catalogSize = refusedProposedBoundary || catalogShapeUnconfirmed
           ? null
           : current.catalog.sizeFor(

@@ -290,7 +290,154 @@ void main() {
         expect(report.warnings.join(' '), contains('دون مطّ'));
       },
     );
+
+    test(
+      'a catalog match within shapeTolerance does not stretch the saved crop',
+      () async {
+        final inner = LocalImageEditor(projects.files);
+        final gated = ProjectService(
+          projects,
+          LocalAssetRepository(projects.files),
+          imageEditor: _FixedSuggest(inner, _nearIdQuad()),
+          segmenter: (_) async =>
+              const SegmentationResult(multi: false, candidates: []),
+        );
+        var project = await gated.create('قرب الهوية');
+        final bytes = _square();
+        project = (await gated.importImages(project, [
+          ImportSource('frame.png', () => Stream.value(bytes)),
+        ])).project;
+        final report = await gated.arrangeImportedImages(project, [
+          project.assets.single.id,
+        ]);
+        final asset = report.project.assets.single;
+        final item = report.project.items.single;
+        // 0.80 * 999 + 1 floors to 800; 0.80/1.64 * 999 + 1 floors to 488.
+        // The removed catalog stretch would have saved 774×488.
+        expect(report.cropped, 1);
+        expect(asset.width, 800);
+        expect(asset.height, 488);
+        expect(asset.crop?.outputWidth, 800);
+        expect(asset.crop?.outputHeight, 488);
+        expect(asset.width / asset.height, isNot(closeTo(85.6 / 53.98, .01)));
+        expect(item.sizeConfirmed, isTrue);
+        expect([item.width, item.height], [85.6, 53.98]);
+        expect(report.warnings.join(' '), isNot(contains('دون مطّ')));
+        expect(
+          await (await LocalAssetRepository(
+            projects.files,
+          ).resolve(asset.originalPath)).readAsBytes(),
+          bytes,
+        );
+        final working = img.decodePng(
+          await (await LocalAssetRepository(
+            projects.files,
+          ).resolve(asset.workingPath)).readAsBytes(),
+        )!;
+        expect([working.width, working.height], [800, 488]);
+      },
+    );
+
+    test(
+      'production multi path keeps measured pixels when the catalog slot matches',
+      () async {
+        final quads = _twoNearIdQuads();
+        final gated = ProjectService(
+          projects,
+          LocalAssetRepository(projects.files),
+          imageEditor: LocalImageEditor(projects.files),
+          segmenter: (_) async => SegmentationResult(
+            multi: true,
+            candidates: [
+              for (final quad in quads)
+                SegmentCandidate(
+                  region: [
+                    quad[0].x,
+                    quad[0].y,
+                    quad[2].x,
+                    quad[2].y,
+                  ],
+                  corners: quad,
+                  reason: 'measured',
+                ),
+            ],
+          ),
+        );
+        var project = await gated.create('قرب الهوية متعدد');
+        final bytes = _square();
+        project = (await gated.importImages(project, [
+          ImportSource('frame.png', () => Stream.value(bytes)),
+        ])).project;
+        final sourceId = project.assets.single.id;
+        final report = await gated.arrangeImportedImages(project, [sourceId]);
+        expect(report.cropped, 2);
+        expect(report.multiDocumentImages, 1);
+        final derived = report.project.assets.where(
+          (asset) => asset.id != sourceId,
+        );
+        expect(derived, hasLength(2));
+        for (final asset in derived) {
+          expect(asset.width, 400);
+          expect(asset.height, 244);
+          expect(asset.width / asset.height, isNot(closeTo(85.6 / 53.98, .01)));
+        }
+        expect(report.project.items, hasLength(2));
+        for (final item in report.project.items) {
+          expect(item.sizeConfirmed, isTrue);
+          expect([item.width, item.height], [85.6, 53.98]);
+        }
+        for (final record in report.project.documents) {
+          final processed = record.sides.single.processedAsset;
+          expect(processed.outputWidth, 400);
+          expect(processed.outputHeight, 244);
+        }
+        final source = report.project.assets.singleWhere(
+          (asset) => asset.id == sourceId,
+        );
+        expect(source.width, 1000);
+        expect(source.height, 1000);
+        expect(
+          await (await LocalAssetRepository(
+            projects.files,
+          ).resolve(source.originalPath)).readAsBytes(),
+          bytes,
+        );
+      },
+    );
   });
+}
+
+/// Aspect 1.64 on a 1000×1000 frame: inside the 4 % ID-1 tolerance, not equal
+/// to 85.6/53.98. The unstretched recipe is 800×488, not the old 774×488.
+List<Point2> _nearIdQuad() {
+  const top = 0.10;
+  const left = 0.10;
+  const width = 0.80;
+  const bottom = top + width / 1.64;
+  return [
+    Point2(left, top),
+    Point2(left + width, top),
+    Point2(left + width, bottom),
+    Point2(left, bottom),
+  ];
+}
+
+/// Two non-overlapping copies of the same 1.64 shape. Each is 0.40 of the
+/// frame, so the unstretched recipe is 400×244 rather than a catalog stretch.
+List<List<Point2>> _twoNearIdQuads() {
+  List<Point2> quad(double left) {
+    const top = 0.20;
+    const width = 0.40;
+    const bottom = top + width / 1.64;
+    return [
+      Point2(left, top),
+      Point2(left + width, top),
+      Point2(left + width, bottom),
+      Point2(left, bottom),
+    ];
+  }
+
+  return [quad(0.05), quad(0.55)];
 }
 
 List<Point2> _idQuadOnSquare() => [

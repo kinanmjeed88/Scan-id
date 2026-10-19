@@ -124,6 +124,7 @@ void main() {
       final pdf = await File(result.files.single).readAsBytes();
       expect(String.fromCharCodes(pdf.take(5)), '%PDF-');
       expect(pdf.length, greaterThan(500));
+      _expectA4MediaBoxes(pdf);
       expect(await source.readAsBytes(), bytes);
       expect(project.toJson(), before);
       await Directory('diagnostics').create(recursive: true);
@@ -286,4 +287,78 @@ void main() {
       expect(center.g, lessThan(30));
     },
   );
+
+  test(
+    'a 90-degree rotation still contains a wide image; it does not fill the slot',
+    () async {
+      final image = img.Image(width: 80, height: 40);
+      img.fill(image, color: img.ColorRgb8(220, 0, 0));
+      final asset = await assets.importImage(
+        'project1',
+        'wide-rotated.png',
+        img.encodePng(image),
+      );
+      final placed = projectFixture(
+        assets: [asset],
+        items: [
+          DocumentItem(
+            id: 'rot',
+            assetId: asset.id,
+            x: 80,
+            y: 80,
+            width: 40,
+            height: 40,
+            rotation: 90,
+            pageIndex: 0,
+            sizeConfirmed: true,
+          ),
+        ],
+      );
+      final working = await assets.resolve(asset.workingPath);
+      final raster = renderPage(
+        ExportPlan(placed, ExportProfile(format: ExportFormat.png)),
+        0,
+        {asset.id: working.path},
+      );
+      final scale = 300 / 25.4;
+      int pixel(double mm) => (mm * scale).floor();
+      // Slot center is (100, 100). After 90 degrees the 2:1 image is a
+      // vertical 20 mm band. A fill would paint the side red; no rotation
+      // would leave the vertical sample white.
+      final center = raster.getPixel(pixel(100), pixel(100));
+      final along = raster.getPixel(pixel(100), pixel(115));
+      final side = raster.getPixel(pixel(115), pixel(100));
+      expect(center.r, greaterThan(180));
+      expect(center.g, lessThan(30));
+      expect(along.r, greaterThan(180));
+      expect(along.g, lessThan(30));
+      expect(side.r, greaterThan(240));
+      expect(side.g, greaterThan(240));
+      expect(side.b, greaterThan(240));
+    },
+  );
+}
+
+/// Every page dictionary must be physical A4. Points are 72 per inch.
+void _expectA4MediaBoxes(List<int> pdf) {
+  final text = String.fromCharCodes(pdf);
+  final boxes = RegExp(r'/MediaBox\s*\[([^\]]+)\]').allMatches(text).toList();
+  expect(
+    boxes,
+    isNotEmpty,
+    reason: 'PDF page size must be an explicit MediaBox',
+  );
+  const a4Width = 210 * 72 / 25.4;
+  const a4Height = 297 * 72 / 25.4;
+  for (final box in boxes) {
+    final nums = RegExp(r'-?\d+(?:\.\d+)?')
+        .allMatches(box.group(1)!)
+        .map((match) => double.parse(match.group(0)!))
+        .toList();
+    expect(nums, hasLength(4));
+    expect(nums[0], closeTo(0, 0.01));
+    expect(nums[1], closeTo(0, 0.01));
+    expect(nums[2], closeTo(a4Width, 0.05));
+    expect(nums[3], closeTo(a4Height, 0.05));
+  }
 }

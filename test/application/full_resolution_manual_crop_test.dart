@@ -677,10 +677,10 @@ void main() {
       expect(call.right, 0.6);
       expect(call.bottom, 0.3);
       expect(call.source, jpeg);
-      expect([image.width, image.height], [
-        (call.right * canvas).ceil() - x0,
-        (call.bottom * canvas).ceil() - y0,
-      ]);
+      expect(
+        [image.width, image.height],
+        [(call.right * canvas).ceil() - x0, (call.bottom * canvas).ceil() - y0],
+      );
       expect(_onlyRedPixel(image), (markerX - x0, markerY - y0));
       expect(await originalBytes(saved.assets.single), jpeg);
     },
@@ -690,9 +690,7 @@ void main() {
     const canvas = 100;
     const markerX = 35;
     const markerY = 27;
-    reader = _RecordingReader(
-      (call) => _markedClipPng(call, markerX, markerY),
-    );
+    reader = _RecordingReader((call) => _markedClipPng(call, markerX, markerY));
     final jpeg = _jpegSofOnly(5000, 5000);
     final imported = await importLarge(jpeg);
     final firstWidth = (0.6 * canvas).ceil() - (0.2 * canvas).floor();
@@ -700,11 +698,7 @@ void main() {
     final first = await service().applyManualCrop(
       imported,
       imported.assets.single,
-      _recipe(
-        _wideQuad,
-        outputWidth: firstWidth,
-        outputHeight: firstHeight,
-      ),
+      _recipe(_wideQuad, outputWidth: firstWidth, outputHeight: firstHeight),
     );
     final secondWidth = (0.5 * canvas).ceil() - (0.3 * canvas).floor();
     final secondHeight = (0.3 * canvas).ceil() - (0.2 * canvas).floor();
@@ -728,10 +722,10 @@ void main() {
     expect(call.top, 0.2);
     expect(call.right, 0.5);
     expect(call.bottom, 0.3);
-    expect([image.width, image.height], [
-      (call.right * canvas).ceil() - x0,
-      (call.bottom * canvas).ceil() - y0,
-    ]);
+    expect(
+      [image.width, image.height],
+      [(call.right * canvas).ceil() - x0, (call.bottom * canvas).ceil() - y0],
+    );
     expect(_onlyRedPixel(image), (markerX - x0, markerY - y0));
     expect(await originalBytes(second.assets.single), jpeg);
   });

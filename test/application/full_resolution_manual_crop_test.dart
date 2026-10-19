@@ -272,9 +272,7 @@ void main() {
       (await assets.resolve(asset.originalPath)).readAsBytes();
 
   Future<img.Image> workingImage(ImageAsset asset) async {
-    final bytes = await (await assets.resolve(
-      asset.workingPath,
-    )).readAsBytes();
+    final bytes = await (await assets.resolve(asset.workingPath)).readAsBytes();
     return img.decodePng(bytes)!;
   }
 
@@ -444,12 +442,16 @@ void main() {
       () => service().applyManualCrop(
         imported,
         source,
-        _recipe([
-          Point2(0.05, 0.05),
-          Point2(0.95, 0.05),
-          Point2(0.95, 0.95),
-          Point2(0.05, 0.95),
-        ], outputWidth: 900, outputHeight: 900),
+        _recipe(
+          [
+            Point2(0.05, 0.05),
+            Point2(0.95, 0.05),
+            Point2(0.95, 0.95),
+            Point2(0.05, 0.95),
+          ],
+          outputWidth: 900,
+          outputHeight: 900,
+        ),
       ),
       throwsA(
         isA<ValidationException>().having(
@@ -478,12 +480,11 @@ void main() {
       () => service().applyManualCrop(
         imported,
         imported.assets.single,
-        _recipe([
-          Point2(0, 0),
-          Point2(1, 0),
-          Point2(1, 1),
-          Point2(0, 1),
-        ], outputWidth: 1000, outputHeight: 1000),
+        _recipe(
+          [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+          outputWidth: 1000,
+          outputHeight: 1000,
+        ),
       ),
       throwsA(
         isA<ValidationException>().having(

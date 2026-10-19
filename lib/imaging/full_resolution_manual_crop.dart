@@ -113,10 +113,7 @@ List<Point2> remapCornersIntoRegion(
   require(spanX > 0 && spanY > 0, 'منطقة القص فارغة.');
   final local = [
     for (final corner in corners)
-      Point2(
-        (corner.x - bounds.left) / spanX,
-        (corner.y - bounds.top) / spanY,
-      ),
+      Point2((corner.x - bounds.left) / spanX, (corner.y - bounds.top) / spanY),
   ];
   require(
     local.every(

@@ -26,9 +26,12 @@ adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
   || echo "::warning title=android-crop-metrics::instrumentation metrics file was not available to pull"
 
 if (( gradle_status != 0 )); then
-  detail="$(tail -c 6000 diagnostics/android-instrumentation/connected-debug-android-test.log \
-    | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
-  echo "::error title=android-instrumentation-output::Gradle exit=$gradle_status; $detail"
+  summary="$(
+    { grep -E '(^FAILURE:|^\* What went wrong:|^Execution failed for task|^> Task .*FAILED|^e: |error:|^Caused by:|^There were failing tests|^.*AssertionError)' \
+        diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
+      | tail -n 30 | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~'
+  )"
+  echo "::error title=android-gradle-failure-summary::Gradle exit=$gradle_status; $summary"
 fi
 
 exit "$gradle_status"

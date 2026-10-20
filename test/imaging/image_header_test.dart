@@ -25,6 +25,49 @@ Uint8List _jpegHeader(int width, int height) => Uint8List.fromList([
   0xd9,
 ]);
 
+Uint8List _jpegWithExifOrientation(int width, int height, int orientation) =>
+    Uint8List.fromList([
+      0xff,
+      0xd8,
+      0xff,
+      0xe1,
+      0x00,
+      0x22,
+      0x45,
+      0x78,
+      0x69,
+      0x66,
+      0x00,
+      0x00,
+      0x49,
+      0x49,
+      0x2a,
+      0x00,
+      0x08,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x12,
+      0x01,
+      0x03,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      orientation,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      ..._jpegHeader(width, height).skip(2),
+    ]);
+
 void main() {
   test(
     'direct Dart decoding rejects an oversized JPEG before a codec runs',
@@ -64,6 +107,19 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('Dart unit: EXIF orientations one through eight are parsed', () {
+    for (var orientation = 1; orientation <= 8; orientation++) {
+      final header = inspectImageHeader(
+        _jpegWithExifOrientation(4000, 5000, orientation),
+      );
+      expect(
+        [header.width, header.height, header.orientation],
+        [4000, 5000, orientation],
+        reason: 'orientation $orientation',
+      );
+    }
   });
 
   test('EXIF orientation is read without decoding the JPEG frame', () {

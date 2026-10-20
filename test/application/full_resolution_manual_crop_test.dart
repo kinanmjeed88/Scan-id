@@ -17,6 +17,7 @@ import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_recovery.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
+/// Dart image-package tests with a fake scaler; no Android/Windows decoder runs.
 /// Axis-aligned 2:1 region inside a square frame. On a 1000×1000 preview the
 /// old path floors this to about 400×200. A full-density extract must not.
 List<Point2> get _wideQuad => [

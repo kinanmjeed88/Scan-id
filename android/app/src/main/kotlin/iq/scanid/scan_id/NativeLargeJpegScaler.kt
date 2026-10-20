@@ -10,8 +10,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
-import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
@@ -75,7 +73,7 @@ class NativeLargeJpegScaler(private val activity: Activity) {
      * detection. BitmapRegionDecoder avoids handing Dart a complete 16–32 MP
      * source; no sampling is allowed here, so an over-budget region fails.
      */
-    private fun cropCall(call: MethodCall, result: MethodChannel.Result) {
+    internal fun cropCall(call: MethodCall, result: MethodChannel.Result) {
         val bytes = call.argument<ByteArray>("bytes")
         val sourceWidth = call.argument<Int>("sourceWidth")
         val sourceHeight = call.argument<Int>("sourceHeight")
@@ -202,7 +200,7 @@ class NativeLargeJpegScaler(private val activity: Activity) {
         }
     }
 
-    private fun cropRegion(
+    internal fun cropRegion(
         bytes: ByteArray,
         expectedWidth: Int,
         expectedHeight: Int,
@@ -227,25 +225,16 @@ class NativeLargeJpegScaler(private val activity: Activity) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         require(bounds.outWidth == expectedWidth && bounds.outHeight == expectedHeight)
-        val (orientedWidth, orientedHeight) = orientedSize(expectedWidth, expectedHeight, orientation)
-        val ox0 = floor(left * orientedWidth).toInt().coerceIn(0, orientedWidth)
-        val oy0 = floor(top * orientedHeight).toInt().coerceIn(0, orientedHeight)
-        val ox1 = ceil(right * orientedWidth).toInt().coerceIn(0, orientedWidth)
-        val oy1 = ceil(bottom * orientedHeight).toInt().coerceIn(0, orientedHeight)
-        require(ox0 < ox1 && oy0 < oy1)
-
-        val rawCorners = listOf(
-            rawPoint(ox0.toDouble(), oy0.toDouble(), expectedWidth, expectedHeight, orientation),
-            rawPoint(ox1.toDouble(), oy0.toDouble(), expectedWidth, expectedHeight, orientation),
-            rawPoint(ox1.toDouble(), oy1.toDouble(), expectedWidth, expectedHeight, orientation),
-            rawPoint(ox0.toDouble(), oy1.toDouble(), expectedWidth, expectedHeight, orientation),
+        val cropBounds = calculateJpegRegionCropBounds(
+            expectedWidth,
+            expectedHeight,
+            orientation,
+            left,
+            top,
+            right,
+            bottom,
         )
-        val rawLeft = floor(rawCorners.minOf { it.first }).toInt().coerceIn(0, expectedWidth)
-        val rawTop = floor(rawCorners.minOf { it.second }).toInt().coerceIn(0, expectedHeight)
-        val rawRight = ceil(rawCorners.maxOf { it.first }).toInt().coerceIn(0, expectedWidth)
-        val rawBottom = ceil(rawCorners.maxOf { it.second }).toInt().coerceIn(0, expectedHeight)
-        require(rawLeft < rawRight && rawTop < rawBottom)
-        val area = (rawRight - rawLeft).toLong() * (rawBottom - rawTop)
+        val area = cropBounds.rawWidth.toLong() * cropBounds.rawHeight
         if (area > maxPixels) throw CropTooLargeException()
 
         val decoder = BitmapRegionDecoder.newInstance(bytes, 0, bytes.size, false)
@@ -254,7 +243,12 @@ class NativeLargeJpegScaler(private val activity: Activity) {
         try {
             require(decoder.width == expectedWidth && decoder.height == expectedHeight)
             working = decoder.decodeRegion(
-                Rect(rawLeft, rawTop, rawRight, rawBottom),
+                Rect(
+                    cropBounds.rawLeft,
+                    cropBounds.rawTop,
+                    cropBounds.rawRight,
+                    cropBounds.rawBottom,
+                ),
                 BitmapFactory.Options().apply {
                     inPreferredConfig = Bitmap.Config.ARGB_8888
                     inScaled = false
@@ -272,28 +266,6 @@ class NativeLargeJpegScaler(private val activity: Activity) {
             if (working != null && !working.isRecycled) working.recycle()
         }
     }
-
-    /** Inverse EXIF mapping: oriented coordinates back to the raw JPEG frame. */
-    private fun rawPoint(
-        x: Double,
-        y: Double,
-        width: Int,
-        height: Int,
-        orientation: Int,
-    ): Pair<Double, Double> = when (orientation) {
-        1 -> x to y
-        2 -> width - x to y
-        3 -> width - x to height - y
-        4 -> x to height - y
-        5 -> y to x
-        6 -> y to height - x
-        7 -> width - y to height - x
-        8 -> width - y to x
-        else -> error("Invalid EXIF orientation")
-    }
-
-    private fun orientedSize(width: Int, height: Int, orientation: Int): Pair<Int, Int> =
-        if (orientation in 5..8) height to width else width to height
 
     private fun encodePng(
         bitmap: Bitmap,

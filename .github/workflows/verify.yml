@@ -20,7 +20,7 @@ jobs:
   # by the protected, signed-release workflow.
   android:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -148,6 +148,53 @@ jobs:
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --debug
+
+      - name: Check Android Emulator acceleration
+        id: emulator-acceleration
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 0666 /dev/kvm
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=android-emulator::/dev/kvm is available; hardware acceleration enabled"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=android-emulator::/dev/kvm is unavailable; the emulator will use software acceleration"
+          fi
+
+      - name: Android native instrumentation (BitmapRegionDecoder)
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-linux-hw-accel: ${{ steps.emulator-acceleration.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
+          script: |
+            set -euo pipefail
+            mkdir -p diagnostics/android-instrumentation
+            test -x android/gradlew
+            test -f android/gradle/wrapper/gradle-wrapper.jar
+            set +e
+            (cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace --console=plain) 2>&1 | tee diagnostics/android-instrumentation/connected-debug-android-test.log
+            gradle_status=${PIPESTATUS[0]}
+            set -e
+            adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log > diagnostics/android-instrumentation/native-jpeg-crop-metrics.log || echo "::warning title=android-crop-metrics::instrumentation metrics file was not available to pull"
+            exit "$gradle_status"
+
+      - name: Upload Android instrumentation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-crop-instrumentation
+          path: |
+            diagnostics/android-instrumentation/
+            build/app/reports/androidTests/connected/debug/
+            build/app/outputs/androidTest-results/connected/debug/
+          if-no-files-found: warn
+          retention-days: 7
 
       # Guards the release workflow's fingerprint parser against a change in the
       # signing tool's report layout: build-tools 37 labels the signer

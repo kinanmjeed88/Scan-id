@@ -26,8 +26,30 @@ adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
   || echo "::warning title=android-crop-metrics::instrumentation metrics file was not available to pull"
 
 if (( gradle_status != 0 )); then
+  test_failures="$(python3 - <<'PY' 2>/dev/null || true
+import glob
+import xml.etree.ElementTree as ET
+
+paths = glob.glob(
+    "build/app/outputs/androidTest-results/connected/debug/**/*.xml",
+    recursive=True,
+)
+for path in paths:
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        continue
+    for case in root.iter("testcase"):
+        failures = [child for child in case if child.tag in ("failure", "error")]
+        for failure in failures:
+            test = f"{case.get('classname', '')}#{case.get('name', '')}"
+            message = failure.get("message", "").replace("\\n", " ")
+            detail = " ".join((failure.text or "").split())[:500]
+            print(f"{test}: {message}; {detail}")
+PY
+  )"
   summary="$(
-    { grep -E '(^FAILURE:|^\* What went wrong:|^Execution failed for task|^> Task .*FAILED|^e: |error:|^Caused by:|^There were failing tests|^.*AssertionError)' \
+    { printf '%s\n' "$test_failures"; grep -E '(^FAILURE:|^\* What went wrong:|^Execution failed for task|^> Task .*FAILED|^e: |error:|^Caused by:|^There were failing tests|^.*AssertionError)' \
         diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
       | tail -n 30 | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~'
   )"

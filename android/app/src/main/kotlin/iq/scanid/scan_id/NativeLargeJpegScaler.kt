@@ -275,13 +275,26 @@ class NativeLargeJpegScaler(private val activity: Activity) {
         // discovering a noisy 16 MP PNG exceeded transport after allocating an
         // unbounded byte array.
         val output = BoundedPngOutputStream(MAX_OUTPUT_BYTES)
-        try {
-            require(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
-        } catch (_: PngOutputTooLargeException) {
-            if (rejectOversizeAsCrop) throw CropTooLargeException()
-            throw IllegalArgumentException("PNG output exceeds the transfer budget.")
+        val compressed = try {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+        } catch (exception: Exception) {
+            if (output.exceededLimit) {
+                throwPngOutputTooLarge(rejectOversizeAsCrop)
+            }
+            throw exception
+        }
+        if (!compressed) {
+            if (output.exceededLimit) {
+                throwPngOutputTooLarge(rejectOversizeAsCrop)
+            }
+            throw IllegalArgumentException("PNG compression failed.")
         }
         return output.toByteArray()
+    }
+
+    private fun throwPngOutputTooLarge(rejectOversizeAsCrop: Boolean): Nothing {
+        if (rejectOversizeAsCrop) throw CropTooLargeException()
+        throw IllegalArgumentException("PNG output exceeds the transfer budget.")
     }
 
     private fun orient(bitmap: Bitmap, orientation: Int): Bitmap {
@@ -319,6 +332,9 @@ class NativeLargeJpegScaler(private val activity: Activity) {
     private class PngOutputTooLargeException : IllegalArgumentException()
 
     private class BoundedPngOutputStream(private val limit: Int) : ByteArrayOutputStream() {
+        var exceededLimit = false
+            private set
+
         override fun write(oneByte: Int) {
             ensureCapacity(1)
             super.write(oneByte)
@@ -331,6 +347,7 @@ class NativeLargeJpegScaler(private val activity: Activity) {
 
         private fun ensureCapacity(incoming: Int) {
             if (incoming < 0 || size() > limit - incoming) {
+                exceededLimit = true
                 throw PngOutputTooLargeException()
             }
         }

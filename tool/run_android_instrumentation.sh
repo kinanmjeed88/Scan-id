@@ -22,9 +22,23 @@ gradle_status=${PIPESTATUS[0]}
 set -e
 
 metrics_file=diagnostics/android-instrumentation/native-jpeg-crop-metrics.log
+logcat_file=diagnostics/android-instrumentation/android-crop-metrics-logcat.log
 adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
   > "$metrics_file" \
   || echo "::warning title=android-crop-metrics::instrumentation metrics file was not available to pull"
+if ! grep -q '^case=' "$metrics_file"; then
+  adb logcat -d -v raw -s AndroidCropMetric:I '*:S' > "$logcat_file" \
+    || echo "::warning title=android-crop-metrics::AndroidCropMetric logcat was not available"
+  awk 'index($0, "case=") { sub(/^.*case=/, "case="); print }' "$logcat_file" \
+    > "$metrics_file"
+  if grep -q '^case=' "$metrics_file"; then
+    metrics_source=logcat
+  else
+    metrics_source=unavailable
+  fi
+else
+  metrics_source=app-files
+fi
 
 test_report="$(python3 - <<'PY' 2>/dev/null || true
 import glob
@@ -64,8 +78,8 @@ for name, details in results.items():
 PY
 )"
 
-if [[ -s "$metrics_file" ]]; then
-  metrics_report="$(awk '
+if grep -q '^case=' "$metrics_file"; then
+  metrics_report="$(awk -v source="$metrics_source" '
     /^case=/ {
       count++
       if (index($0, "case=orientation-") == 1) orientations++
@@ -75,7 +89,7 @@ if [[ -s "$metrics_file" ]]; then
       if (index($0, "case=success-after-bounded-png-rejection ") == 1) recovery = $0
     }
     END {
-      printf "cropMetrics=%d EXIFRegionCases=%d", count, orientations
+      printf "metricsSource=%s cropMetrics=%d EXIFRegionCases=%d", source, count, orientations
       if (full != "") printf "; %s", full
       if (over != "") printf "; %s", over
       if (bounded != "") printf "; %s", bounded
@@ -83,7 +97,8 @@ if [[ -s "$metrics_file" ]]; then
     }
   ' "$metrics_file")"
 else
-  metrics_report="cropMetrics=unavailable"
+  preview="$(head -c 200 "$metrics_file" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+  metrics_report="metricsSource=unavailable cropMetrics=0 preview=$preview"
 fi
 
 {

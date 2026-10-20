@@ -123,6 +123,7 @@ void main() {
     final detection = analysis.detections.single;
     expect(detection.detectionId, 'asset1-d0');
     expect(detection.hasUsableQuad, isTrue);
+    expect(detection.cropAuthorization, isNotNull);
     expect(detection.geometry!.acceptable, isTrue);
     expect(
       detection.classification.kind,

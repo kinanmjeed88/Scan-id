@@ -172,7 +172,7 @@ Future<ExportBundle> _generate(
                           images[item.assetId]!,
                           width: item.width * PdfPageFormat.mm,
                           height: item.height * PdfPageFormat.mm,
-                          fit: pw.BoxFit.fill,
+                          fit: pw.BoxFit.contain,
                         ),
                       ),
                     ),
@@ -210,6 +210,37 @@ Future<ExportBundle> _generate(
   return ExportBundle(List.unmodifiable(result));
 }
 
+/// Image rectangle fitted uniformly inside an item slot, centered.
+///
+/// The returned size has the source aspect. One slot edge matches; the other
+/// is shorter, so the difference is a margin rather than a stretch. Units are
+/// the same as [itemWidth] and [itemHeight] (millimetres at the call site).
+({double x, double y, double width, double height}) containedDocumentRect({
+  required double itemX,
+  required double itemY,
+  required double itemWidth,
+  required double itemHeight,
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  require(
+    itemWidth > 0 && itemHeight > 0 && imageWidth > 0 && imageHeight > 0,
+    'أبعاد الاحتواء غير صالحة.',
+  );
+  final imageAspect = imageWidth / imageHeight;
+  final boxAspect = itemWidth / itemHeight;
+  final width = imageAspect >= boxAspect ? itemWidth : itemHeight * imageAspect;
+  final height = imageAspect >= boxAspect
+      ? itemWidth / imageAspect
+      : itemHeight;
+  return (
+    x: itemX + (itemWidth - width) / 2,
+    y: itemY + (itemHeight - height) / 2,
+    width: width,
+    height: height,
+  );
+}
+
 img.Image renderPage(ExportPlan plan, int page, Map<String, String> paths) {
   final target = img.Image(
     width: plan.pixelWidth,
@@ -232,11 +263,21 @@ img.Image renderPage(ExportPlan plan, int page, Map<String, String> paths) {
         c = math.cos(angle),
         s = math.sin(angle);
     final cx = item.x + item.width / 2, cy = item.y + item.height / 2;
+    // Fit the source uniformly inside the millimetre slot. Sampling the full
+    // slot would stretch a ratio the warp deliberately kept.
+    final fitted = containedDocumentRect(
+      itemX: item.x,
+      itemY: item.y,
+      itemWidth: item.width,
+      itemHeight: item.height,
+      imageWidth: source.width,
+      imageHeight: source.height,
+    );
     for (var y = top; y < bottom; y++) {
       for (var x = left; x < right; x++) {
         final dx = (x + .5) / scale - cx, dy = (y + .5) / scale - cy;
-        final u = (c * dx + s * dy) / item.width + .5,
-            v = (-s * dx + c * dy) / item.height + .5;
+        final u = (c * dx + s * dy) / fitted.width + .5,
+            v = (-s * dx + c * dy) / fitted.height + .5;
         if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;
         final sample = source.getPixel(
           (u * source.width).floor().clamp(0, source.width - 1).toInt(),

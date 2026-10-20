@@ -26,6 +26,7 @@ import 'multi_document_segmentation_flag.dart'
     as multi_document_segmentation_flag;
 import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
+import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/document_segmenter.dart';
 
 class ImportSource {
@@ -660,6 +661,8 @@ class ProjectService {
       }
       var asset = current.assets[assetIndex];
       DocumentTypeSuggestion? suggestion;
+      var refusedProposedBoundary = false;
+      var catalogShapeUnconfirmed = false;
 
       final editor = imageEditor;
       if (editor == null) {
@@ -693,11 +696,11 @@ class ProjectService {
             );
             // Boundary gate (boundary audits D1/D3/D10): a detector proposal
             // is a claim, not a crop permission. It becomes a saved crop only
-            // when verifyBoundary accepts it — geometry sound AND its
-            // measured shape able to claim the physical size classification
-            // would impose on it. Any other outcome keeps the whole frame
-            // for manual cropping, with the measured reason told to the user
-            // instead of a silently stretched or mis-sized crop. Note this
+            // when verifyBoundary accepts it. Acceptance corrects perspective
+            // at the measured aspect; it does not impose the catalog ratio.
+            // Any other outcome keeps the whole frame for manual cropping,
+            // with the measured reason told to the user instead of a silently
+            // stretched or mis-sized crop. Note this
             // gate is what guards cropping here; the Smart Recognition
             // automationMode (reviewAll) never did — it only keeps records
             // listed in that pipeline's review queue.
@@ -715,22 +718,30 @@ class ProjectService {
               sourceWidth: source.width,
               sourceHeight: source.height,
             );
-            if (decision.kind != BoundaryDecisionKind.accepted) {
+            final authorization = decision.cropAuthorization;
+            if (authorization == null) {
               notDetected++;
+              refusedProposedBoundary = true;
+              suggestion = null;
               for (final reason in decision.verification.reasons) {
                 warnings.add(
                   '${asset.name}: ${boundaryReviewReasonMessage(reason)}',
                 );
               }
             } else {
-              final recipe = size == null
-                  ? estimate
-                  : CropDraft(
-                      corners: corners,
-                      adjustments: asset.adjustments,
-                      aspectRatio: size.width / size.height,
-                    ).toRecipe(source.width, source.height);
-              current = await applyCrop(current, asset, recipe);
+              if (size != null && !decision.catalogShapeMatches) {
+                catalogShapeUnconfirmed = true;
+                warnings.add(
+                  '${asset.name}: ${catalogShapeUnconfirmedMessage()}',
+                );
+              }
+              current = await applyAuthorizedCrop(
+                current,
+                asset,
+                authorization,
+                sourceWidth: source.width,
+                sourceHeight: source.height,
+              );
               asset = current.assets.firstWhere((entry) => entry.id == id);
               cropped++;
             }
@@ -753,16 +764,25 @@ class ProjectService {
         fullFrame: true,
       );
       final kind = suggestion.kind;
-      final catalogSize = current.catalog.sizeFor(
-        kind,
-        landscape: asset.width >= asset.height,
-      );
+      // A boundary that was proposed and refused must not keep the catalog
+      // size of the filename or of the rejected estimate. No proposal at all
+      // keeps the existing filename confirmation for an already-cut scan.
+      // A refused proposal, or an accepted quadrilateral whose shape does not
+      // match the catalog within shapeTolerance, must not be placed at the
+      // catalog size. Export contains the image, so a wrong slot would be a
+      // false size confirmation and a margin, not a stretch.
+      final catalogSize = refusedProposedBoundary || catalogShapeUnconfirmed
+          ? null
+          : current.catalog.sizeFor(
+              kind,
+              landscape: asset.width >= asset.height,
+            );
       final size =
           catalogSize ??
           provisionalSize(width: asset.width, height: asset.height);
       if (catalogSize != null) {
         recognized++;
-      } else {
+      } else if (kind == DocumentKind.unknown) {
         warnings.add(
           '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
         );
@@ -897,8 +917,30 @@ class ProjectService {
     return editor!.createRevision(asset, recipe);
   }
 
-  /// Crop used by automatic layout. It deliberately does not mark a user
-  /// decision even though it shares the image-revision implementation.
+  /// Automatic intake crop. The recipe is built only from an accepted
+  /// boundary decision. There is no catalog-aspect argument: acceptance
+  /// corrects perspective and keeps the measured aspect.
+  Future<Project> applyAuthorizedCrop(
+    Project project,
+    ImageAsset asset,
+    AutomaticCropAuthorization authorization, {
+    required int sourceWidth,
+    required int sourceHeight,
+  }) {
+    final recipe = recipeFromAcceptedBoundary(
+      authorization,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+      adjustments: asset.adjustments,
+    );
+    return _applyCrop(project, asset, recipe, userAuthored: false);
+  }
+
+  /// Revision primitive used by tests and by [applyAuthorizedCrop] /
+  /// [applyManualCrop]. Production intake must not call this with a detector
+  /// quadrilateral; that path is [applyAuthorizedCrop]. Recovery replay and
+  /// color/rotation revisions are not boundary decisions and do not come here
+  /// from intake.
   Future<Project> applyCrop(
     Project project,
     ImageAsset asset,
@@ -918,6 +960,13 @@ class ProjectService {
     ImageEditRecipe recipe, {
     required bool userAuthored,
   }) async {
+    if (asset.hasScaledLargeSource &&
+        coversOrientedFrame(manualCropBounds(recipe.geometry.corners))) {
+      throw const ValidationException(
+        'الصورة الكاملة أكبر من حد المعالجة كاملة الدقة (16 مليون بكسل). '
+        'لن يُستخدم التصغير الصامت. حدّد منطقة المستند داخل الحد.',
+      );
+    }
     var updated = await createImageRevision(project, asset, recipe);
     updated = userAuthored
         ? updated.markUserAuthoredCrop()

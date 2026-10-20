@@ -26,6 +26,34 @@
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
 
+// Shared with large_jpeg_scaler_test. Not part of the Flutter channel.
+// The same table is NativeLargeJpegScaler.rawPoint.
+std::pair<double, double> RawPointFromOriented(
+    double x, double y, UINT width, UINT height, int orientation) {
+  switch (orientation) {
+    case 1:
+      return {x, y};
+    case 2:
+      return {static_cast<double>(width) - x, y};
+    case 3:
+      return {static_cast<double>(width) - x,
+              static_cast<double>(height) - y};
+    case 4:
+      return {x, static_cast<double>(height) - y};
+    case 5:
+      return {y, x};
+    case 6:
+      return {y, static_cast<double>(height) - x};
+    case 7:
+      return {static_cast<double>(width) - y,
+              static_cast<double>(height) - x};
+    case 8:
+      return {static_cast<double>(width) - y, x};
+    default:
+      return {x, y};
+  }
+}
+
 namespace {
 using Microsoft::WRL::ComPtr;
 using flutter::EncodableMap;
@@ -113,32 +141,6 @@ bool HasSafeCropBudgets(uint64_t source_bytes, int64_t source_width,
          std::isfinite(right) && std::isfinite(bottom) && left >= 0.0 &&
          top >= 0.0 && right <= 1.0 && bottom <= 1.0 && left < right &&
          top < bottom && max_pixels == kMaxFullResolutionCropPixels;
-}
-
-std::pair<double, double> RawPointFromOriented(
-    double x, double y, UINT width, UINT height, int orientation) {
-  switch (orientation) {
-    case 1:
-      return {x, y};
-    case 2:
-      return {static_cast<double>(width) - x, y};
-    case 3:
-      return {static_cast<double>(width) - x,
-              static_cast<double>(height) - y};
-    case 4:
-      return {x, static_cast<double>(height) - y};
-    case 5:
-      return {y, x};
-    case 6:
-      return {y, static_cast<double>(height) - x};
-    case 7:
-      return {static_cast<double>(width) - y,
-              static_cast<double>(height) - x};
-    case 8:
-      return {static_cast<double>(width) - y, x};
-    default:
-      return {x, y};
-  }
 }
 
 WICBitmapTransformOptions ExifTransform(int orientation) {

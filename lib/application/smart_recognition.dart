@@ -17,7 +17,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../domain/arrangement.dart';
+import '../domain/boundary_decision.dart';
 import '../domain/crop_draft.dart';
+import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
@@ -802,7 +804,11 @@ class SmartIntake {
           analyzed,
           current.catalog,
           detection,
+          cancellation: cancellation,
         );
+        // A native full-resolution crop may finish after the user cancels.
+        // Never stage its late pixels into the per-image reprocess buffers.
+        cancellation?.throwIfCancelled();
         if (existing == null) {
           current = await _appendNewDocument(
             current,
@@ -877,12 +883,20 @@ class SmartIntake {
         'حُفظت المنطقة كما هي لتُقصّ يدوياً من المحرر.',
       );
     }
-    final catalogSize = output.trustworthy
-        ? current.catalog.sizeFor(
-            kind,
-            landscape: derived.width >= derived.height,
-          )
-        : null;
+    final catalogSize = _confirmedCatalogSize(
+      current,
+      detection,
+      warped: output.trustworthy,
+      landscape: derived.width >= derived.height,
+    );
+    if (output.trustworthy &&
+        catalogSize == null &&
+        kind != DocumentKind.unknown) {
+      warnings.add(
+        '${sourceAsset.name} (مستند $position): '
+        '${catalogShapeUnconfirmedMessage()}',
+      );
+    }
     final itemSize =
         catalogSize ??
         provisionalSize(width: derived.width, height: derived.height);
@@ -967,9 +981,12 @@ class SmartIntake {
   }) {
     if (item.locked) return item;
     final kind = detection.classification.kind;
-    final catalogSize = trustworthy
-        ? current.catalog.sizeFor(kind, landscape: asset.width >= asset.height)
-        : null;
+    final catalogSize = _confirmedCatalogSize(
+      current,
+      detection,
+      warped: trustworthy,
+      landscape: asset.width >= asset.height,
+    );
     final confidence =
         detection.classification.confidences.finalConfidence?.value ??
         item.recognitionConfidence;
@@ -982,13 +999,31 @@ class SmartIntake {
           'بقي المستند بموضعه وحجمه الحالي لتفادي إفساد ترتيب الورقة. '
           'راجعه من تبويب «المستمسك».',
         );
+      } else if (_shapeUnconfirmed(detection)) {
+        onPlacedSizeKept(
+          '${asset.name}: ${catalogShapeUnconfirmedMessage()} '
+          'بقي المستند بموضعه الحالي.',
+        );
       }
       return item.copyWith(
         documentKind: kind,
         recognitionConfidence: confidence,
       );
     }
-    if (catalogSize == null) return item;
+    if (catalogSize == null) {
+      if (!_shapeUnconfirmed(detection)) return item;
+      final provisional = provisionalSize(
+        width: asset.width,
+        height: asset.height,
+      );
+      return item.copyWith(
+        width: provisional.width,
+        height: provisional.height,
+        documentKind: kind,
+        sizeConfirmed: false,
+        recognitionConfidence: confidence,
+      );
+    }
     return item.copyWith(
       width: catalogSize.width,
       height: catalogSize.height,
@@ -1177,28 +1212,19 @@ class SmartIntake {
     // recognition record carrying the measured evidence.
     final detection = analysis.detections.first;
     final kind = detection.classification.kind;
-    if (detection.hasUsableQuad) {
-      // The exact legacy sequence: estimate the free crop, orient the
-      // catalog size to it, then rectify to the catalog aspect ratio.
-      final estimate = CropDraft(
-        corners: detection.corners!,
-        adjustments: asset.adjustments,
-      ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-      final size = current.catalog.sizeFor(
-        kind,
-        landscape:
-            estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
-      );
-      final recipe = size == null
-          ? estimate
-          : CropDraft(
-              corners: detection.corners!,
-              adjustments: asset.adjustments,
-              aspectRatio: size.width / size.height,
-            ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+    final automaticRecipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: analyzed.sourceWidth,
+      sourceHeight: analyzed.sourceHeight,
+      adjustments: asset.adjustments,
+    );
+    if (automaticRecipe != null) {
+      // The recipe comes only from an accepted authorization and keeps the
+      // measured aspect. A refused or missing authorization cannot reach
+      // createRevision.
       final updated = (await editor.createRevision(
         asset,
-        recipe,
+        automaticRecipe,
       )).clearUserAuthoredCrop();
       // Deferred to the batch commit: a revision saved on its own, whose
       // document record then failed to be created, leaves the source asset
@@ -1208,6 +1234,10 @@ class SmartIntake {
       replacedAssets[asset.id] = updated;
       asset = updated;
       onCropped();
+    } else if (detection.boundary == DetectionBoundary.rejected) {
+      onNotDetected();
+      // The measured refusal is already in analysis.issues, copied above.
+      // Do not also claim that no boundary was found.
     } else {
       onNotDetected();
       warnings.add(
@@ -1216,10 +1246,18 @@ class SmartIntake {
       );
     }
 
-    final catalogSize = current.catalog.sizeFor(
-      kind,
-      landscape: asset.width >= asset.height,
-    );
+    // A proposed boundary that the decision refused must not keep a catalog
+    // size: that was how a filename label placed an uncropped photo at the
+    // contradicted physical size. No proposal (undetected) keeps the
+    // existing filename confirmation.
+    final boundaryRefused = detection.boundary == DetectionBoundary.rejected;
+    final shapeUnconfirmed = _shapeUnconfirmed(detection);
+    if (shapeUnconfirmed) {
+      warnings.add('${asset.name}: ${catalogShapeUnconfirmedMessage()}');
+    }
+    final catalogSize = boundaryRefused || shapeUnconfirmed
+        ? null
+        : current.catalog.sizeFor(kind, landscape: asset.width >= asset.height);
     final size =
         catalogSize ??
         provisionalSize(width: asset.width, height: asset.height);
@@ -1310,7 +1348,11 @@ class SmartIntake {
           analyzed,
           current.catalog,
           detection,
+          cancellation: cancellation,
         );
+        // Drop a result that returned after cancellation before creating even
+        // an uncommitted derived asset on disk.
+        cancellation?.throwIfCancelled();
         if (!output.trustworthy) {
           onNotDetected();
           warnings.add(
@@ -1334,13 +1376,23 @@ class SmartIntake {
         newAssets.add(derived);
         if (output.trustworthy) onCropped();
         // An unresolved region was never rectified, so its size is NOT
-        // confirmed: claiming a catalog size here would distort the print.
-        final catalogSize = output.trustworthy
-            ? current.catalog.sizeFor(
-                kind,
-                landscape: derived.width >= derived.height,
-              )
-            : null;
+        // confirmed. A rectified region whose measured shape misses the
+        // catalog tolerance is not confirmed either: the catalog slot would
+        // claim a physical size the pixels do not match.
+        final catalogSize = _confirmedCatalogSize(
+          current,
+          detection,
+          warped: output.trustworthy,
+          landscape: derived.width >= derived.height,
+        );
+        if (output.trustworthy &&
+            catalogSize == null &&
+            kind != DocumentKind.unknown) {
+          warnings.add(
+            '${sourceAsset.name} (مستند ${position + 1}): '
+            '${catalogShapeUnconfirmedMessage()}',
+          );
+        }
         final itemSize =
             catalogSize ??
             provisionalSize(width: derived.width, height: derived.height);
@@ -1424,8 +1476,9 @@ class SmartIntake {
     Uint8List sourceBytes,
     _Analyzed analyzed,
     DocumentSizeCatalog catalog,
-    DetectionAnalysis detection,
-  ) async {
+    DetectionAnalysis detection, {
+    CancellationToken? cancellation,
+  }) async {
     final asset = analyzed.asset;
     final region = detection.region;
     if (!asset.hasScaledLargeSource || region == null) {
@@ -1468,6 +1521,7 @@ class SmartIntake {
       right: cropBounds.right,
       bottom: cropBounds.bottom,
     );
+    cancellation?.throwIfCancelled();
     final croppedHeader = inspectImageHeader(bytes);
     require(
       croppedHeader.encoding == ImageEncoding.png &&
@@ -1485,11 +1539,28 @@ class SmartIntake {
         trustworthy: false,
       );
     }
+    // The stored corners are the authorized quadrilateral. The values below are
+    // that same quadrilateral rewritten into the extracted buffer — not a new
+    // boundary and not a different claim.
+    final authorizedCorners = detection.cropAuthorization!.corners;
+    require(
+      detection.corners?.length == authorizedCorners.length,
+      'إعادة تعيين JPEG يجب أن تستخدم زوايا القرار المقبول نفسها.',
+    );
+    for (var i = 0; i < authorizedCorners.length; i++) {
+      require(
+        detection.corners![i].x == authorizedCorners[i].x &&
+            detection.corners![i].y == authorizedCorners[i].y,
+        'إعادة تعيين JPEG يجب أن تستخدم زوايا القرار المقبول نفسها.',
+      );
+    }
+    final spanX = cropBounds.right - cropBounds.left;
+    final spanY = cropBounds.bottom - cropBounds.top;
     final localCorners = [
-      for (final corner in detection.corners!)
+      for (final corner in authorizedCorners)
         Point2(
-          (corner.x - cropBounds.left) / (cropBounds.right - cropBounds.left),
-          (corner.y - cropBounds.top) / (cropBounds.bottom - cropBounds.top),
+          (corner.x - cropBounds.left) / spanX,
+          (corner.y - cropBounds.top) / spanY,
         ),
     ];
     // The request bounds above include every trusted measured corner. Keep this
@@ -1502,23 +1573,22 @@ class SmartIntake {
       ),
       'زوايا المستمسك خارج المنطقة المقاسة.',
     );
-    final kind = detection.classification.kind;
-    final estimate = CropDraft(
-      corners: localCorners,
+    final recipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: croppedHeader.width,
+      sourceHeight: croppedHeader.height,
       adjustments: asset.adjustments,
-    ).toRecipe(croppedHeader.width, croppedHeader.height);
-    final size = catalog.sizeFor(
-      kind,
-      landscape:
-          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
+      coordinateFrameCorners: localCorners,
     );
-    final recipe = size == null
-        ? estimate
-        : CropDraft(
-            corners: localCorners,
-            adjustments: asset.adjustments,
-            aspectRatio: size.width / size.height,
-          ).toRecipe(croppedHeader.width, croppedHeader.height);
+    if (recipe == null) {
+      return _RegionOutput(
+        bytes: bytes,
+        corners: null,
+        outputWidth: null,
+        outputHeight: null,
+        trustworthy: false,
+      );
+    }
     return _RegionOutput(
       bytes: await warp(bytes, recipe),
       corners: detection.corners,
@@ -1565,14 +1635,15 @@ class SmartIntake {
 
   /// Renders one detected region into the bytes of its derived image.
   ///
-  /// A trustworthy quadrilateral is rectified to the catalog aspect ratio; an
-  /// unresolved region is kept as a plain axis-aligned crop of the measured
-  /// bounds — no guessed rectangle, no warp. Either way the ORIGINAL source
-  /// bytes are only ever READ (ADR-003).
+  /// An accepted boundary is perspective-corrected at its measured aspect.
+  /// The catalog millimetre slot is a later placement decision, not a warp
+  /// ratio. Anything else is an axis-aligned crop of the measured bounds —
+  /// no guessed rectangle, no warp. The original bytes are only ever read
+  /// (ADR-003).
   Future<_RegionOutput> _renderRegion(
     Uint8List originalBytes,
     _Analyzed analyzed,
-    DocumentSizeCatalog catalog,
+    DocumentSizeCatalog _,
     DetectionAnalysis detection,
   ) async {
     if (!detection.hasUsableQuad) {
@@ -1590,23 +1661,24 @@ class SmartIntake {
         trustworthy: false,
       );
     }
-    final kind = detection.classification.kind;
-    final estimate = CropDraft(
-      corners: detection.corners!,
+    final recipe = _authorizedWarpRecipe(
+      detection,
+      sourceWidth: analyzed.sourceWidth,
+      sourceHeight: analyzed.sourceHeight,
       adjustments: analyzed.asset.adjustments,
-    ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
-    final size = catalog.sizeFor(
-      kind,
-      landscape:
-          estimate.geometry.outputWidth >= estimate.geometry.outputHeight,
     );
-    final recipe = size == null
-        ? estimate
-        : CropDraft(
-            corners: detection.corners!,
-            adjustments: analyzed.asset.adjustments,
-            aspectRatio: size.width / size.height,
-          ).toRecipe(analyzed.sourceWidth, analyzed.sourceHeight);
+    if (recipe == null) {
+      return _RegionOutput(
+        bytes: await cropRegion(
+          originalBytes,
+          detection.region ?? fullFrameRegion,
+        ),
+        corners: null,
+        outputWidth: null,
+        outputHeight: null,
+        trustworthy: false,
+      );
+    }
     return _RegionOutput(
       bytes: await warp(originalBytes, recipe),
       corners: detection.corners,
@@ -1614,6 +1686,53 @@ class SmartIntake {
       outputHeight: recipe.geometry.outputHeight,
       trustworthy: true,
       recipe: recipe,
+    );
+  }
+
+  /// Catalog millimetres only when the warp happened and the measured shape
+  /// matches that catalog size within classification tolerance. A merely
+  /// accepted quadrilateral is not enough: confirming that slot would claim a
+  /// size the pixels do not have. Export contains; it does not fill.
+  PhysicalSizeMm? _confirmedCatalogSize(
+    Project current,
+    DetectionAnalysis detection, {
+    required bool warped,
+    required bool landscape,
+  }) {
+    if (!warped || detection.boundaryDecision?.catalogShapeMatches != true) {
+      return null;
+    }
+    return current.catalog.sizeFor(
+      detection.classification.kind,
+      landscape: landscape,
+    );
+  }
+
+  bool _shapeUnconfirmed(DetectionAnalysis detection) {
+    final decision = detection.boundaryDecision;
+    return decision != null &&
+        decision.kind == BoundaryDecisionKind.accepted &&
+        !decision.catalogShapeMatches;
+  }
+
+  /// Automatic perspective recipe, or null when the shared decision did not
+  /// accept the claim. The output keeps the measured aspect. A catalog size
+  /// is never an output ratio, including when [BoundaryDecision.catalogShapeMatches].
+  ImageEditRecipe? _authorizedWarpRecipe(
+    DetectionAnalysis detection, {
+    required int sourceWidth,
+    required int sourceHeight,
+    required ImageAdjustments adjustments,
+    List<Point2>? coordinateFrameCorners,
+  }) {
+    final authorization = detection.cropAuthorization;
+    if (authorization == null) return null;
+    return recipeFromAcceptedBoundary(
+      authorization,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+      adjustments: adjustments,
+      coordinateFrameCorners: coordinateFrameCorners,
     );
   }
 

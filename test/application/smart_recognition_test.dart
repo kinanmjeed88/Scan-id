@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
+import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
@@ -306,6 +308,39 @@ class _FakeFullResolutionJpegCropper implements FullResolutionJpegCropper {
     );
     if (failure != null) throw failure!;
     return Uint8List.fromList(crop);
+  }
+}
+
+class _GatedFullResolutionJpegCropper implements FullResolutionJpegCropper {
+  final started = Completer<void>();
+  final release = Completer<Uint8List>();
+  final calls = <_FullResolutionCropCall>[];
+
+  @override
+  Future<Uint8List> cropJpegRegion({
+    required Uint8List source,
+    required int sourceWidth,
+    required int sourceHeight,
+    required int orientation,
+    required double left,
+    required double top,
+    required double right,
+    required double bottom,
+  }) {
+    calls.add(
+      _FullResolutionCropCall(
+        source: Uint8List.fromList(source),
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+        orientation: orientation,
+        left: left,
+        top: top,
+        right: right,
+        bottom: bottom,
+      ),
+    );
+    if (!started.isCompleted) started.complete();
+    return release.future;
   }
 }
 
@@ -936,9 +971,10 @@ void main() {
         [.1, .1, .9, .6045],
       );
       // Full crop-local corners occupy the 1600 by 1000 native output; without
-      // remapping they would rectify only the old .8 by .5045 sub-rectangle.
-      expect(derived.width, closeTo(1586, 2));
-      expect(derived.height, closeTo(1000, 2));
+      // remapping they would rectify only the old .8 by .5045 sub-rectangle
+      // (about 1280 by 505). Catalog aspect must not shrink 1600 to 1586.
+      expect(derived.width, 1600);
+      expect(derived.height, 1000);
     },
   );
 
@@ -983,6 +1019,126 @@ void main() {
       );
     },
   );
+
+  test(
+    'cancellation after a blocked full-resolution crop discards the returned pixels',
+    () async {
+      final original = _jpegSofOnly(5000, 5000);
+      assets = LocalAssetRepository(
+        projects.files,
+        largeJpegScaler: _FakeLargeJpegScaler(_photo()),
+      );
+      final cropper = _GatedFullResolutionJpegCropper();
+      final s = service(
+        segmenter: _oneValidCard,
+        fullResolutionJpegCropper: cropper,
+      );
+      var project = await s.create('إلغاء أثناء القص كامل الدقة');
+      project = (await s.importImages(project, [
+        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+      ])).project;
+      final source = project.assets.single;
+      final token = CancellationToken();
+
+      final pending = s.arrangeImportedImages(project, [
+        source.id,
+      ], cancellation: token);
+      await cropper.started.future.timeout(const Duration(seconds: 10));
+      token.cancel();
+      // The native/fake crop itself is not interrupted; its late result must
+      // be discarded before it can be staged or committed.
+      cropper.release.complete(_photo());
+      final report = await pending.timeout(const Duration(seconds: 10));
+
+      expect(cropper.calls, hasLength(1));
+      expect(report.project.revision, project.revision);
+      expect(report.project.assets, hasLength(1));
+      expect(report.project.items, isEmpty);
+      expect(report.project.documents, isEmpty);
+      expect((await projects.get(project.id)).toJson(), project.toJson());
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        original,
+      );
+    },
+  );
+
+  test(
+    'cancellation after a blocked reprocess crop discards the returned pixels',
+    () async {
+      final original = _jpegSofOnly(5000, 5000);
+      assets = LocalAssetRepository(
+        projects.files,
+        largeJpegScaler: _FakeLargeJpegScaler(_photo()),
+      );
+      final cropper = _GatedFullResolutionJpegCropper();
+      final s = service(
+        segmenter: _oneValidCard,
+        fullResolutionJpegCropper: cropper,
+      );
+      var project = await s.create('إلغاء إعادة المعالجة أثناء القص');
+      project = (await s.importImages(project, [
+        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+      ])).project;
+      final source = project.assets.single;
+      final token = CancellationToken();
+
+      final pending = s.reprocessImages(project, [
+        source.id,
+      ], cancellation: token);
+      await cropper.started.future.timeout(const Duration(seconds: 10));
+      token.cancel();
+      cropper.release.complete(_photo());
+      final report = await pending.timeout(const Duration(seconds: 10));
+
+      expect(report, isNotNull);
+      final completed = report!;
+      expect(cropper.calls, hasLength(1));
+      expect(completed.project.revision, project.revision);
+      expect(completed.project.assets, hasLength(1));
+      expect(completed.project.items, isEmpty);
+      expect(completed.project.documents, isEmpty);
+      expect((await projects.get(project.id)).toJson(), project.toJson());
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        original,
+      );
+    },
+  );
+
+  test('a delayed crop cannot overwrite a newer project revision', () async {
+    final original = _jpegSofOnly(5000, 5000);
+    assets = LocalAssetRepository(
+      projects.files,
+      largeJpegScaler: _FakeLargeJpegScaler(_photo()),
+    );
+    final cropper = _GatedFullResolutionJpegCropper();
+    final s = service(
+      segmenter: _oneValidCard,
+      fullResolutionJpegCropper: cropper,
+    );
+    var project = await s.create('تعارض نتيجة القص المتأخرة');
+    project = (await s.importImages(project, [
+      ImportSource('بطاقة.jpg', () => Stream.value(original)),
+    ])).project;
+    final source = project.assets.single;
+
+    final pending = s.arrangeImportedImages(project, [source.id]);
+    await cropper.started.future.timeout(const Duration(seconds: 10));
+    final newer = await projects.save(project.copyWith(name: 'تعديل أحدث'));
+    cropper.release.complete(_photo());
+
+    await expectLater(pending, throwsA(isA<RevisionConflict>()));
+    final persisted = await projects.get(project.id);
+    expect(persisted.toJson(), newer.toJson());
+    expect(persisted.assets, hasLength(1));
+    expect(persisted.items, isEmpty);
+    expect(persisted.documents, isEmpty);
+    expect(
+      await (await assets.resolve(source.originalPath)).readAsBytes(),
+      original,
+    );
+  });
 
   test(
     'a cropped large source reprocesses from its original without moving a locked item',

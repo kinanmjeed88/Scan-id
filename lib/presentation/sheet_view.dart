@@ -143,7 +143,7 @@ class _SheetViewState extends State<SheetView> {
       colorFilter: ColorFilter.matrix(_c.adjustmentsFor(asset).colorMatrix),
       child: Image.memory(
         base,
-        fit: BoxFit.fill,
+        fit: BoxFit.contain,
         gaplessPlayback: true,
         filterQuality: FilterQuality.medium,
       ),

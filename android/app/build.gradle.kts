@@ -219,6 +219,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Compiled in so a downloaded package can be checked against the publisher
         // this build was signed with, without asking a network what is true.
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", expectedCertSha256Literal)
@@ -264,4 +265,10 @@ flutter {
 }
 
 // Apache-2.0 AndroidX FileProvider; scoped camera URI grants, no storage permission.
-dependencies { implementation("androidx.core:core:1.13.1") }
+dependencies {
+    implementation("androidx.core:core:1.13.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("junit:junit:4.13.2")
+}

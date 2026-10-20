@@ -265,14 +265,19 @@ void main() {
         report.project.items.single.documentKind,
         DocumentKind.unifiedNationalId,
       );
-      expect(report.project.items.single.pageIndex, 0);
-      expect(report.project.items.single.sizeConfirmed, isTrue);
+      // The drawn rectangle is 150×100 (1.50). The filename claims ID-1
+      // (1.586). That is inside the 2.5 outer refusal and outside
+      // shapeTolerance, so the warp must keep the measured aspect and must
+      // not be placed as a confirmed catalog card.
+      expect(report.project.items.single.pageIndex, isNull);
+      expect(report.project.items.single.sizeConfirmed, isFalse);
       final asset = report.project.assets.single;
       expect(
         asset.width / asset.height,
-        closeTo(85.6 / 53.98, .02),
-        reason: 'the crop is rectified to the ID-1 shape',
+        isNot(closeTo(85.6 / 53.98, .02)),
+        reason: 'catalog aspect must not hide the measured disagreement',
       );
+      expect(report.warnings.join(' '), contains('دون مطّ'));
     },
   );
 }

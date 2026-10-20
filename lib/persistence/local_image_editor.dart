@@ -14,13 +14,35 @@ import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/document_detector.dart';
+import '../imaging/full_resolution_manual_crop.dart';
+import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
 import '../imaging/prepare_image.dart';
 import 'safe_files.dart';
 
+/// Reads one oriented rectangle from an immutable JPEG at native density.
+///
+/// The editor uses this only for the final revision of a sampled large JPEG.
+/// Preview and corner dragging stay on the bounded working PNG.
+typedef FullResolutionRegionReader =
+    Future<Uint8List> Function({
+      required Uint8List source,
+      required int sourceWidth,
+      required int sourceHeight,
+      required int orientation,
+      required double left,
+      required double top,
+      required double right,
+      required double bottom,
+    });
+
 class LocalImageEditor implements ImageEditor {
-  const LocalImageEditor(this.files);
+  const LocalImageEditor(this.files, {this.readFullResolutionRegion});
   final SafeFiles files;
+
+  /// Null in tests that never crop a large JPEG. A production editor must set
+  /// it. A missing reader is an explicit failure, not a silent sample.
+  final FullResolutionRegionReader? readFullResolutionRegion;
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
   );
@@ -60,9 +82,115 @@ class LocalImageEditor implements ImageEditor {
     ImageAsset asset,
     ImageEditRecipe recipe,
   ) async {
+    if (asset.hasScaledLargeSource && _usesOriginalJpeg(recipe)) {
+      return _createFullResolutionRevision(asset, recipe);
+    }
     final bytes = await _source(asset);
     final root = files.root.path;
     return Isolate.run(() => _saveRevision(root, asset, recipe, bytes));
+  }
+
+  /// A sampled large JPEG uses the original for every region except the whole
+  /// oriented frame.
+  ///
+  /// That frame cannot fit the 16 MP budget, so adjustments and recovery of an
+  /// uncropped asset keep the import sample. Crop commands refuse it before
+  /// they reach this method. A smaller region that does not fit is refused
+  /// inside [_createFullResolutionRevision], never replaced by the sample.
+  bool _usesOriginalJpeg(ImageEditRecipe recipe) =>
+      !coversOrientedFrame(manualCropBounds(recipe.geometry.corners));
+
+  /// Final pixels of a sampled large JPEG come from the immutable original.
+  ///
+  /// The recipe corners are normalized to the EXIF-oriented preview, which is
+  /// a uniform scale of that same frame. The platform extracts only the
+  /// quadrilateral's bounds; the warp then uses those pixels. A region that
+  /// cannot fit the existing budget fails here. The sampled PNG is not a
+  /// fallback.
+  Future<ImageAsset> _createFullResolutionRevision(
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async {
+    final readRegion = readFullResolutionRegion;
+    if (readRegion == null) {
+      throw const ValidationException(
+        'لا تتوفر معالجة JPEG كاملة الدقة على هذا النظام؛ '
+        'لن يُستخدم التصغير الصامت.',
+      );
+    }
+    final original = await readBoundedImage(
+      (await files.existingFile(asset.originalPath)).openRead(),
+    );
+    final header = inspectImageHeader(original);
+    require(
+      header.encoding == ImageEncoding.jpeg,
+      'الأصل الكبير ليس JPEG صالحاً للقص كامل الدقة.',
+    );
+    final oriented = orientedPixelSize(
+      header.width,
+      header.height,
+      header.orientation,
+    );
+    final bounds = manualCropBounds(recipe.geometry.corners);
+    requireFullResolutionCropFits(
+      bounds: bounds,
+      orientedWidth: oriented.$1,
+      orientedHeight: oriented.$2,
+    );
+    final extracted = await readRegion(
+      source: original,
+      sourceWidth: header.width,
+      sourceHeight: header.height,
+      orientation: header.orientation,
+      left: bounds.left,
+      top: bounds.top,
+      right: bounds.right,
+      bottom: bounds.bottom,
+    );
+    final extractedHeader = inspectImageHeader(extracted);
+    require(
+      extractedHeader.encoding == ImageEncoding.png &&
+          withinImageBudget(extractedHeader.width, extractedHeader.height),
+      'منطقة JPEG كاملة الدقة غير صالحة.',
+    );
+    final localCorners = remapCornersIntoRegion(
+      recipe.geometry.corners,
+      bounds,
+    );
+    final measured = CropDraft(
+      corners: localCorners,
+      adjustments: recipe.adjustments,
+    ).toRecipe(extractedHeader.width, extractedHeader.height);
+    final storedAspect =
+        recipe.geometry.outputWidth / recipe.geometry.outputHeight;
+    final measuredAspect =
+        measured.geometry.outputWidth / measured.geometry.outputHeight;
+    // A manual aspect baked into the requested recipe is kept. Ordinary
+    // floor rounding between the preview estimate and this extract is not.
+    final imposed =
+        storedAspect > 0 &&
+        measuredAspect > 0 &&
+        (storedAspect / measuredAspect - 1).abs() > .01;
+    final localRecipe = imposed
+        ? CropDraft(
+            corners: localCorners,
+            adjustments: recipe.adjustments,
+            aspectRatio: storedAspect,
+          ).toRecipe(extractedHeader.width, extractedHeader.height)
+        : measured;
+    final root = files.root.path;
+    return Isolate.run(
+      () => _saveRevision(
+        root,
+        asset,
+        localRecipe,
+        extracted,
+        storedCorners: [
+          for (final corner in recipe.geometry.corners)
+            Point2(corner.x, corner.y),
+        ],
+      ),
+    );
   }
 }
 
@@ -70,8 +198,9 @@ Future<ImageAsset> _saveRevision(
   String root,
   ImageAsset asset,
   ImageEditRecipe recipe,
-  Uint8List original,
-) async {
+  Uint8List original, {
+  List<Point2>? storedCorners,
+}) async {
   final rendered = warpPerspective(original, recipe);
   final png = img.encodePng(rendered);
   final small = img.copyResize(
@@ -118,7 +247,15 @@ Future<ImageAsset> _saveRevision(
       thumbnailPath: '$relative/thumb.jpg',
       width: rendered.width,
       height: rendered.height,
-      crop: recipe.geometry,
+      // A full-resolution extract warps local corners, but the saved recipe
+      // must stay in the preview's full-frame space so the next edit maps.
+      crop: storedCorners == null
+          ? recipe.geometry
+          : CropGeometry(
+              corners: storedCorners,
+              outputWidth: rendered.width,
+              outputHeight: rendered.height,
+            ),
       adjustments: recipe.adjustments,
       transforms: boundedTransformLog(log),
     );

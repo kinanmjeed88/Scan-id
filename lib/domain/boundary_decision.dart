@@ -32,23 +32,40 @@
 /// the catalog aspect onto the warp) becomes an explicit review reason,
 /// and that ambiguous cases fail safe instead of failing silently.
 ///
-/// No acceptance threshold is invented here. The aspect-claim bound reuses
-/// the project's own pre-existing geometric-implausibility limit — the 2.5×
-/// opposite-side ratio at which [assessQuad] already refuses a quadrilateral
-/// as physically implausible. A claimed size whose aspect differs from the
-/// measured shape by more than that factor is not a stretch, it is a
-/// different document; milder disagreements (ordinary perspective and
-/// detector noise routinely produce them in raw pixel space) keep the
-/// established catalog behaviour.
+/// No new numeric cutoff is invented here. Two pre-existing constants do
+/// different jobs and must not be collapsed:
+///
+/// - [maxAspectClaimRatio] (`2.5`) is the opposite-edge implausibility bound
+///   [assessQuad] already uses, reused as an outer claim refusal. Equation:
+///   `max(measured, imposed) / min(measured, imposed)`. Above 2.5 the imposed
+///   size describes a different document (a ration card versus an ID card is
+///   about 3.5×). It is not permission to reshape anything below it.
+/// - [shapeTolerance] (`0.04`) is the relative error classification already
+///   uses: `(measured / imposed - 1).abs()`. Inside that tolerance the catalog
+///   millimetre slot may be used and `sizeConfirmed` may be true. It is not
+///   permission to change the warp's output aspect. Perspective correction
+///   always keeps the measured aspect. Export and the sheet preview fit the
+///   pixels uniformly inside the slot (`BoxFit.contain`); a residual ratio
+///   difference becomes a margin, never a stretch.
 library;
 
+import 'crop_draft.dart';
+import 'document_kind.dart';
 import 'geometry.dart';
+import 'image_adjustments.dart';
 import 'quad_assessment.dart';
+import 'validation.dart';
 
-/// Largest factor by which a measured shape and an imposed physical aspect
-/// may disagree before the claim is treated as describing a different
-/// document. Mirrors the 2.5× implausibility bound `assessQuad` already
-/// applies to opposite-side ratios — reused, not tuned.
+/// Outer refusal for a catalog claim. Dimensionless ratio of two long/short
+/// aspects (measured quadrilateral versus imposed catalog size), not a pixel
+/// margin and not an output-aspect license.
+///
+/// It mirrors the 2.5× bound [assessQuad] applies to opposite edges of one
+/// quadrilateral — a different measurement (one edge versus the opposite
+/// edge, in pixels). Reused so a ration-shaped region cannot be accepted as
+/// an ID card. It does not separate ID, residence and passport (those differ
+/// by about 4–12 %), and it must not be read as permission to stretch a
+/// milder disagreement onto the catalog ratio.
 const double maxAspectClaimRatio = 2.5;
 
 /// Who produced a boundary claim. Recorded so a later proposer (e.g. a
@@ -157,6 +174,54 @@ class BoundaryDecision {
   /// The corners a crop may use — present only when [kind] is accepted.
   List<Point2>? get acceptedCorners =>
       kind == BoundaryDecisionKind.accepted ? proposal.corners : null;
+
+  /// Permission to build an automatic perspective crop. Null unless [kind] is
+  /// [BoundaryDecisionKind.accepted]. There is no other constructor.
+  ///
+  /// This permits correcting the accepted quadrilateral. It does not permit
+  /// changing its aspect. [catalogShapeMatches] only permits the catalog
+  /// millimetre slot and `sizeConfirmed`.
+  AutomaticCropAuthorization? get cropAuthorization =>
+      kind == BoundaryDecisionKind.accepted
+      ? AutomaticCropAuthorization._(this)
+      : null;
+
+  /// Whether the measured long/short aspect agrees with the imposed catalog
+  /// aspect within [shapeTolerance], the same relative error classification
+  /// uses: `(measured / imposed - 1).abs() <= shapeTolerance`.
+  ///
+  /// False when the decision was not accepted, when no catalog aspect was
+  /// claimed, or when the disagreement is larger than classification already
+  /// treats as a different shape. Only then may a caller place the image in
+  /// the catalog millimetre slot and set `sizeConfirmed`. The warp itself
+  /// never adopts that ratio: [recipeFromAcceptedBoundary] has no output-aspect
+  /// argument.
+  bool get catalogShapeMatches {
+    if (kind != BoundaryDecisionKind.accepted) return false;
+    final imposed = proposal.imposedAspect;
+    final measured = verification.measuredAspect;
+    if (imposed == null ||
+        measured == null ||
+        !imposed.isFinite ||
+        !measured.isFinite ||
+        imposed <= 0 ||
+        measured <= 0) {
+      return false;
+    }
+    return (measured / imposed - 1).abs() <= shapeTolerance;
+  }
+}
+
+/// The only permission an automatic intake path may use to warp a source.
+///
+/// Manual crops ([userAuthoredCrop]) and recovery replay of an already stored
+/// recipe do not use this type. A caller cannot mint one from corners alone.
+class AutomaticCropAuthorization {
+  const AutomaticCropAuthorization._(this.decision);
+
+  final BoundaryDecision decision;
+
+  List<Point2> get corners => decision.acceptedCorners!;
 }
 
 /// Verifies [proposal] against the source dimensions it was measured on.
@@ -207,13 +272,11 @@ BoundaryDecision verifyBoundary(
   final measuredAspect = assessment.aspect!;
   final reasons = <BoundaryReviewReason>[];
 
-  // Measured shape vs imposed physical size. The warp used to force the
-  // catalog aspect onto the rectified output, which made even a wild
-  // disagreement invisible. Only a disagreement beyond the project's own
-  // implausibility factor (see library doc) is gated: within it, pixel-space
-  // aspect is too perspective-sensitive to overrule the established
-  // classification; beyond it, the imposed size describes a different
-  // document than the one measured, and cropping would fabricate it.
+  // Outer claim refusal only. Above [maxAspectClaimRatio] the imposed size
+  // is a different document, so the claim is not accepted and no automatic
+  // warp runs. A milder disagreement is still not a license to reshape.
+  // [BoundaryDecision.catalogShapeMatches] uses [shapeTolerance] and only
+  // permits the catalog millimetre slot, never a warp aspect.
   final imposed = proposal.imposedAspect;
   if (imposed != null && imposed > 0 && imposed.isFinite) {
     final claimRatio = measuredAspect >= imposed
@@ -266,6 +329,35 @@ BoundaryDecision verifyBoundary(
   );
 }
 
+/// Perspective recipe for an automatic crop. Refuses to run without an
+/// accepted decision. There is no output-aspect argument: a catalog ratio
+/// cannot be smuggled in after acceptance, whether or not
+/// [BoundaryDecision.catalogShapeMatches]. The measured quadrilateral's own
+/// aspect is the output aspect.
+///
+/// [maxAspectClaimRatio] is not consulted here. A decision accepted under
+/// that outer bound is still not a reshape license. Manual crops build their
+/// own [CropDraft] and may set an aspect the user chose; this function is
+/// not that path.
+///
+/// [coordinateFrameCorners] is only a coordinate rewrite of the authorized
+/// quadrilateral (the full-resolution JPEG region buffer). It is not a new
+/// boundary and is ignored unless [authorization] is accepted.
+ImageEditRecipe recipeFromAcceptedBoundary(
+  AutomaticCropAuthorization authorization, {
+  required int sourceWidth,
+  required int sourceHeight,
+  ImageAdjustments? adjustments,
+  List<Point2>? coordinateFrameCorners,
+}) {
+  final corners = coordinateFrameCorners ?? authorization.corners;
+  require(corners.length == 4, 'زوايا القص التلقائي يجب أن تكون أربعًا.');
+  return CropDraft(
+    corners: corners,
+    adjustments: adjustments,
+  ).toRecipe(sourceWidth, sourceHeight);
+}
+
 /// Arabic, user-facing explanation of one review reason. The caller owns
 /// prefixing the image name; this text owns saying what happens next.
 String boundaryReviewReasonMessage(
@@ -282,3 +374,11 @@ String boundaryReviewReasonMessage(
   BoundaryReviewReason.quadOutsideRegion =>
     'الحدود المقترحة لا تصف المنطقة المقاسة؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
 };
+
+/// Shown when a boundary was accepted for perspective correction but its
+/// measured shape does not match the catalog size within [shapeTolerance].
+/// The crop, if saved, keeps the measured aspect and must not be described
+/// as a confirmed catalog size.
+String catalogShapeUnconfirmedMessage() =>
+    'شكل الحدود لا يطابق مقاس النوع ضمن تفاوت التصنيف؛ '
+    'صُحح المنظور دون مطّ الناتج، ولم يُؤكَّد المقاس.';

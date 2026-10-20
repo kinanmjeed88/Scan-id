@@ -76,6 +76,7 @@ class DetectionAnalysis {
     this.region,
     this.boundary = DetectionBoundary.undetected,
     this.regionIndex = 0,
+    this.boundaryDecision,
   });
   final String detectionId;
 
@@ -97,6 +98,12 @@ class DetectionAnalysis {
   /// (top-to-bottom, left-to-right), used to keep results stable.
   final int regionIndex;
 
+  /// The shared Proposal → Verification → Decision result for this region.
+  /// Automatic crops may proceed only when it grants [cropAuthorization].
+  /// A consistency gate over geometry and the imposed catalog claim — not
+  /// an independent measurement of the physical edge.
+  final BoundaryDecision? boundaryDecision;
+
   /// Measured segmenter support; absent for the single-document detector
   /// (it exposes no calibrated score) and for full-frame fallbacks.
   final double? detectionConfidence;
@@ -104,7 +111,20 @@ class DetectionAnalysis {
   final ClassificationOutcome classification;
   final OrientationEstimate orientation;
 
-  bool get hasUsableQuad => corners != null && (geometry?.acceptable ?? false);
+  /// True only when the shared boundary decision accepted this claim.
+  ///
+  /// Geometry that merely passed [assessQuad] is not enough: a filename can
+  /// still impose a catalog size the measured shape cannot claim, and a quad
+  /// can fail to describe its measured region. Those are review outcomes.
+  /// Callers that warp must also use [cropAuthorization]; this getter is the
+  /// same fact, so a path cannot treat "corners present" as permission.
+  bool get hasUsableQuad => cropAuthorization != null;
+
+  /// Present only for an accepted decision. Automatic warps take their
+  /// corners and their catalog-aspect permission from this, not from a
+  /// separately rebuilt recipe.
+  AutomaticCropAuthorization? get cropAuthorization =>
+      boundaryDecision?.cropAuthorization;
 
   /// Whether this region needs a manual boundary before it can be placed
   /// confidently. Its measured [region] is always kept so the document is
@@ -441,32 +461,40 @@ class RecognitionPipeline {
       ),
     );
 
-    // Boundary gate (audits D3/D10): the measured shape must be able to
-    // claim the physical size of the classified kind within the project's
-    // own implausibility factor (maxAspectClaimRatio). A filename label can outvote the shape in
-    // classification; when it does, the warp used to stretch the measured
-    // quad to the catalog aspect anyway. That disagreement is now a
-    // manual-boundary outcome — measured corners are withdrawn, the region
-    // is kept for review, and no size may be claimed from them.
-    if (usableCorners != null && assessment?.aspect != null) {
-      final claimedNatural = catalog.natural(classification.kind);
-      if (claimedNatural != null) {
-        final imposedAspect = claimedNatural.aspect;
-        final measuredAspect = assessment!.aspect!;
-        final claimRatio = measuredAspect >= imposedAspect
-            ? measuredAspect / imposedAspect
-            : imposedAspect / measuredAspect;
-        if (claimRatio > maxAspectClaimRatio) {
+    // Shared boundary contract. The duplicated claim-ratio check used to live
+    // here and could drift from the legacy path. verifyBoundary is a
+    // consistency gate (shape, region agreement, imposed catalog claim) —
+    // not an independent edge measurement. A non-accepted claim cannot keep
+    // corners that an intake path might warp.
+    final claimedNatural = catalog.natural(classification.kind);
+    final decision = verifyBoundary(
+      BoundaryProposal(
+        producer: region == null
+            ? BoundaryProducer.wholeFrameDetector
+            : BoundaryProducer.segmenter,
+        corners: corners,
+        region: region,
+        imposedAspect: claimedNatural?.aspect,
+        imposedKindLabel: classification.kind.label,
+      ),
+      sourceWidth: input.sourceWidth,
+      sourceHeight: input.sourceHeight,
+    );
+    if (corners != null && decision.kind != BoundaryDecisionKind.accepted) {
+      usableCorners = null;
+      boundary = DetectionBoundary.rejected;
+      // Geometry rejection was already reported above. Aspect and region
+      // disagreements are new reasons and must be visible to the user.
+      if (!decision.verification.reasons.contains(
+        BoundaryReviewReason.geometryRejected,
+      )) {
+        for (final reason in decision.verification.reasons) {
           issues.add(
-            const BatchItemFailure(
+            BatchItemFailure(
               category: RecognitionErrorCategory.geometryFailure,
-              message:
-                  'شكل الحدود لا يطابق مقاس النوع المتعرّف عليه؛ '
-                  'حُفظت المنطقة كما هي لتُقصّ يدوياً من المحرر.',
+              message: boundaryReviewReasonMessage(reason),
             ),
           );
-          usableCorners = null;
-          boundary = DetectionBoundary.rejected;
         }
       }
     }
@@ -479,7 +507,7 @@ class RecognitionPipeline {
 
     return DetectionAnalysis(
       detectionId: detectionId,
-      corners: usableCorners,
+      corners: decision.cropAuthorization?.corners ?? usableCorners,
       detectionConfidence: detectionConfidence,
       geometry: assessment,
       classification: classification,
@@ -487,6 +515,7 @@ class RecognitionPipeline {
       region: region,
       boundary: boundary,
       regionIndex: regionIndex,
+      boundaryDecision: decision,
     );
   }
 }

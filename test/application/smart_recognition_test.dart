@@ -1040,11 +1040,9 @@ void main() {
       final source = project.assets.single;
       final token = CancellationToken();
 
-      final pending = s.arrangeImportedImages(
-        project,
-        [source.id],
-        cancellation: token,
-      );
+      final pending = s.arrangeImportedImages(project, [
+        source.id,
+      ], cancellation: token);
       await cropper.started.future.timeout(const Duration(seconds: 10));
       token.cancel();
       // The native/fake crop itself is not interrupted; its late result must
@@ -1085,11 +1083,9 @@ void main() {
       final source = project.assets.single;
       final token = CancellationToken();
 
-      final pending = s.reprocessImages(
-        project,
-        [source.id],
-        cancellation: token,
-      );
+      final pending = s.reprocessImages(project, [
+        source.id,
+      ], cancellation: token);
       await cropper.started.future.timeout(const Duration(seconds: 10));
       token.cancel();
       cropper.release.complete(_photo());
@@ -1110,42 +1106,39 @@ void main() {
     },
   );
 
-  test(
-    'a delayed crop cannot overwrite a newer project revision',
-    () async {
-      final original = _jpegSofOnly(5000, 5000);
-      assets = LocalAssetRepository(
-        projects.files,
-        largeJpegScaler: _FakeLargeJpegScaler(_photo()),
-      );
-      final cropper = _GatedFullResolutionJpegCropper();
-      final s = service(
-        segmenter: _oneValidCard,
-        fullResolutionJpegCropper: cropper,
-      );
-      var project = await s.create('تعارض نتيجة القص المتأخرة');
-      project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
-      ])).project;
-      final source = project.assets.single;
+  test('a delayed crop cannot overwrite a newer project revision', () async {
+    final original = _jpegSofOnly(5000, 5000);
+    assets = LocalAssetRepository(
+      projects.files,
+      largeJpegScaler: _FakeLargeJpegScaler(_photo()),
+    );
+    final cropper = _GatedFullResolutionJpegCropper();
+    final s = service(
+      segmenter: _oneValidCard,
+      fullResolutionJpegCropper: cropper,
+    );
+    var project = await s.create('تعارض نتيجة القص المتأخرة');
+    project = (await s.importImages(project, [
+      ImportSource('بطاقة.jpg', () => Stream.value(original)),
+    ])).project;
+    final source = project.assets.single;
 
-      final pending = s.arrangeImportedImages(project, [source.id]);
-      await cropper.started.future.timeout(const Duration(seconds: 10));
-      final newer = await projects.save(project.copyWith(name: 'تعديل أحدث'));
-      cropper.release.complete(_photo());
+    final pending = s.arrangeImportedImages(project, [source.id]);
+    await cropper.started.future.timeout(const Duration(seconds: 10));
+    final newer = await projects.save(project.copyWith(name: 'تعديل أحدث'));
+    cropper.release.complete(_photo());
 
-      await expectLater(pending, throwsA(isA<RevisionConflict>()));
-      final persisted = await projects.get(project.id);
-      expect(persisted.toJson(), newer.toJson());
-      expect(persisted.assets, hasLength(1));
-      expect(persisted.items, isEmpty);
-      expect(persisted.documents, isEmpty);
-      expect(
-        await (await assets.resolve(source.originalPath)).readAsBytes(),
-        original,
-      );
-    },
-  );
+    await expectLater(pending, throwsA(isA<RevisionConflict>()));
+    final persisted = await projects.get(project.id);
+    expect(persisted.toJson(), newer.toJson());
+    expect(persisted.assets, hasLength(1));
+    expect(persisted.items, isEmpty);
+    expect(persisted.documents, isEmpty);
+    expect(
+      await (await assets.resolve(source.originalPath)).readAsBytes(),
+      original,
+    );
+  });
 
   test(
     'a cropped large source reprocesses from its original without moving a locked item',

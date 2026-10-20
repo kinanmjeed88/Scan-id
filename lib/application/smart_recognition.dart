@@ -804,7 +804,11 @@ class SmartIntake {
           analyzed,
           current.catalog,
           detection,
+          cancellation: cancellation,
         );
+        // A native full-resolution crop may finish after the user cancels.
+        // Never stage its late pixels into the per-image reprocess buffers.
+        cancellation?.throwIfCancelled();
         if (existing == null) {
           current = await _appendNewDocument(
             current,
@@ -1344,7 +1348,11 @@ class SmartIntake {
           analyzed,
           current.catalog,
           detection,
+          cancellation: cancellation,
         );
+        // Drop a result that returned after cancellation before creating even
+        // an uncommitted derived asset on disk.
+        cancellation?.throwIfCancelled();
         if (!output.trustworthy) {
           onNotDetected();
           warnings.add(
@@ -1468,8 +1476,9 @@ class SmartIntake {
     Uint8List sourceBytes,
     _Analyzed analyzed,
     DocumentSizeCatalog catalog,
-    DetectionAnalysis detection,
-  ) async {
+    DetectionAnalysis detection, {
+    CancellationToken? cancellation,
+  }) async {
     final asset = analyzed.asset;
     final region = detection.region;
     if (!asset.hasScaledLargeSource || region == null) {
@@ -1512,6 +1521,7 @@ class SmartIntake {
       right: cropBounds.right,
       bottom: cropBounds.bottom,
     );
+    cancellation?.throwIfCancelled();
     final croppedHeader = inspectImageHeader(bytes);
     require(
       croppedHeader.encoding == ImageEncoding.png &&

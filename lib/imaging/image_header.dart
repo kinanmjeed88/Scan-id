@@ -12,11 +12,11 @@ class ImageHeader {
     if (encoding == ImageEncoding.jpeg) {
       // JPEG SOF dimensions are 16-bit by format definition.
       require(
-        width <= 65535 && height <= 65535,
+        width <= maxJpegDimension && height <= maxJpegDimension,
         'أبعاد JPEG خارج المجال المدعوم.',
       );
       require(
-        width * height <= maxScalableJpegSourcePixels,
+        withinScalableJpegSourceBudget(width, height),
         'صورة JPEG تتجاوز حد المصدر الآمن (32 مليون بكسل).',
       );
     } else {

@@ -57,9 +57,7 @@ class PlatformFullResolutionJpegCropper implements FullResolutionJpegCropper {
     require(
       source.isNotEmpty &&
           source.length <= maxImportBytes &&
-          sourceWidth > 0 &&
-          sourceHeight > 0 &&
-          sourceWidth * sourceHeight <= maxScalableJpegSourcePixels &&
+          withinScalableJpegSourceBudget(sourceWidth, sourceHeight) &&
           orientation >= 1 &&
           orientation <= 8 &&
           [left, top, right, bottom].every((value) => value.isFinite) &&

@@ -6,6 +6,11 @@ const maxImportPixels = 16000000;
 /// decoding. The source-size cap bounds native decoder work independently of
 /// the four-megapixel working copy.
 const maxScalableJpegSourcePixels = 32000000;
+
+/// JPEG SOF stores each dimension in an unsigned 16-bit field. Keep this
+/// format limit independent of the PNG/direct-decoding pixel budget.
+const maxJpegDimension = 0xffff;
+
 const maxScaledWorkingPixels = 4000000;
 const maxScaledWorkingBytes = maxImportBytes;
 
@@ -24,3 +29,14 @@ bool withinImageBudget(int width, int height) =>
     width <= maxImportPixels &&
     height <= maxImportPixels &&
     width * height <= maxImportPixels;
+
+/// Shared source contract for JPEG header validation and native crop requests.
+/// Check each side BEFORE multiplying: callers of the platform channel do not
+/// necessarily arrive through the header parser, and an overflowing product
+/// must never make impossible dimensions appear to fit the 32 MP budget.
+bool withinScalableJpegSourceBudget(int width, int height) =>
+    width > 0 &&
+    height > 0 &&
+    width <= maxJpegDimension &&
+    height <= maxJpegDimension &&
+    width * height <= maxScalableJpegSourcePixels;

@@ -13,6 +13,62 @@ double millimetersToPoints(double mm) {
   return mm / 25.4 * 72;
 }
 
+/// Image rectangle fitted uniformly inside an item slot, centered.
+///
+/// The returned size has the source aspect. One slot edge matches; the other
+/// is shorter, so the difference is a margin rather than a stretch. Units are
+/// the same as [itemWidth] and [itemHeight] (millimetres at the call site).
+({double x, double y, double width, double height}) containedDocumentRect({
+  required double itemX,
+  required double itemY,
+  required double itemWidth,
+  required double itemHeight,
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  require(
+    [itemX, itemY, itemWidth, itemHeight].every((value) => value.isFinite) &&
+        itemWidth > 0 &&
+        itemHeight > 0 &&
+        imageWidth > 0 &&
+        imageHeight > 0,
+    'أبعاد الاحتواء غير صالحة.',
+  );
+  final imageAspect = imageWidth / imageHeight;
+  final boxAspect = itemWidth / itemHeight;
+  final width = imageAspect >= boxAspect ? itemWidth : itemHeight * imageAspect;
+  final height = imageAspect >= boxAspect
+      ? itemWidth / imageAspect
+      : itemHeight;
+  return (
+    x: itemX + (itemWidth - width) / 2,
+    y: itemY + (itemHeight - height) / 2,
+    width: width,
+    height: height,
+  );
+}
+
+/// Native pixel density at the actual contained size, not the empty slot.
+/// Rotation of the slot does not change this density.
+double containedDocumentDpi({
+  required double itemWidth,
+  required double itemHeight,
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  final fitted = containedDocumentRect(
+    itemX: 0,
+    itemY: 0,
+    itemWidth: itemWidth,
+    itemHeight: itemHeight,
+    imageWidth: imageWidth,
+    imageHeight: imageHeight,
+  );
+  final horizontal = imageWidth / fitted.width;
+  final vertical = imageHeight / fitted.height;
+  return math.min(horizontal, vertical) * 25.4;
+}
+
 class Point2 {
   Point2(this.x, this.y) {
     require(x.isFinite && y.isFinite, 'إحداثيات غير صالحة.');

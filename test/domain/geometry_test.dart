@@ -12,6 +12,86 @@ void main() {
     expect(millimetersToPoints(25.4), closeTo(72, 1e-9));
     expect(millimetersToPixels(25.4, 300), closeTo(300, 1e-9));
   });
+  test('contain geometry and native DPI ignore empty slot margins', () {
+    for (final dimensions in [(1200, 120), (120, 1200), (1200, 1200)]) {
+      final fitted = containedDocumentRect(
+        itemX: 10,
+        itemY: 20,
+        itemWidth: 50.8,
+        itemHeight: 50.8,
+        imageWidth: dimensions.$1,
+        imageHeight: dimensions.$2,
+      );
+      expect(fitted.x + fitted.width / 2, closeTo(35.4, 1e-9));
+      expect(fitted.y + fitted.height / 2, closeTo(45.4, 1e-9));
+      expect(
+        fitted.width / fitted.height,
+        closeTo(dimensions.$1 / dimensions.$2, 1e-9),
+      );
+      expect(
+        containedDocumentDpi(
+          itemWidth: 50.8,
+          itemHeight: 50.8,
+          imageWidth: dimensions.$1,
+          imageHeight: dimensions.$2,
+        ),
+        closeTo(600, 1e-9),
+      );
+    }
+  });
+  test('contain preserves non-square slot geometry and true low DPI', () {
+    final fitted = containedDocumentRect(
+      itemX: 7,
+      itemY: 9,
+      itemWidth: 50.8,
+      itemHeight: 25.4,
+      imageWidth: 100,
+      imageHeight: 50,
+    );
+    expect(fitted, (x: 7.0, y: 9.0, width: 50.8, height: 25.4));
+    expect(
+      containedDocumentDpi(
+        itemWidth: 50.8,
+        itemHeight: 25.4,
+        imageWidth: 100,
+        imageHeight: 50,
+      ),
+      closeTo(50, 1e-9),
+    );
+  });
+  test('contain rejects invalid and non-finite geometry', () {
+    for (final width in [0.0, -1.0, double.nan, double.infinity]) {
+      expect(
+        () => containedDocumentDpi(
+          itemWidth: width,
+          itemHeight: 50,
+          imageWidth: 100,
+          imageHeight: 50,
+        ),
+        invalid,
+      );
+    }
+    expect(
+      () => containedDocumentRect(
+        itemX: double.nan,
+        itemY: 0,
+        itemWidth: 50,
+        itemHeight: 50,
+        imageWidth: 100,
+        imageHeight: 50,
+      ),
+      invalid,
+    );
+    expect(
+      () => containedDocumentDpi(
+        itemWidth: 50,
+        itemHeight: 50,
+        imageWidth: 0,
+        imageHeight: 50,
+      ),
+      invalid,
+    );
+  });
   test('invalid conversion inputs cannot produce NaN or negative output', () {
     expect(() => millimetersToPixels(-1, 300), invalid);
     expect(() => millimetersToPixels(double.infinity, 300), invalid);

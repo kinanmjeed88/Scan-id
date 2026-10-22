@@ -1431,7 +1431,10 @@ class SmartIntake {
             outputHeight: output.outputHeight,
           ),
           suggestedPolygon: output.suggestedCorners,
-          producer: _producerLabelFor(detection, fallback: 'document-segmenter'),
+          producer: _producerLabelFor(
+            detection,
+            fallback: 'document-segmenter',
+          ),
         );
         newDocuments.add(record);
         newItems.add(
@@ -1689,7 +1692,12 @@ class SmartIntake {
               rawReg[3],
               detection.suggestedCorners!,
             )
-          : (left: rawReg[0], top: rawReg[1], right: rawReg[2], bottom: rawReg[3]);
+          : (
+              left: rawReg[0],
+              top: rawReg[1],
+              right: rawReg[2],
+              bottom: rawReg[3],
+            );
       final localSuggested = detection.suggestedCorners == null
           ? null
           : _remapSuggestedIntoRegion(
@@ -1792,10 +1800,7 @@ class SmartIntake {
     final boundaryId = editor is BoundaryProposalImageEditor
         ? (editor as BoundaryProposalImageEditor).boundaryModelId
         : null;
-    return {
-      'ocr': ocr.version,
-      if (boundaryId != null) 'boundary': boundaryId,
-    };
+    return {'ocr': ocr.version, if (boundaryId != null) 'boundary': boundaryId};
   }
 
   String _producerLabelFor(
@@ -1926,7 +1931,9 @@ class SmartIntake {
           ? null
           : Confidence(
               value: detection.detectionConfidence!,
-              reason: isAi ? 'learned-boundary-score' : 'segment-region-support',
+              reason: isAi
+                  ? 'learned-boundary-score'
+                  : 'segment-region-support',
               producer: producer,
               version: isAi ? producer : segmenterVersion,
             ),

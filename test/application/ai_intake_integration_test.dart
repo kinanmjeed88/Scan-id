@@ -31,9 +31,7 @@ AiModelBundle _loadBundleFromRepo() {
   final manifestJson = File(
     'assets/models/MODEL_MANIFEST.json',
   ).readAsStringSync();
-  final s1 = File(
-    'assets/models/scanid_stage1_det_v1.onnx',
-  ).readAsBytesSync();
+  final s1 = File('assets/models/scanid_stage1_det_v1.onnx').readAsBytesSync();
   final s2 = File(
     'assets/models/scanid_stage2_corners_v1.onnx',
   ).readAsBytesSync();
@@ -120,11 +118,7 @@ void main() {
       final bundle = _loadBundleFromRepo();
       final editor = LocalImageEditor(assets, aiBundle: bundle);
       // Production defaults: smartRecognitionEnabled = false, multiDocumentSegmentationEnabled = true
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-      );
+      final service = ProjectService(projects, assets, imageEditor: editor);
 
       final goldenBytes = File(
         'test/fixtures/ai_golden_card.png',
@@ -139,17 +133,20 @@ void main() {
       project = imported.project;
       expect(project.assets, hasLength(2));
 
-      final arranged = await service.arrangeImportedImages(
-        project,
-        [for (final a in project.assets) a.id],
-      );
+      final arranged = await service.arrangeImportedImages(project, [
+        for (final a in project.assets) a.id,
+      ]);
       project = arranged.project;
 
       // Both upright PNG and EXIF-6 rotated JPEG must be auto-cropped cleanly
       for (final asset in project.assets) {
         expect(asset.crop, isNotNull, reason: '${asset.name} auto-cropped');
         expect(asset.workingPath, isNot(asset.originalPath));
-        expect(asset.width, greaterThan(asset.height), reason: 'landscape card');
+        expect(
+          asset.width,
+          greaterThan(asset.height),
+          reason: 'landscape card',
+        );
       }
 
       // Original PNG bytes on disk must remain 100% bit-for-bit identical
@@ -232,11 +229,7 @@ void main() {
       final projects = LocalProjectRepository(files);
       final bundle = _loadBundleFromRepo();
       final editor = LocalImageEditor(assets, aiBundle: bundle);
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-      );
+      final service = ProjectService(projects, assets, imageEditor: editor);
 
       final twoCardBytes = File(
         'test/fixtures/ai_golden_two_cards.png',
@@ -248,10 +241,7 @@ void main() {
       ])).project;
       final sourceId = project.assets.single.id;
 
-      final arranged = await service.arrangeImportedImages(
-        project,
-        [sourceId],
-      );
+      final arranged = await service.arrangeImportedImages(project, [sourceId]);
       project = arranged.project;
 
       // Source image must be preserved untouched while 2 independent derived card assets are created
@@ -281,7 +271,9 @@ void main() {
           b.y + b.height <= a.y + 1e-6;
       expect(separated, isTrue, reason: 'A4 placed items must not overlap');
 
-      final exportDir = await Directory.systemTemp.createTemp('scanid_ai_mexp_');
+      final exportDir = await Directory.systemTemp.createTemp(
+        'scanid_ai_mexp_',
+      );
       addTearDown(() async {
         if (await exportDir.exists()) {
           await exportDir.delete(recursive: true);
@@ -340,10 +332,9 @@ void main() {
         ImportSource('uncertain.png', () => Stream.value(goldenBytes)),
       ])).project;
 
-      final arranged = await service.arrangeImportedImages(
-        project,
-        [project.assets.single.id],
-      );
+      final arranged = await service.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
       final reloaded = await projects.get(arranged.project.id);
       final savedAsset = reloaded.assets.single;
       final savedItem = reloaded.items.single;
@@ -356,8 +347,14 @@ void main() {
       );
       expect(savedAsset.suggestedCrop, hasLength(4));
       for (var i = 0; i < 4; i++) {
-        expect(savedAsset.suggestedCrop![i].x, closeTo(proposedQuad[i].x, 1e-9));
-        expect(savedAsset.suggestedCrop![i].y, closeTo(proposedQuad[i].y, 1e-9));
+        expect(
+          savedAsset.suggestedCrop![i].x,
+          closeTo(proposedQuad[i].x, 1e-9),
+        );
+        expect(
+          savedAsset.suggestedCrop![i].y,
+          closeTo(proposedQuad[i].y, 1e-9),
+        );
       }
       expect(arranged.warnings, isNotEmpty);
 
@@ -404,9 +401,9 @@ void main() {
       ];
       final repository = MemoryProjects();
       final editor = _TrackingFakeEditor();
-      final asset = assetFixture(id: 'asset-uncertain').withSuggestedCrop(
-        proposedQuad,
-      );
+      final asset = assetFixture(
+        id: 'asset-uncertain',
+      ).withSuggestedCrop(proposedQuad);
       final initialProject = await repository.create(
         projectFixture(assets: [asset]),
       );
@@ -560,7 +557,10 @@ void main() {
         imageEditor: FakeImageEditor(),
       );
       await tapKey(tester, const Key('rb-review'));
-      expect(find.byKey(const Key('review-crop-rec-uncertain')), findsOneWidget);
+      expect(
+        find.byKey(const Key('review-crop-rec-uncertain')),
+        findsOneWidget,
+      );
       await tapKey(tester, const Key('review-crop-rec-uncertain'));
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       expect(tester.takeException(), isNull);

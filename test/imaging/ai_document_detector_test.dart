@@ -15,9 +15,7 @@ AiModelBundle _loadBundleFromRepo() {
   final manifestJson = File(
     'assets/models/MODEL_MANIFEST.json',
   ).readAsStringSync();
-  final s1 = File(
-    'assets/models/scanid_stage1_det_v1.onnx',
-  ).readAsBytesSync();
+  final s1 = File('assets/models/scanid_stage1_det_v1.onnx').readAsBytesSync();
   final s2 = File(
     'assets/models/scanid_stage2_corners_v1.onnx',
   ).readAsBytesSync();
@@ -50,93 +48,102 @@ double _percentile(List<double> sorted, double q) {
 
 void main() {
   group('AiModelBundle & OnnxLiteSession', () {
-    test('verifies SHA-256 manifest, sizes, and rejects tampered ONNX bytes', () {
-      final manifestJson = File(
-        'assets/models/MODEL_MANIFEST.json',
-      ).readAsStringSync();
-      final s1 = File(
-        'assets/models/scanid_stage1_det_v1.onnx',
-      ).readAsBytesSync();
-      final s2 = File(
-        'assets/models/scanid_stage2_corners_v1.onnx',
-      ).readAsBytesSync();
+    test(
+      'verifies SHA-256 manifest, sizes, and rejects tampered ONNX bytes',
+      () {
+        final manifestJson = File(
+          'assets/models/MODEL_MANIFEST.json',
+        ).readAsStringSync();
+        final s1 = File(
+          'assets/models/scanid_stage1_det_v1.onnx',
+        ).readAsBytesSync();
+        final s2 = File(
+          'assets/models/scanid_stage2_corners_v1.onnx',
+        ).readAsBytesSync();
 
-      expect(s1.length, 498075);
-      expect(s2.length, 608568);
+        expect(s1.length, 498075);
+        expect(s2.length, 608568);
 
-      final bundle = AiModelBundle.verified(
-        manifestJson: manifestJson,
-        stage1Bytes: s1,
-        stage2Bytes: s2,
-      );
-      expect(bundle.bundleId, 'scanid-docnet-v1');
-      expect(bundle.thresholds.stage2ValidRoiAcceptMin, closeTo(0.80, 1e-6));
-
-      final tamperedS1 = Uint8List.fromList(s1);
-      tamperedS1[tamperedS1.length - 1] ^= 0xFF;
-      expect(
-        () => AiModelBundle.verified(
-          manifestJson: manifestJson,
-          stage1Bytes: tamperedS1,
-          stage2Bytes: s2,
-        ),
-        throwsFormatException,
-      );
-
-      final tamperedS2 = Uint8List.fromList(s2);
-      tamperedS2[0] ^= 0x01;
-      expect(
-        () => AiModelBundle.verified(
+        final bundle = AiModelBundle.verified(
           manifestJson: manifestJson,
           stage1Bytes: s1,
-          stage2Bytes: tamperedS2,
-        ),
-        throwsFormatException,
-      );
-    });
+          stage2Bytes: s2,
+        );
+        expect(bundle.bundleId, 'scanid-docnet-v1');
+        expect(bundle.thresholds.stage2ValidRoiAcceptMin, closeTo(0.80, 1e-6));
 
-    test('executes Stage-1 and Stage-2 ONNX graphs and validates input shapes', () {
-      final bundle = _loadBundleFromRepo();
-      final s1 = OnnxLiteSession.fromBytes(bundle.stage1Bytes);
-      final s2 = OnnxLiteSession.fromBytes(bundle.stage2Bytes);
-
-      final out1 = s1.run({
-        'input': OnnxTensor(
-          const [1, 3, 160, 160],
-          Float32List(3 * 160 * 160),
-        ),
-      });
-      expect(out1['dense_map']!.shape, const [1, 7, 40, 40]);
-      expect(out1['scene_prob']!.shape, const [1, 2]);
-
-      final out2 = s2.run({
-        'input': OnnxTensor(
-          const [1, 3, 128, 128],
-          Float32List(3 * 128 * 128),
-        ),
-      });
-      expect(out2['corner_heatmaps']!.shape, const [1, 6, 64, 64]);
-      expect(out2['corner_offsets']!.shape, const [1, 2, 64, 64]);
-      expect(out2['roi_quality']!.shape, const [1, 3]);
-
-      expect(() => s1.run(const {}), throwsArgumentError);
-      expect(
-        () => s1.run({
-          'input': OnnxTensor(
-            const [1, 3, 80, 80],
-            Float32List(3 * 80 * 80),
+        final tamperedS1 = Uint8List.fromList(s1);
+        tamperedS1[tamperedS1.length - 1] ^= 0xFF;
+        expect(
+          () => AiModelBundle.verified(
+            manifestJson: manifestJson,
+            stage1Bytes: tamperedS1,
+            stage2Bytes: s2,
           ),
-        }),
-        throwsStateError,
-      );
-    });
+          throwsFormatException,
+        );
+
+        final tamperedS2 = Uint8List.fromList(s2);
+        tamperedS2[0] ^= 0x01;
+        expect(
+          () => AiModelBundle.verified(
+            manifestJson: manifestJson,
+            stage1Bytes: s1,
+            stage2Bytes: tamperedS2,
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test(
+      'executes Stage-1 and Stage-2 ONNX graphs and validates input shapes',
+      () {
+        final bundle = _loadBundleFromRepo();
+        final s1 = OnnxLiteSession.fromBytes(bundle.stage1Bytes);
+        final s2 = OnnxLiteSession.fromBytes(bundle.stage2Bytes);
+
+        final out1 = s1.run({
+          'input': OnnxTensor(const [
+            1,
+            3,
+            160,
+            160,
+          ], Float32List(3 * 160 * 160)),
+        });
+        expect(out1['dense_map']!.shape, const [1, 7, 40, 40]);
+        expect(out1['scene_prob']!.shape, const [1, 2]);
+
+        final out2 = s2.run({
+          'input': OnnxTensor(const [
+            1,
+            3,
+            128,
+            128,
+          ], Float32List(3 * 128 * 128)),
+        });
+        expect(out2['corner_heatmaps']!.shape, const [1, 6, 64, 64]);
+        expect(out2['corner_offsets']!.shape, const [1, 2, 64, 64]);
+        expect(out2['roi_quality']!.shape, const [1, 3]);
+
+        expect(() => s1.run(const {}), throwsArgumentError);
+        expect(
+          () => s1.run({
+            'input': OnnxTensor(const [1, 3, 80, 80], Float32List(3 * 80 * 80)),
+          }),
+          throwsStateError,
+        );
+      },
+    );
 
     test(
       'matches ONNX Runtime golden parity (<1e-5 tensors, <1e-3 multi-scene post-processing)',
       () {
         final golden =
             jsonDecode(
-                  File('test/fixtures/ai_golden_vectors.json').readAsStringSync(),
+                  File(
+                    'test/fixtures/ai_golden_vectors.json',
+                  ).readAsStringSync(),
                 )
                 as Map<String, Object?>;
         final pngBytes = File(
@@ -196,8 +203,7 @@ void main() {
           expect(rQual[i], closeTo((expectedQual[i] as num).toDouble(), 1e-5));
         }
         final chData = out2['corner_heatmaps']!.data;
-        final expectedMaxima =
-            golden['stage2_heatmap_maxima'] as List<Object?>;
+        final expectedMaxima = golden['stage2_heatmap_maxima'] as List<Object?>;
         for (var c = 0; c < 6; c++) {
           var maxV = -1.0;
           for (var p = 0; p < 64 * 64; p++) {
@@ -234,7 +240,9 @@ void main() {
             160,
             160,
           );
-          final sp = detector.stage1Session.run({'input': t1})['scene_prob']!.data;
+          final sp = detector.stage1Session.run({
+            'input': t1,
+          })['scene_prob']!.data;
           final expSp = tc['stage1_scene_prob'] as List<Object?>;
           expect(
             sp[0],
@@ -375,10 +383,7 @@ void main() {
 
         final twoCards = img.Image(width: 1280, height: 960);
         img.fill(twoCards, color: img.ColorRgb8(40, 44, 48));
-        for (final r in const [
-          (90, 140, 560, 440),
-          (690, 490, 1170, 790),
-        ]) {
+        for (final r in const [(90, 140, 560, 440), (690, 490, 1170, 790)]) {
           img.fillRect(
             twoCards,
             x1: r.$1,
@@ -477,9 +482,9 @@ void main() {
           'pure_negative_1280x960': negStats,
         };
         Directory('diagnostics').createSync(recursive: true);
-        File(
-          'diagnostics/dart-ai-metrics.json',
-        ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(metrics));
+        File('diagnostics/dart-ai-metrics.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(metrics),
+        );
 
         stdout.writeln(
           '::notice title=dart-ai-metrics::'

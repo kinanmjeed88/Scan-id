@@ -257,24 +257,27 @@ void main() {
     expect(decision.kind, BoundaryDecisionKind.accepted);
   });
 
-  test('a learned-model proposal below minAutoAcceptConfidence needs review', () {
-    final decision = verifyBoundary(
-      BoundaryProposal(
-        producer: BoundaryProducer.learnedModel,
-        corners: goodQuad(),
-        modelConfidence: 0.62,
-        minAutoAcceptConfidence: 0.80,
-      ),
-      sourceWidth: width,
-      sourceHeight: height,
-    );
-    expect(decision.kind, BoundaryDecisionKind.needsReview);
-    expect(decision.cropAuthorization, isNull);
-    expect(
-      decision.verification.reasons,
-      contains(BoundaryReviewReason.lowModelConfidence),
-    );
-  });
+  test(
+    'a learned-model proposal below minAutoAcceptConfidence needs review',
+    () {
+      final decision = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          modelConfidence: 0.62,
+          minAutoAcceptConfidence: 0.80,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(decision.kind, BoundaryDecisionKind.needsReview);
+      expect(decision.cropAuthorization, isNull);
+      expect(
+        decision.verification.reasons,
+        contains(BoundaryReviewReason.lowModelConfidence),
+      );
+    },
+  );
 
   test('a learned-model proposal touching frame edge needs review', () {
     final decision = verifyBoundary(

@@ -317,7 +317,9 @@ OnnxTensor _execBinary(OnnxTensor a, OnnxTensor b, {required bool isMul}) {
     sa[i] = ai >= 0 ? a.shape[ai] : 1;
     sb[i] = bi >= 0 ? b.shape[bi] : 1;
     if (sa[i] != sb[i] && sa[i] != 1 && sb[i] != 1) {
-      throw FormatException('Incompatible broadcast shapes ${a.shape} vs ${b.shape}');
+      throw FormatException(
+        'Incompatible broadcast shapes ${a.shape} vs ${b.shape}',
+      );
     }
     so[i] = math.max(sa[i], sb[i]);
   }
@@ -412,10 +414,12 @@ OnnxTensor _execResize(
       : 'round_prefer_floor';
   final out = Float32List(nBatch * c * outH * outW);
   final src = x.data;
-  final scaleH = (scales != null && scales.data.length >= 4 && scales.data[2] > 0)
+  final scaleH =
+      (scales != null && scales.data.length >= 4 && scales.data[2] > 0)
       ? scales.data[2]
       : (outH / inH);
-  final scaleW = (scales != null && scales.data.length >= 4 && scales.data[3] > 0)
+  final scaleW =
+      (scales != null && scales.data.length >= 4 && scales.data[3] > 0)
       ? scales.data[3]
       : (outW / inW);
 

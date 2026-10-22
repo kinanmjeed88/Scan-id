@@ -297,7 +297,10 @@ class DetectionRef {
       }
     }
     if (suggestedPolygon != null) {
-      require(suggestedPolygon!.length == 4, 'المضلع المقترح يجب أن يحوي أربع زوايا.');
+      require(
+        suggestedPolygon!.length == 4,
+        'المضلع المقترح يجب أن يحوي أربع زوايا.',
+      );
       for (final p in suggestedPolygon!) {
         require(p.x.isFinite && p.y.isFinite, 'نقاط المضلع المقترح غير صالحة.');
       }

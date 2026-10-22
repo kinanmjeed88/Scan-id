@@ -30,11 +30,10 @@ void main() {
     yield LicenseEntryWithLineBreaks([
       'AndroidX Core',
     ], await rootBundle.loadString('assets/legal/androidx-core-LICENSE.txt'));
-    yield LicenseEntryWithLineBreaks([
-      'ScanIdDocNet-v1',
-    ], await rootBundle.loadString(
-      'assets/legal/scanid-docnet-v1-LICENSE.txt',
-    ));
+    yield LicenseEntryWithLineBreaks(
+      ['ScanIdDocNet-v1'],
+      await rootBundle.loadString('assets/legal/scanid-docnet-v1-LICENSE.txt'),
+    );
   });
   runApp(const _Bootstrap());
 }

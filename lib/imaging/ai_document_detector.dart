@@ -29,8 +29,7 @@ import 'prepare_image.dart';
 
 const String scanIdAiBundleId = 'scanid-docnet-v1';
 const String scanIdManifestAssetPath = 'assets/models/MODEL_MANIFEST.json';
-const String scanIdStage1AssetPath =
-    'assets/models/scanid_stage1_det_v1.onnx';
+const String scanIdStage1AssetPath = 'assets/models/scanid_stage1_det_v1.onnx';
 const String scanIdStage2AssetPath =
     'assets/models/scanid_stage2_corners_v1.onnx';
 
@@ -121,7 +120,9 @@ class AiModelBundle {
     final s1Meta = models['stage1_detector'];
     final s2Meta = models['stage2_corner_refiner'];
     if (s1Meta is! Map<String, Object?> || s2Meta is! Map<String, Object?>) {
-      throw const FormatException('MODEL_MANIFEST.json missing stage metadata.');
+      throw const FormatException(
+        'MODEL_MANIFEST.json missing stage metadata.',
+      );
     }
     final expectedS1 = s1Meta['sha256'] as String?;
     final expectedS2 = s2Meta['sha256'] as String?;
@@ -275,10 +276,7 @@ class AiSceneDetection {
           touchesFrameEdge: c.touchesFrameEdge,
         ),
     ];
-    return SegmentationResult(
-      candidates: segs,
-      multi: segs.length >= 2,
-    );
+    return SegmentationResult(candidates: segs, multi: segs.length >= 2);
   }
 }
 
@@ -376,7 +374,11 @@ class AiDocumentDetector {
     final hasDocP = scProb.data[0];
     final multiP = scProb.data[1];
 
-    final proposals = _extractStage1Proposals(dense.data, scProb.data, thresholds);
+    final proposals = _extractStage1Proposals(
+      dense.data,
+      scProb.data,
+      thresholds,
+    );
     final rawCandidates = <AiQuadProposal>[];
     var s2Us = 0;
     var s2Calls = 0;
@@ -489,9 +491,7 @@ class AiDocumentDetector {
           touches == 0 &&
           combinedConf >= 0.55;
 
-      final gateConf = isAccept
-          ? combinedConf
-          : math.min(combinedConf, 0.50);
+      final gateConf = isAccept ? combinedConf : math.min(combinedConf, 0.50);
 
       var rLeft = 1.0, rTop = 1.0, rRight = 0.0, rBottom = 0.0;
       for (final p in fullQ) {
@@ -637,9 +637,10 @@ SegmentationResult segmentWithAiBundle(
   AiModelBundle bundle, {
   bool singleDefersToWholeFrame = true,
 }) {
-  return detectSceneWithAiBundle(previewBytes, bundle).toSegmentationResult(
-    singleDefersToWholeFrame: singleDefersToWholeFrame,
-  );
+  return detectSceneWithAiBundle(
+    previewBytes,
+    bundle,
+  ).toSegmentationResult(singleDefersToWholeFrame: singleDefersToWholeFrame);
 }
 
 // ---------------------------------------------------------------------------
@@ -772,8 +773,9 @@ List<Point2> canonicalizeQuadClockwiseTl(List<Point2> pts) {
   }
   final indexed = List<Point2>.from(pts)
     ..sort(
-      (a, b) =>
-          math.atan2(a.y - cy, a.x - cx).compareTo(math.atan2(b.y - cy, b.x - cx)),
+      (a, b) => math
+          .atan2(a.y - cy, a.x - cx)
+          .compareTo(math.atan2(b.y - cy, b.x - cx)),
     );
   // Ensure clockwise winding in image coordinates (+x right, +y down)
   var signedArea2 = 0.0;
@@ -902,10 +904,22 @@ List<(List<double>, double)> _extractStage1Proposals(
         final ccCy = (minCy + maxCy + 1.0) * 0.5 / grid;
         final ccHw = ((maxCx - minCx + 1.0) * 0.5 / grid) / 0.60;
         final ccHh = ((maxCy - minCy + 1.0) * 0.5 / grid) / 0.60;
-        final xMin = (0.65 * (bx0 / wSum) + 0.35 * (ccCx - ccHw)).clamp(0.0, 1.0);
-        final yMin = (0.65 * (by0 / wSum) + 0.35 * (ccCy - ccHh)).clamp(0.0, 1.0);
-        final xMax = (0.65 * (bx1 / wSum) + 0.35 * (ccCx + ccHw)).clamp(0.0, 1.0);
-        final yMax = (0.65 * (by1 / wSum) + 0.35 * (ccCy + ccHh)).clamp(0.0, 1.0);
+        final xMin = (0.65 * (bx0 / wSum) + 0.35 * (ccCx - ccHw)).clamp(
+          0.0,
+          1.0,
+        );
+        final yMin = (0.65 * (by0 / wSum) + 0.35 * (ccCy - ccHh)).clamp(
+          0.0,
+          1.0,
+        );
+        final xMax = (0.65 * (bx1 / wSum) + 0.35 * (ccCx + ccHw)).clamp(
+          0.0,
+          1.0,
+        );
+        final yMax = (0.65 * (by1 / wSum) + 0.35 * (ccCy + ccHh)).clamp(
+          0.0,
+          1.0,
+        );
         if (xMax - xMin > 0.05 && yMax - yMin > 0.05) {
           proposals.add(([xMin, yMin, xMax, yMax], maxS));
         }
@@ -1055,11 +1069,8 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
     (double, double) c,
     (double, double) d,
   ) {
-    double cross(
-      (double, double) o,
-      (double, double) p,
-      (double, double) q,
-    ) => (p.$1 - o.$1) * (q.$2 - o.$2) - (p.$2 - o.$2) * (q.$1 - o.$1);
+    double cross((double, double) o, (double, double) p, (double, double) q) =>
+        (p.$1 - o.$1) * (q.$2 - o.$2) - (p.$2 - o.$2) * (q.$1 - o.$1);
     final d1 = cross(a, b, c), d2 = cross(a, b, d);
     final d3 = cross(c, d, a), d4 = cross(c, d, b);
     return (d1 * d2 < 0) && (d3 * d4 < 0);
@@ -1112,13 +1123,18 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
 
   final meanW = 0.5 * (sides[0] + sides[2]);
   final meanH = 0.5 * (sides[1] + sides[3]);
-  final aspect = math.max(meanW, meanH) / math.max(1e-6, math.min(meanW, meanH));
+  final aspect =
+      math.max(meanW, meanH) / math.max(1e-6, math.min(meanW, meanH));
   if (aspect > maxAspectRatio) {
     return (false, areaFrac, 0.0);
   }
 
-  final oppTb = math.max(sides[0], sides[2]) / math.max(1e-6, math.min(sides[0], sides[2]));
-  final oppLr = math.max(sides[1], sides[3]) / math.max(1e-6, math.min(sides[1], sides[3]));
+  final oppTb =
+      math.max(sides[0], sides[2]) /
+      math.max(1e-6, math.min(sides[0], sides[2]));
+  final oppLr =
+      math.max(sides[1], sides[3]) /
+      math.max(1e-6, math.min(sides[1], sides[3]));
   final maxOpp = math.max(oppTb, oppLr);
   if (maxOpp > 3.2 || minAngleDeg < 24.0 || maxAngleDeg > 162.0) {
     return (false, areaFrac, 0.0);
@@ -1154,11 +1170,7 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
   final isFullRoi = (rx1 - rx0) >= 0.95 && (ry1 - ry0) >= 0.95;
   final minRoiArea = isFullRoi ? 0.015 : 0.14;
 
-  double? scoreRoiCandidate(
-    List<Point2> qC,
-    List<double> pC,
-    List<double> eC,
-  ) {
+  double? scoreRoiCandidate(List<Point2> qC, List<double> pC, List<double> eC) {
     final (ok, areaC, geomC) = _assessAiModelQuad(
       qC,
       256,
@@ -1187,11 +1199,7 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
   final chosenCells = <(int, int)>[];
   for (var cIdx = 0; cIdx < 4; cIdx++) {
     final hmC = Float32List.fromList(
-      Float32List.sublistView(
-        cornerHeatmaps,
-        cIdx * plane,
-        (cIdx + 1) * plane,
-      ),
+      Float32List.sublistView(cornerHeatmaps, cIdx * plane, (cIdx + 1) * plane),
     );
     for (final (ox, oy) in chosenCells) {
       final y0 = math.max(0, oy - 4), y1 = math.min(grid, oy + 5);
@@ -1214,10 +1222,7 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
     final px = bestIdx % grid;
     chosenCells.add((px, py));
     peaksA.add(
-      math.max(
-        cornerHeatmaps[cIdx * plane + bestIdx],
-        unionHm[bestIdx] * 0.95,
-      ),
+      math.max(cornerHeatmaps[cIdx * plane + bestIdx], unionHm[bestIdx] * 0.95),
     );
     final (u, v) = _subpixelAtCell(unionHm, cornerOffsets, px, py);
     rawPtsA.add(Point2(u, v));
@@ -1319,7 +1324,12 @@ List<double> _edgeSupportForQuad(Float32List edgeMap, List<Point2> cornersRoi) {
         (ry0 + p.y * (ry1 - ry0)).clamp(0.0, 1.0),
       ),
   ]);
-  return (mapped, bestPeaks, bestEdges, [roiQuality[0], roiQuality[1], roiQuality[2]]);
+  return (
+    mapped,
+    bestPeaks,
+    bestEdges,
+    [roiQuality[0], roiQuality[1], roiQuality[2]],
+  );
 }
 
 List<Point2> _refineQuadEdgesLocally(
@@ -1339,7 +1349,10 @@ List<Point2> _refineQuadEdgesLocally(
   final sxScale = w - 1.0;
   final syScale = h - 1.0;
   final ptsPx = [for (final p in quadNorm) (p.x * sxScale, p.y * syScale)];
-  final maxR = math.max(2, math.min(14, (math.min(w, h) * maxShiftNorm).round()));
+  final maxR = math.max(
+    2,
+    math.min(14, (math.min(w, h) * maxShiftNorm).round()),
+  );
   final profileLen = 2 * maxR + 1;
 
   final refinedLines = <(double, double, double, double)>[];
@@ -1414,7 +1427,12 @@ List<Point2> _refineQuadEdgesLocally(
     final tVal = (diffX * dy2 - diffY * dx2) / denom;
     final ux = (px1 + dx1 * tVal) / sxScale;
     final uy = (py1 + dy1 * tVal) / syScale;
-    if (!ux.isFinite || !uy.isFinite || ux < 0.0 || ux > 1.0 || uy < 0.0 || uy > 1.0) {
+    if (!ux.isFinite ||
+        !uy.isFinite ||
+        ux < 0.0 ||
+        ux > 1.0 ||
+        uy < 0.0 ||
+        uy > 1.0) {
       return quadNorm;
     }
     final moveDx = ux - quadNorm[i].x;
@@ -1460,9 +1478,11 @@ List<Point2> clipConvexPolygon(List<Point2> subject, List<Point2> clipper) {
     var s = inp.last;
     for (final e in inp) {
       final dE =
-          sign * ((cp2.x - cp1.x) * (e.y - cp1.y) - (cp2.y - cp1.y) * (e.x - cp1.x));
+          sign *
+          ((cp2.x - cp1.x) * (e.y - cp1.y) - (cp2.y - cp1.y) * (e.x - cp1.x));
       final dS =
-          sign * ((cp2.x - cp1.x) * (s.y - cp1.y) - (cp2.y - cp1.y) * (s.x - cp1.x));
+          sign *
+          ((cp2.x - cp1.x) * (s.y - cp1.y) - (cp2.y - cp1.y) * (s.x - cp1.x));
       if (dE >= -1e-9) {
         if (dS < -1e-9) {
           final denom = dS - dE;

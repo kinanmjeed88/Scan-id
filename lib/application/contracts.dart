@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../domain/boundary_decision.dart';
 import '../domain/project.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
@@ -138,4 +139,13 @@ abstract interface class ImageEditor {
   Future<List<Point2>?> suggest(Uint8List preview);
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe);
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
+}
+
+/// Optional capability implemented by editors backed by a calibrated learned
+/// model (`AiDocumentDetector`) so automatic intake receives full
+/// [BoundaryProposal] metadata (`BoundaryProducer.learnedModel`, calibrated
+/// confidence, and frame-touch flags) for `verifyBoundary`.
+abstract interface class BoundaryProposalImageEditor implements ImageEditor {
+  Future<BoundaryProposal?> suggestProposal(Uint8List preview);
+  String? get boundaryModelId;
 }

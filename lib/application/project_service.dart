@@ -671,7 +671,12 @@ class ProjectService {
       } else {
         try {
           final source = await editor.open(asset);
-          final corners = await editor.suggest(source.preview);
+          final rawProposal = editor is BoundaryProposalImageEditor
+              ? await editor.suggestProposal(source.preview)
+              : null;
+          final corners = editor is BoundaryProposalImageEditor
+              ? rawProposal?.corners
+              : await editor.suggest(source.preview);
           if (corners == null) {
             notDetected++;
             warnings.add(
@@ -706,7 +711,9 @@ class ProjectService {
             // listed in that pipeline's review queue.
             final decision = verifyBoundary(
               BoundaryProposal(
-                producer: BoundaryProducer.wholeFrameDetector,
+                producer:
+                    rawProposal?.producer ??
+                    BoundaryProducer.wholeFrameDetector,
                 corners: corners,
                 imposedAspect: size == null
                     ? null
@@ -714,6 +721,9 @@ class ProjectService {
                           ? size.width / size.height
                           : size.height / size.width),
                 imposedKindLabel: suggestion.kind.label,
+                modelConfidence: rawProposal?.modelConfidence,
+                minAutoAcceptConfidence: rawProposal?.minAutoAcceptConfidence,
+                touchesFrameEdge: rawProposal?.touchesFrameEdge ?? false,
               ),
               sourceWidth: source.width,
               sourceHeight: source.height,
@@ -723,6 +733,16 @@ class ProjectService {
               notDetected++;
               refusedProposedBoundary = true;
               suggestion = null;
+              if (rawProposal?.producer == BoundaryProducer.learnedModel &&
+                  decision.verification.hasUsableGeometry) {
+                asset = asset.withSuggestedCrop(corners);
+                current = current.copyWith(
+                  assets: [
+                    for (final entry in current.assets)
+                      entry.id == asset.id ? asset : entry,
+                  ],
+                );
+              }
               for (final reason in decision.verification.reasons) {
                 warnings.add(
                   '${asset.name}: ${boundaryReviewReasonMessage(reason)}',

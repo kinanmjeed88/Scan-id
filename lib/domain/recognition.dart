@@ -282,6 +282,7 @@ class DetectionRef {
     required this.version,
     this.detectionConfidence,
     this.polygon,
+    this.suggestedPolygon,
     this.bbox,
   }) {
     validId(detectionId);
@@ -295,14 +296,24 @@ class DetectionRef {
         require(p.x.isFinite && p.y.isFinite, 'نقاط الكشف غير صالحة.');
       }
     }
+    if (suggestedPolygon != null) {
+      require(suggestedPolygon!.length == 4, 'المضلع المقترح يجب أن يحوي أربع زوايا.');
+      for (final p in suggestedPolygon!) {
+        require(p.x.isFinite && p.y.isFinite, 'نقاط المضلع المقترح غير صالحة.');
+      }
+    }
   }
   final String detectionId;
   final Confidence? detectionConfidence;
   final String producer;
   final String version;
 
-  /// Detector polygon in source-image normalized coordinates, if produced.
+  /// Detector polygon in source-image normalized coordinates when accepted.
   final List<Point2>? polygon;
+
+  /// Editable 4-corner proposal preserved when `verifyBoundary` routed the
+  /// detection to `needsReview` (never treated as an accepted crop).
+  final List<Point2>? suggestedPolygon;
 
   /// Detector bounding box in millimetres, if produced.
   final RectMm? bbox;
@@ -313,6 +324,8 @@ class DetectionRef {
     'producer': producer,
     'version': version,
     if (polygon != null) 'polygon': polygon!.map((p) => p.toJson()).toList(),
+    if (suggestedPolygon != null)
+      'suggestedPolygon': suggestedPolygon!.map((p) => p.toJson()).toList(),
     if (bbox != null) 'bbox': bbox!.toJson(),
   };
   factory DetectionRef.fromJson(Object? json) {
@@ -327,6 +340,9 @@ class DetectionRef {
       polygon: m['polygon'] == null
           ? null
           : objectList(m['polygon']).map(Point2.fromJson).toList(),
+      suggestedPolygon: m['suggestedPolygon'] == null
+          ? null
+          : objectList(m['suggestedPolygon']).map(Point2.fromJson).toList(),
       bbox: m['bbox'] == null ? null : RectMm.fromJson(m['bbox']),
     );
   }

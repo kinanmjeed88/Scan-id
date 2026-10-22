@@ -14,6 +14,7 @@ import 'application/camera_capture.dart';
 import 'application/native_camera.dart';
 import 'application/ota_update.dart';
 import 'application/update_setup.dart';
+import 'imaging/ai_document_detector.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
@@ -29,8 +30,40 @@ void main() {
     yield LicenseEntryWithLineBreaks([
       'AndroidX Core',
     ], await rootBundle.loadString('assets/legal/androidx-core-LICENSE.txt'));
+    yield LicenseEntryWithLineBreaks([
+      'ScanIdDocNet-v1',
+    ], await rootBundle.loadString(
+      'assets/legal/scanid-docnet-v1-LICENSE.txt',
+    ));
   });
   runApp(const _Bootstrap());
+}
+
+/// Loads and SHA-256-verifies the bundled offline `ScanIdDocNet-v1` ONNX
+/// models from [bundle] (defaults to [rootBundle]). Exposed so integration
+/// tests can verify real asset-bundle loading and checksum enforcement.
+Future<AiModelBundle?> loadVerifiedAiBundle([AssetBundle? bundle]) async {
+  final loader = bundle ?? rootBundle;
+  try {
+    final manifestJson = await loader.loadString(scanIdManifestAssetPath);
+    final s1Data = await loader.load(scanIdStage1AssetPath);
+    final s2Data = await loader.load(scanIdStage2AssetPath);
+    return AiModelBundle.verified(
+      manifestJson: manifestJson,
+      stage1Bytes: s1Data.buffer.asUint8List(
+        s1Data.offsetInBytes,
+        s1Data.lengthInBytes,
+      ),
+      stage2Bytes: s2Data.buffer.asUint8List(
+        s2Data.offsetInBytes,
+        s2Data.lengthInBytes,
+      ),
+    );
+  } catch (_) {
+    // Graceful offline fallback: if bundled ONNX verification fails, project
+    // storage still opens and classical geometry detection remains usable.
+    return null;
+  }
 }
 
 Future<ProjectService> _openStorage({bool recover = false}) async {
@@ -59,10 +92,12 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
   } catch (_) {
     // Best effort: cleanup must never block access to the projects themselves.
   }
+  final aiBundle = await loadVerifiedAiBundle();
   const fullResolution = PlatformFullResolutionJpegCropper();
   final editor = LocalImageEditor(
     repository.files,
     readFullResolutionRegion: fullResolution.cropJpegRegion,
+    aiBundle: aiBundle,
   );
   return ProjectService(
     repository,
@@ -71,6 +106,7 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
         ? CameraCapture(repository, assets, NativeCamera())
         : null,
     imageEditor: editor,
+    segmenter: aiBundle == null ? null : editor.segment,
     recovery: LocalProjectRecovery(repository, editor),
     backups: LocalProjectBackups(repository, repository.files),
     maintenance: maintenance,

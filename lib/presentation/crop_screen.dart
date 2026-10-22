@@ -11,6 +11,7 @@ import '../domain/document_kind.dart';
 import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
 import '../domain/project.dart';
+import '../domain/quad_assessment.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
@@ -20,6 +21,7 @@ class CropScreen extends StatefulWidget {
     required this.asset,
     required this.service,
     this.documentKind = DocumentKind.unknown,
+    this.suggestedCorners,
     super.key,
   });
   final Project project;
@@ -29,6 +31,9 @@ class CropScreen extends StatefulWidget {
   /// Category of the document being cut; its catalog shape is the default
   /// aspect ratio so the rectified image matches the printed size exactly.
   final DocumentKind documentKind;
+
+  /// Optional editable 4-corner proposal from a `needsReview` boundary check.
+  final List<Point2>? suggestedCorners;
   @override
   State<CropScreen> createState() => _CropScreenState();
 }
@@ -44,6 +49,7 @@ class _CropScreenState extends State<CropScreen> {
   bool _busy = true;
   bool _showResult = false;
   bool _dirty = false;
+  bool _showingReviewProposal = false;
   ImageEditor get _editor => widget.service.imageEditor!;
 
   @override
@@ -69,22 +75,42 @@ class _CropScreenState extends State<CropScreen> {
         widget.documentKind,
         landscape: source.width >= source.height,
       );
-      final initial = crop == null
-          ? CropDraft(
-              corners: CropDraft.fullImage().corners,
-              adjustments: widget.asset.adjustments,
-              aspectRatio: shape == null ? null : shape.width / shape.height,
-            )
-          : CropDraft(
-              corners: crop.corners,
-              adjustments: widget.asset.adjustments,
-              aspectRatio: crop.outputWidth / crop.outputHeight,
-              preservedGeometry: crop,
-            );
+      final initialAspect = shape == null ? null : shape.width / shape.height;
+      final baseFull = CropDraft(
+        corners: CropDraft.fullImage().corners,
+        adjustments: widget.asset.adjustments,
+        aspectRatio: initialAspect,
+      );
+      final proposed = crop == null
+          ? _resolveSuggestedCorners(source.width, source.height)
+          : null;
+      final EditHistory<CropDraft> history;
+      final CropDraft activeDraft;
+      if (crop != null) {
+        activeDraft = CropDraft(
+          corners: crop.corners,
+          adjustments: widget.asset.adjustments,
+          aspectRatio: crop.outputWidth / crop.outputHeight,
+          preservedGeometry: crop,
+        );
+        history = EditHistory(activeDraft);
+      } else if (proposed != null) {
+        history = EditHistory(baseFull);
+        activeDraft = CropDraft(
+          corners: proposed,
+          adjustments: widget.asset.adjustments,
+          aspectRatio: initialAspect,
+        );
+        history.record(activeDraft);
+      } else {
+        activeDraft = baseFull;
+        history = EditHistory(activeDraft);
+      }
       setState(() {
         _source = source;
-        _history = EditHistory(initial);
-        _draft = initial;
+        _history = history;
+        _draft = activeDraft;
+        _showingReviewProposal = proposed != null;
         _busy = false;
       });
     } catch (error) {
@@ -95,6 +121,36 @@ class _CropScreenState extends State<CropScreen> {
         });
       }
     }
+  }
+
+  List<Point2>? _resolveSuggestedCorners(int sourceWidth, int sourceHeight) {
+    List<Point2>? candidate =
+        widget.suggestedCorners ?? widget.asset.suggestedCrop;
+    if (candidate == null) {
+      for (final record in widget.project.documents) {
+        for (final side in record.sides) {
+          final sp = side.detection?.suggestedPolygon;
+          if (sp == null) continue;
+          if (assetOwnsProjectPath(
+                widget.project.id,
+                widget.asset.id,
+                side.processedAsset.workingPath,
+              ) ||
+              record.sourceImageId == widget.asset.id) {
+            candidate = sp;
+            break;
+          }
+        }
+        if (candidate != null) break;
+      }
+    }
+    if (candidate == null || candidate.length != 4) return null;
+    final check = assessQuad(
+      candidate,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+    );
+    return check.acceptable ? candidate : null;
   }
 
   /// Whether the quadrilateral currently selected is wider than tall.
@@ -405,6 +461,21 @@ class _CropScreenState extends State<CropScreen> {
             : Column(
                 children: [
                   if (_busy) const LinearProgressIndicator(),
+                  if (_showingReviewProposal)
+                    Container(
+                      key: const Key('crop-proposed-banner'),
+                      width: double.infinity,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.secondaryContainer.withValues(alpha: 0.65),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: const Text(
+                        'حدود مقترحة للمراجعة فقط: عدّل الزوايا الأربع عند الحاجة، ثم اضغط «معاينة التصحيح» قبل الاعتماد.',
+                      ),
+                    ),
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.all(12),

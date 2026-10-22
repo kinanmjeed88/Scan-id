@@ -1,19 +1,24 @@
+import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:image/image.dart' as img;
 
 import '../application/contracts.dart';
 import '../application/ids.dart';
 import '../application/image_reader.dart';
+import '../domain/boundary_decision.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
+import '../imaging/ai_document_detector.dart';
 import '../imaging/document_detector.dart';
+import '../imaging/document_segmenter.dart';
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
@@ -36,13 +41,26 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
-class LocalImageEditor implements ImageEditor {
-  const LocalImageEditor(this.files, {this.readFullResolutionRegion});
+class LocalImageEditor implements BoundaryProposalImageEditor {
+  const LocalImageEditor(
+    this.files, {
+    this.readFullResolutionRegion,
+    this.aiBundle,
+  });
   final SafeFiles files;
 
   /// Null in tests that never crop a large JPEG. A production editor must set
   /// it. A missing reader is an explicit failure, not a silent sample.
   final FullResolutionRegionReader? readFullResolutionRegion;
+
+  /// Verified offline ONNX model bundle (`ScanIdDocNet-v1`). When null (e.g.,
+  /// existing classical unit tests), falls back to the deterministic classical
+  /// `suggestDocumentCorners` detector.
+  final AiModelBundle? aiBundle;
+
+  @override
+  String? get boundaryModelId => aiBundle?.bundleId;
+
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
   );
@@ -65,9 +83,70 @@ class LocalImageEditor implements ImageEditor {
     });
   }
 
+  static final LinkedHashMap<String, AiSceneDetection> _aiSceneCache =
+      LinkedHashMap<String, AiSceneDetection>();
+
+  Future<AiSceneDetection> _detectAiSceneCached(
+    Uint8List preview,
+    AiModelBundle bundle,
+  ) async {
+    final key = '${bundle.bundleId}:${sha256.convert(preview)}';
+    final cached = _aiSceneCache.remove(key);
+    if (cached != null) {
+      _aiSceneCache[key] = cached;
+      return cached;
+    }
+    final computed = await Isolate.run(
+      () => detectSceneWithAiBundle(preview, bundle),
+    );
+    if (_aiSceneCache.length >= 8) {
+      _aiSceneCache.remove(_aiSceneCache.keys.first);
+    }
+    _aiSceneCache[key] = computed;
+    return computed;
+  }
+
+  /// Runs multi-document segmentation using [aiBundle] when verified, sharing
+  /// the bounded preview cache with [suggestProposal] so singleton imports do
+  /// not execute Stage-1/Stage-2 ONNX inference twice on the same preview.
+  Future<SegmentationResult> segment(Uint8List preview) async {
+    final bundle = aiBundle;
+    if (bundle != null) {
+      final scene = await _detectAiSceneCached(preview, bundle);
+      return scene.toSegmentationResult();
+    }
+    return Isolate.run(() => segmentDocuments(preview));
+  }
+
   @override
-  Future<List<Point2>?> suggest(Uint8List preview) =>
-      Isolate.run(() => suggestDocumentCorners(preview));
+  Future<List<Point2>?> suggest(Uint8List preview) async {
+    final bundle = aiBundle;
+    if (bundle != null) {
+      final scene = await _detectAiSceneCached(preview, bundle);
+      return scene.candidates.isEmpty ? null : scene.candidates.first.corners;
+    }
+    return Isolate.run(() => suggestDocumentCorners(preview));
+  }
+
+  @override
+  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
+    final bundle = aiBundle;
+    if (bundle != null) {
+      final scene = await _detectAiSceneCached(preview, bundle);
+      if (scene.candidates.isEmpty || scene.candidates.length > 1) {
+        return null;
+      }
+      return scene.candidates.single.toBoundaryProposal();
+    }
+    return Isolate.run(() {
+      final corners = suggestDocumentCorners(preview);
+      if (corners == null) return null;
+      return BoundaryProposal(
+        producer: BoundaryProducer.wholeFrameDetector,
+        corners: corners,
+      );
+    });
+  }
 
   @override
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {

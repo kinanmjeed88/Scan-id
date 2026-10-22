@@ -9,7 +9,10 @@ library;
 import 'package:flutter/material.dart';
 
 import '../domain/document_kind.dart';
+import '../domain/project.dart';
 import '../domain/recognition.dart';
+import '../domain/recognition_routing.dart';
+import 'crop_screen.dart';
 import 'editor_controller.dart';
 
 /// Kinds offered by the correction menu (everything but `unknown`, which is
@@ -188,6 +191,38 @@ class _ReviewDialog extends StatelessWidget {
                   child: const Text('رفض الاقتران'),
                 ),
               ],
+              if (hasUnresolvedBoundary(record) &&
+                  asset != null &&
+                  c.service.imageEditor != null)
+                TextButton.icon(
+                  key: Key('review-crop-${record.id}'),
+                  icon: const Icon(Icons.crop),
+                  label: const Text('ضبط الحدود'),
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          await c.flush();
+                          if (!context.mounted) return;
+                          final freshAsset = c.session.current.assets
+                              .where((a) => a.id == asset.id)
+                              .firstOrNull;
+                          if (freshAsset == null) return;
+                          final saved = await Navigator.of(context)
+                              .push<Project>(
+                                MaterialPageRoute(
+                                  builder: (_) => CropScreen(
+                                    project: c.session.current,
+                                    asset: freshAsset,
+                                    service: c.service,
+                                    documentKind: kind,
+                                  ),
+                                ),
+                              );
+                          if (saved != null && context.mounted) {
+                            await c.adoptCrop(saved, freshAsset.id);
+                          }
+                        },
+                ),
               TextButton.icon(
                 key: Key('review-dismiss-${record.id}'),
                 icon: const Icon(Icons.not_interested_outlined),

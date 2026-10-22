@@ -235,12 +235,16 @@ class ImageAsset {
     required this.width,
     required this.height,
     this.crop,
+    List<Point2>? suggestedCrop,
     this.captureId,
     this.derivedFrom,
     this.userAuthoredCrop = false,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
-  }) : adjustments = adjustments ?? ImageAdjustments(),
+  }) : suggestedCrop = suggestedCrop == null
+           ? null
+           : List.unmodifiable(suggestedCrop),
+       adjustments = adjustments ?? ImageAdjustments(),
        transforms = List.unmodifiable(transforms) {
     validId(id);
     if (captureId != null) {
@@ -270,6 +274,10 @@ class ImageAsset {
     require(
       !userAuthoredCrop || crop != null,
       'القص اليدوي يحتاج إلى وصف هندسي محفوظ.',
+    );
+    require(
+      suggestedCrop == null || suggestedCrop!.length == 4,
+      'حدود المراجعة المقترحة يجب أن تتكون من أربع زوايا.',
     );
     require(
       transforms.length <= 500 && transforms.every((t) => t.length <= 200),
@@ -308,6 +316,12 @@ class ImageAsset {
   final int width;
   final int height;
   final CropGeometry? crop;
+
+  /// Editable 4-corner proposal retained when `verifyBoundary` routes a
+  /// single-document learned-model detection to `needsReview` without
+  /// applying an automatic crop. Cleared automatically on any saved revision.
+  final List<Point2>? suggestedCrop;
+
   final ImageAdjustments adjustments;
   final List<String> transforms;
 
@@ -359,6 +373,26 @@ class ImageAsset {
     width: width,
     height: height,
     crop: crop,
+    suggestedCrop: suggestedCrop,
+    adjustments: adjustments,
+    transforms: transforms,
+  );
+
+  /// Records or clears an unconfirmed editable boundary proposal without
+  /// touching original or working pixels.
+  ImageAsset withSuggestedCrop(List<Point2>? corners) => ImageAsset(
+    id: id,
+    captureId: captureId,
+    derivedFrom: derivedFrom,
+    userAuthoredCrop: userAuthoredCrop,
+    name: name,
+    originalPath: originalPath,
+    workingPath: workingPath,
+    thumbnailPath: thumbnailPath,
+    width: width,
+    height: height,
+    crop: crop,
+    suggestedCrop: corners,
     adjustments: adjustments,
     transforms: transforms,
   );
@@ -403,6 +437,8 @@ class ImageAsset {
     'width': width,
     'height': height,
     'crop': crop?.toJson(),
+    if (suggestedCrop != null)
+      'suggestedCrop': suggestedCrop!.map((p) => p.toJson()).toList(),
     'adjustments': adjustments.toJson(),
     'transforms': transforms,
   };
@@ -428,6 +464,9 @@ class ImageAsset {
       width: integer(m['width'], 'width'),
       height: integer(m['height'], 'height'),
       crop: m['crop'] == null ? null : CropGeometry.fromJson(m['crop']),
+      suggestedCrop: m['suggestedCrop'] == null
+          ? null
+          : objectList(m['suggestedCrop']).map(Point2.fromJson).toList(),
       adjustments: m['adjustments'] == null
           ? ImageAdjustments()
           : ImageAdjustments.fromJson(m['adjustments']),

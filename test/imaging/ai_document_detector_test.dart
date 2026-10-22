@@ -69,8 +69,8 @@ void main() {
           stage1Bytes: s1,
           stage2Bytes: s2,
         );
-      expect(bundle.bundleId, 'scanid-docnet-v1');
-      expect(bundle.thresholds.acceptRoiValid, closeTo(0.65, 1e-6));
+        expect(bundle.bundleId, 'scanid-docnet-v1');
+        expect(bundle.thresholds.acceptRoiValid, closeTo(0.65, 1e-6));
 
         final tamperedS1 = Uint8List.fromList(s1);
         tamperedS1[tamperedS1.length - 1] ^= 0xFF;

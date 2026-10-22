@@ -64,9 +64,12 @@ double containedDocumentDpi({
     imageWidth: imageWidth,
     imageHeight: imageHeight,
   );
-  final horizontal = imageWidth / fitted.width;
-  final vertical = imageHeight / fitted.height;
-  return math.min(horizontal, vertical) * 25.4;
+  // The limiting edge gives the uniform scale directly. Taking the minimum
+  // of both fitted-axis ratios introduces rounding from the derived edge:
+  // 80x8 in 50.8mm can become 39.99999999999999 instead of 40 DPI.
+  return fitted.width == itemWidth
+      ? imageWidth * 25.4 / itemWidth
+      : imageHeight * 25.4 / itemHeight;
 }
 
 class Point2 {

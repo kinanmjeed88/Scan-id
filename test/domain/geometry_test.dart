@@ -59,6 +59,18 @@ void main() {
       closeTo(50, 1e-9),
     );
   });
+  test('contained DPI uses the limiting edge without derived-axis drift', () {
+    for (final dimensions in [(80, 8), (8, 80)]) {
+      final dpi = containedDocumentDpi(
+        itemWidth: 50.8,
+        itemHeight: 50.8,
+        imageWidth: dimensions.$1,
+        imageHeight: dimensions.$2,
+      );
+      expect(dpi, 40.0);
+      expect(dpi.floor(), 40);
+    }
+  });
   test('contain rejects invalid and non-finite geometry', () {
     for (final width in [0.0, -1.0, double.nan, double.infinity]) {
       expect(

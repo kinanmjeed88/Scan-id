@@ -9,12 +9,17 @@ import '../application/contracts.dart';
 import '../application/ids.dart';
 import '../domain/export_naming.dart';
 import '../domain/export_plan.dart';
+import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/image_header.dart';
 import '../imaging/safe_png.dart';
 import '../imaging/prepare_image.dart' show normalizeChannels;
+
+// Keep the existing public import path while the geometry is shared by domain
+// warnings and both export formats.
+export '../domain/geometry.dart' show containedDocumentRect;
 
 /// Single directory that holds in-flight exports; the Android share provider is
 /// scoped to exactly this folder so no other cache content can be handed out.
@@ -104,25 +109,23 @@ Future<ExportBundle> _generate(
       final placements = plan.project.items.where(
         (e) => e.assetId == id && plan.includes(e),
       );
-      var wantedW = 1, wantedH = 1;
-      for (final item in placements) {
-        wantedW = math.max(
-          wantedW,
-          (item.width / 25.4 * plan.profile.dpi).ceil(),
-        );
-        wantedH = math.max(
-          wantedH,
-          (item.height / 25.4 * plan.profile.dpi).ceil(),
-        );
-      }
       final source = _readWorking(
         paths[id]!,
         plan.project.assets.firstWhere((a) => a.id == id),
       );
-      final factor = math.min(
-        1.0,
-        math.max(wantedW / source.width, wantedH / source.height),
-      );
+      var factor = 0.0;
+      for (final item in placements) {
+        final sourceDpi = containedDocumentDpi(
+          itemWidth: item.width,
+          itemHeight: item.height,
+          imageWidth: source.width,
+          imageHeight: source.height,
+        );
+        // One embedding serves every SELECTED placement of this asset. Empty
+        // margins in a slot must not inflate its raster or consume the PDF
+        // memory budget. Never manufacture source detail by upsampling.
+        factor = math.max(factor, math.min(1.0, plan.profile.dpi / sourceDpi));
+      }
       final reduced = factor < 1
           ? img.copyResize(
               source,
@@ -168,11 +171,12 @@ Future<ExportBundle> _generate(
                       height: item.height * PdfPageFormat.mm,
                       child: pw.Transform.rotate(
                         angle: -item.rotation * math.pi / 180,
-                        child: pw.Image(
+                        child: _pdfContainedImage(
+                          item,
+                          plan.project.assets.firstWhere(
+                            (asset) => asset.id == item.assetId,
+                          ),
                           images[item.assetId]!,
-                          width: item.width * PdfPageFormat.mm,
-                          height: item.height * PdfPageFormat.mm,
-                          fit: pw.BoxFit.contain,
                         ),
                       ),
                     ),
@@ -210,34 +214,41 @@ Future<ExportBundle> _generate(
   return ExportBundle(List.unmodifiable(result));
 }
 
-/// Image rectangle fitted uniformly inside an item slot, centered.
-///
-/// The returned size has the source aspect. One slot edge matches; the other
-/// is shorter, so the difference is a margin rather than a stretch. Units are
-/// the same as [itemWidth] and [itemHeight] (millimetres at the call site).
-({double x, double y, double width, double height}) containedDocumentRect({
-  required double itemX,
-  required double itemY,
-  required double itemWidth,
-  required double itemHeight,
-  required int imageWidth,
-  required int imageHeight,
-}) {
-  require(
-    itemWidth > 0 && itemHeight > 0 && imageWidth > 0 && imageHeight > 0,
-    'أبعاد الاحتواء غير صالحة.',
+/// Use the original aspect for physical placement even when rounding the
+/// embedded raster to whole pixels changes its aspect slightly. The outer
+/// slot is still rotated about its own center exactly as for raster export.
+pw.Widget _pdfContainedImage(
+  DocumentItem item,
+  ImageAsset asset,
+  pw.MemoryImage image,
+) {
+  final fitted = containedDocumentRect(
+    itemX: 0,
+    itemY: 0,
+    itemWidth: item.width,
+    itemHeight: item.height,
+    imageWidth: asset.width,
+    imageHeight: asset.height,
   );
-  final imageAspect = imageWidth / imageHeight;
-  final boxAspect = itemWidth / itemHeight;
-  final width = imageAspect >= boxAspect ? itemWidth : itemHeight * imageAspect;
-  final height = imageAspect >= boxAspect
-      ? itemWidth / imageAspect
-      : itemHeight;
-  return (
-    x: itemX + (itemWidth - width) / 2,
-    y: itemY + (itemHeight - height) / 2,
-    width: width,
-    height: height,
+  return pw.SizedBox(
+    width: item.width * PdfPageFormat.mm,
+    height: item.height * PdfPageFormat.mm,
+    child: pw.Stack(
+      children: [
+        pw.Positioned(
+          left: fitted.x * PdfPageFormat.mm,
+          top: fitted.y * PdfPageFormat.mm,
+          child: pw.Image(
+            image,
+            width: fitted.width * PdfPageFormat.mm,
+            height: fitted.height * PdfPageFormat.mm,
+            // This rectangle already has the ORIGINAL aspect. Fill corrects
+            // raster rounding, not a mismatch between document and slot.
+            fit: pw.BoxFit.fill,
+          ),
+        ),
+      ],
+    ),
   );
 }
 

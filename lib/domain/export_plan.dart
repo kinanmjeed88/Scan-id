@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'document_kind.dart';
 import 'geometry.dart';
 import 'page_layout.dart';
@@ -54,7 +53,12 @@ class ExportPlan {
           '${a.name}: نوع «${e.documentKind.label}» اقتراح منخفض الثقة؛ أكّده يدوياً قبل الطباعة.',
         );
       }
-      final dpi = math.min(a.width / e.width, a.height / e.height) * 25.4;
+      final dpi = containedDocumentDpi(
+        itemWidth: e.width,
+        itemHeight: e.height,
+        imageWidth: a.width,
+        imageHeight: a.height,
+      );
       if (dpi < profile.dpi) {
         result.add(
           '${a.name}: دقة المصدر الفعلية ${dpi.floor()} DPI؛ التكبير لا يضيف تفاصيل.',

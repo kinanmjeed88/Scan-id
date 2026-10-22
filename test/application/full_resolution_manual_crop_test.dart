@@ -1,8 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -254,6 +255,8 @@ class _FakeScaler implements LargeJpegScaler {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('a tilted quad remaps into its own bounds without a new rectangle', () {
     final bounds = manualCropBounds(_tiltedQuad);
     expect(bounds.left, 0.18);
@@ -412,6 +415,63 @@ void main() {
     expect(image.width / image.height, closeTo(2, 0.01));
     expect((image.width / image.height - 85.6 / 53.98).abs(), greaterThan(0.2));
   });
+
+  test(
+    '32 MP import and manual crop pass through the real channel adapter',
+    () async {
+      const channel = MethodChannel('iq.scanid/large_jpeg');
+      const cropper = PlatformFullResolutionJpegCropper(channel: channel);
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        // Native scaling and region decoding are fakes. Import, header
+        // validation, ProjectService, the adapter, warp and persistence stay real.
+        // This is NOT an Android/Windows decoding or density measurement.
+        return _solidPng(640, 160, 220, 20, 20);
+      });
+      try {
+        assets = LocalAssetRepository(
+          projects.files,
+          largeJpegScaler: _FakeScaler(_solidPng(1000, 500, 20, 40, 220)),
+        );
+        final jpeg = _jpegSofOnly(8000, 4000);
+        final imported = await importLarge(jpeg);
+        final original = imported.assets.single;
+        final integrated = ProjectService(
+          projects,
+          assets,
+          imageEditor: LocalImageEditor(
+            projects.files,
+            readFullResolutionRegion: cropper.cropJpegRegion,
+          ),
+        );
+        final cropped = await integrated.applyManualCrop(
+          imported,
+          original,
+          _recipe(_wideQuad),
+        );
+
+        expect(calls, hasLength(1));
+        expect(reader.calls, isEmpty);
+        expect(calls.single.method, 'cropJpegRegion');
+        final args = calls.single.arguments! as Map<Object?, Object?>;
+        expect(args['bytes'], jpeg);
+        expect((args['sourceWidth'], args['sourceHeight']), (8000, 4000));
+        expect(args['maxPixels'], 16000000);
+        final saved = (await projects.get(cropped.id)).assets.single;
+        expect(saved.originalPath, original.originalPath);
+        expect(await originalBytes(saved), jpeg);
+        expect(saved.workingPath, isNot(original.workingPath));
+        expect(saved.userAuthoredCrop, isTrue);
+        _expectCorners(saved.crop!.corners, _wideQuad);
+        expect((await workingImage(saved)).getPixel(0, 0).r, greaterThan(200));
+      } finally {
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    },
+  );
 
   test('a repeated crop still reads the original JPEG bytes', () async {
     final jpeg = _jpegSofOnly(5000, 5000);

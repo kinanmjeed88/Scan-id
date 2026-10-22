@@ -69,6 +69,153 @@ void main() {
     return [for (final entity in entries) entity.path];
   }
 
+  Future<Project> containedProject({int width = 1200, int height = 120}) async {
+    final image = img.Image(width: width, height: height);
+    img.fill(image, color: img.ColorRgb8(0, 0, 255));
+    img.fillRect(
+      image,
+      x1: 0,
+      y1: 0,
+      x2: width ~/ 2 - 1,
+      y2: height - 1,
+      color: img.ColorRgb8(255, 0, 0),
+    );
+    final asset = await assets.importImage(
+      project.id,
+      'synthetic-wide.png',
+      img.encodePng(image),
+    );
+    return project.copyWith(
+      assets: [asset],
+      items: [
+        DocumentItem(
+          id: 'contained1',
+          assetId: asset.id,
+          x: 10,
+          y: 10,
+          width: 50.8,
+          height: 50.8,
+          sizeConfirmed: true,
+        ),
+        DocumentItem(
+          id: 'contained2',
+          assetId: asset.id,
+          x: 10,
+          y: 10,
+          width: 101.6,
+          height: 101.6,
+          rotation: 90,
+          pageIndex: 1,
+          sizeConfirmed: true,
+        ),
+      ],
+    );
+  }
+
+  test('Contained DPI warnings respect page selection', () async {
+    final contained = await containedProject();
+    final first = ExportPlan(contained, ExportProfile(dpi: 600), pages: [0]);
+    expect(first.warnings.where((warning) => warning.contains('DPI')), isEmpty);
+    expect(first.warnings, hasLength(1), reason: 'Keep the margin notice');
+    final second = ExportPlan(contained, ExportProfile(dpi: 600), pages: [1]);
+    expect(
+      second.warnings.where((warning) => warning.contains('DPI')).single,
+      contains('300 DPI'),
+    );
+    // Changing rotation does not change native density or the empty margins.
+    final unrotated = contained.copyWith(
+      items: [contained.items.last.copyWith(rotation: 0)],
+    );
+    expect(
+      ExportPlan(unrotated, ExportProfile(dpi: 600), pages: [1]).warnings,
+      second.warnings,
+    );
+  });
+
+  test('PDF shares the largest selected contained raster', () async {
+    final contained = await containedProject();
+    final before = contained.toJson();
+    final asset = contained.assets.single;
+    final original = await assets.resolve(asset.originalPath);
+    final working = await assets.resolve(asset.workingPath);
+    final originalBefore = await original.readAsBytes();
+    final workingBefore = await working.readAsBytes();
+    final exporter = DocumentExporter(assets);
+    await Directory('diagnostics').create(recursive: true);
+    for (final selection in [
+      (pages: [0], dpi: 300, width: 600, height: 60),
+      (pages: [0], dpi: 600, width: 1200, height: 120),
+      (pages: [0, 1], dpi: 300, width: 1200, height: 120),
+    ]) {
+      final result = await exporter.generate(
+        ExportPlan(
+          contained,
+          ExportProfile(dpi: selection.dpi),
+          pages: selection.pages,
+        ),
+        root,
+      );
+      final pdf = await File(result.files.single).readAsBytes();
+      _expectEmbeddedSize(pdf, selection.width, selection.height);
+      _expectA4MediaBoxes(pdf);
+      if (selection.dpi == 300) {
+        final name = selection.pages.length == 1 ? 'selected' : 'proof';
+        await File(
+          result.files.single,
+        ).copy('diagnostics/export-contain-$name.pdf');
+      }
+    }
+    final raster = await exporter.generate(
+      ExportPlan(contained, ExportProfile(format: ExportFormat.png)),
+      root,
+    );
+    for (var page = 0; page < 2; page++) {
+      await File(
+        raster.files[page],
+      ).copy('diagnostics/export-contain-$page.png');
+    }
+    expect(contained.toJson(), before);
+    expect(await original.readAsBytes(), originalBefore);
+    expect(await working.readAsBytes(), workingBefore);
+  });
+
+  test('PDF integer resampling retains original physical aspect', () async {
+    final contained = await containedProject(width: 2049, height: 113);
+    final singlePage = contained.copyWith(
+      pageCount: 1,
+      items: [
+        contained.items.first.copyWith(width: 50, height: 50, rotation: 90),
+      ],
+    );
+    final result = await DocumentExporter(
+      assets,
+    ).generate(ExportPlan(singlePage, ExportProfile()), root);
+    final pdf = await File(result.files.single).readAsBytes();
+    _expectEmbeddedSize(pdf, 591, 33);
+    await Directory('diagnostics').create(recursive: true);
+    // verify_exports.py checks the image transform with an independent PDF
+    // parser, including the difference between 2049:113 and 591:33.
+    await File(
+      result.files.single,
+    ).copy('diagnostics/export-contain-rounding.pdf');
+  });
+
+  test('PDF never upscales a genuinely low density contained source', () async {
+    final contained = await containedProject(width: 80, height: 8);
+    final plan = ExportPlan(contained, ExportProfile(), pages: [0]);
+    expect(
+      plan.warnings.where((warning) => warning.contains('DPI')).single,
+      contains('40 DPI'),
+    );
+    final result = await DocumentExporter(assets).generate(plan, root);
+    _expectEmbeddedSize(
+      await File(result.files.single).readAsBytes(),
+      80,
+      8,
+      roundingSlack: 0,
+    );
+  });
+
   test(
     'export plan enforces placement and reports real source DPI without upscaling claims',
     () {
@@ -361,4 +508,33 @@ void _expectA4MediaBoxes(List<int> pdf) {
     expect(nums[2], closeTo(a4Width, 0.05));
     expect(nums[3], closeTo(a4Height, 0.05));
   }
+}
+
+// Image dictionaries are outside the compressed raster streams. The independent
+// PyMuPDF audit additionally verifies the actual image matrices and page pixels.
+void _expectEmbeddedSize(
+  Uint8List pdf,
+  int width,
+  int height, {
+  int roundingSlack = 1,
+}) {
+  final text = String.fromCharCodes(pdf);
+  final sizes = <(int, int)>[];
+  for (final match in RegExp(r'<<(.*?)>>', dotAll: true).allMatches(text)) {
+    final dictionary = match.group(1)!;
+    if (!RegExp(r'/Subtype\s*/Image\b').hasMatch(dictionary)) continue;
+    final w = RegExp(r'/Width\s+(\d+)').firstMatch(dictionary);
+    final h = RegExp(r'/Height\s+(\d+)').firstMatch(dictionary);
+    expect(w, isNotNull);
+    expect(h, isNotNull);
+    final size = (int.parse(w!.group(1)!), int.parse(h!.group(1)!));
+    // pdf 3.12.0 creates a grayscale SMask even for an opaque PNG. Validate
+    // both rasters but count only the RGB embedding used by the page widgets.
+    expect(size.$1, inInclusiveRange(width, width + roundingSlack));
+    expect(size.$2, inInclusiveRange(height, height + roundingSlack));
+    if (RegExp(r'/ColorSpace\s*/DeviceRGB\b').hasMatch(dictionary)) {
+      sizes.add(size);
+    }
+  }
+  expect(sizes, hasLength(1), reason: 'One embedding shared across pages');
 }

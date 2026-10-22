@@ -85,6 +85,70 @@ void main() {
     expect(arguments['maxPixels'], 16000000);
   });
 
+  test('invalid JPEG dimensions never reach the native crop channel', () async {
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls++;
+          return Uint8List.fromList([137, 80, 78, 71]);
+        });
+
+    // The first two products fit 32 MP but cannot be represented by JPEG SOF.
+    // The remaining products can overflow a native signed 64-bit Dart int.
+    final invalidDimensions = <(int, int)>[
+      (65536, 1),
+      (1, 65536),
+      (1 << 32, 1 << 32),
+      (1 << 62, 4),
+      (4, 1 << 62),
+    ];
+    final unchanged = Uint8List.fromList(source);
+    for (final (width, height) in invalidDimensions) {
+      await expectLater(
+        cropper.cropJpegRegion(
+          source: source,
+          sourceWidth: width,
+          sourceHeight: height,
+          orientation: 1,
+          left: 0,
+          top: 0,
+          right: 1,
+          bottom: 1,
+        ),
+        throwsA(isA<ValidationException>()),
+      );
+    }
+    expect(calls, 0, reason: 'invalid dimensions must fail before native work');
+    expect(source, unchanged);
+  });
+
+  test('JPEG maximum side remains valid on either axis', () async {
+    final captured = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          captured.add(call);
+          return Uint8List.fromList([137, 80, 78, 71]);
+        });
+
+    for (final (width, height) in [(65535, 1), (1, 65535)]) {
+      await cropper.cropJpegRegion(
+        source: source,
+        sourceWidth: width,
+        sourceHeight: height,
+        orientation: 1,
+        left: 0,
+        top: 0,
+        right: 1,
+        bottom: 1,
+      );
+    }
+    expect(captured, hasLength(2));
+    final first = captured.first.arguments! as Map<Object?, Object?>;
+    final second = captured.last.arguments! as Map<Object?, Object?>;
+    expect((first['sourceWidth'], first['sourceHeight']), (65535, 1));
+    expect((second['sourceWidth'], second['sourceHeight']), (1, 65535));
+  });
+
   test(
     'Dart fake-channel rejects invalid geometry and source limits locally',
     () async {

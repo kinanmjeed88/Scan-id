@@ -135,8 +135,9 @@ void main() {
     final exports = Directory('${root.path}/$exportDirectoryName');
     expect(await exports.exists(), isFalse);
     expect(
-      await (await assets.resolve(project.assets.single.originalPath))
-          .readAsBytes(),
+      await (await assets.resolve(
+        project.assets.single.originalPath,
+      )).readAsBytes(),
       bytes,
     );
   });

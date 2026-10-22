@@ -56,10 +56,13 @@ void main() {
     }
   });
 
-  test('direct processing stays at 16 MP while JPEG sources may reach 32 MP', () {
-    expect(withinImageBudget(4000, 4000), isTrue);
-    expect(withinImageBudget(8000, 4000), isFalse);
-    expect(withinScalableJpegSourceBudget(8000, 4000), isTrue);
-    expect(withinScalableJpegSourceBudget(8001, 4000), isFalse);
-  });
+  test(
+    'direct processing stays at 16 MP while JPEG sources may reach 32 MP',
+    () {
+      expect(withinImageBudget(4000, 4000), isTrue);
+      expect(withinImageBudget(8000, 4000), isFalse);
+      expect(withinScalableJpegSourceBudget(8000, 4000), isTrue);
+      expect(withinScalableJpegSourceBudget(8001, 4000), isFalse);
+    },
+  );
 }

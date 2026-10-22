@@ -49,7 +49,9 @@ class _CropScreenState extends State<CropScreen> {
   bool _busy = true;
   bool _showResult = false;
   bool _dirty = false;
-  bool _showingReviewProposal = false;
+  CropDraft? _initialReviewDraft;
+  bool get _showingReviewProposal =>
+      _initialReviewDraft != null && identical(_draft, _initialReviewDraft);
   ImageEditor get _editor => widget.service.imageEditor!;
 
   @override
@@ -110,7 +112,7 @@ class _CropScreenState extends State<CropScreen> {
         _source = source;
         _history = history;
         _draft = activeDraft;
-        _showingReviewProposal = proposed != null;
+        _initialReviewDraft = proposed != null ? activeDraft : null;
         _busy = false;
       });
     } catch (error) {

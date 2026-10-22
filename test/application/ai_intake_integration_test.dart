@@ -252,14 +252,16 @@ void main() {
 
       var project = await service.create('فحص بطاقتين في صورة واحدة');
       project = (await service.importImages(project, [
-        ImportSource('two_cards.png', () => Stream.value(twoCardBytes)),
+        ImportSource('بطاقة وطنية.png', () => Stream.value(twoCardBytes)),
       ])).project;
       final sourceId = project.assets.single.id;
 
       final arranged = await service.arrangeImportedImages(project, [sourceId]);
+      expect(arranged.cropped, 2);
+      expect(arranged.multiDocumentImages, 1);
       project = arranged.project;
 
-      // Source image must be preserved untouched while 2 independent derived card assets are created
+      // Source image must be preserved untouched while 2 independent derived card assets are created (ADR-003)
       final sourceAsset = project.assets.firstWhere((a) => a.id == sourceId);
       expect(
         await (await assets.resolve(sourceAsset.originalPath)).readAsBytes(),
@@ -270,8 +272,14 @@ void main() {
           .toList();
       expect(derived, hasLength(2));
       for (final cardAsset in derived) {
-        expect(cardAsset.crop, isNotNull);
+        expect(cardAsset.width, lessThan(480));
+        expect(cardAsset.height, lessThan(360));
         expect(cardAsset.width, greaterThan(cardAsset.height));
+      }
+      expect(project.documents, hasLength(2));
+      for (final rec in project.documents) {
+        expect(rec.sides.single.detection?.polygon, hasLength(4));
+        expect(rec.sides.single.processedAsset.corners, hasLength(4));
       }
 
       // Both segmented cards must be automatically arranged on A4 page 0 without overlapping
@@ -375,7 +383,11 @@ void main() {
       }
       expect(arranged.warnings, isNotEmpty);
 
-      // SmartIntake path also keeps crop null and stores suggestedPolygon on DocumentRecord
+      // SmartIntake path on a fresh unplaced asset also keeps crop null and stores suggestedPolygon on DocumentRecord
+      final smartImported = (await service.importImages(reloaded, [
+        ImportSource('uncertain_smart.png', () => Stream.value(goldenBytes)),
+      ])).project;
+      final smartAssetId = smartImported.assets.last.id;
       final intake = SmartIntake(
         projects: projects,
         assets: assets,
@@ -385,9 +397,12 @@ void main() {
           candidates: <SegmentCandidate>[],
         ),
       );
-      final report = await intake.run(reloaded, [savedAsset.id]);
+      final report = await intake.run(smartImported, [smartAssetId]);
       final doc = report.project.documents.single;
-      expect(report.project.assets.single.crop, isNull);
+      final smartAsset = report.project.assets.firstWhere(
+        (a) => a.id == smartAssetId,
+      );
+      expect(smartAsset.crop, isNull);
       expect(hasUnresolvedBoundary(doc), isTrue);
       expect(doc.sides.single.detection?.polygon, isNull);
       expect(doc.sides.single.detection?.suggestedPolygon, hasLength(4));
@@ -515,7 +530,7 @@ void main() {
         Point2(0.83, 0.79),
         Point2(0.13, 0.77),
       ];
-      final rawAsset = assetFixture(id: 'asset-raw');
+      final rawAsset = assetFixture(id: 'asset1');
       final doc = DocumentRecord(
         id: 'rec-uncertain',
         sourceImageId: rawAsset.id,
@@ -548,7 +563,7 @@ void main() {
         ),
         pairing: PairingState.single,
         provenance: Provenance(
-          sourceImageId: 'asset-raw',
+          sourceImageId: rawAsset.id,
           detectionIds: const ['det-0'],
           processedAssetVersion: 'smart-1',
           pipelineVersion: 'smart-1',
@@ -569,7 +584,7 @@ void main() {
           ),
         ],
         documents: [doc],
-      ).copyWith(assets: [rawAsset]);
+      );
 
       await EditorHarness.pump(
         tester,

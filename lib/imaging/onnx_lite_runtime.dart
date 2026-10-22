@@ -707,7 +707,42 @@ OnnxTensor _execConv(
     for (var n = 0; n < nBatch; n++) {
       final nInBase = n * inC * inPlane;
       final nOutBase = n * outC * outPlane;
-      for (var oc = 0; oc < outC; oc++) {
+      var oc = 0;
+      for (; oc + 3 < outC; oc += 4) {
+        final d0 = nOutBase + oc * outPlane;
+        final d1 = d0 + outPlane;
+        final d2 = d1 + outPlane;
+        final d3 = d2 + outPlane;
+        final b0 = bias != null ? bias[oc] : 0.0;
+        final b1 = bias != null ? bias[oc + 1] : 0.0;
+        final b2 = bias != null ? bias[oc + 2] : 0.0;
+        final b3 = bias != null ? bias[oc + 3] : 0.0;
+        for (var p = 0; p < outPlane; p++) {
+          out[d0 + p] = b0;
+          out[d1 + p] = b1;
+          out[d2 + p] = b2;
+          out[d3 + p] = b3;
+        }
+        final wr0 = oc * inC;
+        final wr1 = wr0 + inC;
+        final wr2 = wr1 + inC;
+        final wr3 = wr2 + inC;
+        for (var ic = 0; ic < inC; ic++) {
+          final w0 = wt[wr0 + ic];
+          final w1 = wt[wr1 + ic];
+          final w2 = wt[wr2 + ic];
+          final w3 = wt[wr3 + ic];
+          final srcOff = nInBase + ic * inPlane;
+          for (var p = 0; p < outPlane; p++) {
+            final sv = src[srcOff + p];
+            out[d0 + p] += sv * w0;
+            out[d1 + p] += sv * w1;
+            out[d2 + p] += sv * w2;
+            out[d3 + p] += sv * w3;
+          }
+        }
+      }
+      for (; oc < outC; oc++) {
         final dstOff = nOutBase + oc * outPlane;
         final bVal = bias != null ? bias[oc] : 0.0;
         if (bVal != 0.0) {
@@ -732,12 +767,74 @@ OnnxTensor _execConv(
   // Fast path 2: Depthwise convolution (group == inC && outC == inC && cPerGroup == 1)
   if (group == inC && outC == inC && cPerGroup == 1 && dH == 1 && dW == 1) {
     final kSize = kH * kW;
+    final is3x3S1P1 =
+        kH == 3 &&
+        kW == 3 &&
+        sH == 1 &&
+        sW == 1 &&
+        pTop == 1 &&
+        pLeft == 1 &&
+        pBot == 1 &&
+        pRight == 1 &&
+        inH >= 3 &&
+        inW >= 3;
     for (var n = 0; n < nBatch; n++) {
       for (var c = 0; c < inC; c++) {
         final srcOff = (n * inC + c) * inPlane;
         final dstOff = (n * outC + c) * outPlane;
         final wOff = c * kSize;
         final bVal = bias != null ? bias[c] : 0.0;
+        if (is3x3S1P1) {
+          final w0 = wt[wOff], w1 = wt[wOff + 1], w2 = wt[wOff + 2];
+          final w3 = wt[wOff + 3], w4 = wt[wOff + 4], w5 = wt[wOff + 5];
+          final w6 = wt[wOff + 6], w7 = wt[wOff + 7], w8 = wt[wOff + 8];
+          for (var oy = 1; oy < outH - 1; oy++) {
+            final r0 = srcOff + (oy - 1) * inW;
+            final r1 = r0 + inW;
+            final r2 = r1 + inW;
+            final dstRow = dstOff + oy * outW;
+            for (var ox = 1; ox < outW - 1; ox++) {
+              out[dstRow + ox] =
+                  bVal +
+                  src[r0 + ox - 1] * w0 +
+                  src[r0 + ox] * w1 +
+                  src[r0 + ox + 1] * w2 +
+                  src[r1 + ox - 1] * w3 +
+                  src[r1 + ox] * w4 +
+                  src[r1 + ox + 1] * w5 +
+                  src[r2 + ox - 1] * w6 +
+                  src[r2 + ox] * w7 +
+                  src[r2 + ox + 1] * w8;
+            }
+          }
+          for (var oy = 0; oy < outH; oy++) {
+            final iy0 = oy - 1;
+            final dstRow = dstOff + oy * outW;
+            final interiorRow = oy > 0 && oy < outH - 1;
+            for (var ox = 0; ox < outW; ox++) {
+              if (interiorRow && ox > 0 && ox < outW - 1) {
+                ox = outW - 2;
+                continue;
+              }
+              final ix0 = ox - 1;
+              var acc = bVal;
+              for (var ky = 0; ky < 3; ky++) {
+                final iy = iy0 + ky;
+                if (iy < 0 || iy >= inH) continue;
+                final sRow = srcOff + iy * inW;
+                final wRow = wOff + ky * 3;
+                for (var kx = 0; kx < 3; kx++) {
+                  final ix = ix0 + kx;
+                  if (ix >= 0 && ix < inW) {
+                    acc += src[sRow + ix] * wt[wRow + kx];
+                  }
+                }
+              }
+              out[dstRow + ox] = acc;
+            }
+          }
+          continue;
+        }
         for (var oy = 0; oy < outH; oy++) {
           final iy0 = oy * sH - pTop;
           final dstRow = dstOff + oy * outW;

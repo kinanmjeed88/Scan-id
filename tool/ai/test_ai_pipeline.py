@@ -344,8 +344,9 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         self.assertEqual(manifest["training_provenance"], bench["training_provenance"])
         self.assertEqual(manifest["frozen_thresholds"], bench["frozen_thresholds_used"])
         self.assertFalse(bench["thresholds_modified_on_test"])
-        self.assertFalse(bench["evaluation_environment"]["flutter_dart_runtime_executed"])
-        self.assertFalse(bench["latency_benchmark"]["dart_onnx_lite_runtime"]["measured"])
+        self.assertTrue(bench["evaluation_environment"]["flutter_dart_runtime_executed"])
+        self.assertTrue(bench["latency_benchmark"]["dart_onnx_lite_runtime"]["measured_on_ci_dart_vm_linux_x64"])
+        self.assertFalse(bench["latency_benchmark"]["dart_onnx_lite_runtime"]["measured_on_physical_android_arm64"])
 
         expected_md = render_report_markdown(manifest, bench)
         actual_md = REPORT_MD_PATH.read_text(encoding="utf-8")

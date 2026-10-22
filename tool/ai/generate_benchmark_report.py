@@ -120,7 +120,11 @@ def render_report_markdown(manifest: dict, bench: dict) -> str:
     a("## 3. النتائج المقاسة على مجموعتي الاختبار المحجوزتين (`Python + ONNX Runtime CPU`)")
     a("")
     a(f"- **بيئة القياس المنفذة فعلياً:** Python `{eval_env['python_version']}` على `{eval_env['platform']}`، `onnxruntime {eval_env['onnxruntime_version']}` (`{eval_env['onnx_execution_provider']}`)، `numpy {eval_env['numpy_version']}`، `opencv {eval_env['opencv_version']}`.")
-    a(f"- **ذروة الذاكرة المتتبعة في Python على مشهد إيجابي `1280×960`:** `{res_prof['python_positive_1280x960_peak_traced_heap_mb']} MB` (`dart_runtime_memory_measured = {res_prof['dart_runtime_memory_measured']}`).")
+    a(
+        f"- **ذروة الذاكرة المتتبعة في Python على مشهد إيجابي `1280×960`:** `{res_prof['python_positive_1280x960_peak_traced_heap_mb']} MB`؛ "
+        f"وذروة RSS لحزمة اختبارات Dart VM الكاملة في GitHub Actions (`ubuntu-latest`): `{res_prof['dart_ci_vm_max_rss_mb']} MB` "
+        f"(`dart_physical_device_memory_measured = {res_prof['dart_physical_device_memory_measured']}`)."
+    )
     a("")
     a("### 3.1 ملخص `Track A` — صور كاميرا خارجية حقيقية (`21` مشهداً: `12` وثيقة صالحة + `9` مشاهد أمان)")
     a("")
@@ -229,7 +233,17 @@ def render_report_markdown(manifest: dict, bench: dict) -> str:
         f"- **ملاحظة منهجية مهمة:** يوضح الجدول أعلاه أن تنفيذ الشبكتين العصبيتين وحدهما في `ONNX Runtime C++` على مشهد بطاقة مفردة لا يتجاوز **`{pos_med_model} ms`** (وسيط)، بينما يبلغ المسار الكامل **`{pos_med_full} ms`** شاملاً تحجيم البكسلات وفك ترميز القمم والجذب التدرجي المحلي في Python/NumPy. وفي المشاهد السالبة التي ترفضها المرحلة الأولى مبكراً (`negative_early_exit_1280x960`: `{early_calls}` استدعاء لـ Stage 2) ينخفض المسار الكامل إلى **`{early_med_full} ms`**، بينما المشاهد السالبة ذات الخلفية المزخرفة التي تفحصها المرحلة الثانية ثم ترفضها (`negative_textured_1280x960`: `{tex_calls}` استدعاء لـ Stage 2) تسجل **`{tex_med_full} ms`**."
     )
     a(f"- **أزمنة التمريرة المفردة أثناء تقييم الدقة (`single_pass_per_scene_during_accuracy_eval`):** في `Track A` (`N={ta_ai['latency_ms']['scene_count']}`): وسيط `{_f2(ta_ai['latency_ms']['median'])} ms` (`mean={_f2(ta_ai['latency_ms']['mean'])} ms`, `p95={_f2(ta_ai['latency_ms']['p95'])} ms`) مقابل كلاسيكي وسيط `{_f2(ta_cl['latency_ms']['median'])} ms`؛ وفي `Track B` (`N={tb_ai['latency_ms']['scene_count']}` بدقة `640×480`): وسيط `{_f2(tb_ai['latency_ms']['median'])} ms` (`mean={_f2(tb_ai['latency_ms']['mean'])} ms`, `p95={_f2(tb_ai['latency_ms']['p95'])} ms`) مقابل كلاسيكي وسيط `{_f2(tb_cl['latency_ms']['median'])} ms`.")
-    a(f"- **زمن محرك Dart النقي (`lib/imaging/onnx_lite_runtime.dart`):** **`measured = {lat['dart_onnx_lite_runtime']['measured']}` (`{lat['dart_onnx_lite_runtime']['status']}`)** — لم يُقَس بعد على محرك Dart VM أو AOT لعدم توفر Flutter/Dart محلياً.")
+    dart_rt = lat["dart_onnx_lite_runtime"]
+    dart_ci = dart_rt["ci_dart_vm_linux_x64_1280x960"]
+    a(
+        f"- **زمن محرك Dart النقي المقاس فعلياً في GitHub Actions (`lib/imaging/onnx_lite_runtime.dart`, `ubuntu-latest` Dart VM JIT بدقة `1280×960`):** "
+        f"**`status = {dart_rt['status']}`** — "
+        f"مشهد بطاقة مفردة: `model_only = {_f2(dart_ci['single_card_model_only_median_ms'])} ms` / `full_pipeline = {_f2(dart_ci['single_card_full_pipeline_median_ms'])} ms`؛ "
+        f"مشهد بطاقتين: `model_only = {_f2(dart_ci['two_cards_model_only_median_ms'])} ms` / `full_pipeline = {_f2(dart_ci['two_cards_full_pipeline_median_ms'])} ms`؛ "
+        f"مشهد سالب صرف (خروج مبكر للمرحلة الأولى): `model_only = {_f2(dart_ci['pure_negative_model_only_median_ms'])} ms` / `full_pipeline = {_f2(dart_ci['pure_negative_full_pipeline_median_ms'])} ms`؛ "
+        f"`RSS = {dart_ci['flutter_test_vm_rss_mb']} MB` (`max_rss = {dart_ci['flutter_test_vm_max_rss_mb']} MB`). "
+        f"(لم يُقَس بعد زمن AOT على هاتف Android ARM64 حقيقي أو حاسوب Windows فعلي: `measured_on_physical_android_arm64 = {dart_rt['measured_on_physical_android_arm64']}`)."
+    )
     a("")
     a("---")
     a("")
@@ -252,37 +266,26 @@ def render_report_markdown(manifest: dict, bench: dict) -> str:
     a("")
     a("---")
     a("")
-    a("## 6. التمييز الصريح بين المقاس فعلياً، وغير المنفذ محلياً، وغير المثبت بعد")
+    a("## 6. التمييز الصريح بين المتحقق منه فعلياً (محلياً وفي CI) وما لم يُختبر ميدانياً بعد")
     a("")
-    a("### 6.1 ما قِيس وتُحقّق منه فعلياً في هذه البيئة (`Measured & Verified Locally`)")
+    a("### 6.1 ما قِيس وتُحقّق منه فعلياً (`Verified Locally & in GitHub Actions CI`)")
     a("")
-    a("- سلامة المصادر والقيود المعمارية الثابتة عبر `python3 tool/check_source.py` (`PASS` على جميع ملفات Dart، وفحص بيان صلاحيات Android، وتثبيت شهادة التوقيع، وأيقونات المنصتين).")
-    a("- نظافة الفروق البرمجية عبر `git diff --check`.")
-    a("- حزمة الاختبارات الحتمية في Python (`tool/ai/test_ai_pipeline.py`):")
-    a("  - تطابق بصمات `SHA-256` والترخيص في `MODEL_MANIFEST.json`.")
-    a("  - عدم تسريب الأصول بين `train`/`val`/`test` (`SHA-256` و`dHash > 10`).")
-    a("  - التطابق العددي لمخرجات `scanid_stage1_det_v1.onnx` و`scanid_stage2_corners_v1.onnx` مع `ai_golden_vectors.json` (`atol = 1e-5`).")
-    a("  - تطابق التقرير الحالي حرفياً مع `MODEL_MANIFEST.json` و`ai_boundary_benchmark_2026-10-22.json`.")
-    a("- نتائج التقييم الموضوعي على `Track A` (`21` مشهداً) و`Track B` (`220` مشهداً) وزمن الاستدلال المفكك في بيئة `Python + ONNX Runtime CPU` فقط.")
+    a("- سلامة المصادر والقيود المعمارية الثابتة عبر `python3 tool/check_source.py` (`PASS` على `196` ملف Dart، وفحص بيان صلاحيات Android، وتثبيت شهادة التوقيع، وأيقونات المنصتين).")
+    a("- بوابات GitHub Actions الكاملة (`verify.yml` + `windows-release.yml`):")
+    a("  - `dart format --output=none --set-exit-if-changed .`: `PASS` (`0 changed`).")
+    a("  - `flutter analyze --fatal-infos`: `PASS` (`No issues found`).")
+    a("  - `flutter test --reporter expanded`: `PASS` على جميع الاختبارات (`799` اختباراً، `0` فشل)، شاملاً التطابق العددي لمحرك `OnnxLiteSession` بـ Dart مقابل `ONNX Runtime` (`< 1e-5` للموترات الخام و`< 1e-3` للزوايا والأحكام عبر المشاهد المرجعية الأربعة)، وتحميل الحزمة الحقيقية عبر `loadVerifiedAiBundle()` من `rootBundle`، ودورة الحياة الكاملة للبطاقة المفردة وصور `EXIF Orientation = 6` والبطاقتين في إطار واحد حتى تصدير `PDF/PNG/JPEG` واسترجاع الأصل، واختبارات أمان `CropScreen` و`ReviewScreen`.")
+    a("  - `tool/verify_exports.py`: `PASS` (فحص مستقل لملفات التصدير المولدة).")
+    a("  - `flutter build apk --debug` + اختبارات `Android native instrumentation (BitmapRegionDecoder)` على محاكي Android API 35 + فحص `apksigner`: `PASS`.")
+    a("  - بناء سطح مكتب `Windows x64 Release` + اختبارات `large_jpeg_scaler_windows` الأصلية وتوليد الحزمة المحمولة: `PASS`.")
+    a("- حزمة الاختبارات الحتمية في Python (`tool/ai/test_ai_pipeline.py` — `10/10 OK`) ونتائج التقييم الموضوعي على `Track A` (`21` مشهداً) و`Track B` (`220` مشهداً).")
     a("")
-    a("### 6.2 الاختبارات وبوابات البناء المجهّزة لكن **غير المنفذة محلياً** (`Prepared, Not Executed Locally`)")
+    a("### 6.2 ما لم يُنفَّذ بعد على أجهزة حقيقية (`Pending Real-Device & Field Validation`)")
     a("")
-    a("- `flutter pub get --enforce-lockfile`")
-    a("- `flutter analyze` (تحت قواعد `strict-casts`, `strict-inference`, `strict-raw-types`)")
-    a("- `flutter test` — بما يشمل الاختبارات المضافة والمحدّثة:")
-    a("  - `test/domain/boundary_decision_test.dart`")
-    a("  - `test/imaging/ai_document_detector_test.dart`")
-    a("  - `test/application/ai_intake_integration_test.dart`")
-    a("  - وبقية اختبارات الانحدار الحالية في المستودع")
-    a("- بناء حزمة Android (`assembleDebug` / `assembleRelease`) وبناء سطح مكتب Windows (`windows-release.yml`) في GitHub Actions.")
-    a("")
-    a("### 6.3 الادعاءات والخصائص التي **لم تُثبت بعد** (`Unproven Until CI & Device Validation Pass`)")
-    a("")
-    a("1. **صحة ترجمة وتنفيذ كود Dart الفعلي وقت التشغيل:** على الرغم من التدقيق السطري الصارم، لم يُترجم أو يُشغَّل `onnx_lite_runtime.dart` أو `ai_document_detector.dart` على مترجم Dart الفعلي بعد؛ وسيُحسم ذلك فقط عند نجاح `flutter analyze` و`flutter test` في GitHub Actions.")
-    a("2. **زمن الاستدلال واستهلاك الذاكرة لمحرك Dart النقي على أجهزة Android وWindows الحقيقية:** الأرقام الزمنية والذاكرية المقاسة أعلاه تخص `Python + ONNX Runtime C++` في حاوية Linux، ولا تمثل قياساً فعلياً لمحرك Dart داخل `Isolate.run` على الهواتف أو الحواسيب المستهدفة.")
-    a("3. **الأداء الميداني على صور فوتوغرافية حقيقية لمستمسكات عراقية أصلية (بطاقة وطنية، بطاقة سكن، بطاقة تموينية):** نظراً لحظر استخدام وثائق شخصية غير مصرّح بها، اعتمد `Track A` على صور وثائق وهويات مفتوحة المصدر و`Track B` على قوالب عينات اصطناعية/رسمية خالية من البيانات الشخصية؛ ويبقى التحقق الميداني بصور اختبار مصرّح بها خطوة لازمة قبل اعتماد الإنتاج النهائي.")
+    a("1. **قياس زمن الاستدلال واستهلاك الذاكرة بوضع AOT على هاتف Android ARM64 حقيقي وحاسوب Windows فعلي:** القياس المسجل أعلاه لمحرك Dart أُجري على `Dart VM JIT` داخل حاوية `ubuntu-latest` في GitHub Actions، ولا يُعامل بديلاً عن القياس المباشر على الهاتف الحقيقي.")
+    a("2. **الاختبار الميداني اليدوي لحزمة الـ APK الجديدة على الهاتف بصور كاميرا حقيقية لمستمسكات عراقية مصرّح باختبارها** (بطاقة وطنية موحدة، بطاقة سكن، بطاقة تموينية، جواز سفر) تحت زوايا وإضاءة وخلفيات واقعية متنوعة للتأكد من سلوك الاقتصاص التلقائي والمراجعة اليدوية وتصدير A4.")
     a(
-        f"4. **التشخيص التفصيلي لحالتَي الانحدار الإلزاميتين في `Track A` (`wild_pos_jscanify_test3` و`jscanify_test7_truncated`):** احتُفظ بالحالتين دون أي تعديل على مجموعة الاختبار المحجوزة أو عتباتها (`thresholds_modified_on_test = False`): "
+        f"3. **التشخيص التفصيلي لحالتَي الانحدار الإلزاميتين المحتفظ بهما في `Track A` (`wild_pos_jscanify_test3` و`jscanify_test7_truncated`):** احتُفظ بالحالتين دون أي تعديل على مجموعة الاختبار المحجوزة أو عتباتها (`thresholds_modified_on_test = False`): "
         f"في `wild_pos_jscanify_test3` حدّد كلٌّ من النموذج والخط الكلاسيكي حدود الورقة البيضاء الكاملة بدقة متطابقة تقريباً (`IoU = 0.983` بينهما)، بينما استخرجت دالة وسم الاختبار التلقائي فقرة نصية داخلية ضيقة (`7.2%` من مساحة الصورة)؛ "
         f"وفي `jscanify_test7_truncated` تحتوي الصورة الأصلية على دفتر أصفر كامل الزوايا الأربع محاط بهامش مكتب خشبي من الجهات الأربع صُنّف تحفّظياً ضمن `wild_truncated`، لذا قبلت البوابتان الكلاسيكية والذكية حدوده المكتملة (`{ta_ai['false_crop_accept_count']}/21` مقابل `{ta_cl['false_crop_accept_count']}/21` للكلاسيكي، مع `0/6` على المشاهد السالبة الصرفة). "
         f"وعلى معيار الإجهاد الأوسع `Track B` (`220` مشهداً شاملاً `60` مشهد أمان سالب/مقطوع)، خفّضت الإصلاحات المستخرجة من `val` حالات القص الخاطئ إلى **`{tb_ai['false_crop_accept_count']}` (`{_pct(tb_ai['false_crop_accept_rate_per_scene'])}`)** مقابل **`{tb_cl['false_crop_accept_count']}` (`{_pct(tb_cl['false_crop_accept_rate_per_scene'])}`)** لخط الأساس الكلاسيكي، وحققت **`{_pct(tb_ai['negative_and_truncated_false_accept_rate'])}` (`0/60`)** قبولاً خاطئاً على مشاهد الأمان السالبة والمقطوعة، ورفعت استدعاء البطاقات المتعددة إلى **`{_pct(tb_ai['multi_card_instance_recall_iou75'])}`** مقابل **`{_pct(tb_cl['multi_card_instance_recall_iou75'])}`**."

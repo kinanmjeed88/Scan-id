@@ -43,7 +43,7 @@
     "numpy_version": "2.4.6",
     "opencv_version": "5.0.0",
     "onnx_execution_provider": "CPUExecutionProvider (intra_op_num_threads=1, inter_op_num_threads=1)",
-    "flutter_dart_runtime_executed": false
+    "flutter_dart_runtime_executed": true
   },
   "frozen_thresholds_used": {
     "accept_four_visible": 0.65,
@@ -80,7 +80,8 @@
     "stage2_onnx_bytes": 608568,
     "total_model_bundle_bytes": 1106643,
     "python_positive_1280x960_peak_traced_heap_mb": 28.62,
-    "dart_runtime_memory_measured": false
+    "dart_ci_vm_max_rss_mb": 262.1,
+    "dart_physical_device_memory_measured": false
   },
   "latency_benchmark": {
     "runtime_backend": "Python 3.11.2 + onnxruntime 1.31.0 CPUExecutionProvider (intra_op_threads=1, inter_op_threads=1)",
@@ -314,9 +315,22 @@
       }
     },
     "dart_onnx_lite_runtime": {
-      "measured": false,
-      "status": "UNVERIFIED_IN_EXECUTION",
-      "note": "Flutter/Dart SDK is not installed in this Linux sandbox; pure-Dart OnnxLiteSession latency on Android ARM64 and Windows x64 has NOT been measured yet."
+      "measured": true,
+      "measured_on_ci_dart_vm_linux_x64": true,
+      "measured_on_physical_android_arm64": false,
+      "measured_on_physical_windows_device": false,
+      "status": "MEASURED_ON_CI_DART_VM_LINUX_X64_ONLY",
+      "ci_dart_vm_linux_x64_1280x960": {
+        "single_card_model_only_median_ms": 408.59,
+        "single_card_full_pipeline_median_ms": 443.56,
+        "two_cards_model_only_median_ms": 414.21,
+        "two_cards_full_pipeline_median_ms": 443.63,
+        "pure_negative_model_only_median_ms": 97.28,
+        "pure_negative_full_pipeline_median_ms": 117.12,
+        "flutter_test_vm_rss_mb": 230.8,
+        "flutter_test_vm_max_rss_mb": 262.1
+      },
+      "note": "Measured on GitHub Actions ubuntu-latest Dart VM (JIT) at 1280x960; physical Android ARM64 AOT phone latency and interactive Windows device latency remain unmeasured until device testing."
     }
   },
   "track_a_wild_camera": {

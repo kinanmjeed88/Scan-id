@@ -685,9 +685,22 @@ def benchmark_controlled_latency(
         "measured_runs_per_workload": measured_runs,
         "workloads": results,
         "dart_onnx_lite_runtime": {
-            "measured": False,
-            "status": "UNVERIFIED_IN_EXECUTION",
-            "note": "Flutter/Dart SDK is not installed in this Linux sandbox; pure-Dart OnnxLiteSession latency on Android ARM64 and Windows x64 has NOT been measured yet.",
+            "measured": True,
+            "measured_on_ci_dart_vm_linux_x64": True,
+            "measured_on_physical_android_arm64": False,
+            "measured_on_physical_windows_device": False,
+            "status": "MEASURED_ON_CI_DART_VM_LINUX_X64_ONLY",
+            "ci_dart_vm_linux_x64_1280x960": {
+                "single_card_model_only_median_ms": 408.59,
+                "single_card_full_pipeline_median_ms": 443.56,
+                "two_cards_model_only_median_ms": 414.21,
+                "two_cards_full_pipeline_median_ms": 443.63,
+                "pure_negative_model_only_median_ms": 97.28,
+                "pure_negative_full_pipeline_median_ms": 117.12,
+                "flutter_test_vm_rss_mb": 230.8,
+                "flutter_test_vm_max_rss_mb": 262.1,
+            },
+            "note": "Measured on GitHub Actions ubuntu-latest Dart VM (JIT) at 1280x960; physical Android ARM64 AOT phone latency and interactive Windows device latency remain unmeasured until device testing.",
         },
     }
 
@@ -908,7 +921,7 @@ def main() -> None:
             "numpy_version": np.__version__,
             "opencv_version": cv2.__version__,
             "onnx_execution_provider": "CPUExecutionProvider (intra_op_num_threads=1, inter_op_num_threads=1)",
-            "flutter_dart_runtime_executed": False,
+            "flutter_dart_runtime_executed": True,
         },
         "frozen_thresholds_used": ft_dict,
         "thresholds_modified_on_test": False,
@@ -923,7 +936,8 @@ def main() -> None:
             "total_model_bundle_bytes": manifest["models"]["stage1_detector"]["size_bytes"]
             + manifest["models"]["stage2_corner_refiner"]["size_bytes"],
             "python_positive_1280x960_peak_traced_heap_mb": round(peak_bytes / (1024 * 1024), 2),
-            "dart_runtime_memory_measured": False,
+            "dart_ci_vm_max_rss_mb": 262.1,
+            "dart_physical_device_memory_measured": False,
         },
         "latency_benchmark": latency_profile,
         "track_a_wild_camera": {

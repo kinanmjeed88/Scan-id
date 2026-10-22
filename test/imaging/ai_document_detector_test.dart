@@ -127,12 +127,12 @@ void main() {
         expect(out2['roi_quality']!.shape, const [1, 3]);
 
         expect(() => s1.run(const {}), throwsArgumentError);
-      expect(
-        () => s1.run({
-          'input': OnnxTensor(const [1, 3, 80, 80], Float32List(3 * 80 * 80)),
-        }),
-        throwsFormatException,
-      );
+        expect(
+          () => s1.run({
+            'input': OnnxTensor(const [1, 3, 80, 80], Float32List(3 * 80 * 80)),
+          }),
+          throwsFormatException,
+        );
       },
     );
 

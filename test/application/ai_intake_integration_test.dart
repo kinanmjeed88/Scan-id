@@ -17,6 +17,7 @@ import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/imaging/ai_document_detector.dart';
+import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/main.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -42,11 +43,14 @@ AiModelBundle _loadBundleFromRepo() {
   );
 }
 
-class _UncertainAiEditor implements ImageEditor {
+class _UncertainAiEditor implements BoundaryProposalImageEditor {
   _UncertainAiEditor(this._inner, this._proposal);
 
   final LocalImageEditor _inner;
   final BoundaryProposal _proposal;
+
+  @override
+  String? get boundaryModelId => 'scanid-docnet-v1';
 
   @override
   Future<EditorSource> open(ImageAsset asset) => _inner.open(asset);
@@ -58,9 +62,8 @@ class _UncertainAiEditor implements ImageEditor {
   Future<BoundaryProposal?> suggestProposal(Uint8List preview) async =>
       _proposal;
 
-  @override
   Future<SegmentationResult> segment(Uint8List preview) async =>
-      const SegmentationResult(multi: false, candidates: []);
+      const SegmentationResult(multi: false, candidates: <SegmentCandidate>[]);
 
   @override
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
@@ -114,11 +117,17 @@ void main() {
 
       final files = SafeFiles(tempDir);
       final assets = LocalAssetRepository(files);
-      final projects = LocalProjectRepository(files);
+      final projects = await LocalProjectRepository.open(tempDir);
+      addTearDown(projects.close);
       final bundle = _loadBundleFromRepo();
-      final editor = LocalImageEditor(assets, aiBundle: bundle);
+      final editor = LocalImageEditor(files, aiBundle: bundle);
       // Production defaults: smartRecognitionEnabled = false, multiDocumentSegmentationEnabled = true
-      final service = ProjectService(projects, assets, imageEditor: editor);
+      final service = ProjectService(
+        projects,
+        assets,
+        imageEditor: editor,
+        segmenter: editor.segment,
+      );
 
       final goldenBytes = File(
         'test/fixtures/ai_golden_card.png',
@@ -226,10 +235,16 @@ void main() {
 
       final files = SafeFiles(tempDir);
       final assets = LocalAssetRepository(files);
-      final projects = LocalProjectRepository(files);
+      final projects = await LocalProjectRepository.open(tempDir);
+      addTearDown(projects.close);
       final bundle = _loadBundleFromRepo();
-      final editor = LocalImageEditor(assets, aiBundle: bundle);
-      final service = ProjectService(projects, assets, imageEditor: editor);
+      final editor = LocalImageEditor(files, aiBundle: bundle);
+      final service = ProjectService(
+        projects,
+        assets,
+        imageEditor: editor,
+        segmenter: editor.segment,
+      );
 
       final twoCardBytes = File(
         'test/fixtures/ai_golden_two_cards.png',
@@ -300,8 +315,9 @@ void main() {
 
       final files = SafeFiles(tempDir);
       final assets = LocalAssetRepository(files);
-      final projects = LocalProjectRepository(files);
-      final innerEditor = LocalImageEditor(assets);
+      final projects = await LocalProjectRepository.open(tempDir);
+      addTearDown(projects.close);
+      final innerEditor = LocalImageEditor(files);
       final proposedQuad = [
         Point2(0.16, 0.18),
         Point2(0.84, 0.22),
@@ -322,6 +338,7 @@ void main() {
         projects,
         assets,
         imageEditor: uncertainEditor,
+        segmenter: uncertainEditor.segment,
       );
 
       final goldenBytes = File(
@@ -363,8 +380,10 @@ void main() {
         projects: projects,
         assets: assets,
         editor: uncertainEditor,
-        segment: (_) async =>
-            const SegmentationResult(multi: false, candidates: []),
+        segment: (_) async => const SegmentationResult(
+          multi: false,
+          candidates: <SegmentCandidate>[],
+        ),
       );
       final report = await intake.run(reloaded, [savedAsset.id]);
       final doc = report.project.documents.single;
@@ -511,7 +530,7 @@ void main() {
               detectionConfidence: Confidence(value: 0.44),
               polygon: null,
               suggestedPolygon: proposedQuad,
-              bbox: const [0.12, 0.15, 0.87, 0.81],
+              bbox: RectMm(0.12, 0.15, 0.75, 0.66),
             ),
             processedAsset: ProcessedAssetRef(
               workingPath: rawAsset.workingPath,
@@ -523,10 +542,11 @@ void main() {
         ],
         recognition: RecognitionResult(
           documentKind: DocumentKind.unifiedNationalId,
-          status: RecognitionStatus.needsReview,
+          status: RecognitionStatus.uncertain,
           confidences: ConfidenceSet(finalConfidence: Confidence(value: 0.44)),
-          preset: const PresetSelection.unresolved(),
+          preset: const PresetSelection.awaiting(),
         ),
+        pairing: PairingState.single,
         provenance: Provenance(
           sourceImageId: 'asset-raw',
           detectionIds: const ['det-0'],

@@ -69,8 +69,8 @@ void main() {
           stage1Bytes: s1,
           stage2Bytes: s2,
         );
-        expect(bundle.bundleId, 'scanid-docnet-v1');
-        expect(bundle.thresholds.stage2ValidRoiAcceptMin, closeTo(0.80, 1e-6));
+      expect(bundle.bundleId, 'scanid-docnet-v1');
+      expect(bundle.thresholds.acceptRoiValid, closeTo(0.65, 1e-6));
 
         final tamperedS1 = Uint8List.fromList(s1);
         tamperedS1[tamperedS1.length - 1] ^= 0xFF;
@@ -327,7 +327,7 @@ void main() {
         expect(
           countFrameTouches(
             nearTopTruncated,
-            edgeSupports: const [0.22, 0.89, 0.91, 0.87],
+            edges: const [0.22, 0.89, 0.91, 0.87],
           ),
           1,
         );
@@ -335,7 +335,7 @@ void main() {
         expect(
           countFrameTouches(
             nearTopTruncated,
-            edgeSupports: const [0.86, 0.89, 0.91, 0.87],
+            edges: const [0.86, 0.89, 0.91, 0.87],
           ),
           0,
         );
@@ -421,8 +421,7 @@ void main() {
           var lastCands = 0;
           var s2Calls = 0;
           for (var i = 0; i < runs; i++) {
-            final res = detector.detectImageWithProfile(scene);
-            final p = res.profile!;
+            final (res, p) = detector.detectImageWithProfile(scene);
             modelMs.add(p.modelOnlyMs);
             fullMs.add(p.fullPipelineMs);
             s1Ms.add(p.stage1OnnxMs);

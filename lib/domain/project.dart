@@ -276,7 +276,7 @@ class ImageAsset {
       'القص اليدوي يحتاج إلى وصف هندسي محفوظ.',
     );
     require(
-      suggestedCrop == null || suggestedCrop!.length == 4,
+      suggestedCrop == null || suggestedCrop.length == 4,
       'حدود المراجعة المقترحة يجب أن تتكون من أربع زوايا.',
     );
     require(

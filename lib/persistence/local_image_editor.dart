@@ -115,7 +115,7 @@ class LocalImageEditor implements BoundaryProposalImageEditor {
       final scene = await _detectAiSceneCached(preview, bundle);
       return scene.toSegmentationResult();
     }
-    return Isolate.run(() => segmentDocuments(preview));
+    return Isolate.run(() => segmentDocumentBytes(preview));
   }
 
   @override

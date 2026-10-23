@@ -828,7 +828,25 @@ class LayoutEditorController extends ChangeNotifier {
     String? preferredItemId,
   }) async {
     final beforeItemIds = session.current.items.map((e) => e.id).toSet();
-    final ok = await run(() => session.adoptSaved(saved));
+    final ok = await run(() async {
+      await session.adoptSaved(saved);
+      final addedItem = session.current.items
+          .where((e) => !beforeItemIds.contains(e.id))
+          .lastOrNull;
+      final candidateFocusId =
+          addedItem?.id ??
+          preferredItemId ??
+          session.current.items
+              .where((e) => e.assetId == assetId)
+              .lastOrNull
+              ?.id;
+      if (candidateFocusId != null &&
+          session.current.items.any((e) => e.id == candidateFocusId)) {
+        selected
+          ..clear()
+          ..add(candidateFocusId);
+      }
+    });
     if (!ok) return;
 
     final updatedAsset = session.current.assets

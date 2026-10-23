@@ -136,23 +136,66 @@ class _LayoutScreenState extends State<LayoutScreen> {
     );
   }
 
-  Future<void> _editCrop() async {
-    final item = _c.active;
-    final asset = _c.activeAsset;
-    if (item == null || asset == null || _c.busy) return;
+  Future<void> _editCrop([DocumentItem? target]) async {
+    final item = target ?? _c.active;
+    if (item == null || _c.busy) return;
+    final asset = _c.project.assets
+        .where((a) => a.id == item.assetId)
+        .firstOrNull;
+    if (asset == null) return;
     await _c.flush();
     if (!mounted) return;
+    final freshItem = _c.session.current.items
+        .where((i) => i.id == item.id)
+        .firstOrNull;
+    final freshAsset = _c.session.current.assets
+        .where((a) => a.id == asset.id)
+        .firstOrNull;
+    if (freshItem == null || freshAsset == null) return;
     final saved = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
         builder: (_) => CropScreen(
           project: _c.session.current,
-          asset: _c.session.current.assets.firstWhere((a) => a.id == asset.id),
+          asset: freshAsset,
           service: widget.service,
-          documentKind: item.documentKind,
+          documentKind: freshItem.documentKind,
+          targetItemId: freshItem.id,
+          confirmForSheet: !freshItem.sizeConfirmed,
         ),
       ),
     );
-    if (saved != null && mounted) await _c.adoptCrop(saved, asset.id);
+    if (saved != null && mounted) {
+      await _c.adoptCrop(saved, freshAsset.id, preferredItemId: freshItem.id);
+    }
+  }
+
+  Future<void> _extractAnotherDocument([DocumentItem? fromItem]) async {
+    final item = fromItem ?? _c.active;
+    if (item == null || _c.busy) return;
+    final itemAsset = _c.project.assets
+        .where((a) => a.id == item.assetId)
+        .firstOrNull;
+    final rootSource = _c.rootSourceFor(itemAsset);
+    if (rootSource == null) return;
+    await _c.flush();
+    if (!mounted) return;
+    final freshRoot = _c.session.current.assets
+        .where((a) => a.id == rootSource.id)
+        .firstOrNull;
+    if (freshRoot == null) return;
+    final saved = await Navigator.of(context).push<Project>(
+      MaterialPageRoute(
+        builder: (_) => CropScreen(
+          project: _c.session.current,
+          asset: freshRoot,
+          service: widget.service,
+          extractDerived: true,
+        ),
+      ),
+    );
+    if (saved != null && mounted) {
+      await _c.adoptCrop(saved, freshRoot.id);
+    }
   }
 
   Future<void> _customMargins() async {
@@ -787,6 +830,29 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       ),
                   ],
                 ),
+                if (widget.service.imageEditor != null)
+                  RibbonStack(
+                    children: [
+                      RibbonButton(
+                        key: const Key('rb-doc-crop'),
+                        icon: Icons.crop,
+                        label: 'ضبط الحدود',
+                        tooltip:
+                            'تحديد زوايا المستمسك الأربع ومقاسه على ورقة A4',
+                        onPressed: busy || !editable ? null : () => _editCrop(),
+                      ),
+                      RibbonButton(
+                        key: const Key('rb-doc-extract'),
+                        icon: Icons.content_cut,
+                        label: 'مستمسك إضافي',
+                        tooltip:
+                            'استخراج مستمسك إضافي مستقل من الصورة الأصلية دون دمج',
+                        onPressed: busy
+                            ? null
+                            : () => _extractAnotherDocument(),
+                      ),
+                    ],
+                  ),
               ],
             ),
             RibbonGroup(
@@ -992,17 +1058,43 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   tooltip: 'ضبط زوايا المستمسك وتصحيح المنظور',
                   onPressed: busy || widget.service.imageEditor == null
                       ? null
-                      : _editCrop,
+                      : () => _editCrop(),
                 ),
-                RibbonButton(
-                  key: const Key('rb-rotate-image'),
-                  icon: Icons.rotate_right,
-                  label: 'تدوير الصورة',
-                  large: true,
-                  tooltip: 'تدوير محتوى الصورة 90° وتبديل العرض والارتفاع',
-                  onPressed: busy || widget.service.imageEditor == null
-                      ? null
-                      : c.rotateImage,
+                RibbonStack(
+                  children: [
+                    RibbonButton(
+                      key: const Key('rb-rotate-image'),
+                      icon: Icons.rotate_right,
+                      label: 'تدوير الصورة',
+                      tooltip: 'تدوير محتوى الصورة 90° وتبديل العرض والارتفاع',
+                      onPressed: busy || widget.service.imageEditor == null
+                          ? null
+                          : c.rotateImage,
+                    ),
+                    RibbonButton(
+                      key: const Key('rb-extract-derived'),
+                      icon: Icons.content_cut,
+                      label: 'مستمسك إضافي',
+                      tooltip:
+                          'استخراج مستمسك إضافي مستقل من الصورة الأصلية دون دمج',
+                      onPressed: busy || widget.service.imageEditor == null
+                          ? null
+                          : () => _extractAnotherDocument(),
+                    ),
+                    RibbonButton(
+                      key: const Key('rb-reset-crop'),
+                      icon: Icons.crop_original,
+                      label: 'الأصل الكامل',
+                      tooltip: 'إلغاء القص واستعادة الصورة الأصلية دون تعديلها',
+                      onPressed:
+                          busy ||
+                              widget.service.imageEditor == null ||
+                              asset.crop == null ||
+                              asset.hasScaledLargeSource
+                          ? null
+                          : c.resetCropToOriginal,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1269,7 +1361,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   onClose: () => setState(() => _intakeVisible = false),
                 ),
               Expanded(child: SheetView(controller: c)),
-              OffSheetTray(controller: c),
+              OffSheetTray(controller: c, onAdjustBoundary: _editCrop),
               EditorStatusBar(controller: c),
             ],
           ),

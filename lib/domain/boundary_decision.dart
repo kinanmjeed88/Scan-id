@@ -105,6 +105,14 @@ enum BoundaryReviewReason {
 
   /// The quadrilateral does not describe the measured region it came from.
   quadOutsideRegion,
+
+  /// Learned model confidence fell below the validation-calibrated auto-accept
+  /// threshold; proposed corners remain available for editable user review.
+  lowModelConfidence,
+
+  /// One or more corners touch the outer camera frame edge, indicating
+  /// potential physical card clipping that requires manual review.
+  touchesFrameEdge,
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -115,6 +123,9 @@ class BoundaryProposal {
     this.region,
     this.imposedAspect,
     this.imposedKindLabel,
+    this.modelConfidence,
+    this.minAutoAcceptConfidence,
+    this.touchesFrameEdge = false,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -134,6 +145,16 @@ class BoundaryProposal {
 
   /// Human-readable label of the kind behind [imposedAspect], for messages.
   final String? imposedKindLabel;
+
+  /// Optional calibrated score emitted by a learned model (`0..1`).
+  final double? modelConfidence;
+
+  /// Minimum model confidence required before automatic perspective cropping
+  /// is permitted without user confirmation.
+  final double? minAutoAcceptConfidence;
+
+  /// True when the proposed quadrilateral touches the outer camera frame edge.
+  final bool touchesFrameEdge;
 }
 
 /// What verification measured about a proposal. Every field is a measured
@@ -316,6 +337,23 @@ BoundaryDecision verifyBoundary(
     }
   }
 
+  final learnedEdgeTouch =
+      proposal.producer == BoundaryProducer.learnedModel &&
+      proposal.region == null &&
+      corners.any(
+        (p) => p.x <= 0.016 || p.x >= 0.984 || p.y <= 0.016 || p.y >= 0.984,
+      );
+  if (proposal.touchesFrameEdge || learnedEdgeTouch) {
+    reasons.add(BoundaryReviewReason.touchesFrameEdge);
+  }
+  final modelConf = proposal.modelConfidence;
+  final minAutoConf = proposal.minAutoAcceptConfidence;
+  if (modelConf != null && minAutoConf != null) {
+    if (!modelConf.isFinite || modelConf < minAutoConf) {
+      reasons.add(BoundaryReviewReason.lowModelConfidence);
+    }
+  }
+
   return BoundaryDecision(
     kind: reasons.isEmpty
         ? BoundaryDecisionKind.accepted
@@ -373,6 +411,10 @@ String boundaryReviewReasonMessage(
     'شكل الحدود المقترحة لا يطابق مقاس النوع المتعرّف عليه؛ لم يُفرض المقاس ولم يُقصّ تلقائياً — راجع القص يدوياً.',
   BoundaryReviewReason.quadOutsideRegion =>
     'الحدود المقترحة لا تصف المنطقة المقاسة؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
+  BoundaryReviewReason.lowModelConfidence =>
+    'ثقة كشف الذكاء الاصطناعي دون حد القبول التلقائي؛ حُفظت الزوايا المقترحة للمراجعة والتعديل اليدوي دون قصّ صامت.',
+  BoundaryReviewReason.touchesFrameEdge =>
+    'تلامس حدود البطاقة حافة الإطار وقد يكون جزء منها مقطوعاً؛ راجع الزوايا يدوياً قبل اعتماد القصّ.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its

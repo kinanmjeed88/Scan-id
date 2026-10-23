@@ -73,7 +73,15 @@ class DocumentEdits {
               : item.copyWith(width: h * ratio, height: h))
         : item.copyWith(width: w, height: h);
     validDocumentSize(PhysicalSizeMm(next.width, next.height));
-    return _replace(project, next.copyWith(sizeConfirmed: true));
+    return _replace(
+      project,
+      next.copyWith(
+        documentKind: next.documentKind == DocumentKind.unknown
+            ? DocumentKind.other
+            : next.documentKind,
+        sizeConfirmed: true,
+      ),
+    );
   }
 
   /// Restores the catalog size of the document's category.

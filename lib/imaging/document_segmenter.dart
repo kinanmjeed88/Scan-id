@@ -34,6 +34,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import 'document_detector.dart';
@@ -46,6 +47,9 @@ class SegmentCandidate {
     required this.reason,
     this.corners,
     this.detectionConfidence,
+    this.producer = BoundaryProducer.segmenter,
+    this.minAutoAcceptConfidence,
+    this.touchesFrameEdge = false,
   });
 
   /// Normalized region [left, top, right, bottom] in the source image.
@@ -59,6 +63,9 @@ class SegmentCandidate {
   /// otherwise — never fabricated.
   final double? detectionConfidence;
   final String reason;
+  final BoundaryProducer producer;
+  final double? minAutoAcceptConfidence;
+  final bool touchesFrameEdge;
 }
 
 /// Why a MEASURED foreground region was not accepted as a document candidate.

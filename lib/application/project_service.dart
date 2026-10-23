@@ -8,10 +8,12 @@ import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
+import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
+import 'intake_diagnostics.dart';
 import 'project_backups.dart';
 import 'camera_capture.dart';
 import 'project_recovery.dart';
@@ -671,7 +673,12 @@ class ProjectService {
       } else {
         try {
           final source = await editor.open(asset);
-          final corners = await editor.suggest(source.preview);
+          final rawProposal = editor is BoundaryProposalImageEditor
+              ? await editor.suggestProposal(source.preview)
+              : null;
+          final corners = editor is BoundaryProposalImageEditor
+              ? rawProposal?.corners
+              : await editor.suggest(source.preview);
           if (corners == null) {
             notDetected++;
             warnings.add(
@@ -706,7 +713,9 @@ class ProjectService {
             // listed in that pipeline's review queue.
             final decision = verifyBoundary(
               BoundaryProposal(
-                producer: BoundaryProducer.wholeFrameDetector,
+                producer:
+                    rawProposal?.producer ??
+                    BoundaryProducer.wholeFrameDetector,
                 corners: corners,
                 imposedAspect: size == null
                     ? null
@@ -714,15 +723,47 @@ class ProjectService {
                           ? size.width / size.height
                           : size.height / size.width),
                 imposedKindLabel: suggestion.kind.label,
+                modelConfidence: rawProposal?.modelConfidence,
+                minAutoAcceptConfidence: rawProposal?.minAutoAcceptConfidence,
+                touchesFrameEdge: rawProposal?.touchesFrameEdge ?? false,
               ),
               sourceWidth: source.width,
               sourceHeight: source.height,
             );
             final authorization = decision.cropAuthorization;
+            if (IntakeDiagnostics.isActive) {
+              IntakeDiagnostics.record(
+                IntakeDiagnosticEntry(
+                  stage: 'boundary_decision',
+                  assetId: asset.id,
+                  modelId: editor is BoundaryProposalImageEditor
+                      ? editor.boundaryModelId
+                      : 'classical',
+                  candidateCount: 1,
+                  sourceWidth: source.width,
+                  sourceHeight: source.height,
+                  verdict: decision.kind.name,
+                  documentKind: suggestion.kind,
+                  reasons: [
+                    for (final r in decision.verification.reasons) r.name,
+                  ],
+                ),
+              );
+            }
             if (authorization == null) {
               notDetected++;
               refusedProposedBoundary = true;
               suggestion = null;
+              if (rawProposal?.producer == BoundaryProducer.learnedModel &&
+                  decision.verification.hasUsableGeometry) {
+                asset = asset.withSuggestedCrop(corners);
+                current = current.copyWith(
+                  assets: [
+                    for (final entry in current.assets)
+                      entry.id == asset.id ? asset : entry,
+                  ],
+                );
+              }
               for (final reason in decision.verification.reasons) {
                 warnings.add(
                   '${asset.name}: ${boundaryReviewReasonMessage(reason)}',
@@ -791,9 +832,10 @@ class ProjectService {
         0,
         (value, item) => math.max(value, item.zIndex),
       );
+      final createdItemId = newId();
       newItems.add(
         DocumentItem(
-          id: newId(),
+          id: createdItemId,
           assetId: asset.id,
           x: current.paper.margins.left,
           y: current.paper.margins.top,
@@ -806,6 +848,22 @@ class ProjectService {
           sizeConfirmed: catalogSize != null,
         ),
       );
+      if (IntakeDiagnostics.isActive) {
+        IntakeDiagnostics.record(
+          IntakeDiagnosticEntry(
+            stage: 'intake_item_created',
+            assetId: asset.id,
+            itemId: createdItemId,
+            sourceWidth: asset.width,
+            sourceHeight: asset.height,
+            verdict: catalogSize != null ? 'size_confirmed' : 'awaiting_size',
+            documentKind: kind,
+            sizeConfirmed: catalogSize != null,
+            widthMm: size.width,
+            heightMm: size.height,
+          ),
+        );
+      }
       progress(index + 1);
     }
 
@@ -947,19 +1005,293 @@ class ProjectService {
     ImageEditRecipe recipe,
   ) => _applyCrop(project, asset, recipe, userAuthored: false);
 
-  /// Crop explicitly accepted in the manual crop editor.
+  Future<(int, int)> _resolveSourceDimensions(
+    ImageAsset targetAsset, {
+    int? sourceWidth,
+    int? sourceHeight,
+  }) async {
+    require(
+      (sourceWidth == null) == (sourceHeight == null),
+      'أدخل عرض المصدر وارتفاعه معاً أو اتركهما معاً.',
+    );
+    if (sourceWidth != null && sourceHeight != null) {
+      return (sourceWidth, sourceHeight);
+    }
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    final opened = await editor!.open(targetAsset);
+    return (opened.width, opened.height);
+  }
+
+  /// Crop explicitly accepted in the manual crop editor without confirming
+  /// document category or review resolution.
+  ///
+  /// Preserves unconfirmed manual crop semantics: updates only the [ImageAsset]
+  /// revision (`userAuthoredCrop = true`, `suggestedCrop = null`) without
+  /// modifying [DocumentRecord] overrides or review state, so reprocessing
+  /// preserves the user's crop and emits the manual-crop preservation notice.
   Future<Project> applyManualCrop(
     Project project,
     ImageAsset asset,
-    ImageEditRecipe recipe,
-  ) => _applyCrop(project, asset, recipe, userAuthored: true);
+    ImageEditRecipe recipe, {
+    int? sourceWidth,
+    int? sourceHeight,
+  }) async {
+    _guardLargeFrameCrop(asset, recipe);
+    final (resolvedWidth, resolvedHeight) = await _resolveSourceDimensions(
+      asset,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+    );
+    requireValidManualBoundary(
+      corners: recipe.geometry.corners,
+      sourceWidth: resolvedWidth,
+      sourceHeight: resolvedHeight,
+      adjustments: recipe.adjustments,
+      catalog: project.catalog,
+    );
+    var updated = await createImageRevision(project, asset, recipe);
+    updated = updated.markUserAuthoredCrop().withSuggestedCrop(null);
+    final next = project.copyWith(
+      assets: [
+        for (final current in project.assets)
+          current.id == asset.id ? updated : current,
+      ],
+    );
+    final saved = await projects.save(next);
+    if (IntakeDiagnostics.isActive) {
+      IntakeDiagnostics.record(
+        IntakeDiagnosticEntry(
+          stage: 'manual_crop_saved',
+          assetId: updated.id,
+          sourceWidth: updated.width,
+          sourceHeight: updated.height,
+          verdict: 'manual_crop_accepted',
+        ),
+      );
+    }
+    return saved;
+  }
 
-  Future<Project> _applyCrop(
+  /// Atomically applies a user-confirmed manual 4-corner crop, validates print
+  /// size/category, records side-scoped manual provenance without altering
+  /// detector evidence or partner sides, and places the confirmed item onto A4
+  /// immediately (**Path B**).
+  Future<Project> confirmManualBoundary(
     Project project,
     ImageAsset asset,
     ImageEditRecipe recipe, {
-    required bool userAuthored,
+    required DocumentKind documentKind,
+    PhysicalSizeMm? customSizeMm,
+    String? targetItemId,
+    int? sourceWidth,
+    int? sourceHeight,
   }) async {
+    _guardLargeFrameCrop(asset, recipe);
+    final (resolvedWidth, resolvedHeight) = await _resolveSourceDimensions(
+      asset,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+    );
+    final validation = requireValidManualBoundary(
+      corners: recipe.geometry.corners,
+      sourceWidth: resolvedWidth,
+      sourceHeight: resolvedHeight,
+      adjustments: recipe.adjustments,
+      documentKind: documentKind,
+      customSizeMm: customSizeMm,
+      catalog: project.catalog,
+      requireConfirmedSize: true,
+    );
+    final updated = await createImageRevision(project, asset, recipe);
+    final natural = project.catalog.natural(documentKind);
+    final resolvedSize = natural != null && customSizeMm == null
+        ? project.catalog.sizeFor(
+            documentKind,
+            landscape: updated.width >= updated.height,
+          )!
+        : validation.confirmedSizeMm!;
+    final next = applyManualConfirmationToProject(
+      project,
+      updatedAsset: updated,
+      recipe: recipe,
+      documentKind: documentKind,
+      sizeMm: resolvedSize,
+      nextId: newId,
+      targetItemId: targetItemId,
+    );
+    final saved = await projects.save(next);
+    if (IntakeDiagnostics.isActive) {
+      final confirmedItem = targetItemId != null
+          ? saved.items.where((i) => i.id == targetItemId).firstOrNull
+          : saved.items.where((i) => i.assetId == updated.id).lastOrNull;
+      IntakeDiagnostics.record(
+        IntakeDiagnosticEntry(
+          stage: 'manual_boundary_confirmed',
+          assetId: updated.id,
+          itemId: confirmedItem?.id,
+          sourceWidth: updated.width,
+          sourceHeight: updated.height,
+          verdict: confirmedItem?.pageIndex != null
+              ? 'placed_on_a4'
+              : 'confirmed_off_sheet',
+          documentKind: documentKind,
+          sizeConfirmed: confirmedItem?.sizeConfirmed,
+          pageIndex: confirmedItem?.pageIndex,
+          widthMm: confirmedItem?.width,
+          heightMm: confirmedItem?.height,
+        ),
+      );
+    }
+    return saved;
+  }
+
+  /// Extracts an independent manual 4-corner document crop from [asset] (or its
+  /// root source photograph when [asset] is already derived) into a new derived
+  /// [ImageAsset], auditable manual [DocumentRecord], and confirmed
+  /// [DocumentItem] arranged onto A4 without overlap (**Path C**).
+  ///
+  /// Never mutates the root source photograph or previously extracted documents.
+  Future<Project> extractManualDerivedDocument(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    required DocumentKind documentKind,
+    PhysicalSizeMm? customSizeMm,
+    int? sourceWidth,
+    int? sourceHeight,
+    bool replaceUnconfirmedSourcePlaceholder = true,
+  }) async {
+    final rootSource = asset.derivedFrom == null
+        ? project.assets.firstWhere(
+            (a) => a.id == asset.id,
+            orElse: () => throw const ValidationException(
+              'الصورة غير موجودة في المشروع.',
+            ),
+          )
+        : project.assets.firstWhere(
+            (a) => a.id == asset.derivedFrom,
+            orElse: () => project.assets.firstWhere(
+              (a) => a.id == asset.id,
+              orElse: () => throw const ValidationException(
+                'الصورة الأصلية غير موجودة في المشروع.',
+              ),
+            ),
+          );
+    _guardLargeFrameCrop(rootSource, recipe);
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+
+    final (effectiveWidth, effectiveHeight) = await _resolveSourceDimensions(
+      rootSource,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+    );
+    final validation = requireValidManualBoundary(
+      corners: recipe.geometry.corners,
+      sourceWidth: effectiveWidth,
+      sourceHeight: effectiveHeight,
+      adjustments: recipe.adjustments,
+      documentKind: documentKind,
+      customSizeMm: customSizeMm,
+      catalog: project.catalog,
+      requireConfirmedSize: true,
+    );
+
+    final cropBytes = editor is CropBytesImageEditor
+        ? await editor.renderCropBytes(rootSource, recipe)
+        : await editor!.preview(rootSource, recipe);
+    final siblingCount = project.assets
+        .where((a) => a.derivedFrom == rootSource.id)
+        .length;
+    final derivedName = _manualDerivedAssetName(
+      rootSource.name,
+      siblingCount + 1,
+    );
+    final derived = await assets.importImage(
+      project.id,
+      derivedName,
+      cropBytes,
+    );
+    final natural = project.catalog.natural(documentKind);
+    final resolvedSize = natural != null && customSizeMm == null
+        ? project.catalog.sizeFor(
+            documentKind,
+            landscape: derived.width >= derived.height,
+          )!
+        : validation.confirmedSizeMm!;
+    final next = appendManualDerivedDocumentToProject(
+      project,
+      sourceAsset: rootSource,
+      derivedAsset: derived,
+      recipe: recipe,
+      documentKind: documentKind,
+      sizeMm: resolvedSize,
+      nextId: newId,
+      replaceUnconfirmedSourcePlaceholder: replaceUnconfirmedSourcePlaceholder,
+    );
+    final saved = await projects.save(next);
+    if (IntakeDiagnostics.isActive) {
+      final createdItem = saved.items
+          .where((i) => i.assetId == derived.id)
+          .lastOrNull;
+      IntakeDiagnostics.record(
+        IntakeDiagnosticEntry(
+          stage: 'manual_derived_extracted',
+          assetId: derived.id,
+          itemId: createdItem?.id,
+          sourceWidth: derived.width,
+          sourceHeight: derived.height,
+          verdict: createdItem?.pageIndex != null
+              ? 'placed_on_a4'
+              : 'confirmed_off_sheet',
+          documentKind: documentKind,
+          sizeConfirmed: createdItem?.sizeConfirmed,
+          pageIndex: createdItem?.pageIndex,
+          widthMm: createdItem?.width,
+          heightMm: createdItem?.height,
+        ),
+      );
+    }
+    return saved;
+  }
+
+  /// Restores [asset] to its full uncropped working image from the lossless
+  /// original without modifying `originalPath`, clearing cancelled manual
+  /// boundary confirmation metadata and re-evaluating review/A4 state.
+  Future<Project> resetManualCrop(Project project, ImageAsset asset) async {
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    require(
+      !asset.hasScaledLargeSource,
+      'الصورة الكاملة أكبر من حد المعالجة كاملة الدقة (16 مليون بكسل)؛ '
+      'افتح شاشة القص لتعديل حدود المنطقة المطلوبة.',
+    );
+    final source = await editor!.open(asset);
+    final fullRecipe = CropDraft.fullImage()
+        .withAdjustments(asset.adjustments)
+        .toRecipe(source.width, source.height);
+    final revised = await createImageRevision(project, asset, fullRecipe);
+    final resetAsset = ImageAsset(
+      id: revised.id,
+      captureId: revised.captureId,
+      derivedFrom: revised.derivedFrom,
+      userAuthoredCrop: false,
+      name: revised.name,
+      originalPath: revised.originalPath,
+      workingPath: revised.workingPath,
+      thumbnailPath: revised.thumbnailPath,
+      width: revised.width,
+      height: revised.height,
+      crop: null,
+      adjustments: revised.adjustments,
+      transforms: revised.transforms,
+    );
+    final next = revertManualCropOnProject(project, resetAsset: resetAsset);
+    return projects.save(next);
+  }
+
+  void _guardLargeFrameCrop(ImageAsset asset, ImageEditRecipe recipe) {
     if (asset.hasScaledLargeSource &&
         coversOrientedFrame(manualCropBounds(recipe.geometry.corners))) {
       throw const ValidationException(
@@ -967,6 +1299,22 @@ class ProjectService {
         'لن يُستخدم التصغير الصامت. حدّد منطقة المستند داخل الحد.',
       );
     }
+  }
+
+  String _manualDerivedAssetName(String sourceName, int index) {
+    final dot = sourceName.lastIndexOf('.');
+    final stem = dot > 0 ? sourceName.substring(0, dot) : sourceName;
+    final cleanStem = stem.length > 60 ? stem.substring(0, 60) : stem;
+    return '$cleanStem — مستمسك $index.png';
+  }
+
+  Future<Project> _applyCrop(
+    Project project,
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    required bool userAuthored,
+  }) async {
+    _guardLargeFrameCrop(asset, recipe);
     var updated = await createImageRevision(project, asset, recipe);
     updated = userAuthored
         ? updated.markUserAuthoredCrop()

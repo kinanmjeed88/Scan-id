@@ -75,13 +75,37 @@ Project setKindWithOverride(Project project, String itemId, DocumentKind kind) {
 }
 
 /// Confirms a reviewed recognition result without changing it. Idempotent.
+///
+/// When the record's boundary is already resolved (accepted automatically or
+/// confirmed manually) and its effective category carries a catalog size, any
+/// unlocked layout item awaiting size confirmation receives that confirmed
+/// catalog size so it can enter the A4 arrangement immediately.
 Project confirmRecognition(Project project, String documentId) {
   final record = _record(project, documentId);
   if (isUserResolved(record)) return project;
-  return _replaceRecords(project, [
-    record.copyWith(
+  var next = project;
+  final kind = effectiveKind(record);
+  if (next.catalog.natural(kind) != null) {
+    for (final item in next.items) {
+      if (item.documentId != documentId || item.locked || item.sizeConfirmed) {
+        continue;
+      }
+      final side = item.sideId == null
+          ? null
+          : record.sides.where((s) => s.id == item.sideId).firstOrNull;
+      final boundaryUnresolved = side != null
+          ? sideHasUnresolvedBoundary(record, side)
+          : hasUnresolvedBoundary(record);
+      if (!boundaryUnresolved) {
+        next = DocumentEdits.setKind(next, item.id, kind);
+      }
+    }
+  }
+  final currentRecord = _record(next, documentId);
+  return _replaceRecords(next, [
+    currentRecord.copyWith(
       overrides: [
-        ...record.overrides,
+        ...currentRecord.overrides,
         UserOverride(fields: const [reviewConfirmedField]),
       ],
     ),

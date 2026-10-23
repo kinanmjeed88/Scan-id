@@ -8,6 +8,7 @@ import '../application/contracts.dart';
 import '../application/backup_transfer.dart';
 import '../application/project_service.dart';
 import '../application/image_reader.dart';
+import '../domain/document_kind.dart';
 import '../domain/image_deletion.dart';
 import '../domain/project.dart';
 import 'shared.dart';
@@ -460,13 +461,29 @@ class _ProjectScreenState extends State<ProjectScreen> {
     );
   }
 
-  Future<void> _crop(ImageAsset asset) async {
+  Future<void> _crop(ImageAsset asset, {bool extractDerived = false}) async {
+    final linkedItem = _project.items
+        .where((i) => i.assetId == asset.id)
+        .firstOrNull;
+    final targetAsset = extractDerived
+        ? (asset.derivedFrom == null
+              ? asset
+              : (_project.assets
+                        .where((a) => a.id == asset.derivedFrom)
+                        .firstOrNull ??
+                    asset))
+        : asset;
     final saved = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
         builder: (_) => CropScreen(
           project: _project,
-          asset: asset,
+          asset: targetAsset,
           service: widget.service,
+          documentKind: extractDerived
+              ? DocumentKind.unknown
+              : (linkedItem?.documentKind ?? DocumentKind.unknown),
+          targetItemId: extractDerived ? null : linkedItem?.id,
+          extractDerived: extractDerived,
         ),
       ),
     );
@@ -506,8 +523,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
   /// explicit menu so reordering is reachable without a drag gesture.
   Widget _assetCard(int index) {
     final asset = _project.assets[index];
-    final placed = _project.items.where((item) => item.assetId == asset.id);
-    final onSheet = placed.isNotEmpty;
+    final linked = _project.items.where((item) => item.assetId == asset.id);
+    final placedOnA4 = linked.where((item) => item.pageIndex != null);
+    final onSheet = linked.isNotEmpty;
+    final sheetStatus = placedOnA4.isNotEmpty
+        ? 'على الورقة: ${placedOnA4.length} عناصر'
+        : onSheet
+        ? 'بانتظار تأكيد المقاس (${linked.length})'
+        : 'غير موضوعة على الورقة';
     final card = Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -539,7 +562,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
             ),
             subtitle: Text(
               '${index + 1}/${_project.assets.length} · ${asset.width} × ${asset.height} px\n'
-              '${onSheet ? 'على الورقة: ${placed.length} عناصر' : 'غير موضوعة على الورقة'}',
+              '$sheetStatus',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -547,6 +570,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
               tooltip: 'خيارات الصورة',
               enabled: !_busy,
               onSelected: (action) => switch (action) {
+                _AssetAction.extractDerived => unawaited(
+                  _crop(asset, extractDerived: true),
+                ),
                 _AssetAction.replace => unawaited(_replace(asset)),
                 _AssetAction.moveUp => unawaited(_move(asset, index - 1)),
                 _AssetAction.moveDown => unawaited(_move(asset, index + 1)),
@@ -556,6 +582,11 @@ class _ProjectScreenState extends State<ProjectScreen> {
                 _AssetAction.delete => unawaited(_deleteImage(asset)),
               },
               itemBuilder: (_) => [
+                if (widget.service.imageEditor != null)
+                  const PopupMenuItem(
+                    value: _AssetAction.extractDerived,
+                    child: Text('استخراج مستمسك مستقل إلى A4'),
+                  ),
                 const PopupMenuItem(
                   value: _AssetAction.replace,
                   child: Text('استبدال الصورة بأخرى'),
@@ -948,7 +979,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
   }
 }
 
-enum _AssetAction { replace, moveUp, moveDown, removeFromSheet, delete }
+enum _AssetAction {
+  extractDerived,
+  replace,
+  moveUp,
+  moveDown,
+  removeFromSheet,
+  delete,
+}
 
 /// Pointing devices drag immediately; touch keeps long-press so the grid still
 /// scrolls normally.

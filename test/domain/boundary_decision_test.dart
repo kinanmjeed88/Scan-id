@@ -256,4 +256,74 @@ void main() {
     );
     expect(decision.kind, BoundaryDecisionKind.accepted);
   });
+
+  test(
+    'a learned-model proposal below minAutoAcceptConfidence needs review',
+    () {
+      final decision = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          modelConfidence: 0.62,
+          minAutoAcceptConfidence: 0.80,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(decision.kind, BoundaryDecisionKind.needsReview);
+      expect(decision.cropAuthorization, isNull);
+      expect(
+        decision.verification.reasons,
+        contains(BoundaryReviewReason.lowModelConfidence),
+      );
+    },
+  );
+
+  test('a learned-model proposal touching frame edge needs review', () {
+    final decision = verifyBoundary(
+      BoundaryProposal(
+        producer: BoundaryProducer.learnedModel,
+        corners: goodQuad(),
+        modelConfidence: 0.94,
+        minAutoAcceptConfidence: 0.80,
+        touchesFrameEdge: true,
+      ),
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    expect(decision.kind, BoundaryDecisionKind.needsReview);
+    expect(decision.cropAuthorization, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.touchesFrameEdge),
+    );
+  });
+
+  test(
+    'verifyBoundary independently catches learned-model corners inside 1.6% frame border even when touchesFrameEdge is false',
+    () {
+      final decision = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: [
+            Point2(0.10, 0.12),
+            Point2(0.986, 0.14),
+            Point2(0.96, 0.86),
+            Point2(0.11, 0.84),
+          ],
+          modelConfidence: 0.95,
+          minAutoAcceptConfidence: 0.55,
+          touchesFrameEdge: false,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(decision.kind, BoundaryDecisionKind.needsReview);
+      expect(decision.cropAuthorization, isNull);
+      expect(
+        decision.verification.reasons,
+        contains(BoundaryReviewReason.touchesFrameEdge),
+      );
+    },
+  );
 }

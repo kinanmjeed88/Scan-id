@@ -89,10 +89,12 @@ class _RegionOutput {
     required this.outputWidth,
     required this.outputHeight,
     required this.trustworthy,
+    this.suggestedCorners,
     this.recipe,
   });
   final Uint8List bytes;
   final List<Point2>? corners;
+  final List<Point2>? suggestedCorners;
   final int? outputWidth;
   final int? outputHeight;
 
@@ -340,6 +342,9 @@ class SmartIntake {
   }) async {
     final pipeline = RecognitionPipeline(
       suggestSingle: editor.suggest,
+      suggestProposal: editor is BoundaryProposalImageEditor
+          ? (editor as BoundaryProposalImageEditor).suggestProposal
+          : null,
       segment: segment,
       ocr: ocr,
       catalog: project.catalog,
@@ -918,7 +923,8 @@ class SmartIntake {
         outputWidth: output.outputWidth,
         outputHeight: output.outputHeight,
       ),
-      producer: 'document-segmenter',
+      suggestedPolygon: output.suggestedCorners,
+      producer: _producerLabelFor(detection, fallback: 'document-segmenter'),
     );
     newDocuments.add(record);
     newItems.add(
@@ -1148,6 +1154,8 @@ class SmartIntake {
         outputWidth: output.outputWidth,
         outputHeight: output.outputHeight,
       ),
+      suggestedPolygon: output.suggestedCorners,
+      producer: _producerLabelFor(detection, fallback: 'document-segmenter'),
     );
     return current;
   }
@@ -1269,7 +1277,9 @@ class SmartIntake {
     }
     final itemId = newId();
     final hasEvidence =
-        detection.classification.evidence.isNotEmpty || detection.hasUsableQuad;
+        detection.classification.evidence.isNotEmpty ||
+        detection.hasUsableQuad ||
+        detection.suggestedCorners != null;
     final record = hasEvidence
         ? _buildRecord(
             current,
@@ -1288,7 +1298,13 @@ class SmartIntake {
               outputWidth: asset.crop?.outputWidth,
               outputHeight: asset.crop?.outputHeight,
             ),
-            producer: 'suggestDocumentCorners',
+            suggestedPolygon: asset.crop == null
+                ? detection.suggestedCorners
+                : null,
+            producer: _producerLabelFor(
+              detection,
+              fallback: 'suggestDocumentCorners',
+            ),
           )
         : null;
     if (record != null) newDocuments.add(record);
@@ -1414,7 +1430,11 @@ class SmartIntake {
             outputWidth: output.outputWidth,
             outputHeight: output.outputHeight,
           ),
-          producer: 'document-segmenter',
+          suggestedPolygon: output.suggestedCorners,
+          producer: _producerLabelFor(
+            detection,
+            fallback: 'document-segmenter',
+          ),
         );
         newDocuments.add(record);
         newItems.add(
@@ -1508,8 +1528,11 @@ class SmartIntake {
     // A detector's rectangular region and its trusted fitted quad are separate
     // measurements. Include the latter exactly when it extends a rounded
     // component box, rather than clipping a valid corner or inventing a clamp.
-    final cropBounds = detection.hasUsableQuad
-        ? _boundsIncludingCorners(left, top, right, bottom, detection.corners!)
+    final activeCorners = detection.hasUsableQuad
+        ? detection.corners!
+        : detection.suggestedCorners;
+    final cropBounds = activeCorners != null
+        ? _boundsIncludingCorners(left, top, right, bottom, activeCorners)
         : (left: left, top: top, right: right, bottom: bottom);
     final bytes = await fullResolutionJpegCropper.cropJpegRegion(
       source: sourceBytes,
@@ -1529,11 +1552,21 @@ class SmartIntake {
       'منطقة JPEG كاملة الدقة غير صالحة.',
     );
     if (!detection.hasUsableQuad) {
+      final localSuggested = detection.suggestedCorners == null
+          ? null
+          : _remapSuggestedIntoRegion(
+              detection.suggestedCorners!,
+              cropBounds.left,
+              cropBounds.top,
+              cropBounds.right,
+              cropBounds.bottom,
+            );
       // The native rectangle IS the measured region. Keeping its pixels as-is
       // avoids a second decode/re-encode and never invents a quadrilateral.
       return _RegionOutput(
         bytes: bytes,
         corners: null,
+        suggestedCorners: localSuggested,
         outputWidth: null,
         outputHeight: null,
         trustworthy: false,
@@ -1650,12 +1683,39 @@ class SmartIntake {
       // RECOVERY PATH — no trustworthy quadrilateral for this region. Keep the
       // measured pixels so the document stays in the review workflow and can
       // be finished by hand in the editor; it is never silently discarded.
+      final rawReg = detection.region ?? fullFrameRegion;
+      final bounds = detection.suggestedCorners != null
+          ? _boundsIncludingCorners(
+              rawReg[0],
+              rawReg[1],
+              rawReg[2],
+              rawReg[3],
+              detection.suggestedCorners!,
+            )
+          : (
+              left: rawReg[0],
+              top: rawReg[1],
+              right: rawReg[2],
+              bottom: rawReg[3],
+            );
+      final localSuggested = detection.suggestedCorners == null
+          ? null
+          : _remapSuggestedIntoRegion(
+              detection.suggestedCorners!,
+              bounds.left,
+              bounds.top,
+              bounds.right,
+              bounds.bottom,
+            );
       return _RegionOutput(
-        bytes: await cropRegion(
-          originalBytes,
-          detection.region ?? fullFrameRegion,
-        ),
+        bytes: await cropRegion(originalBytes, [
+          bounds.left,
+          bounds.top,
+          bounds.right,
+          bounds.bottom,
+        ]),
         corners: null,
+        suggestedCorners: localSuggested,
         outputWidth: null,
         outputHeight: null,
         trustworthy: false,
@@ -1736,6 +1796,45 @@ class SmartIntake {
     );
   }
 
+  Map<String, String> get _modelVersions {
+    final boundaryId = editor is BoundaryProposalImageEditor
+        ? (editor as BoundaryProposalImageEditor).boundaryModelId
+        : null;
+    return {'ocr': ocr.version, if (boundaryId != null) 'boundary': boundaryId};
+  }
+
+  String _producerLabelFor(
+    DetectionAnalysis detection, {
+    required String fallback,
+  }) {
+    if (detection.boundaryDecision?.proposal.producer ==
+        BoundaryProducer.learnedModel) {
+      final boundaryId = editor is BoundaryProposalImageEditor
+          ? (editor as BoundaryProposalImageEditor).boundaryModelId
+          : null;
+      return boundaryId ?? 'scanid-docnet-v1';
+    }
+    return fallback;
+  }
+
+  List<Point2> _remapSuggestedIntoRegion(
+    List<Point2> corners,
+    double left,
+    double top,
+    double right,
+    double bottom,
+  ) {
+    final spanX = math.max(1e-6, right - left);
+    final spanY = math.max(1e-6, bottom - top);
+    return [
+      for (final c in corners)
+        Point2(
+          ((c.x - left) / spanX).clamp(0.0, 1.0),
+          ((c.y - top) / spanY).clamp(0.0, 1.0),
+        ),
+    ];
+  }
+
   DocumentRecord _buildRecord(
     Project current, {
     required String itemId,
@@ -1744,6 +1843,7 @@ class SmartIntake {
     required DetectionAnalysis detection,
     required ProcessedAssetRef processed,
     required String producer,
+    List<Point2>? suggestedPolygon,
   }) {
     final classification = detection.classification;
     final variantId = _variantFor(current, classification);
@@ -1755,7 +1855,11 @@ class SmartIntake {
           id: 'side-$itemId',
           side: SideKind.unknown,
           processedAsset: processed,
-          detection: _detectionRef(detection, producer: producer),
+          detection: _detectionRef(
+            detection,
+            producer: producer,
+            suggestedPolygon: suggestedPolygon,
+          ),
         ),
       ],
       recognition: _recognitionFor(current, classification),
@@ -1765,7 +1869,7 @@ class SmartIntake {
         detectionIds: [detection.detectionId],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
-        modelVersions: {'ocr': ocr.version},
+        modelVersions: _modelVersions,
         presetVariantId: variantId,
         layoutItemIds: [itemId],
       ),
@@ -1781,6 +1885,7 @@ class SmartIntake {
     required DetectionAnalysis detection,
     required ProcessedAssetRef processed,
     String producer = 'document-segmenter',
+    List<Point2>? suggestedPolygon,
   }) {
     final classification = detection.classification;
     final variantId = _variantFor(current, classification);
@@ -1790,7 +1895,11 @@ class SmartIntake {
           id: existing.sides.single.id,
           side: existing.sides.single.side,
           processedAsset: processed,
-          detection: _detectionRef(detection, producer: producer),
+          detection: _detectionRef(
+            detection,
+            producer: producer,
+            suggestedPolygon: suggestedPolygon,
+          ),
         ),
       ],
       recognition: _recognitionFor(current, classification),
@@ -1799,7 +1908,7 @@ class SmartIntake {
         detectionIds: [detection.detectionId],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
-        modelVersions: {'ocr': ocr.version},
+        modelVersions: _modelVersions,
         presetVariantId: variantId,
         layoutItemIds: existing.provenance.layoutItemIds,
       ),
@@ -1809,20 +1918,29 @@ class SmartIntake {
   DetectionRef _detectionRef(
     DetectionAnalysis detection, {
     required String producer,
-  }) => DetectionRef(
-    detectionId: detection.detectionId,
-    producer: producer,
-    version: recognitionPipelineVersion,
-    detectionConfidence: detection.detectionConfidence == null
-        ? null
-        : Confidence(
-            value: detection.detectionConfidence!,
-            reason: 'segment-region-support',
-            producer: producer,
-            version: segmenterVersion,
-          ),
-    polygon: detection.corners,
-  );
+    List<Point2>? suggestedPolygon,
+  }) {
+    final isAi =
+        detection.boundaryDecision?.proposal.producer ==
+        BoundaryProducer.learnedModel;
+    return DetectionRef(
+      detectionId: detection.detectionId,
+      producer: producer,
+      version: isAi ? producer : recognitionPipelineVersion,
+      detectionConfidence: detection.detectionConfidence == null
+          ? null
+          : Confidence(
+              value: detection.detectionConfidence!,
+              reason: isAi
+                  ? 'learned-boundary-score'
+                  : 'segment-region-support',
+              producer: producer,
+              version: isAi ? producer : segmenterVersion,
+            ),
+      polygon: detection.corners,
+      suggestedPolygon: detection.corners == null ? suggestedPolygon : null,
+    );
+  }
 
   String? _variantFor(Project current, ClassificationOutcome classification) =>
       current.catalog.natural(classification.kind) != null
@@ -1854,7 +1972,7 @@ class SmartIntake {
       preset: preset,
       evidence: classification.evidence,
       pipelineVersion: recognitionPipelineVersion,
-      modelVersions: {'ocr': ocr.version},
+      modelVersions: _modelVersions,
       validated: false,
     );
   }

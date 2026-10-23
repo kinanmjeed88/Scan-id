@@ -71,6 +71,7 @@ class DetectionAnalysis {
     required this.classification,
     required this.orientation,
     this.corners,
+    this.suggestedCorners,
     this.detectionConfidence,
     this.geometry,
     this.region,
@@ -83,6 +84,11 @@ class DetectionAnalysis {
   /// Normalized source-image corners (CropGeometry order); null when no
   /// trustworthy boundary exists (full-frame fallback).
   final List<Point2>? corners;
+
+  /// Geometrically valid 4-corner proposal held back for user review when
+  /// `verifyBoundary` returned `BoundaryDecisionKind.needsReview`. Never used
+  /// for automatic warping; offered as editable handles in `CropScreen`.
+  final List<Point2>? suggestedCorners;
 
   /// Normalized `[left, top, right, bottom]` bounds of the region this
   /// analysis came from, as MEASURED by the segmenter. Present for every
@@ -215,6 +221,7 @@ String regionDetectionId(String assetId, int regionIndex) =>
 class RecognitionPipeline {
   const RecognitionPipeline({
     required this.suggestSingle,
+    this.suggestProposal,
     this.segment = defaultSegment,
     this.ocr = const UnavailableOcrEngine(),
     this.catalog = const DocumentSizeCatalog(),
@@ -223,8 +230,13 @@ class RecognitionPipeline {
 
   /// The existing precise single-document detector seam
   /// (`ImageEditor.suggest`); used when segmentation reports no multi-
-  /// document structure.
+  /// document structure and [suggestProposal] is not provided.
   final Future<List<Point2>?> Function(Uint8List previewBytes) suggestSingle;
+
+  /// Optional learned-model proposal seam carrying calibrated confidence and
+  /// frame-touch flags for `verifyBoundary`.
+  final Future<BoundaryProposal?> Function(Uint8List previewBytes)?
+  suggestProposal;
   final Future<SegmentationResult> Function(Uint8List previewBytes) segment;
   final OcrEngine ocr;
   final DocumentSizeCatalog catalog;
@@ -300,6 +312,9 @@ class RecognitionPipeline {
             detectionId: regionDetectionId(input.assetId, regionIndex),
             corners: candidate.corners,
             detectionConfidence: candidate.detectionConfidence,
+            producer: candidate.producer,
+            minAutoAcceptConfidence: candidate.minAutoAcceptConfidence,
+            touchesFrameEdge: candidate.touchesFrameEdge,
             region: candidate.region,
             regionIndex: regionIndex,
             issues: issues,
@@ -315,8 +330,21 @@ class RecognitionPipeline {
     // fallback can never replace bounds needed for recovery or duplicate them.
     if (detections.isEmpty && unresolved.isEmpty) {
       List<Point2>? corners;
+      double? detConf;
+      double? minAutoConf;
+      var touchesEdge = false;
+      var producer = BoundaryProducer.wholeFrameDetector;
       try {
-        corners = await suggestSingle(input.previewBytes);
+        if (suggestProposal != null) {
+          final prop = await suggestProposal!(input.previewBytes);
+          corners = prop?.corners;
+          detConf = prop?.modelConfidence;
+          minAutoConf = prop?.minAutoAcceptConfidence;
+          touchesEdge = prop?.touchesFrameEdge ?? false;
+          if (prop != null) producer = prop.producer;
+        } else {
+          corners = await suggestSingle(input.previewBytes);
+        }
       } on OperationCancelled {
         rethrow;
       } catch (_) {
@@ -334,7 +362,10 @@ class RecognitionPipeline {
           input,
           detectionId: '${input.assetId}-d0',
           corners: corners,
-          detectionConfidence: null,
+          detectionConfidence: detConf,
+          producer: producer,
+          minAutoAcceptConfidence: minAutoConf,
+          touchesFrameEdge: touchesEdge,
           issues: issues,
           token: token,
         ),
@@ -360,6 +391,9 @@ class RecognitionPipeline {
     required double? detectionConfidence,
     required List<BatchItemFailure> issues,
     required CancellationToken? token,
+    BoundaryProducer? producer,
+    double? minAutoAcceptConfidence,
+    bool touchesFrameEdge = false,
     List<double>? region,
     int regionIndex = 0,
   }) async {
@@ -467,20 +501,33 @@ class RecognitionPipeline {
     // not an independent edge measurement. A non-accepted claim cannot keep
     // corners that an intake path might warp.
     final claimedNatural = catalog.natural(classification.kind);
+    final effectiveProducer =
+        producer ??
+        (region == null
+            ? BoundaryProducer.wholeFrameDetector
+            : BoundaryProducer.segmenter);
     final decision = verifyBoundary(
       BoundaryProposal(
-        producer: region == null
-            ? BoundaryProducer.wholeFrameDetector
-            : BoundaryProducer.segmenter,
+        producer: effectiveProducer,
         corners: corners,
         region: region,
         imposedAspect: claimedNatural?.aspect,
         imposedKindLabel: classification.kind.label,
+        modelConfidence: minAutoAcceptConfidence == null
+            ? null
+            : detectionConfidence,
+        minAutoAcceptConfidence: minAutoAcceptConfidence,
+        touchesFrameEdge: touchesFrameEdge,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,
     );
+    List<Point2>? reviewSuggestedCorners;
     if (corners != null && decision.kind != BoundaryDecisionKind.accepted) {
+      if (decision.kind == BoundaryDecisionKind.needsReview &&
+          decision.verification.hasUsableGeometry) {
+        reviewSuggestedCorners = corners;
+      }
       usableCorners = null;
       boundary = DetectionBoundary.rejected;
       // Geometry rejection was already reported above. Aspect and region
@@ -508,6 +555,7 @@ class RecognitionPipeline {
     return DetectionAnalysis(
       detectionId: detectionId,
       corners: decision.cropAuthorization?.corners ?? usableCorners,
+      suggestedCorners: reviewSuggestedCorners,
       detectionConfidence: detectionConfidence,
       geometry: assessment,
       classification: classification,

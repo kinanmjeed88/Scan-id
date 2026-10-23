@@ -1166,8 +1166,9 @@ class ProjectService {
     final rootSource = asset.derivedFrom == null
         ? project.assets.firstWhere(
             (a) => a.id == asset.id,
-            orElse: () =>
-                throw const ValidationException('الصورة غير موجودة في المشروع.'),
+            orElse: () => throw const ValidationException(
+              'الصورة غير موجودة في المشروع.',
+            ),
           )
         : project.assets.firstWhere(
             (a) => a.id == asset.derivedFrom,

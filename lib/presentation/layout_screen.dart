@@ -165,11 +165,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
       ),
     );
     if (saved != null && mounted) {
-      await _c.adoptCrop(
-        saved,
-        freshAsset.id,
-        preferredItemId: freshItem.id,
-      );
+      await _c.adoptCrop(saved, freshAsset.id, preferredItemId: freshItem.id);
     }
   }
 
@@ -841,7 +837,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
                         key: const Key('rb-doc-crop'),
                         icon: Icons.crop,
                         label: 'ضبط الحدود',
-                        tooltip: 'تحديد زوايا المستمسك الأربع ومقاسه على ورقة A4',
+                        tooltip:
+                            'تحديد زوايا المستمسك الأربع ومقاسه على ورقة A4',
                         onPressed: busy || !editable ? null : () => _editCrop(),
                       ),
                       RibbonButton(

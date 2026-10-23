@@ -256,7 +256,11 @@ void _assertPlannedA4Geometry({
   );
   final planned = plan.items(0);
   expect(planned, hasLength(expectedPlannedItems));
-  expect(inspectLayout(project), isEmpty, reason: 'no disallowed overlap on A4');
+  expect(
+    inspectLayout(project),
+    isEmpty,
+    reason: 'no disallowed overlap on A4',
+  );
   for (var i = 0; i < planned.length; i++) {
     final item = planned[i];
     expect(item.sizeConfirmed, isTrue);
@@ -285,7 +289,9 @@ Future<void> _assertExportedPngDocumentDetail({
   final planned = plan.items(0);
   final exporter = DocumentExporter(assets);
   final pngOut = await exporter.generate(plan, exportDir);
-  final pngImage = img.decodePng(await File(pngOut.files.single).readAsBytes())!;
+  final pngImage = img.decodePng(
+    await File(pngOut.files.single).readAsBytes(),
+  )!;
   expect(
     [pngImage.width, pngImage.height],
     [plan.pixelWidth, plan.pixelHeight],
@@ -394,7 +400,11 @@ Map<int, _ParsedPdfObject> _parsePdfObjects(Uint8List pdfBytes) {
         absStreamEnd -= 1;
       }
     }
-    final rawSlice = Uint8List.sublistView(pdfBytes, absStreamStart, absStreamEnd);
+    final rawSlice = Uint8List.sublistView(
+      pdfBytes,
+      absStreamStart,
+      absStreamEnd,
+    );
     String? decoded;
     if (RegExp(r'/Filter\s*(?:\[\s*)?/FlateDecode\b').hasMatch(dict)) {
       try {
@@ -445,10 +455,7 @@ Future<void> _assertExportedPdfStructureAndStreamPlacement({
   const a4WidthPt = 210.0 * 72.0 / 25.4;
   const a4HeightPt = 297.0 * 72.0 / 25.4;
   final pageObjects = objects.entries
-      .where(
-        (e) =>
-            RegExp(r'/Type\s*/Page\b(?!s)').hasMatch(e.value.dict),
-      )
+      .where((e) => RegExp(r'/Type\s*/Page\b(?!s)').hasMatch(e.value.dict))
       .toList();
   expect(pageObjects, hasLength(pdfPlan.pages.length));
 
@@ -467,8 +474,9 @@ Future<void> _assertExportedPdfStructureAndStreamPlacement({
   // Map resource names (/Im1, /Image2, ...) -> object ID across dictionaries.
   final imageResourceNames = <String>{};
   for (final entry in objects.values) {
-    for (final m in RegExp(r'/([A-Za-z0-9_.-]+)\s+(\d+)\s+0\s+R\b')
-        .allMatches(entry.dict)) {
+    for (final m in RegExp(
+      r'/([A-Za-z0-9_.-]+)\s+(\d+)\s+0\s+R\b',
+    ).allMatches(entry.dict)) {
       final resName = m.group(1)!;
       final targetObj = int.parse(m.group(2)!);
       if (rgbImageObjIds.contains(targetObj)) {
@@ -504,13 +512,20 @@ Future<void> _assertExportedPdfStructureAndStreamPlacement({
   final contentIds = <int>[];
   final arrayContents = RegExp(r'/Contents\s*\[([^\]]+)\]').firstMatch(page0);
   if (arrayContents != null) {
-    for (final r
-        in RegExp(r'(\d+)\s+0\s+R').allMatches(arrayContents.group(1)!)) {
+    for (final r in RegExp(
+      r'(\d+)\s+0\s+R',
+    ).allMatches(arrayContents.group(1)!)) {
       contentIds.add(int.parse(r.group(1)!));
     }
   } else {
-    final singleContents = RegExp(r'/Contents\s+(\d+)\s+0\s+R').firstMatch(page0);
-    expect(singleContents, isNotNull, reason: 'Page 0 must reference /Contents');
+    final singleContents = RegExp(
+      r'/Contents\s+(\d+)\s+0\s+R',
+    ).firstMatch(page0);
+    expect(
+      singleContents,
+      isNotNull,
+      reason: 'Page 0 must reference /Contents',
+    );
     contentIds.add(int.parse(singleContents!.group(1)!));
   }
 
@@ -523,7 +538,9 @@ Future<void> _assertExportedPdfStructureAndStreamPlacement({
   final contentStream = streamBuffer.toString();
 
   final invokedImages = <String>[
-    for (final m in RegExp(r'/([A-Za-z0-9_.-]+)\s+Do\b').allMatches(contentStream))
+    for (final m in RegExp(
+      r'/([A-Za-z0-9_.-]+)\s+Do\b',
+    ).allMatches(contentStream))
       if (imageResourceNames.contains(m.group(1)!)) m.group(1)!,
   ];
   expect(
@@ -679,17 +696,12 @@ void main() {
       // Duplicate the placed item so 2 planned items share 1 assetId: PDF must
       // embed 1 shared DeviceRGB Image XObject while drawing 2 Do placements.
       final duplicated = arrangeDocuments(
-        PageLayout.duplicate(
-          project,
-          {project.items.single.id},
-          id: () => 'dup-item-2',
-        ),
+        PageLayout.duplicate(project, {
+          project.items.single.id,
+        }, id: () => 'dup-item-2'),
       ).result;
       expect(duplicated.items, hasLength(2));
-      expect(
-        duplicated.items.map((i) => i.assetId).toSet(),
-        hasLength(1),
-      );
+      expect(duplicated.items.map((i) => i.assetId).toSet(), hasLength(1));
       final exportDirShared = await Directory(
         '${tempDir.path}/exp_shared',
       ).create(recursive: true);
@@ -942,12 +954,10 @@ void main() {
       expect(
         hasManualBoundaryOverride(manuallyCropped.documents.single),
         isFalse,
-        reason: 'applyManualCrop must not fabricate manual confirmation override',
+        reason:
+            'applyManualCrop must not fabricate manual confirmation override',
       );
-      expect(
-        manuallyCropped.documents.single.toJson(),
-        recordBefore.toJson(),
-      );
+      expect(manuallyCropped.documents.single.toJson(), recordBefore.toJson());
 
       final report = await service.reprocessImages(manuallyCropped, [sourceId]);
       final recordAfter = report!.project.documents.single;
@@ -1098,10 +1108,7 @@ void main() {
       expect(sideHasUnresolvedBoundary(rec, rec.sides[0]), isFalse);
       expect(sideHasUnresolvedBoundary(rec, rec.sides[1]), isTrue);
       expect(hasUnresolvedBoundary(rec), isTrue);
-      expect(
-        project.items.firstWhere((i) => i.id == 'item-f').pageIndex,
-        0,
-      );
+      expect(project.items.firstWhere((i) => i.id == 'item-f').pageIndex, 0);
       expect(
         project.items.firstWhere((i) => i.id == 'item-b').pageIndex,
         isNull,

@@ -867,8 +867,7 @@ class LayoutEditorController extends ChangeNotifier {
         addedItem?.id ??
         preferredItemId ??
         session.current.items.where((e) => e.assetId == assetId).lastOrNull?.id;
-    if (focusId != null &&
-        session.current.items.any((e) => e.id == focusId)) {
+    if (focusId != null && session.current.items.any((e) => e.id == focusId)) {
       select(focusId, reveal: true);
     } else {
       _notify();

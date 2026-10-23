@@ -178,7 +178,8 @@ class LocalImageEditor
     if (asset.hasScaledLargeSource && _usesOriginalJpeg(recipe)) {
       final prepared = await _prepareFullResolutionExtract(asset, recipe);
       return Isolate.run(
-        () => img.encodePng(warpPerspective(prepared.extracted, prepared.recipe)),
+        () =>
+            img.encodePng(warpPerspective(prepared.extracted, prepared.recipe)),
       );
     }
     final bytes = await _source(asset);

@@ -190,9 +190,8 @@ bool sideHasUnresolvedBoundary(DocumentRecord record, DocumentSide side) =>
 /// Whether the user has explicitly confirmed manual 4-corner geometry on at
 /// least one side of [record], without claiming an automatic detector produced
 /// it.
-bool hasManualBoundaryOverride(DocumentRecord record) => record.sides.any(
-  (side) => sideHasManualBoundaryOverride(record, side),
-);
+bool hasManualBoundaryOverride(DocumentRecord record) =>
+    record.sides.any((side) => sideHasManualBoundaryOverride(record, side));
 
 /// Marker in [UserOverride.fields] distinguishing a new detached dismissal
 /// tombstone from schema-v5 records that already used `dismissed` while their

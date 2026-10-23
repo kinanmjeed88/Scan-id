@@ -52,35 +52,36 @@ class _InMemoryAssets implements AssetRepository {
       Future.error(StateError('No disk access in widget test'));
 }
 
-DocumentRecord _unresolvedRecord(String docId, String assetId) => DocumentRecord(
-  id: docId,
-  sourceImageId: assetId,
-  sides: [
-    DocumentSide(
-      id: 'side-$docId',
-      side: SideKind.unknown,
-      processedAsset: ProcessedAssetRef(
-        workingPath: 'projects/project1/assets/$assetId/working.png',
-        thumbnailPath: 'projects/project1/assets/$assetId/thumb.jpg',
-        width: 400,
-        height: 250,
+DocumentRecord _unresolvedRecord(String docId, String assetId) =>
+    DocumentRecord(
+      id: docId,
+      sourceImageId: assetId,
+      sides: [
+        DocumentSide(
+          id: 'side-$docId',
+          side: SideKind.unknown,
+          processedAsset: ProcessedAssetRef(
+            workingPath: 'projects/project1/assets/$assetId/working.png',
+            thumbnailPath: 'projects/project1/assets/$assetId/thumb.jpg',
+            width: 400,
+            height: 250,
+          ),
+          detection: DetectionRef(
+            detectionId: 'det-$docId',
+            producer: 'scanid-docnet-v1',
+            version: '1.0',
+            polygon: null,
+          ),
+        ),
+      ],
+      pairing: PairingState.single,
+      provenance: Provenance(
+        sourceImageId: assetId,
+        detectionIds: ['det-$docId'],
+        processedAssetVersion: 'smart-1',
+        pipelineVersion: 'smart-1',
       ),
-      detection: DetectionRef(
-        detectionId: 'det-$docId',
-        producer: 'scanid-docnet-v1',
-        version: '1.0',
-        polygon: null,
-      ),
-    ),
-  ],
-  pairing: PairingState.single,
-  provenance: Provenance(
-    sourceImageId: assetId,
-    detectionIds: ['det-$docId'],
-    processedAssetVersion: 'smart-1',
-    pipelineVersion: 'smart-1',
-  ),
-);
+    );
 
 void main() {
   testWidgets(
@@ -113,7 +114,10 @@ void main() {
 
       // Initially off-sheet with unresolved boundary badge.
       expect(find.byKey(const Key('offsheet-unconfirmed-1')), findsOneWidget);
-      expect(find.byKey(const Key('offsheet-unresolved-badge')), findsOneWidget);
+      expect(
+        find.byKey(const Key('offsheet-unresolved-badge')),
+        findsOneWidget,
+      );
 
       // Tap direct «ضبط الحدود» action on the off-sheet tile.
       await tapKey(tester, const Key('offsheet-crop-unconfirmed-1'));
@@ -232,7 +236,10 @@ void main() {
 
       final saved = repository.values[initial.id]!;
       expect(saved.items, hasLength(2));
-      expect(saved.items.every((i) => i.pageIndex == 0 && i.sizeConfirmed), isTrue);
+      expect(
+        saved.items.every((i) => i.pageIndex == 0 && i.sizeConfirmed),
+        isTrue,
+      );
       expect(saved.items[0].bounds.overlaps(saved.items[1].bounds), isFalse);
       expect(tester.takeException(), isNull);
     },
@@ -426,7 +433,9 @@ void main() {
       await tester.tap(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        tester
+            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+            .onPressed,
         isNotNull,
       );
 
@@ -436,7 +445,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        tester
+            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+            .onPressed,
         isNull,
         reason: 'editing custom mm must invalidate stale preview',
       );
@@ -573,7 +584,10 @@ void main() {
       await tapKey(tester, const Key('accept-crop'));
 
       final saved = harness.saved;
-      expect(saved.items.every((i) => i.sizeConfirmed && i.pageIndex == 0), isTrue);
+      expect(
+        saved.items.every((i) => i.sizeConfirmed && i.pageIndex == 0),
+        isTrue,
+      );
       expect(hasUnresolvedBoundary(saved.documents.single), isFalse);
       expect(tester.takeException(), isNull);
     },

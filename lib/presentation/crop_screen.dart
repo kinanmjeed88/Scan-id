@@ -1050,10 +1050,7 @@ class _CropScreenState extends State<CropScreen> {
                 ),
               const DropdownMenuItem(
                 value: DocumentKind.other,
-                child: Text(
-                  'مقاس مخصص (مم)',
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text('مقاس مخصص (مم)', overflow: TextOverflow.ellipsis),
               ),
             ],
             onChanged: _busy ? null : _selectDocumentKind,

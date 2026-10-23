@@ -137,9 +137,7 @@ ManualBoundaryValidation validateManualBoundary({
 
   final maxX = (sourceWidth - 1).toDouble();
   final maxY = (sourceHeight - 1).toDouble();
-  final px = <Point2>[
-    for (final p in corners) Point2(p.x * maxX, p.y * maxY),
-  ];
+  final px = <Point2>[for (final p in corners) Point2(p.x * maxX, p.y * maxY)];
   for (final p in px) {
     if (!p.x.isFinite ||
         !p.y.isFinite ||
@@ -172,7 +170,8 @@ ManualBoundaryValidation validateManualBoundary({
     final pa = px[i];
     final pb = px[(i + 1) % 4];
     final pc = px[(i + 2) % 4];
-    final crossPx = (pb.x - pa.x) * (pc.y - pb.y) - (pb.y - pa.y) * (pc.x - pb.x);
+    final crossPx =
+        (pb.x - pa.x) * (pc.y - pb.y) - (pb.y - pa.y) * (pc.x - pb.x);
     if (crossNorm <= 1e-6 || crossPx <= 1e-3) {
       return ManualBoundaryValidation.rejected(
         ManualBoundaryRejection.selfIntersectingOrNonConvex,
@@ -315,9 +314,9 @@ Project revertManualCropOnProject(
   Project project, {
   required ImageAsset resetAsset,
 }) {
-  final cleanedAsset = resetAsset
-      .clearUserAuthoredCrop()
-      .withSuggestedCrop(null);
+  final cleanedAsset = resetAsset.clearUserAuthoredCrop().withSuggestedCrop(
+    null,
+  );
   var next = project.copyWith(
     assets: [
       for (final a in project.assets)

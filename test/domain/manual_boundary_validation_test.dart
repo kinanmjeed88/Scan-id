@@ -76,7 +76,10 @@ void main() {
         expect(manual.isValid, isTrue);
         expect(manual.producer, BoundaryProducer.manual);
         expect(manual.confirmedKind, DocumentKind.other);
-        expect(manual.confirmedSizeMm!.sameAs(const PhysicalSizeMm(95, 95)), isTrue);
+        expect(
+          manual.confirmedSizeMm!.sameAs(const PhysicalSizeMm(95, 95)),
+          isTrue,
+        );
       },
     );
 
@@ -132,7 +135,10 @@ void main() {
           sourceHeight: 600,
         );
         expect(crossed.isValid, isFalse);
-        expect(crossed.rejection, ManualBoundaryRejection.selfIntersectingOrNonConvex);
+        expect(
+          crossed.rejection,
+          ManualBoundaryRejection.selfIntersectingOrNonConvex,
+        );
         expect(crossed.message, contains('زوايا القص'));
 
         // Concave quad (vertex 2 pulled inside triangle 0-1-3)
@@ -309,13 +315,17 @@ void main() {
           Point2(0.88, 0.65),
           Point2(0.12, 0.65),
         ];
-        final recipe = CropDraft(corners: corners).toRecipe(src.width, src.height);
+        final recipe = CropDraft(
+          corners: corners,
+        ).toRecipe(src.width, src.height);
         final warped = ImageAsset(
           id: src.id,
           name: src.name,
           originalPath: src.originalPath,
-          workingPath: 'projects/project1/assets/${src.id}/edits/e1/working.png',
-          thumbnailPath: 'projects/project1/assets/${src.id}/edits/e1/thumb.jpg',
+          workingPath:
+              'projects/project1/assets/${src.id}/edits/e1/working.png',
+          thumbnailPath:
+              'projects/project1/assets/${src.id}/edits/e1/thumb.jpg',
           width: recipe.geometry.outputWidth,
           height: recipe.geometry.outputHeight,
           crop: recipe.geometry,
@@ -347,7 +357,8 @@ void main() {
         expect(
           updatedRecord.sides.single.detection!.polygon,
           isNull,
-          reason: 'detector evidence is never fabricated on manual confirmation',
+          reason:
+              'detector evidence is never fabricated on manual confirmation',
         );
         expect(updatedRecord.overrides.single.corners, hasLength(4));
         expect(
@@ -387,7 +398,11 @@ void main() {
         project = appendManualDerivedDocumentToProject(
           project,
           sourceAsset: src,
-          derivedAsset: _derivedFixture(id: 'derived-1', width: 640, height: 432),
+          derivedAsset: _derivedFixture(
+            id: 'derived-1',
+            width: 640,
+            height: 432,
+          ),
           recipe: recipe1,
           documentKind: DocumentKind.unifiedNationalId,
           sizeMm: const PhysicalSizeMm(85.6, 53.98),
@@ -405,7 +420,11 @@ void main() {
         project = appendManualDerivedDocumentToProject(
           project,
           sourceAsset: src,
-          derivedAsset: _derivedFixture(id: 'derived-2', width: 672, height: 480),
+          derivedAsset: _derivedFixture(
+            id: 'derived-2',
+            width: 672,
+            height: 480,
+          ),
           recipe: recipe2,
           documentKind: DocumentKind.residenceCard,
           sizeMm: DocumentSizeCatalog.defaultResidenceCard,
@@ -413,7 +432,11 @@ void main() {
         );
 
         // Source photo remains intact in assets; placeholder removed; 2 independent items placed on A4.
-        expect(project.assets.map((a) => a.id), ['multi-src', 'derived-1', 'derived-2']);
+        expect(project.assets.map((a) => a.id), [
+          'multi-src',
+          'derived-1',
+          'derived-2',
+        ]);
         expect(
           project.assets.firstWhere((a) => a.id == 'multi-src').workingPath,
           src.workingPath,
@@ -437,8 +460,16 @@ void main() {
       () {
         var seq = 0;
         String nextId() => 'pair-${++seq}';
-        final frontSrc = _sourceAsset(id: 'front-asset', width: 1200, height: 900);
-        final backSrc = _sourceAsset(id: 'back-asset', width: 1000, height: 800);
+        final frontSrc = _sourceAsset(
+          id: 'front-asset',
+          width: 1200,
+          height: 900,
+        );
+        final backSrc = _sourceAsset(
+          id: 'back-asset',
+          width: 1000,
+          height: 800,
+        );
 
         final frontSide = DocumentSide(
           id: 'side-front',
@@ -564,20 +595,39 @@ void main() {
         final updatedBackSide = recAfterFront.sides[1];
 
         // Side 1 updated; Side 2 completely untouched!
-        expect(updatedFrontSide.processedAsset.workingPath, warpedFront.workingPath);
+        expect(
+          updatedFrontSide.processedAsset.workingPath,
+          warpedFront.workingPath,
+        );
         expect(updatedFrontSide.processedAsset.corners, hasLength(4));
         expect(updatedBackSide.toJson(), backBeforeJson);
-        expect(sideHasManualBoundaryOverride(recAfterFront, updatedFrontSide), isTrue);
-        expect(sideHasUnresolvedBoundary(recAfterFront, updatedFrontSide), isFalse);
-        expect(sideHasManualBoundaryOverride(recAfterFront, updatedBackSide), isFalse);
-        expect(sideHasUnresolvedBoundary(recAfterFront, updatedBackSide), isTrue);
+        expect(
+          sideHasManualBoundaryOverride(recAfterFront, updatedFrontSide),
+          isTrue,
+        );
+        expect(
+          sideHasUnresolvedBoundary(recAfterFront, updatedFrontSide),
+          isFalse,
+        );
+        expect(
+          sideHasManualBoundaryOverride(recAfterFront, updatedBackSide),
+          isFalse,
+        );
+        expect(
+          sideHasUnresolvedBoundary(recAfterFront, updatedBackSide),
+          isTrue,
+        );
 
         // Paired record as a whole is NOT falsely boundary-resolved until Side 2 is resolved!
         expect(hasUnresolvedBoundary(recAfterFront), isTrue);
         expect(recordNeedsReview(recAfterFront), isTrue);
 
-        final placedFront = afterFront.items.firstWhere((i) => i.id == 'item-front');
-        final pendingBack = afterFront.items.firstWhere((i) => i.id == 'item-back');
+        final placedFront = afterFront.items.firstWhere(
+          (i) => i.id == 'item-front',
+        );
+        final pendingBack = afterFront.items.firstWhere(
+          (i) => i.id == 'item-back',
+        );
         expect(placedFront.sizeConfirmed, isTrue);
         expect(placedFront.pageIndex, 0);
         expect(pendingBack.sizeConfirmed, isFalse);
@@ -621,10 +671,16 @@ void main() {
           warpedFront.workingPath,
           reason: 'confirming Side 2 must never overwrite Side 1',
         );
-        expect(recAfterBoth.sides[1].processedAsset.workingPath, warpedBack.workingPath);
+        expect(
+          recAfterBoth.sides[1].processedAsset.workingPath,
+          warpedBack.workingPath,
+        );
         expect(hasUnresolvedBoundary(recAfterBoth), isFalse);
         expect(recordNeedsReview(recAfterBoth), isFalse);
-        expect(afterBoth.items.every((i) => i.sizeConfirmed && i.pageIndex == 0), isTrue);
+        expect(
+          afterBoth.items.every((i) => i.sizeConfirmed && i.pageIndex == 0),
+          isTrue,
+        );
 
         // Reverting Side 1 only returns Side 1 to unresolved off-sheet while keeping Side 2 on A4!
         final revertedFront = revertManualCropOnProject(
@@ -633,10 +689,28 @@ void main() {
         );
         final recAfterRevert = revertedFront.documents.single;
         expect(recAfterRevert.sides[0].processedAsset.corners, isNull);
-        expect(sideHasManualBoundaryOverride(recAfterRevert, recAfterRevert.sides[0]), isFalse);
-        expect(sideHasUnresolvedBoundary(recAfterRevert, recAfterRevert.sides[0]), isTrue);
-        expect(sideHasManualBoundaryOverride(recAfterRevert, recAfterRevert.sides[1]), isTrue);
-        expect(sideHasUnresolvedBoundary(recAfterRevert, recAfterRevert.sides[1]), isFalse);
+        expect(
+          sideHasManualBoundaryOverride(
+            recAfterRevert,
+            recAfterRevert.sides[0],
+          ),
+          isFalse,
+        );
+        expect(
+          sideHasUnresolvedBoundary(recAfterRevert, recAfterRevert.sides[0]),
+          isTrue,
+        );
+        expect(
+          sideHasManualBoundaryOverride(
+            recAfterRevert,
+            recAfterRevert.sides[1],
+          ),
+          isTrue,
+        );
+        expect(
+          sideHasUnresolvedBoundary(recAfterRevert, recAfterRevert.sides[1]),
+          isFalse,
+        );
         expect(hasUnresolvedBoundary(recAfterRevert), isTrue);
         expect(recordNeedsReview(recAfterRevert), isTrue);
         expect(

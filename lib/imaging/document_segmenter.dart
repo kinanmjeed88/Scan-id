@@ -37,6 +37,8 @@ import 'package:image/image.dart' as img;
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
+import '../domain/quad_assessment.dart';
+import '../domain/validation.dart';
 import 'document_detector.dart';
 import 'prepare_image.dart';
 
@@ -324,7 +326,13 @@ SegmentationResult segmentDecoded(img.Image image) {
   }
   _applyCandidateCap(accepted, rejected, total);
 
+  final backgroundLuminance =
+      .299 * backgroundR + .587 * backgroundG + .114 * backgroundB;
   if (accepted.isEmpty) {
+    if (rejected.isEmpty && backgroundLuminance >= 225.0) {
+      final enclosed = _segmentEnclosedMultiCards(image);
+      if (enclosed != null) return enclosed;
+    }
     // No plausible region was measured; an empty candidate list is the only
     // signal that lets the pipeline try its whole-frame single-document path.
     // A lone plausible region must still be inspected below: if its outline is
@@ -396,6 +404,12 @@ SegmentationResult segmentDecoded(img.Image image) {
   if (accepted.length == 1 &&
       deduplicated.length == 1 &&
       deduplicated.single.corners != null) {
+    final singleContainerSheet = accepted.single.box.area > .55 * total;
+    if (rejected.isEmpty &&
+        (backgroundLuminance >= 225.0 || singleContainerSheet)) {
+      final enclosed = _segmentEnclosedMultiCards(image);
+      if (enclosed != null) return enclosed;
+    }
     // Preserve the established single-document route when the one measured
     // region already has a quad: the pipeline's precise whole-frame detector
     // remains authoritative for that case. Keep the candidate only when its
@@ -408,6 +422,12 @@ SegmentationResult segmentDecoded(img.Image image) {
     );
   }
   final quads = deduplicated.where((c) => c.corners != null).length;
+  if (deduplicated.length < 2 || quads < 1) {
+    if (rejected.isEmpty && backgroundLuminance >= 225.0) {
+      final enclosed = _segmentEnclosedMultiCards(image);
+      if (enclosed != null) return enclosed;
+    }
+  }
   return SegmentationResult(
     candidates: deduplicated,
     multi: deduplicated.length >= 2 && quads >= 1,
@@ -837,4 +857,430 @@ double _otsu(Float32List values, double maxValue, {int bins = 128}) {
     }
   }
   return bestThreshold / (bins - 1) * maxValue;
+}
+
+/// Secondary multi-document decomposition for pale/silver documents laid on a
+/// uniform light sheet where global RGB-distance thresholding merges the
+/// container sheet or sees only faint card outlines.
+///
+/// Closed gradient perimeters are filled into solid interior regions, outer
+/// container frames (>55% area) are opened, thin bridge necks between adjacent
+/// cards (both horizontal and vertical) are split, and each isolated component
+/// mask is passed through `detectDocumentCorners` + `assessQuad` +
+/// `CropGeometry` so non-quadrilateral shapes (circles, blobs, stains) never
+/// receive fabricated corners. Returns `null` unless at least two valid
+/// convex quadrilaterals are resolved.
+SegmentationResult? _segmentEnclosedMultiCards(img.Image image) {
+  const enclosedSide = 720;
+  final longest = math.max(image.width, image.height);
+  final scale = longest > enclosedSide ? enclosedSide / longest : 1.0;
+  final work = scale < 1
+      ? img.copyResize(
+          image,
+          width: math.max(1, (image.width * scale).round()),
+          height: math.max(1, (image.height * scale).round()),
+          interpolation: img.Interpolation.average,
+        )
+      : image;
+  final w = work.width, h = work.height, n = w * h;
+  if (w < 40 || h < 40) return null;
+
+  final r = Float32List(n), g = Float32List(n), b = Float32List(n);
+  var idx = 0;
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++, idx++) {
+      final p = work.getPixel(x, y);
+      r[idx] = p.rNormalized.toDouble() * 255;
+      g[idx] = p.gNormalized.toDouble() * 255;
+      b[idx] = p.bNormalized.toDouble() * 255;
+    }
+  }
+  final sr = _smooth5(r, w, h), sg = _smooth5(g, w, h), sb = _smooth5(b, w, h);
+  final mag = Float32List(n);
+  for (var y = 0; y < h; y++) {
+    final ym = math.max(0, y - 1) * w, yc = y * w;
+    final yp = math.min(h - 1, y + 1) * w;
+    for (var x = 0; x < w; x++) {
+      final xm = math.max(0, x - 1), xp = math.min(w - 1, x + 1);
+      var gxx = 0.0, gyy = 0.0, gxy = 0.0;
+      for (final c in [sr, sg, sb]) {
+        final gx =
+            c[ym + xp] -
+            c[ym + xm] +
+            2 * (c[yc + xp] - c[yc + xm]) +
+            c[yp + xp] -
+            c[yp + xm];
+        final gy =
+            c[yp + xm] -
+            c[ym + xm] +
+            2 * (c[yp + x] - c[ym + x]) +
+            c[yp + xp] -
+            c[ym + xp];
+        gxx += gx * gx;
+        gyy += gy * gy;
+        gxy += gx * gy;
+      }
+      final trace = gxx + gyy;
+      final det = math.max(
+        0.0,
+        (gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy,
+      );
+      mag[yc + x] = math.sqrt(.5 * (trace + math.sqrt(det))) / 4;
+    }
+  }
+
+  final sortedMag = Float32List.fromList(mag)..sort();
+  final p85 = sortedMag[((n - 1) * .85).round()];
+  final edgeThr = math.max(5.0, .35 * p85);
+  final edge = Uint8List(n);
+  for (var i = 0; i < n; i++) {
+    edge[i] = mag[i] >= edgeThr ? 1 : 0;
+  }
+  final closedEdge = _boxMorph(
+    _boxMorph(edge, w, h, 3, dilate: true),
+    w,
+    h,
+    3,
+    dilate: false,
+  );
+  var filled = _fillMaskHoles(closedEdge, w, h);
+
+  // Peel outer container sheet frame if a single container spans >55% of image.
+  final initialComponents = _labeledPixels(filled, w, h);
+  if (initialComponents.isNotEmpty) {
+    initialComponents.sort((a, b) => b.length.compareTo(a.length));
+    final biggest = initialComponents.first;
+    if (biggest.length > .55 * n) {
+      var x0 = w - 1, x1 = 0, y0 = h - 1, y1 = 0;
+      for (final p in biggest) {
+        final px = p % w, py = p ~/ w;
+        if (px < x0) x0 = px;
+        if (px > x1) x1 = px;
+        if (py < y0) y0 = py;
+        if (py > y1) y1 = py;
+      }
+      final innerEdge = Uint8List.fromList(closedEdge);
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          if (y < y0 + 6 || y >= y1 - 5 || x < x0 + 6 || x >= x1 - 5) {
+            innerEdge[y * w + x] = 0;
+          }
+        }
+      }
+      filled = _fillMaskHoles(innerEdge, w, h);
+    }
+  }
+
+  final solid = _boxMorph(
+    _boxMorph(filled, w, h, 5, dilate: false),
+    w,
+    h,
+    5,
+    dilate: true,
+  );
+
+  // Split adjacent cards bridged by a thin watermark/shadow neck (<45% of
+  // flanking peak occupancy) along both vertical columns and horizontal rows.
+  for (var pass = 0; pass < 2; pass++) {
+    final byColumn = pass == 0;
+    for (final pixels in _labeledPixels(solid, w, h)) {
+      if (pixels.length < .05 * n) continue;
+      var left = w - 1, right = 0, top = h - 1, bottom = 0;
+      for (final p in pixels) {
+        final px = p % w, py = p ~/ w;
+        if (px < left) left = px;
+        if (px > right) right = px;
+        if (py < top) top = py;
+        if (py > bottom) bottom = py;
+      }
+      final bw = right - left + 1, bh = bottom - top + 1;
+      final span = byColumn ? bw : bh;
+      final crossSpan = byColumn ? bh : bw;
+      final counts = List<int>.filled(span, 0);
+      for (final p in pixels) {
+        counts[byColumn ? ((p % w) - left) : ((p ~/ w) - top)]++;
+      }
+      final c0 = (.25 * span).floor(), c1 = (.75 * span).floor();
+      if (c1 > c0 + 4) {
+        var valleyIdx = c0;
+        for (var c = c0 + 1; c < c1; c++) {
+          if (counts[c] < counts[valleyIdx]) valleyIdx = c;
+        }
+        var firstPeak = 0, secondPeak = 0;
+        for (var c = 0; c < valleyIdx; c++) {
+          if (counts[c] > firstPeak) firstPeak = counts[c];
+        }
+        for (var c = valleyIdx + 1; c < span; c++) {
+          if (counts[c] > secondPeak) secondPeak = counts[c];
+        }
+        final minPeak = math.min(firstPeak, secondPeak) / crossSpan;
+        final valleyOcc = counts[valleyIdx] / crossSpan;
+        if (minPeak >= .60 && valleyOcc < .60 * minPeak) {
+          if (byColumn) {
+            final neck = left + valleyIdx;
+            for (var y = top; y <= bottom; y++) {
+              for (
+                var x = math.max(0, neck - 2);
+                x <= math.min(w - 1, neck + 2);
+                x++
+              ) {
+                solid[y * w + x] = 0;
+              }
+            }
+          } else {
+            final neck = top + valleyIdx;
+            for (
+              var y = math.max(0, neck - 2);
+              y <= math.min(h - 1, neck + 2);
+              y++
+            ) {
+              for (var x = left; x <= right; x++) {
+                solid[y * w + x] = 0;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  final total = n.toDouble();
+  final raw = <(List<int>, _Box)>[];
+  for (final pixels in _labeledPixels(solid, w, h)) {
+    var left = w - 1, right = 0, top = h - 1, bottom = 0;
+    for (final p in pixels) {
+      final px = p % w, py = p ~/ w;
+      if (px < left) left = px;
+      if (px > right) right = px;
+      if (py < top) top = py;
+      if (py > bottom) bottom = py;
+    }
+    final box = _Box(left, top, right, bottom, pixels.length.toDouble());
+    final aspect =
+        math.max(box.width, box.height) /
+        math.max(1, math.min(box.width, box.height));
+    final borderSides =
+        (left <= 1 ? 1 : 0) +
+        (top <= 1 ? 1 : 0) +
+        (right >= w - 2 ? 1 : 0) +
+        (bottom >= h - 2 ? 1 : 0);
+    if (box.area >= total * .025 &&
+        box.fill >= .55 &&
+        aspect <= maxPlausibleRegionAspect &&
+        borderSides < 2 &&
+        box.width * box.height <= total * .50) {
+      raw.add((pixels, box));
+    }
+  }
+  if (raw.length < 2) return null;
+  var maxArea = 0.0;
+  for (final item in raw) {
+    if (item.$2.area > maxArea) maxArea = item.$2.area;
+  }
+  final filtered = [
+    for (final item in raw)
+      if (item.$2.area >= .25 * maxArea) item,
+  ];
+  if (filtered.length < 2) return null;
+
+  filtered.sort((a, b) {
+    final rowA = a.$2.top ~/ math.max(1, (h * .08).round());
+    final rowB = b.$2.top ~/ math.max(1, (h * .08).round());
+    if (rowA != rowB) return rowA.compareTo(rowB);
+    return a.$2.left.compareTo(b.$2.left);
+  });
+
+  final candidates = <SegmentCandidate>[];
+  const pad = 28;
+  for (final (pixels, box) in filtered.take(maxSegmentCandidates)) {
+    final measurement = _measure(box, w, h, image.width, image.height);
+    if (_rejectionFor(measurement) != null) continue;
+
+    // Render isolated high-contrast silhouette with zero-Sobel parity pattern
+    // (`(x+1)&1 == (x-1)&1` => `gx = gy = 0`, `std = 7 > 5` => never stripped
+    // by `_detectLetterboxViewport`) so `detectDocumentCorners` fits all 4 edges.
+    final maskW = box.width + pad * 2;
+    final maskH = box.height + pad * 2;
+    final maskSub = img.Image(width: maskW, height: maskH);
+    for (var my = 0; my < maskH; my++) {
+      for (var mx = 0; mx < maskW; mx++) {
+        final v = 18 + (((mx + my) & 1) * 14);
+        maskSub.setPixelRgb(mx, my, v, v + 4, v + 8);
+      }
+    }
+    for (final p in pixels) {
+      final lx = (p % w) - box.left + pad;
+      final ly = (p ~/ w) - box.top + pad;
+      maskSub.setPixelRgb(lx, ly, 242, 242, 240);
+    }
+    final maskCorners = detectDocumentCorners(maskSub);
+    if (maskCorners == null) continue;
+
+    final mapped = [
+      for (final p in maskCorners)
+        Point2(
+          (((box.left - pad) + p.x * (maskW - 1)) / math.max(1, w - 1)).clamp(
+            0.0,
+            1.0,
+          ),
+          (((box.top - pad) + p.y * (maskH - 1)) / math.max(1, h - 1)).clamp(
+            0.0,
+            1.0,
+          ),
+        ),
+    ];
+    final assess = assessQuad(
+      mapped,
+      sourceWidth: image.width,
+      sourceHeight: image.height,
+    );
+    if (!assess.acceptable) continue;
+    try {
+      CropGeometry(corners: mapped, outputWidth: 1, outputHeight: 1);
+    } on ValidationException {
+      continue;
+    }
+
+    final support = (.45 + .5 * box.fill).clamp(0.0, .9);
+    candidates.add(
+      SegmentCandidate(
+        region: measurement.region,
+        corners: mapped,
+        detectionConfidence: support,
+        reason: 'enclosed-component-support',
+      ),
+    );
+  }
+  final deduplicated = _suppressDuplicates(candidates);
+  final quads = deduplicated.where((c) => c.corners != null).length;
+  if (deduplicated.length < 2 || quads < 2) return null;
+  return SegmentationResult(
+    candidates: deduplicated,
+    multi: true,
+    rejected: const [],
+  );
+}
+
+Float32List _smooth5(Float32List src, int w, int h) {
+  const k = [1 / 16, 4 / 16, 6 / 16, 4 / 16, 1 / 16];
+  final tmp = Float32List(w * h);
+  final out = Float32List(w * h);
+  for (var y = 0; y < h; y++) {
+    final row = y * w;
+    for (var x = 0; x < w; x++) {
+      var s = 0.0;
+      for (var d = -2; d <= 2; d++) {
+        s += k[d + 2] * src[row + (x + d).clamp(0, w - 1)];
+      }
+      tmp[row + x] = s;
+    }
+  }
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      var s = 0.0;
+      for (var d = -2; d <= 2; d++) {
+        s += k[d + 2] * tmp[(y + d).clamp(0, h - 1) * w + x];
+      }
+      out[y * w + x] = s;
+    }
+  }
+  return out;
+}
+
+Uint8List _boxMorph(
+  Uint8List mask,
+  int w,
+  int h,
+  int r, {
+  required bool dilate,
+}) {
+  final outside = dilate ? 0 : 1;
+  var src = mask;
+  for (final horizontal in [true, false]) {
+    final dst = Uint8List(w * h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var v = dilate ? 0 : 1;
+        for (var d = -r; d <= r; d++) {
+          final xx = horizontal ? x + d : x, yy = horizontal ? y : y + d;
+          final s = xx < 0 || yy < 0 || xx >= w || yy >= h
+              ? outside
+              : src[yy * w + xx];
+          v = dilate ? math.max(v, s) : math.min(v, s);
+        }
+        dst[y * w + x] = v;
+      }
+    }
+    src = dst;
+  }
+  return src;
+}
+
+Uint8List _fillMaskHoles(Uint8List mask, int w, int h) {
+  final reach = Uint8List(w * h);
+  final stack = <int>[];
+  void seed(int i) {
+    if (mask[i] == 0 && reach[i] == 0) {
+      reach[i] = 1;
+      stack.add(i);
+    }
+  }
+
+  for (var x = 0; x < w; x++) {
+    seed(x);
+    seed((h - 1) * w + x);
+  }
+  for (var y = 0; y < h; y++) {
+    seed(y * w);
+    seed(y * w + w - 1);
+  }
+  while (stack.isNotEmpty) {
+    final i = stack.removeLast();
+    final x = i % w, y = i ~/ w;
+    if (x > 0) seed(i - 1);
+    if (x < w - 1) seed(i + 1);
+    if (y > 0) seed(i - w);
+    if (y < h - 1) seed(i + w);
+  }
+  final out = Uint8List(w * h);
+  for (var i = 0; i < out.length; i++) {
+    out[i] = reach[i] == 0 ? 1 : 0;
+  }
+  return out;
+}
+
+List<List<int>> _labeledPixels(Uint8List mask, int w, int h) {
+  final seen = Uint8List(w * h);
+  final queue = Int32List(w * h);
+  final out = <List<int>>[];
+  for (var start = 0; start < w * h; start++) {
+    if (mask[start] == 0 || seen[start] != 0) continue;
+    var head = 0, tail = 0;
+    queue[tail++] = start;
+    seen[start] = 1;
+    final pixels = <int>[];
+    while (head < tail) {
+      final index = queue[head++];
+      pixels.add(index);
+      final x = index % w, y = index ~/ w;
+      if (x > 0 && mask[index - 1] != 0 && seen[index - 1] == 0) {
+        seen[index - 1] = 1;
+        queue[tail++] = index - 1;
+      }
+      if (x < w - 1 && mask[index + 1] != 0 && seen[index + 1] == 0) {
+        seen[index + 1] = 1;
+        queue[tail++] = index + 1;
+      }
+      if (y > 0 && mask[index - w] != 0 && seen[index - w] == 0) {
+        seen[index - w] = 1;
+        queue[tail++] = index - w;
+      }
+      if (y < h - 1 && mask[index + w] != 0 && seen[index + w] == 0) {
+        seen[index + w] = 1;
+        queue[tail++] = index + w;
+      }
+    }
+    out.add(pixels);
+  }
+  return out;
 }

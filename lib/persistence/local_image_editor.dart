@@ -17,9 +17,9 @@ import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/ai_document_detector.dart';
-import '../imaging/document_detector.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/full_resolution_manual_crop.dart';
+import '../imaging/hybrid_boundary_arbitrator.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
 import '../imaging/prepare_image.dart';
@@ -108,43 +108,51 @@ class LocalImageEditor
   }
 
   /// Runs multi-document segmentation using [aiBundle] when verified, sharing
-  /// the bounded preview cache with [suggestProposal] so singleton imports do
-  /// not execute Stage-1/Stage-2 ONNX inference twice on the same preview.
+  /// the bounded preview cache with [suggestProposal] and cross-checking
+  /// scene boundaries with physical step-edge arbitration.
   Future<SegmentationResult> segment(Uint8List preview) async {
     final bundle = aiBundle;
     if (bundle != null) {
       final scene = await _detectAiSceneCached(preview, bundle);
-      return scene.toSegmentationResult();
+      final aiResult = scene.toSegmentationResult();
+      return Isolate.run(() {
+        final decoded = _tryDecodePreview(preview);
+        if (decoded == null) {
+          return const SegmentationResult(candidates: [], multi: false);
+        }
+        return arbitrateSceneBoundaries(decoded, aiResult);
+      });
     }
     return Isolate.run(() => segmentDocumentBytes(preview));
   }
 
   @override
-  Future<List<Point2>?> suggest(Uint8List preview) async {
-    final bundle = aiBundle;
-    if (bundle != null) {
-      final scene = await _detectAiSceneCached(preview, bundle);
-      return scene.candidates.isEmpty ? null : scene.candidates.first.corners;
-    }
-    return Isolate.run(() => suggestDocumentCorners(preview));
-  }
+  Future<List<Point2>?> suggest(Uint8List preview) async =>
+      (await suggestProposal(preview))?.corners;
 
   @override
   Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
     final bundle = aiBundle;
+    BoundaryProposal? primaryAi;
+    var extraAi = const <BoundaryProposal>[];
     if (bundle != null) {
       final scene = await _detectAiSceneCached(preview, bundle);
-      if (scene.candidates.isEmpty || scene.candidates.length > 1) {
-        return null;
+      if (scene.candidates.isNotEmpty) {
+        final proposals = [
+          for (final c in scene.candidates) c.toBoundaryProposal(),
+        ];
+        primaryAi = proposals.first;
+        extraAi = proposals.skip(1).toList();
       }
-      return scene.candidates.single.toBoundaryProposal();
     }
     return Isolate.run(() {
-      final corners = suggestDocumentCorners(preview);
-      if (corners == null) return null;
-      return BoundaryProposal(
-        producer: BoundaryProducer.wholeFrameDetector,
-        corners: corners,
+      final decoded = _tryDecodePreview(preview);
+      if (decoded == null) return null;
+      return arbitrateSingleBoundary(
+        decoded,
+        primaryAi,
+        extraAiProposals: extraAi,
+        hasLearnedModel: bundle != null,
       );
     });
   }
@@ -296,6 +304,15 @@ class LocalImageEditor
         ],
       ),
     );
+  }
+}
+
+img.Image? _tryDecodePreview(Uint8List bytes) {
+  if (bytes.isEmpty) return null;
+  try {
+    return decodeForProcessing(bytes);
+  } catch (_) {
+    return null;
   }
 }
 

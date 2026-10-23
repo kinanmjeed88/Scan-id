@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -50,6 +51,15 @@ class _InMemoryAssets implements AssetRepository {
   @override
   Future<File> resolve(String relativePath) =>
       Future.error(StateError('No disk access in widget test'));
+}
+
+class _CropCapableFakeEditor extends FakeImageEditor
+    implements CropBytesImageEditor {
+  @override
+  Future<Uint8List> renderCropBytes(
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async => bytes;
 }
 
 DocumentRecord _unresolvedRecord(String docId, String assetId) =>
@@ -183,7 +193,7 @@ void main() {
       final service = ProjectService(
         repository,
         _InMemoryAssets(),
-        imageEditor: FakeImageEditor(),
+        imageEditor: _CropCapableFakeEditor(),
       );
 
       await tester.pumpWidget(
@@ -318,18 +328,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Step 5: Drag corner 0.
-      final cornerBeforeDrag = tester.getCenter(
-        find.byKey(const Key('crop-corner-0')),
-      );
-      await tester.drag(
-        find.byKey(const Key('crop-corner-0')),
-        const Offset(32, 24),
+      // Step 5: Drag corner 0 (multi-step timedDrag beyond pan slop).
+      final cornerFinder = find.byKey(const Key('crop-corner-0'));
+      await tester.ensureVisible(cornerFinder);
+      await tester.pumpAndSettle();
+      final cornerBeforeDrag = tester.getCenter(cornerFinder);
+      await tester.timedDrag(
+        cornerFinder,
+        const Offset(60, 40),
+        const Duration(milliseconds: 300),
       );
       await tester.pumpAndSettle();
-      final cornerAfterDrag = tester.getCenter(
-        find.byKey(const Key('crop-corner-0')),
-      );
+      final cornerAfterDrag = tester.getCenter(cornerFinder);
       expect((cornerAfterDrag - cornerBeforeDrag).distance, greaterThan(5.0));
 
       // Undo #1 -> reverts corner drag, keeps 118.25 x 76.75 and DocumentKind.other.

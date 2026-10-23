@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
-import '../domain/geometry.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
@@ -743,7 +742,7 @@ class ProjectService {
                   candidateCount: 1,
                   sourceWidth: source.width,
                   sourceHeight: source.height,
-                  verdict: decision.verification.kind.name,
+                  verdict: decision.kind.name,
                   documentKind: suggestion.kind,
                   reasons: [
                     for (final r in decision.verification.reasons) r.name,
@@ -1269,9 +1268,9 @@ class ProjectService {
       'افتح شاشة القص لتعديل حدود المنطقة المطلوبة.',
     );
     final source = await editor!.open(asset);
-    final fullRecipe = CropDraft.fullImage(
-      adjustments: asset.adjustments,
-    ).toRecipe(source.width, source.height);
+    final fullRecipe = CropDraft.fullImage()
+        .withAdjustments(asset.adjustments)
+        .toRecipe(source.width, source.height);
     final revised = await createImageRevision(project, asset, fullRecipe);
     final resetAsset = ImageAsset(
       id: revised.id,

@@ -19,7 +19,6 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
-import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/imaging/ai_document_detector.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
@@ -51,6 +50,23 @@ AiModelBundle _loadBundleFromRepo() {
     stage1Bytes: s1,
     stage2Bytes: s2,
   );
+}
+
+Future<Project> _importAndArrange(
+  ProjectService service,
+  Project project,
+  List<ImportSource> sources,
+) async {
+  final beforeIds = project.assets.map((a) => a.id).toSet();
+  final imported = await service.importImages(project, sources);
+  final addedIds = [
+    for (final asset in imported.project.assets)
+      if (!beforeIds.contains(asset.id)) asset.id,
+  ];
+  return (await service.arrangeImportedImages(
+    imported.project,
+    addedIds,
+  )).project;
 }
 
 /// Builds a synthetic dark-desk scene with 0, 1, or 2 structured cards (no PII).
@@ -318,8 +334,12 @@ Future<void> _assertExportedPngDocumentDetail({
 
   for (final item in planned) {
     final asset = project.assets.firstWhere((a) => a.id == item.assetId);
+    final slot = item.bounds;
     final placedRect = containedDocumentRect(
-      slot: item.bounds,
+      itemX: slot.x,
+      itemY: slot.y,
+      itemWidth: slot.width,
+      itemHeight: slot.height,
       imageWidth: item.rotation % 180 == 0 ? asset.width : asset.height,
       imageHeight: item.rotation % 180 == 0 ? asset.height : asset.width,
     );
@@ -677,9 +697,9 @@ void main() {
       ).readAsBytesSync();
 
       var project = await service.create('المسار A تلقائي');
-      project = (await service.importAndArrange(project, [
+      project = await _importAndArrange(service, project, [
         ImportSource('card.png', () => Stream.value(goldenCard)),
-      ])).project;
+      ]);
       expect(project.items.single.sizeConfirmed, isTrue);
       expect(project.items.single.pageIndex, 0);
 
@@ -696,9 +716,10 @@ void main() {
       // Duplicate the placed item so 2 planned items share 1 assetId: PDF must
       // embed 1 shared DeviceRGB Image XObject while drawing 2 Do placements.
       final duplicated = arrangeDocuments(
-        PageLayout.duplicate(project, {
-          project.items.single.id,
-        }, id: () => 'dup-item-2'),
+        PageLayout.addMany(
+          project,
+          PageLayout.copies(project.items.single, 1, () => 'dup-item-2'),
+        ),
       ).result;
       expect(duplicated.items, hasLength(2));
       expect(duplicated.items.map((i) => i.assetId).toSet(), hasLength(1));
@@ -720,9 +741,9 @@ void main() {
         height: 400,
         cards: const [(left: 70, top: 100, right: 430, bottom: 300)],
       );
-      project2 = (await service.importAndArrange(project2, [
+      project2 = await _importAndArrange(service, project2, [
         ImportSource('IMG_20261022.png', () => Stream.value(nonCatalogScene)),
-      ])).project;
+      ]);
       final itemBefore = project2.items.single;
       if (!itemBefore.sizeConfirmed) {
         project2 = await projects.save(
@@ -768,7 +789,11 @@ void main() {
         projects,
         assets,
         imageEditor: editor,
-        segmenter: editor.segment,
+        smartRecognitionEnabled: true,
+        segmenter: (_) async => const SegmentationResult(
+          multi: false,
+          candidates: <SegmentCandidate>[],
+        ),
       );
 
       final truncatedBytes = File(
@@ -781,10 +806,10 @@ void main() {
       );
 
       var project = await service.create('المسار B يدوي');
-      project = (await service.importAndArrange(project, [
+      project = await _importAndArrange(service, project, [
         ImportSource('IMG_trunc.png', () => Stream.value(truncatedBytes)),
         ImportSource('IMG_empty.png', () => Stream.value(emptyDeskBytes)),
-      ])).project;
+      ]);
 
       expect(project.items, hasLength(2));
       expect(project.items.every((i) => !i.sizeConfirmed), isTrue);
@@ -903,11 +928,13 @@ void main() {
         projects,
         assets,
         imageEditor: editor,
+        smartRecognitionEnabled: true,
         segmenter: (_) async => SegmentationResult(
           multi: false,
           candidates: [
             SegmentCandidate(
-              bounds: const RectMm(0.1, 0.1, 0.8, 0.8),
+              region: const <double>[0.1, 0.1, 0.9, 0.9],
+              reason: 'test-crossed-candidate',
               corners: [
                 Point2(0.1, 0.1),
                 Point2(0.9, 0.9),
@@ -1234,9 +1261,9 @@ void main() {
       );
 
       var project = await service.create('المسار C متعدد');
-      project = (await service.importAndArrange(project, [
+      project = await _importAndArrange(service, project, [
         ImportSource('two_cards.png', () => Stream.value(twoAdjacentBytes)),
-      ])).project;
+      ]);
 
       expect(project.items, hasLength(1));
       expect(project.items.single.pageIndex, isNull);
@@ -1396,12 +1423,12 @@ void main() {
       expect(IntakeDiagnostics.enabled, isFalse);
       expect(IntakeDiagnostics.isActive, isFalse);
       var project = await service.create('تشخيص آمن');
-      project = (await service.importAndArrange(project, [
+      project = await _importAndArrange(service, project, [
         ImportSource(
           'sensitive_person_name_12345.png',
           () => Stream.value(scene),
         ),
-      ])).project;
+      ]);
       expect(IntakeDiagnostics.entries, isEmpty);
 
       // 2. Release guard blocks recording even if enabled = true.

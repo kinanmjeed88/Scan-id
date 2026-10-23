@@ -437,7 +437,7 @@ void main() {
         id: 'asset-rev',
         name: 'id_clipped.jpg',
         originalPath: 'originals/id_clipped.jpg',
-        workingPath: 'originals/id_clipped.jpg',
+        workingPath: 'revisions/id_clipped_rev1.png',
         thumbnailPath: 'thumbnails/id_clipped_thumb.jpg',
         width: 1200,
         height: 900,

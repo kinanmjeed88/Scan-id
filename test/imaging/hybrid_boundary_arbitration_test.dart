@@ -187,6 +187,122 @@ void main() {
   );
 
   test(
+    'open passport spread remains one reviewable outer boundary across its two pages',
+    () {
+      final image = _solidCanvas(1000, 720, 52, 46, 40);
+      // One opened booklet: a single strong outer cover, two slightly lighter
+      // facing pages, a central gutter, and synthetic text strokes.
+      img.fillRect(
+        image,
+        x1: 120,
+        y1: 120,
+        x2: 880,
+        y2: 600,
+        color: img.ColorRgb8(224, 222, 211),
+      );
+      img.fillRect(
+        image,
+        x1: 136,
+        y1: 136,
+        x2: 486,
+        y2: 584,
+        color: img.ColorRgb8(230, 228, 219),
+      );
+      img.fillRect(
+        image,
+        x1: 514,
+        y1: 136,
+        x2: 864,
+        y2: 584,
+        color: img.ColorRgb8(230, 228, 219),
+      );
+      img.fillRect(
+        image,
+        x1: 490,
+        y1: 120,
+        x2: 510,
+        y2: 600,
+        color: img.ColorRgb8(196, 190, 178),
+      );
+      for (final x in [168, 546]) {
+        for (var row = 0; row < 8; row++) {
+          img.fillRect(
+            image,
+            x1: x,
+            y1: 194 + row * 48,
+            x2: x + 265,
+            y2: 199 + row * 48,
+            color: img.ColorRgb8(92, 88, 81),
+          );
+        }
+      }
+
+      // A model may call the facing pages two documents. The measured single
+      // outer cover has >2.2x stronger physical edge support, so that split is
+      // suppressed; single-boundary arbitration then retains the full spread.
+      final left = [
+        Point2(120 / 999, 120 / 719),
+        Point2(495 / 999, 120 / 719),
+        Point2(495 / 999, 600 / 719),
+        Point2(120 / 999, 600 / 719),
+      ];
+      final right = [
+        Point2(505 / 999, 120 / 719),
+        Point2(880 / 999, 120 / 719),
+        Point2(880 / 999, 600 / 719),
+        Point2(505 / 999, 600 / 719),
+      ];
+      final split = arbitrateSceneBoundaries(
+        image,
+        SegmentationResult(
+          multi: true,
+          candidates: [
+            SegmentCandidate(
+              region: [120 / 999, 120 / 719, 495 / 999, 600 / 719],
+              corners: left,
+              detectionConfidence: .90,
+              producer: BoundaryProducer.learnedModel,
+              reason: 'synthetic-open-passport-left-page',
+            ),
+            SegmentCandidate(
+              region: [505 / 999, 120 / 719, 880 / 999, 600 / 719],
+              corners: right,
+              detectionConfidence: .90,
+              producer: BoundaryProducer.learnedModel,
+              reason: 'synthetic-open-passport-right-page',
+            ),
+          ],
+        ),
+      );
+      expect(split.multi, isFalse);
+      expect(split.candidates, isEmpty);
+
+      final outer = arbitrateSingleBoundary(image, null);
+      expect(outer, isNotNull);
+      expect(outer!.producer, BoundaryProducer.wholeFrameDetector);
+      final expected = [
+        Point2(120 / 999, 120 / 719),
+        Point2(880 / 999, 120 / 719),
+        Point2(880 / 999, 600 / 719),
+        Point2(120 / 999, 600 / 719),
+      ];
+      for (var i = 0; i < 4; i++) {
+        expect(outer.corners![i].x, closeTo(expected[i].x, .02));
+        expect(outer.corners![i].y, closeTo(expected[i].y, .02));
+      }
+      final decision = verifyBoundary(
+        outer,
+        sourceWidth: image.width,
+        sourceHeight: image.height,
+      );
+      expect(decision.kind, BoundaryDecisionKind.needsReview);
+      expect(decision.acceptedCorners, isNull);
+      expect(decision.cropAuthorization, isNull);
+      expect(decision.proposal.corners, hasLength(4));
+    },
+  );
+
+  test(
     'arbitrateSceneBoundaries suppresses false split across single card without merging candidates',
     () {
       final image = _solidCanvas(1000, 700, 35, 38, 44);

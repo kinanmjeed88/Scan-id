@@ -268,8 +268,7 @@ class _CropScreenState extends State<CropScreen> {
     final sx = math.max(1, source.width - 1);
     final sy = math.max(1, source.height - 1);
     double edge(int a, int b) => math.sqrt(
-      math.pow((c[a].x - c[b].x) * sx, 2) +
-          math.pow((c[a].y - c[b].y) * sy, 2),
+      math.pow((c[a].x - c[b].x) * sx, 2) + math.pow((c[a].y - c[b].y) * sy, 2),
     );
     return edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
   }

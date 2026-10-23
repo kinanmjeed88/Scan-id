@@ -455,12 +455,11 @@ class _Detector {
     required double sensitivity,
     required double needMean,
     required double needMin,
-  }) =>
-      runScored(
-        sensitivity: sensitivity,
-        needMean: needMean,
-        needMin: needMin,
-      )?.$1;
+  }) => runScored(
+    sensitivity: sensitivity,
+    needMean: needMean,
+    needMin: needMin,
+  )?.$1;
 
   (List<_P>, double)? runScored({
     required double sensitivity,

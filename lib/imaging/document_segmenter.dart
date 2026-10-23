@@ -921,10 +921,7 @@ SegmentationResult? _segmentEnclosedMultiCards(img.Image image) {
         gxy += gx * gy;
       }
       final trace = gxx + gyy;
-      final det = math.max(
-        0.0,
-        (gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy,
-      );
+      final det = math.max(0.0, (gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy);
       mag[yc + x] = math.sqrt(.5 * (trace + math.sqrt(det))) / 4;
     }
   }

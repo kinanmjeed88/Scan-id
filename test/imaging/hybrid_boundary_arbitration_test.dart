@@ -23,9 +23,7 @@ void _drawFilledQuad(
   img.ColorRgb8 color,
 ) {
   final w = canvas.width, h = canvas.height;
-  final pts = [
-    for (final p in normQuad) Point2(p.x * (w - 1), p.y * (h - 1)),
-  ];
+  final pts = [for (final p in normQuad) Point2(p.x * (w - 1), p.y * (h - 1))];
   for (var y = 0; y < h; y++) {
     for (var x = 0; x < w; x++) {
       var inside = true;

@@ -337,7 +337,8 @@ BoundaryProposal? arbitrateSingleBoundary(
     );
     if (!assess.acceptable) continue;
     final m = measureQuadPhysics(preview, c);
-    final score = m.minAllSideStep + .25 * m.meanSideStep + 40.0 * m.areaFraction;
+    final score =
+        m.minAllSideStep + .25 * m.meanSideStep + 40.0 * m.areaFraction;
     if (score > bestAiScore) {
       bestAiScore = score;
       bestAi = p;

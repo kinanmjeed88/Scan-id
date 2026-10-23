@@ -426,8 +426,10 @@ void main() {
         id: 'asset-rt',
         name: 'id_front.jpg',
         originalPath: 'projects/proj-rt/assets/asset-rt/originals/id_front.jpg',
-        workingPath: 'projects/proj-rt/assets/asset-rt/revisions/id_front_rev1.png',
-        thumbnailPath: 'projects/proj-rt/assets/asset-rt/thumbnails/id_front_thumb.jpg',
+        workingPath:
+            'projects/proj-rt/assets/asset-rt/revisions/id_front_rev1.png',
+        thumbnailPath:
+            'projects/proj-rt/assets/asset-rt/thumbnails/id_front_thumb.jpg',
         width: recipe.geometry.outputWidth,
         height: recipe.geometry.outputHeight,
         crop: recipe.geometry,
@@ -436,9 +438,12 @@ void main() {
       final reviewAsset = ImageAsset(
         id: 'asset-rev',
         name: 'id_clipped.jpg',
-        originalPath: 'projects/proj-rt/assets/asset-rev/originals/id_clipped.jpg',
-        workingPath: 'projects/proj-rt/assets/asset-rev/revisions/id_clipped_rev1.png',
-        thumbnailPath: 'projects/proj-rt/assets/asset-rev/thumbnails/id_clipped_thumb.jpg',
+        originalPath:
+            'projects/proj-rt/assets/asset-rev/originals/id_clipped.jpg',
+        workingPath:
+            'projects/proj-rt/assets/asset-rev/revisions/id_clipped_rev1.png',
+        thumbnailPath:
+            'projects/proj-rt/assets/asset-rev/thumbnails/id_clipped_thumb.jpg',
         width: 1200,
         height: 900,
         suggestedCrop: cropCorners,

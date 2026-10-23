@@ -1,0 +1,129 @@
+{
+  "manifest_version": 1,
+  "created_on": "2026-10-22",
+  "purpose": "Automated SHA-256 and frozen-threshold integrity guard for Scan-id Stage 1..3.",
+  "frozen_files": {
+    "assets/models/MODEL_MANIFEST.json": {
+      "sha256": "6bbe8b165b777714232e75c5af21358ea2cb24e66191e9dc009dc5c54fee9b43",
+      "size_bytes": 3008,
+      "role": "Frozen model manifest and neural threshold lock"
+    },
+    "assets/models/scanid_stage1_det_v1.onnx": {
+      "sha256": "a898d10c4d6faf74e7ccdece0fbcf9c0db444e8eb87c143c62a925124d8c7420",
+      "size_bytes": 498075,
+      "role": "Frozen Stage-1 ONNX weights"
+    },
+    "assets/models/scanid_stage2_corners_v1.onnx": {
+      "sha256": "18f98060144eba98166d0455ae6637d5ef71571ab86a6278d9ebf5f82414d6cb",
+      "size_bytes": 608568,
+      "role": "Frozen Stage-2 ONNX weights"
+    },
+    "docs/reports/ai_boundary_benchmark_2026-10-22.json": {
+      "sha256": "387bb5f29a48933bf1b510e198531dd2f154daab4441ff723634bdb17f7f1b0b",
+      "size_bytes": 37345,
+      "role": "Frozen baseline evaluation report JSON (Track A + Track B)"
+    },
+    "docs/reports/AI_DOCUMENT_BOUNDARY_STAGE_2026-10-22.md": {
+      "sha256": "32f9e46da683d26117526645ab45a5811aa5e91227ea37735e20171140544659",
+      "size_bytes": 30146,
+      "role": "Frozen generated baseline evaluation markdown report"
+    },
+    "test/fixtures/ai_golden_vectors.json": {
+      "sha256": "393a3098b904cd136f43f0050e815dd672dfda4c1399389325cf1a2a6658a30f",
+      "size_bytes": 6097,
+      "role": "Frozen AI golden ground-truth vectors"
+    },
+    "test/fixtures/ai_golden_card.png": {
+      "sha256": "ca59cd60d3910c9127faa58eee8de1ebf27c9a75b026356add8e729cf4e039e4",
+      "size_bytes": 1088,
+      "role": "Frozen single-card golden image fixture"
+    },
+    "test/fixtures/ai_golden_two_cards.png": {
+      "sha256": "aad218832513e9d0117f1d91f6d9f20b62dbaa59e8636e025589e50e78052ba5",
+      "size_bytes": 1903,
+      "role": "Frozen two-card golden image fixture"
+    },
+    "test/fixtures/ai_golden_truncated.png": {
+      "sha256": "ba0265adeb47e3576d5d175f28207833e8ee6c8d739fab245b014e05a4ecc970",
+      "size_bytes": 991,
+      "role": "Frozen truncated-card safety golden image fixture"
+    },
+    "test/fixtures/ai_golden_inner_box.png": {
+      "sha256": "1da165f166c314f4e527559c4ff13d9ab3dd19273b0fdc3c4f6d759bb65f6385",
+      "size_bytes": 938,
+      "role": "Frozen inner-box safety golden image fixture"
+    },
+    "test/fixtures/png_cases.dart": {
+      "sha256": "a706f8d139e2fbb3fc373df9f685589528e44db8610c4331090f09e2f7e99f86",
+      "size_bytes": 11230,
+      "role": "Frozen synthetic PNG test cases"
+    },
+    "tool/ai/dataset_gen.py": {
+      "sha256": "e4977d764ccebea82a2d835cb81991229a9f0b7cb2f4f14e8bca0bd26cf4ebc3",
+      "size_bytes": 47482,
+      "role": "Frozen dataset generator and Track B ground-truth recipe"
+    },
+    "tool/ai/benchmark_eval.py": {
+      "sha256": "f6a16d5542962bd5a78dff1e3a1f284c2d186b95a64536bd9bbfb35c4119890b",
+      "size_bytes": 46144,
+      "role": "Frozen Track A and Track B ground-truth and metric evaluator"
+    },
+    "tool/ai/inference_pipeline.py": {
+      "sha256": "8b7df0eda18367e7b6c680430174062714bb882b75fa5fb80548d1c66336df4b",
+      "size_bytes": 30750,
+      "role": "Frozen Python baseline AI inference pipeline"
+    },
+    "tool/ai/classical_port.py": {
+      "sha256": "81e8b8cfa8fec294c387745ceef4b055fdf43999ac9bc5a414b98f3991fdf83d",
+      "size_bytes": 14153,
+      "role": "Frozen Python port of classical detector baseline"
+    },
+    "lib/domain/boundary_decision.dart": {
+      "sha256": "f10f48cfadadffa11cb167d480bb06eadaeb9f200487214b91110d553f6562ef",
+      "size_bytes": 17927,
+      "role": "Frozen automatic boundary acceptance gate (verifyBoundary)"
+    },
+    "lib/domain/quad_assessment.dart": {
+      "sha256": "a12aeaf66e523639c4a945260046b2262fe925516e07a005d5aa58590d88503b",
+      "size_bytes": 8742,
+      "role": "Frozen automatic quad geometry thresholds (assessQuad)"
+    },
+    "lib/domain/document_kind.dart": {
+      "sha256": "d5dbc975bef7cb8c661cfcf446732b6db706e41fa0074311c77320730cee3e9b",
+      "size_bytes": 18501,
+      "role": "Frozen catalog dimensions and shapeTolerance = 0.04"
+    },
+    "lib/imaging/ai_document_detector.dart": {
+      "sha256": "3b6d7f08a8af33022a38057cf3e6252a5455bf7f7b1e9a5296a2e070c8e06d48",
+      "size_bytes": 48515,
+      "role": "Frozen Dart AI detector and AiFrozenThresholds"
+    }
+  },
+  "frozen_neural_thresholds": {
+    "accept_four_visible": 0.65,
+    "accept_mean_corner_peak": 0.64,
+    "accept_mean_edge_support": 0.36,
+    "accept_min_corner_peak": 0.5,
+    "accept_min_edge_support": 0.24,
+    "accept_roi_valid": 0.65,
+    "center_peak_thresh": 0.28,
+    "nms_polygon_iou": 0.35,
+    "review_mean_corner_peak": 0.3,
+    "review_mean_edge_support": 0.2,
+    "review_min_corner_peak": 0.16,
+    "review_roi_valid": 0.28,
+    "scene_prob_floor": 0.22,
+    "shrunk_mask_thresh": 0.36
+  },
+  "frozen_routing_thresholds": {
+    "autoAccept": 0.9,
+    "review": 0.7,
+    "componentFloor": 0.5,
+    "minClassification": 0.6,
+    "conflictGap": 0.15
+  },
+  "pinned_regression_cases": [
+    "wild_pos_jscanify_test3",
+    "jscanify_test7_truncated"
+  ]
+}

@@ -41,7 +41,8 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
-class LocalImageEditor implements BoundaryProposalImageEditor {
+class LocalImageEditor
+    implements BoundaryProposalImageEditor, CropBytesImageEditor {
   const LocalImageEditor(
     this.files, {
     this.readFullResolutionRegion,
@@ -169,6 +170,21 @@ class LocalImageEditor implements BoundaryProposalImageEditor {
     return Isolate.run(() => _saveRevision(root, asset, recipe, bytes));
   }
 
+  @override
+  Future<Uint8List> renderCropBytes(
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async {
+    if (asset.hasScaledLargeSource && _usesOriginalJpeg(recipe)) {
+      final prepared = await _prepareFullResolutionExtract(asset, recipe);
+      return Isolate.run(
+        () => img.encodePng(warpPerspective(prepared.extracted, prepared.recipe)),
+      );
+    }
+    final bytes = await _source(asset);
+    return Isolate.run(() => img.encodePng(warpPerspective(bytes, recipe)));
+  }
+
   /// A sampled large JPEG uses the original for every region except the whole
   /// oriented frame.
   ///
@@ -179,14 +195,8 @@ class LocalImageEditor implements BoundaryProposalImageEditor {
   bool _usesOriginalJpeg(ImageEditRecipe recipe) =>
       !coversOrientedFrame(manualCropBounds(recipe.geometry.corners));
 
-  /// Final pixels of a sampled large JPEG come from the immutable original.
-  ///
-  /// The recipe corners are normalized to the EXIF-oriented preview, which is
-  /// a uniform scale of that same frame. The platform extracts only the
-  /// quadrilateral's bounds; the warp then uses those pixels. A region that
-  /// cannot fit the existing budget fails here. The sampled PNG is not a
-  /// fallback.
-  Future<ImageAsset> _createFullResolutionRevision(
+  Future<({Uint8List extracted, ImageEditRecipe recipe})>
+  _prepareFullResolutionExtract(
     ImageAsset asset,
     ImageEditRecipe recipe,
   ) async {
@@ -257,13 +267,28 @@ class LocalImageEditor implements BoundaryProposalImageEditor {
             aspectRatio: storedAspect,
           ).toRecipe(extractedHeader.width, extractedHeader.height)
         : measured;
+    return (extracted: extracted, recipe: localRecipe);
+  }
+
+  /// Final pixels of a sampled large JPEG come from the immutable original.
+  ///
+  /// The recipe corners are normalized to the EXIF-oriented preview, which is
+  /// a uniform scale of that same frame. The platform extracts only the
+  /// quadrilateral's bounds; the warp then uses those pixels. A region that
+  /// cannot fit the existing budget fails here. The sampled PNG is not a
+  /// fallback.
+  Future<ImageAsset> _createFullResolutionRevision(
+    ImageAsset asset,
+    ImageEditRecipe recipe,
+  ) async {
+    final prepared = await _prepareFullResolutionExtract(asset, recipe);
     final root = files.root.path;
     return Isolate.run(
       () => _saveRevision(
         root,
         asset,
-        localRecipe,
-        extracted,
+        prepared.recipe,
+        prepared.extracted,
         storedCorners: [
           for (final corner in recipe.geometry.corners)
             Point2(corner.x, corner.y),

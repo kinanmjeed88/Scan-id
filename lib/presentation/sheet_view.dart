@@ -389,9 +389,14 @@ class EditorStatusBar extends StatelessWidget {
 
 /// Documents not on a page, with a status for why automatic layout left them out.
 class OffSheetTray extends StatelessWidget {
-  const OffSheetTray({required this.controller, super.key});
+  const OffSheetTray({
+    required this.controller,
+    this.onAdjustBoundary,
+    super.key,
+  });
 
   final LayoutEditorController controller;
+  final ValueChanged<DocumentItem>? onAdjustBoundary;
 
   @override
   Widget build(BuildContext context) {
@@ -465,6 +470,27 @@ class OffSheetTray extends StatelessWidget {
                                   _OffSheetReason(c.autoLayoutOf(item)),
                                 ],
                               ),
+                              if (onAdjustBoundary != null &&
+                                  c.service.imageEditor != null) ...[
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  key: Key('offsheet-crop-${item.id}'),
+                                  tooltip: 'ضبط الحدود',
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.all(4),
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  icon: const Icon(Icons.crop, size: 18),
+                                  onPressed: c.busy
+                                      ? null
+                                      : () {
+                                          c.select(item.id);
+                                          onAdjustBoundary!(item);
+                                        },
+                                ),
+                              ],
                             ],
                           ),
                         ),

@@ -141,6 +141,59 @@ RoutingDecision routeRecognition({
 /// recognition result from the review queue.
 const reviewConfirmedField = 'review-confirmed';
 
+/// Marker recorded in [UserOverride.fields] when the user explicitly confirms
+/// manual 4-corner boundary geometry on an asset or candidate region.
+///
+/// Kept distinct from [DetectionRef.polygon] so manual user confirmation never
+/// fabricates or mutates automatic detector evidence (ADR-004).
+const manualBoundaryConfirmedField = 'manual-boundary-confirmed';
+
+/// Side-scoped marker recorded in [UserOverride.fields] when manual 4-corner
+/// geometry is confirmed for a specific [DocumentSide.id].
+String manualBoundaryConfirmedSideField(String sideId) =>
+    '$manualBoundaryConfirmedField:$sideId';
+
+bool _hasSideScopedBoundaryToken(UserOverride override) => override.fields.any(
+  (field) => field.startsWith('$manualBoundaryConfirmedField:'),
+);
+
+/// Whether the user has explicitly confirmed manual 4-corner geometry for
+/// [side] of [record].
+bool sideHasManualBoundaryOverride(DocumentRecord record, DocumentSide side) {
+  final sideToken = manualBoundaryConfirmedSideField(side.id);
+  if (record.overrides.any((override) => override.fields.contains(sideToken))) {
+    return true;
+  }
+  if (record.sides.length == 1) {
+    return record.overrides.any(
+      (override) =>
+          !_hasSideScopedBoundaryToken(override) &&
+          ((override.corners != null && override.corners!.length == 4) ||
+              override.fields.contains(manualBoundaryConfirmedField)),
+    );
+  }
+  return side.processedAsset.corners != null &&
+      side.processedAsset.corners!.length == 4 &&
+      record.overrides.any(
+        (override) =>
+            !_hasSideScopedBoundaryToken(override) &&
+            override.fields.contains(manualBoundaryConfirmedField),
+      );
+}
+
+/// Whether [side] of [record] still has an unresolved detector boundary.
+bool sideHasUnresolvedBoundary(DocumentRecord record, DocumentSide side) =>
+    side.detection != null &&
+    side.detection!.polygon == null &&
+    !sideHasManualBoundaryOverride(record, side);
+
+/// Whether the user has explicitly confirmed manual 4-corner geometry on at
+/// least one side of [record], without claiming an automatic detector produced
+/// it.
+bool hasManualBoundaryOverride(DocumentRecord record) => record.sides.any(
+  (side) => sideHasManualBoundaryOverride(record, side),
+);
+
 /// Marker in [UserOverride.fields] distinguishing a new detached dismissal
 /// tombstone from schema-v5 records that already used `dismissed` while their
 /// layout item and pair were still present.
@@ -243,6 +296,5 @@ bool recordNeedsReview(
 /// manual item, or a legacy record — `synthesizeLegacyRecords` always records a
 /// polygon, truthful even when it is the whole frame) is not an unresolved
 /// candidate: no detector ran, so there is nothing that failed to resolve.
-bool hasUnresolvedBoundary(DocumentRecord record) => record.sides.any(
-  (side) => side.detection != null && side.detection!.polygon == null,
-);
+bool hasUnresolvedBoundary(DocumentRecord record) =>
+    record.sides.any((side) => sideHasUnresolvedBoundary(record, side));

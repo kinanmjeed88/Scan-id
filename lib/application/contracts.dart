@@ -149,3 +149,13 @@ abstract interface class BoundaryProposalImageEditor implements ImageEditor {
   Future<BoundaryProposal?> suggestProposal(Uint8List preview);
   String? get boundaryModelId;
 }
+
+/// Optional capability for rendering an accepted perspective crop directly to
+/// lossless PNG bytes at full source resolution (including native EXIF-oriented
+/// region extraction on >16 MP JPEGs) without mutating the source [ImageAsset].
+///
+/// Used when extracting independent derived documents from a multi-document
+/// source photograph (**Path C**).
+abstract interface class CropBytesImageEditor implements ImageEditor {
+  Future<Uint8List> renderCropBytes(ImageAsset asset, ImageEditRecipe recipe);
+}

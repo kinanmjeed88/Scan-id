@@ -28,6 +28,16 @@ class EditHistory<T> {
     _future.clear();
   }
 
+  /// Coalesces an in-progress edit into the current snapshot without pushing a
+  /// duplicate step onto [_past], while clearing any invalidated redo branch.
+  void replaceCurrent(T next) {
+    if (identical(next, _current)) {
+      return;
+    }
+    _current = next;
+    _future.clear();
+  }
+
   T undo() {
     if (canUndo) {
       _future.add(_current);

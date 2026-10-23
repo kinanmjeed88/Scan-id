@@ -10,8 +10,10 @@ import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
 import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
+import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
+import '../domain/validation.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
@@ -22,6 +24,9 @@ class CropScreen extends StatefulWidget {
     required this.service,
     this.documentKind = DocumentKind.unknown,
     this.suggestedCorners,
+    this.targetItemId,
+    this.confirmForSheet = false,
+    this.extractDerived = false,
     super.key,
   });
   final Project project;
@@ -34,22 +39,77 @@ class CropScreen extends StatefulWidget {
 
   /// Optional editable 4-corner proposal from a `needsReview` boundary check.
   final List<Point2>? suggestedCorners;
+
+  /// Specific layout item to update and confirm when [confirmForSheet] is used.
+  final String? targetItemId;
+
+  /// When true, requires confirming a valid document category or custom print
+  /// size before committing so the item immediately enters the A4 sheet.
+  final bool confirmForSheet;
+
+  /// When true (**Path C**), opens the full uncropped root photograph and saves
+  /// the accepted region as a new independent derived document on A4 without
+  /// modifying the source photograph or earlier extracted documents.
+  final bool extractDerived;
   @override
   State<CropScreen> createState() => _CropScreenState();
+}
+
+class _CropEditorState {
+  const _CropEditorState({
+    required this.draft,
+    required this.selectedKind,
+    required this.customWidthText,
+    required this.customHeightText,
+  });
+
+  final CropDraft draft;
+  final DocumentKind selectedKind;
+  final String customWidthText;
+  final String customHeightText;
+
+  _CropEditorState copyWith({
+    CropDraft? draft,
+    DocumentKind? selectedKind,
+    String? customWidthText,
+    String? customHeightText,
+  }) => _CropEditorState(
+    draft: draft ?? this.draft,
+    selectedKind: selectedKind ?? this.selectedKind,
+    customWidthText: customWidthText ?? this.customWidthText,
+    customHeightText: customHeightText ?? this.customHeightText,
+  );
+}
+
+String _formatMillimeters(double value) {
+  if ((value - value.roundToDouble()).abs() < 1e-6) {
+    return value.toStringAsFixed(1);
+  }
+  final two = value.toStringAsFixed(2);
+  return two.endsWith('0') ? two.substring(0, two.length - 1) : two;
 }
 
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();
   final _view = TransformationController();
+  final _customWidthController = TextEditingController(text: '85.6');
+  final _customHeightController = TextEditingController(text: '54.0');
   EditorSource? _source;
-  EditHistory<CropDraft>? _history;
-  CropDraft? _draft;
+  EditHistory<_CropEditorState>? _history;
+  _CropEditorState? _state;
+  String? _coalescedCustomField;
   Uint8List? _preview;
   String? _error;
   bool _busy = true;
   bool _showResult = false;
   bool _dirty = false;
   CropDraft? _initialReviewDraft;
+  late DocumentKind _initialKind;
+  late String _initialWidthText;
+  late String _initialHeightText;
+
+  CropDraft? get _draft => _state?.draft;
+  DocumentKind get _selectedKind => _state?.selectedKind ?? _initialKind;
   bool get _showingReviewProposal =>
       _initialReviewDraft != null && identical(_draft, _initialReviewDraft);
   ImageEditor get _editor => widget.service.imageEditor!;
@@ -57,11 +117,36 @@ class _CropScreenState extends State<CropScreen> {
   @override
   void initState() {
     super.initState();
+    var resolvedKind = widget.documentKind;
+    var resolvedW = '85.6';
+    var resolvedH = '54.0';
+    final targetItem = widget.targetItemId == null
+        ? null
+        : widget.project.items
+              .where((i) => i.id == widget.targetItemId)
+              .firstOrNull;
+    if (targetItem != null) {
+      if (resolvedKind == DocumentKind.unknown &&
+          targetItem.documentKind != DocumentKind.unknown) {
+        resolvedKind = targetItem.documentKind;
+      }
+      if (targetItem.sizeConfirmed) {
+        resolvedW = _formatMillimeters(targetItem.width);
+        resolvedH = _formatMillimeters(targetItem.height);
+      }
+    }
+    _initialKind = resolvedKind;
+    _initialWidthText = resolvedW;
+    _initialHeightText = resolvedH;
+    _customWidthController.text = resolvedW;
+    _customHeightController.text = resolvedH;
     unawaited(_load());
   }
 
   @override
   void dispose() {
+    _customWidthController.dispose();
+    _customHeightController.dispose();
     _view.dispose();
     super.dispose();
   }
@@ -72,47 +157,67 @@ class _CropScreenState extends State<CropScreen> {
       if (!mounted) {
         return;
       }
-      final crop = widget.asset.crop;
+      final crop = widget.extractDerived ? null : widget.asset.crop;
       final shape = widget.project.catalog.sizeFor(
-        widget.documentKind,
+        _initialKind,
         landscape: source.width >= source.height,
       );
       final initialAspect = shape == null ? null : shape.width / shape.height;
       final baseFull = CropDraft(
         corners: CropDraft.fullImage().corners,
-        adjustments: widget.asset.adjustments,
+        adjustments: widget.extractDerived
+            ? CropDraft.fullImage().adjustments
+            : widget.asset.adjustments,
         aspectRatio: initialAspect,
       );
-      final proposed = crop == null
+      final proposed = crop == null && !widget.extractDerived
           ? _resolveSuggestedCorners(source.width, source.height)
           : null;
-      final EditHistory<CropDraft> history;
-      final CropDraft activeDraft;
+      final EditHistory<_CropEditorState> history;
+      final _CropEditorState activeState;
       if (crop != null) {
-        activeDraft = CropDraft(
+        final activeDraft = CropDraft(
           corners: crop.corners,
           adjustments: widget.asset.adjustments,
           aspectRatio: crop.outputWidth / crop.outputHeight,
           preservedGeometry: crop,
         );
-        history = EditHistory(activeDraft);
+        activeState = _CropEditorState(
+          draft: activeDraft,
+          selectedKind: _initialKind,
+          customWidthText: _initialWidthText,
+          customHeightText: _initialHeightText,
+        );
+        history = EditHistory(activeState);
       } else if (proposed != null) {
-        history = EditHistory(baseFull);
-        activeDraft = CropDraft(
+        final baseState = _CropEditorState(
+          draft: baseFull,
+          selectedKind: _initialKind,
+          customWidthText: _initialWidthText,
+          customHeightText: _initialHeightText,
+        );
+        history = EditHistory(baseState);
+        final proposedDraft = CropDraft(
           corners: proposed,
           adjustments: widget.asset.adjustments,
           aspectRatio: initialAspect,
         );
-        history.record(activeDraft);
+        activeState = baseState.copyWith(draft: proposedDraft);
+        history.record(activeState);
       } else {
-        activeDraft = baseFull;
-        history = EditHistory(activeDraft);
+        activeState = _CropEditorState(
+          draft: baseFull,
+          selectedKind: _initialKind,
+          customWidthText: _initialWidthText,
+          customHeightText: _initialHeightText,
+        );
+        history = EditHistory(activeState);
       }
       setState(() {
         _source = source;
         _history = history;
-        _draft = activeDraft;
-        _initialReviewDraft = proposed != null ? activeDraft : null;
+        _state = activeState;
+        _initialReviewDraft = proposed != null ? activeState.draft : null;
         _busy = false;
       });
     } catch (error) {
@@ -138,7 +243,8 @@ class _CropScreenState extends State<CropScreen> {
                 widget.asset.id,
                 side.processedAsset.workingPath,
               ) ||
-              record.sourceImageId == widget.asset.id) {
+              (record.sides.length == 1 &&
+                  record.sourceImageId == widget.asset.id)) {
             candidate = sp;
             break;
           }
@@ -196,10 +302,77 @@ class _CropScreenState extends State<CropScreen> {
     return -1;
   }
 
-  void _change(CropDraft next) {
+  void _syncControllerText(TextEditingController controller, String value) {
+    if (controller.text == value) return;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  void _commitState(_CropEditorState next) {
+    _coalescedCustomField = null;
     _history!.record(next);
+    _syncControllerText(_customWidthController, next.customWidthText);
+    _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
-      _draft = next;
+      _state = next;
+      _preview = null;
+      _showResult = false;
+      _dirty = true;
+      _error = null;
+    });
+  }
+
+  void _change(CropDraft next) {
+    _commitState(_state!.copyWith(draft: next));
+  }
+
+  double? _tryParseCustomRatio(String widthText, String heightText) {
+    final w = double.tryParse(widthText.trim().replaceAll(',', '.'));
+    final h = double.tryParse(heightText.trim().replaceAll(',', '.'));
+    if (w == null || h == null || !w.isFinite || !h.isFinite) return null;
+    if (w < minDocumentEdgeMm ||
+        w > maxDocumentEdgeMm ||
+        h < minDocumentEdgeMm ||
+        h > maxDocumentEdgeMm) {
+      return null;
+    }
+    return w / h;
+  }
+
+  void _onCustomSizeEdited(String value, {required bool isWidth}) {
+    final current = _state!;
+    final previous = isWidth
+        ? current.customWidthText
+        : current.customHeightText;
+    if (value == previous) return;
+    final nextW = isWidth ? value : current.customWidthText;
+    final nextH = isWidth ? current.customHeightText : value;
+    final ratio = current.selectedKind == DocumentKind.other
+        ? _tryParseCustomRatio(nextW, nextH)
+        : null;
+    final nextDraft = ratio != null && ratio != current.draft.aspectRatio
+        ? CropDraft(
+            corners: current.draft.corners,
+            adjustments: current.draft.adjustments,
+            aspectRatio: ratio,
+          )
+        : current.draft;
+    final next = current.copyWith(
+      draft: nextDraft,
+      customWidthText: nextW,
+      customHeightText: nextH,
+    );
+    final fieldKey = isWidth ? 'width' : 'height';
+    if (_coalescedCustomField == fieldKey) {
+      _history!.replaceCurrent(next);
+    } else {
+      _history!.record(next);
+      _coalescedCustomField = fieldKey;
+    }
+    setState(() {
+      _state = next;
       _preview = null;
       _showResult = false;
       _dirty = true;
@@ -208,9 +381,12 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   void _undo(bool redo) {
+    _coalescedCustomField = null;
     final next = redo ? _history!.redo() : _history!.undo();
+    _syncControllerText(_customWidthController, next.customWidthText);
+    _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
-      _draft = next;
+      _state = next;
       _preview = null;
       _showResult = false;
       _dirty = true;
@@ -218,8 +394,80 @@ class _CropScreenState extends State<CropScreen> {
     });
   }
 
-  ImageEditRecipe _recipe() =>
-      _draft!.toRecipe(_source!.width, _source!.height);
+  ImageEditRecipe _recipe() {
+    final validation = requireValidManualBoundary(
+      corners: _draft!.corners,
+      sourceWidth: _source!.width,
+      sourceHeight: _source!.height,
+      adjustments: _draft!.adjustments,
+      aspectRatio: _draft!.aspectRatio,
+      catalog: widget.project.catalog,
+    );
+    return validation.recipe!;
+  }
+
+  PhysicalSizeMm? _parseCustomSize() {
+    if (_selectedKind != DocumentKind.other) return null;
+    final w = double.tryParse(
+      _state!.customWidthText.trim().replaceAll(',', '.'),
+    );
+    final h = double.tryParse(
+      _state!.customHeightText.trim().replaceAll(',', '.'),
+    );
+    if (w == null || h == null || !w.isFinite || !h.isFinite) {
+      throw const ValidationException(
+        'أدخل عرض المستمسك وارتفاعه بالمليمتر بأرقام صحيحة.',
+      );
+    }
+    return validDocumentSize(PhysicalSizeMm(w, h));
+  }
+
+  void _selectDocumentKind(DocumentKind? kind) {
+    if (kind == null || kind == _selectedKind) return;
+    final natural = widget.project.catalog.natural(kind);
+    final double? nextRatio;
+    if (natural != null) {
+      final oriented = natural.oriented(landscape: _draftLandscape);
+      nextRatio = oriented.width / oriented.height;
+    } else if (kind == DocumentKind.other) {
+      nextRatio =
+          _tryParseCustomRatio(
+            _state!.customWidthText,
+            _state!.customHeightText,
+          ) ??
+          _draft!.aspectRatio;
+    } else {
+      nextRatio = null;
+    }
+    final nextDraft = nextRatio == _draft!.aspectRatio
+        ? _draft!
+        : CropDraft(
+            corners: _draft!.corners,
+            adjustments: _draft!.adjustments,
+            aspectRatio: nextRatio,
+          );
+    _commitState(_state!.copyWith(draft: nextDraft, selectedKind: kind));
+  }
+
+  Future<void> _revertSavedCrop() async {
+    setState(() => _busy = true);
+    try {
+      final saved = await widget.service.resetManualCrop(
+        widget.project,
+        widget.asset,
+      );
+      if (mounted) {
+        Navigator.pop(context, saved);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = userError(error);
+          _busy = false;
+        });
+      }
+    }
+  }
 
   Future<void> _autoAdjust() async {
     setState(() => _busy = true);
@@ -306,11 +554,46 @@ class _CropScreenState extends State<CropScreen> {
     }
     setState(() => _busy = true);
     try {
-      final saved = await widget.service.applyManualCrop(
-        widget.project,
-        widget.asset,
-        _recipe(),
-      );
+      final recipe = _recipe();
+      final Project saved;
+      final kindOrSizeChanged =
+          (_selectedKind != _initialKind &&
+              _selectedKind != DocumentKind.unknown) ||
+          (_selectedKind == DocumentKind.other &&
+              (_state!.customWidthText != _initialWidthText ||
+                  _state!.customHeightText != _initialHeightText));
+      if (widget.extractDerived) {
+        final customSize = _parseCustomSize();
+        saved = await widget.service.extractManualDerivedDocument(
+          widget.project,
+          widget.asset,
+          recipe,
+          documentKind: _selectedKind,
+          customSizeMm: customSize,
+          sourceWidth: _source!.width,
+          sourceHeight: _source!.height,
+        );
+      } else if (widget.confirmForSheet || kindOrSizeChanged) {
+        final customSize = _parseCustomSize();
+        saved = await widget.service.confirmManualBoundary(
+          widget.project,
+          widget.asset,
+          recipe,
+          documentKind: _selectedKind,
+          customSizeMm: customSize,
+          targetItemId: widget.targetItemId,
+          sourceWidth: _source!.width,
+          sourceHeight: _source!.height,
+        );
+      } else {
+        saved = await widget.service.applyManualCrop(
+          widget.project,
+          widget.asset,
+          recipe,
+          sourceWidth: _source!.width,
+          sourceHeight: _source!.height,
+        );
+      }
       if (mounted) {
         Navigator.pop(context, saved);
       }
@@ -426,7 +709,11 @@ class _CropScreenState extends State<CropScreen> {
             onPressed: _busy ? null : _leave,
             icon: const Icon(Icons.close),
           ),
-          title: const Text('قص وتصحيح المستمسك'),
+          title: Text(
+            widget.extractDerived
+                ? 'استخراج مستمسك مستقل من الأصل'
+                : 'قص وتصحيح المستمسك',
+          ),
           actions: [
             IconButton(
               tooltip: 'اختصارات لوحة المفاتيح',
@@ -638,7 +925,10 @@ class _CropScreenState extends State<CropScreen> {
                                                 ),
                                               );
                                               setState(() {
-                                                _draft = next;
+                                                _coalescedCustomField = null;
+                                                _state = _state!.copyWith(
+                                                  draft: next,
+                                                );
                                                 _preview = null;
                                                 _showResult = false;
                                                 _dirty = true;
@@ -653,10 +943,10 @@ class _CropScreenState extends State<CropScreen> {
                                       onPanCancel: _busy
                                           ? null
                                           : () {
-                                              setState(
-                                                () =>
-                                                    _draft = _history!.current,
-                                              );
+                                              setState(() {
+                                                _coalescedCustomField = null;
+                                                _state = _history!.current;
+                                              });
                                             },
                                       child: Semantics(
                                         label: 'زاوية القص ${i + 1}',
@@ -733,6 +1023,82 @@ class _CropScreenState extends State<CropScreen> {
             label: Text('تدوير · ${adjustments.quarterTurns * 90}°'),
           ),
           const SizedBox(height: 12),
+          const Text('نوع المستمسك ومقاس الطباعة على A4'),
+          DropdownButton<DocumentKind>(
+            key: const Key('crop-document-kind'),
+            isExpanded: true,
+            value: _selectedKind,
+            items: [
+              DropdownMenuItem(
+                value: DocumentKind.unknown,
+                child: Text(
+                  widget.confirmForSheet || widget.extractDerived
+                      ? 'اختر النوع لتأكيد الإضافة إلى A4…'
+                      : 'دون تغيير النوع على الورقة',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              for (final kind in const [
+                DocumentKind.unifiedNationalId,
+                DocumentKind.residenceCard,
+                DocumentKind.passport,
+                DocumentKind.rationCard,
+              ])
+                DropdownMenuItem(
+                  value: kind,
+                  child: Text(kind.label, overflow: TextOverflow.ellipsis),
+                ),
+              const DropdownMenuItem(
+                value: DocumentKind.other,
+                child: Text(
+                  'مقاس مخصص (مم)',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+            onChanged: _busy ? null : _selectDocumentKind,
+          ),
+          if (_selectedKind == DocumentKind.other) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const Key('crop-custom-width-mm'),
+                    controller: _customWidthController,
+                    enabled: !_busy,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'العرض (مم)',
+                      isDense: true,
+                    ),
+                    onChanged: (value) =>
+                        _onCustomSizeEdited(value, isWidth: true),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    key: const Key('crop-custom-height-mm'),
+                    controller: _customHeightController,
+                    enabled: !_busy,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'الارتفاع (مم)',
+                      isDense: true,
+                    ),
+                    onChanged: (value) =>
+                        _onCustomSizeEdited(value, isWidth: false),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
           const Text('شكل المستمسك (يحدد نسبة الأبعاد بعد التصحيح)'),
           DropdownButton<double?>(
             key: const Key('crop-aspect'),
@@ -771,8 +1137,11 @@ class _CropScreenState extends State<CropScreen> {
             onChanged: _busy
                 ? null
                 : (v) => setState(() {
-                    _draft = _draft!.withAdjustments(
-                      adjustments.copyWith(brightness: v),
+                    _coalescedCustomField = null;
+                    _state = _state!.copyWith(
+                      draft: _draft!.withAdjustments(
+                        adjustments.copyWith(brightness: v),
+                      ),
                     );
                     _preview = null;
                     _showResult = false;
@@ -790,8 +1159,11 @@ class _CropScreenState extends State<CropScreen> {
             onChanged: _busy
                 ? null
                 : (v) => setState(() {
-                    _draft = _draft!.withAdjustments(
-                      adjustments.copyWith(contrast: v),
+                    _coalescedCustomField = null;
+                    _state = _state!.copyWith(
+                      draft: _draft!.withAdjustments(
+                        adjustments.copyWith(contrast: v),
+                      ),
                     );
                     _preview = null;
                     _showResult = false;
@@ -809,8 +1181,11 @@ class _CropScreenState extends State<CropScreen> {
             onChanged: _busy
                 ? null
                 : (v) => setState(() {
-                    _draft = _draft!.withAdjustments(
-                      adjustments.copyWith(saturation: v),
+                    _coalescedCustomField = null;
+                    _state = _state!.copyWith(
+                      draft: _draft!.withAdjustments(
+                        adjustments.copyWith(saturation: v),
+                      ),
                     );
                     _preview = null;
                     _showResult = false;
@@ -828,8 +1203,11 @@ class _CropScreenState extends State<CropScreen> {
             onChanged: _busy
                 ? null
                 : (v) => setState(() {
-                    _draft = _draft!.withAdjustments(
-                      adjustments.copyWith(sharpness: v),
+                    _coalescedCustomField = null;
+                    _state = _state!.copyWith(
+                      draft: _draft!.withAdjustments(
+                        adjustments.copyWith(sharpness: v),
+                      ),
                     );
                     _preview = null;
                     _showResult = false;
@@ -838,9 +1216,26 @@ class _CropScreenState extends State<CropScreen> {
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
           TextButton(
-            onPressed: _busy ? null : () => _change(CropDraft.fullImage()),
+            onPressed: _busy
+                ? null
+                : () => _commitState(
+                    _CropEditorState(
+                      draft: CropDraft.fullImage(),
+                      selectedKind: _initialKind,
+                      customWidthText: _initialWidthText,
+                      customHeightText: _initialHeightText,
+                    ),
+                  ),
             child: const Text('إعادة ضبط إلى الأصل'),
           ),
+          if (!widget.extractDerived &&
+              widget.asset.crop != null &&
+              !widget.asset.hasScaledLargeSource)
+            TextButton(
+              key: const Key('crop-revert-original'),
+              onPressed: _busy ? null : _revertSavedCrop,
+              child: const Text('استعادة الأصل المحفوظ وإلغاء القص'),
+            ),
           const Text(
             'راجع النصوص والوجوه قبل الاعتماد. النسبة المقدرة لا تحدد الحجم الحقيقي ولا تضمن استعادته من الصورة.',
           ),

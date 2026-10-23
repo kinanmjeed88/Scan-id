@@ -121,7 +121,16 @@ class LayoutEditorController extends ChangeNotifier {
     final record = project.documents
         .where((document) => document.id == documentId)
         .firstOrNull;
-    return record != null && routing.hasUnresolvedBoundary(record);
+    if (record == null) return false;
+    if (item.sideId != null) {
+      final side = record.sides
+          .where((entry) => entry.id == item.sideId)
+          .firstOrNull;
+      if (side != null) {
+        return routing.sideHasUnresolvedBoundary(record, side);
+      }
+    }
+    return routing.hasUnresolvedBoundary(record);
   }
 
   ImageAsset assetOf(DocumentItem item) =>
@@ -487,7 +496,7 @@ class LayoutEditorController extends ChangeNotifier {
       project.items.where((i) => i.documentId == record.id).firstOrNull;
 
   Future<void> confirmRecognition(String documentId) =>
-      edit((p) => rec.confirmRecognition(p, documentId), layout: false);
+      edit((p) => rec.confirmRecognition(p, documentId));
 
   /// Explicitly rejects a review candidate while retaining its recognition
   /// record, source assets and provenance for audit/reprocessing.
@@ -508,7 +517,7 @@ class LayoutEditorController extends ChangeNotifier {
       next = rec.confirmRecognition(next, record.id);
     }
     return next;
-  }, layout: false);
+  });
 
   /// Corrects the recognized kind of a record through its layout items, so
   /// the catalog size applies and the override is recorded.
@@ -802,29 +811,87 @@ class LayoutEditorController extends ChangeNotifier {
     );
   }
 
-  /// Adopts a crop saved by the crop editor and re-applies the catalog size
-  /// in the new orientation.
-  Future<void> adoptCrop(Project saved, String assetId) async {
-    await run(() => session.adoptSaved(saved));
-    final ids = [
-      for (final item in session.current.items)
-        if (item.assetId == assetId &&
-            !item.locked &&
-            session.current.catalog.natural(item.documentKind) != null)
-          item.id,
-    ];
-    if (ids.isEmpty) return;
-    await edit((p) {
-      var next = p;
-      for (final id in ids) {
-        next = DocumentEdits.setKind(
-          next,
-          id,
-          PageLayout.item(next, id).documentKind,
-        );
+  /// Resolves the root imported photograph behind [asset] when [asset] is a
+  /// derived per-document crop, or returns [asset] itself.
+  ImageAsset? rootSourceFor(ImageAsset? asset) {
+    if (asset == null) return null;
+    final parentId = asset.derivedFrom;
+    if (parentId == null) return asset;
+    return project.assets.where((a) => a.id == parentId).firstOrNull ?? asset;
+  }
+
+  /// Adopts a crop saved by the crop editor as one undoable step and reveals
+  /// any newly placed or newly extracted document on the A4 sheet.
+  Future<void> adoptCrop(
+    Project saved,
+    String assetId, {
+    String? preferredItemId,
+  }) async {
+    final beforeItemIds = session.current.items.map((e) => e.id).toSet();
+    final ok = await run(() => session.adoptSaved(saved));
+    if (!ok) return;
+
+    final updatedAsset = session.current.assets
+        .where((a) => a.id == assetId)
+        .firstOrNull;
+    if (updatedAsset != null) {
+      final assetLandscape = updatedAsset.width >= updatedAsset.height;
+      final staleIds = <String>[
+        for (final item in session.current.items)
+          if (item.assetId == assetId &&
+              !item.locked &&
+              session.current.catalog.natural(item.documentKind) != null &&
+              ((item.width >= item.height) != assetLandscape ||
+                  (item.sizeConfirmed && item.pageIndex == null)))
+            item.id,
+      ];
+      if (staleIds.isNotEmpty) {
+        await edit((p) {
+          var next = p;
+          for (final id in staleIds) {
+            next = DocumentEdits.setKind(
+              next,
+              id,
+              PageLayout.item(next, id).documentKind,
+            );
+          }
+          return next;
+        });
       }
-      return next;
+    }
+
+    final addedItem = session.current.items
+        .where((e) => !beforeItemIds.contains(e.id))
+        .lastOrNull;
+    final focusId =
+        addedItem?.id ??
+        preferredItemId ??
+        session.current.items.where((e) => e.assetId == assetId).lastOrNull?.id;
+    if (focusId != null &&
+        session.current.items.any((e) => e.id == focusId)) {
+      select(focusId, reveal: true);
+    } else {
+      _notify();
+    }
+  }
+
+  /// Restores the active non-derived image to its uncropped original working
+  /// copy as one undoable step.
+  Future<void> resetCropToOriginal() async {
+    final asset = activeAsset;
+    if (asset == null || asset.crop == null) return;
+    Project? saved;
+    final ok = await run(() async {
+      final fresh = session.current.assets
+          .where((a) => a.id == asset.id)
+          .firstOrNull;
+      if (fresh == null) return;
+      saved = await service.resetManualCrop(session.current, fresh);
+      await session.adoptSaved(saved!);
     });
+    if (ok && saved != null) {
+      _say('أُعيدت الصورة إلى أصلها الكامل دون تعديل الملف الأصلي.');
+    }
   }
 
   // ---------------------------------------------------------------------

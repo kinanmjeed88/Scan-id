@@ -89,9 +89,25 @@ class _ReviewDialog extends StatelessWidget {
     final c = controller;
     final busy = c.busy;
     final item = c.itemForRecord(record);
+    final unresolvedSide = record.sides
+        .where((s) => sideHasUnresolvedBoundary(record, s))
+        .firstOrNull;
+    final cropItem = unresolvedSide == null
+        ? item
+        : (c.project.items
+                  .where(
+                    (i) =>
+                        i.documentId == record.id &&
+                        i.sideId == unresolvedSide.id,
+                  )
+                  .firstOrNull ??
+              item);
     final asset = item == null
         ? null
         : c.project.assets.where((a) => a.id == item.assetId).firstOrNull;
+    final cropAsset = cropItem == null
+        ? asset
+        : c.project.assets.where((a) => a.id == cropItem.assetId).firstOrNull;
     final kind = c.effectiveKindOf(record);
     final side = c.effectiveSideOf(record);
     final confidence = record.recognition?.confidences.finalConfidence?.value;
@@ -192,7 +208,7 @@ class _ReviewDialog extends StatelessWidget {
                 ),
               ],
               if (hasUnresolvedBoundary(record) &&
-                  asset != null &&
+                  cropAsset != null &&
                   c.service.imageEditor != null)
                 TextButton.icon(
                   key: Key('review-crop-${record.id}'),
@@ -204,7 +220,7 @@ class _ReviewDialog extends StatelessWidget {
                           await c.flush();
                           if (!context.mounted) return;
                           final freshAsset = c.session.current.assets
-                              .where((a) => a.id == asset.id)
+                              .where((a) => a.id == cropAsset.id)
                               .firstOrNull;
                           if (freshAsset == null) return;
                           final saved = await Navigator.of(context)
@@ -215,11 +231,17 @@ class _ReviewDialog extends StatelessWidget {
                                     asset: freshAsset,
                                     service: c.service,
                                     documentKind: kind,
+                                    targetItemId: cropItem?.id,
+                                    confirmForSheet: true,
                                   ),
                                 ),
                               );
                           if (saved != null && context.mounted) {
-                            await c.adoptCrop(saved, freshAsset.id);
+                            await c.adoptCrop(
+                              saved,
+                              freshAsset.id,
+                              preferredItemId: cropItem?.id,
+                            );
                           }
                         },
                 ),

@@ -278,13 +278,16 @@ void main() {
           tester.widget<DropdownButton<DocumentKind>>(
             find.byKey(const Key('crop-document-kind')),
           );
+      IconButton undoIconButton() => tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip('تراجع'),
+          matching: find.byType(IconButton),
+        ),
+      );
 
       // Initial state: DocumentKind.unknown, undo disabled.
       expect(kindDropdown().value, DocumentKind.unknown);
-      expect(
-        tester.widget<IconButton>(find.byTooltip('تراجع')).onPressed,
-        isNull,
-      );
+      expect(undoIconButton().onPressed, isNull);
 
       // Step 1: Select unifiedNationalId.
       await tester.ensureVisible(find.byKey(const Key('crop-document-kind')));
@@ -401,10 +404,7 @@ void main() {
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(kindDropdown().value, DocumentKind.unknown);
-      expect(
-        tester.widget<IconButton>(find.byTooltip('تراجع')).onPressed,
-        isNull,
-      );
+      expect(undoIconButton().onPressed, isNull);
 
       // Redo 5 times -> restores DocumentKind.other + 118.25 x 76.75 + dragged corner.
       for (var i = 0; i < 5; i++) {
@@ -564,7 +564,8 @@ void main() {
             sideId: backSide.id,
           ),
         ],
-      ).copyWith(documents: [pairedRecord]);
+        documents: [pairedRecord],
+      );
 
       final harness = await EditorHarness.pump(
         tester,
@@ -577,6 +578,9 @@ void main() {
       await tapKey(tester, const Key('review-crop-rec-2sides'));
 
       // Confirm back side in CropScreen -> BOTH front and back items now sit on A4!
+      await tapKey(tester, const Key('crop-document-kind'));
+      await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));

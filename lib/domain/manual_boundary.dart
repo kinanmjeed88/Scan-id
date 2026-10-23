@@ -608,11 +608,90 @@ Project applyManualConfirmationToProject(
       ...next.items.where((i) => i.assetId == authored.id && !i.locked),
   ];
 
+  DocumentRecord buildManualRecord(String itemId) {
+    final detectionId = nextId();
+    final sideId = nextId();
+    final recordId = nextId();
+    final variantId = next.catalog.natural(documentKind) != null
+        ? builtinVariantId(documentKind)
+        : null;
+    final overrideFields = <String>[
+      'corners',
+      manualBoundaryConfirmedField,
+      manualBoundaryConfirmedSideField(sideId),
+      'documentKind',
+      reviewConfirmedField,
+    ];
+    final side = DocumentSide(
+      id: sideId,
+      side: SideKind.unknown,
+      processedAsset: ProcessedAssetRef(
+        workingPath: authored.workingPath,
+        thumbnailPath: authored.thumbnailPath,
+        width: authored.width,
+        height: authored.height,
+        orientation: authored.adjustments.quarterTurns,
+        processingVersion: manualCropProcessingVersion,
+        corners: recipe.geometry.corners,
+        outputWidth: recipe.geometry.outputWidth,
+        outputHeight: recipe.geometry.outputHeight,
+      ),
+      detection: DetectionRef(
+        detectionId: detectionId,
+        producer: 'manual-user',
+        version: manualCropProcessingVersion,
+      ),
+    );
+    return DocumentRecord(
+      id: recordId,
+      sourceImageId: authored.derivedFrom ?? authored.id,
+      sides: [side],
+      pairing: PairingState.single,
+      overrides: [
+        UserOverride(
+          documentKind: documentKind,
+          presetVariantId: variantId,
+          corners: recipe.geometry.corners,
+          fields: overrideFields,
+        ),
+      ],
+      provenance: Provenance(
+        sourceImageId: authored.derivedFrom ?? authored.id,
+        detectionIds: [detectionId],
+        processedAssetVersion: manualCropProcessingVersion,
+        pipelineVersion: manualCropProcessingVersion,
+        presetVariantId: variantId,
+        overrideFields: overrideFields,
+        layoutItemIds: [itemId],
+      ),
+    );
+  }
+
   final snapshot = _manualSnapshot(next.catalog, documentKind, sizeMm);
+  final existingRecordTargetItemIds = <String>{
+    for (final item in targetItems)
+      if (item.documentId != null) item.id,
+  };
+
+  if (existingRecordTargetItemIds.isNotEmpty) {
+    next = _updateRecordsForAssetCrop(
+      next,
+      asset: authored,
+      recipe: recipe,
+      recordManualCornerOverride: true,
+      confirmedKind: documentKind,
+      targetItemIds: existingRecordTargetItemIds,
+    );
+  }
+
+  final createdManualRecords = <DocumentRecord>[];
 
   if (targetItems.isEmpty) {
+    final createdItemId = nextId();
+    final manualRecord = buildManualRecord(createdItemId);
+    createdManualRecords.add(manualRecord);
     final createdItem = DocumentItem(
-      id: nextId(),
+      id: createdItemId,
       assetId: authored.id,
       x: next.paper.margins.left,
       y: next.paper.margins.top,
@@ -623,36 +702,53 @@ Project applyManualConfirmationToProject(
       documentKind: documentKind,
       recognitionConfidence: 0,
       sizeConfirmed: true,
+      documentId: manualRecord.id,
+      sideId: manualRecord.sides.single.id,
       presetSnapshot: snapshot,
     );
-    next = next.copyWith(items: [...next.items, createdItem]);
+    next = next.copyWith(
+      documents: [...next.documents, ...createdManualRecords],
+      items: [...next.items, createdItem],
+    );
   } else {
     final targetIds = targetItems.map((e) => e.id).toSet();
+    final updatedItems = <DocumentItem>[];
+    for (final item in next.items) {
+      if (!targetIds.contains(item.id)) {
+        updatedItems.add(item);
+        continue;
+      }
+      if (item.documentId != null) {
+        updatedItems.add(
+          item.copyWith(
+            documentKind: documentKind,
+            width: sizeMm.width,
+            height: sizeMm.height,
+            sizeConfirmed: true,
+            presetSnapshot: snapshot,
+          ),
+        );
+      } else {
+        final manualRecord = buildManualRecord(item.id);
+        createdManualRecords.add(manualRecord);
+        updatedItems.add(
+          item.copyWith(
+            documentKind: documentKind,
+            width: sizeMm.width,
+            height: sizeMm.height,
+            sizeConfirmed: true,
+            documentId: manualRecord.id,
+            sideId: manualRecord.sides.single.id,
+            presetSnapshot: snapshot,
+          ),
+        );
+      }
+    }
     next = next.copyWith(
-      items: [
-        for (final item in next.items)
-          if (targetIds.contains(item.id))
-            item.copyWith(
-              documentKind: documentKind,
-              width: sizeMm.width,
-              height: sizeMm.height,
-              sizeConfirmed: true,
-              presetSnapshot: snapshot,
-            )
-          else
-            item,
-      ],
+      documents: [...next.documents, ...createdManualRecords],
+      items: updatedItems,
     );
   }
-
-  next = _updateRecordsForAssetCrop(
-    next,
-    asset: authored,
-    recipe: recipe,
-    recordManualCornerOverride: true,
-    confirmedKind: documentKind,
-    targetItemIds: targetItems.map((e) => e.id).toSet(),
-  );
 
   return _relayoutProject(next);
 }
@@ -718,10 +814,12 @@ Project appendManualDerivedDocumentToProject(
     }
   }
 
-  final taggedDerived = derivedAsset
+  final baseDerived = derivedAsset
       .asDerivedOf(sourceAsset.id)
-      .markUserAuthoredCrop()
       .withSuggestedCrop(null);
+  final taggedDerived = baseDerived.crop != null
+      ? baseDerived.markUserAuthoredCrop()
+      : baseDerived;
 
   final detectionId = nextId();
   final sideId = nextId();

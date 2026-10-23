@@ -268,7 +268,7 @@ void _assertPlannedA4Geometry({
 }) {
   final plan = ExportPlan(
     project,
-    ExportProfile(format: ExportFormat.png, dpi: 150),
+    ExportProfile(format: ExportFormat.png, dpi: 300),
   );
   final planned = plan.items(0);
   expect(planned, hasLength(expectedPlannedItems));
@@ -300,7 +300,7 @@ Future<void> _assertExportedPngDocumentDetail({
   required LocalAssetRepository assets,
   required Directory exportDir,
 }) async {
-  final pngProfile = ExportProfile(format: ExportFormat.png, dpi: 150);
+  final pngProfile = ExportProfile(format: ExportFormat.png, dpi: 300);
   final plan = ExportPlan(project, pngProfile);
   final planned = plan.items(0);
   final exporter = DocumentExporter(assets);
@@ -457,7 +457,7 @@ Future<void> _assertExportedPdfStructureAndStreamPlacement({
 }) async {
   final pdfPlan = ExportPlan(
     project,
-    ExportProfile(format: ExportFormat.pdf, dpi: 150),
+    ExportProfile(format: ExportFormat.pdf, dpi: 300),
   );
   final planned = pdfPlan.items(0);
   expect(planned, hasLength(expectedPlannedItems));
@@ -905,7 +905,7 @@ void main() {
       expect(resetRecord.sides.single.processedAsset.corners, isNull);
       expect(hasManualBoundaryOverride(resetRecord), isFalse);
       expect(hasUnresolvedBoundary(resetRecord), isTrue);
-      expect(recordNeedsReview(resetRecord), isTrue);
+      expect(isUserResolved(resetRecord), isFalse);
       expect(resetItem.sizeConfirmed, isFalse);
       expect(resetItem.pageIndex, isNull);
     },
@@ -1173,13 +1173,14 @@ void main() {
         ImportSource('exif6_full.jpg', () => Stream.value(exif6Jpeg)),
       ])).project;
 
-      // First crop shrinks working copy to ~44 x 32 pixels!
+      // First crop shrinks working copy to ~50 x 40 pixels (normalized area
+      // 0.05 x 0.05 = 0.0025 >= minManualAreaFraction 0.002)!
       final tinyFirstRecipe = CropDraft(
         corners: [
           Point2(0.20, 0.20),
-          Point2(0.244, 0.20),
-          Point2(0.244, 0.24),
-          Point2(0.20, 0.24),
+          Point2(0.25, 0.20),
+          Point2(0.25, 0.25),
+          Point2(0.20, 0.25),
         ],
       ).toRecipe(1000, 800);
       project = await service.applyManualCrop(
@@ -1188,8 +1189,8 @@ void main() {
         tinyFirstRecipe,
       );
       final shrunkAsset = project.assets.single;
-      expect(shrunkAsset.width, lessThan(50));
-      expect(shrunkAsset.height, lessThan(40));
+      expect(shrunkAsset.width, lessThan(55));
+      expect(shrunkAsset.height, lessThan(45));
 
       // Second crop has normalized span 0.06 x 0.08 (= 60 x 64 px on the true
       // 1000 x 800 oriented source, valid; if wrongly measured against shrunk

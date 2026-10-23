@@ -96,17 +96,22 @@ void main() {
         );
 
         expect(
+          () => Point2(double.nan, 0.1),
+          throwsA(isA<ValidationException>()),
+        );
+
+        expect(
           validateManualBoundary(
             corners: [
-              Point2(double.nan, 0.1),
+              Point2(0.1, 0.1),
               Point2(0.9, 0.1),
               Point2(0.9, 0.9),
               Point2(0.1, 0.9),
             ],
-            sourceWidth: 800,
+            sourceWidth: 0,
             sourceHeight: 600,
           ).rejection,
-          ManualBoundaryRejection.nonFiniteCoordinates,
+          ManualBoundaryRejection.invalidSourceDimensions,
         );
 
         expect(
@@ -306,7 +311,8 @@ void main() {
         final initial = projectFixture(
           assets: [src],
           items: [unconfirmedItem],
-        ).copyWith(documents: [unresolvedRecord]);
+          documents: [unresolvedRecord],
+        );
         expect(hasUnresolvedBoundary(initial.documents.single), isTrue);
 
         final corners = <Point2>[
@@ -556,7 +562,8 @@ void main() {
         final initial = projectFixture(
           assets: [frontSrc, backSrc],
           items: [itemFront, itemBack],
-        ).copyWith(documents: [pairedRecord]);
+          documents: [pairedRecord],
+        );
 
         // Crop and confirm ONLY frontSrc / itemFront
         final frontRecipe = CropDraft(

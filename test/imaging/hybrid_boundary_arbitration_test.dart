@@ -82,7 +82,7 @@ void main() {
     () {
       final image = _solidCanvas(552, 1200, 42, 46, 52);
       // Exact geometry where TR->BR has larger normalized +dx than TL->TR.
-      const groundTruth = [
+      final groundTruth = [
         Point2(0.06, 0.52), // TL
         Point2(0.58, 0.20), // TR
         Point2(0.92, 0.32), // BR
@@ -200,9 +200,10 @@ void main() {
       );
       final fakeSplit = SegmentationResult(
         multi: true,
-        candidates: const [
+        candidates: [
           SegmentCandidate(
             region: [0.08, 0.23, 0.52, 0.80],
+            reason: 'synthetic-false-split-left',
             corners: [
               Point2(0.08, 0.23),
               Point2(0.50, 0.23),
@@ -213,6 +214,7 @@ void main() {
           ),
           SegmentCandidate(
             region: [0.49, 0.23, 0.92, 0.80],
+            reason: 'synthetic-false-split-right',
             corners: [
               Point2(0.50, 0.23),
               Point2(0.92, 0.23),
@@ -297,7 +299,7 @@ void main() {
         y2: 430,
         color: img.ColorRgb8(30, 32, 36),
       );
-      const defectiveAi = BoundaryProposal(
+      final defectiveAi = BoundaryProposal(
         producer: BoundaryProducer.learnedModel,
         corners: [
           Point2(0.10, 0.214),
@@ -351,7 +353,7 @@ void main() {
         y2: 390,
         color: img.ColorRgb8(62, 152, 92),
       );
-      const innerSubAi = BoundaryProposal(
+      final innerSubAi = BoundaryProposal(
         producer: BoundaryProducer.learnedModel,
         corners: [
           Point2(210 / 899, 150 / 639),
@@ -413,7 +415,7 @@ void main() {
   test(
     'Project JSON round-trip preserves crop corners, suggestedCrop, and pixel dimensions losslessly',
     () {
-      const cropCorners = [
+      final cropCorners = [
         Point2(0.0680, 0.2640),
         Point2(0.7690, 0.2530),
         Point2(0.7750, 0.8660),
@@ -428,7 +430,7 @@ void main() {
         thumbnailPath: 'thumbnails/id_front_thumb.jpg',
         width: recipe.geometry.outputWidth,
         height: recipe.geometry.outputHeight,
-        crop: recipe,
+        crop: recipe.geometry,
         userAuthoredCrop: false,
       );
       final reviewAsset = ImageAsset(
@@ -454,7 +456,7 @@ void main() {
       expect(reopened.assets[1].suggestedCrop, hasLength(4));
       for (var i = 0; i < 4; i++) {
         expect(
-          reopened.assets[0].crop!.geometry.corners[i].x,
+          reopened.assets[0].crop!.corners[i].x,
           closeTo(cropCorners[i].x, 1e-12),
         );
         expect(

@@ -326,11 +326,13 @@ void main() {
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
       final innerEditor = LocalImageEditor(files);
+      // Geometrically valid partial-document strip. Keep the fixture synthetic;
+      // never add private identity photos to CI.
       final proposedQuad = [
-        Point2(0.16, 0.18),
-        Point2(0.84, 0.22),
-        Point2(0.82, 0.78),
-        Point2(0.14, 0.76),
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
       ];
       final uncertainEditor = _UncertainAiEditor(
         innerEditor,
@@ -420,18 +422,20 @@ void main() {
   );
 
   testWidgets(
-    'CropScreen preloads ImageAsset.suggestedCrop in production mode, supports 1-tap Undo to full image, and clears suggestedCrop on manual save',
+    'CropScreen keeps a narrow suggested strip review-only, requires preview, and saves the reviewed geometry',
     (tester) async {
       tester.view.physicalSize = const Size(1100, 820);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
+      // Geometrically valid partial-document strip. Keep the fixture synthetic;
+      // never add private identity photos to CI.
       final proposedQuad = [
-        Point2(0.16, 0.18),
-        Point2(0.84, 0.22),
-        Point2(0.82, 0.78),
-        Point2(0.14, 0.76),
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
       ];
       final repository = MemoryProjects();
       final editor = _TrackingFakeEditor();
@@ -481,8 +485,15 @@ void main() {
       await tester.tap(find.byKey(const Key('open-crop')));
       await tester.pumpAndSettle();
 
-      // Banner confirms unapplied editable proposal was loaded from asset.suggestedCrop
+      // Banner confirms the narrow strip is only an unapplied proposal.
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        isNull,
+        reason: 'a proposal cannot be saved before previewing its crop',
+      );
 
       // 1-tap Undo reverts to full image (corners[0] == (0, 0)) and hides review banner
       await tester.tap(find.byTooltip('تراجع'));
@@ -504,7 +515,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         editor.lastPreviewRecipe!.geometry.corners.first.x,
-        closeTo(0.16, 1e-6),
+        closeTo(proposedQuad.first.x, 1e-6),
       );
 
       await tester.ensureVisible(find.byKey(const Key('accept-crop')));
@@ -517,6 +528,16 @@ void main() {
       expect(savedAsset.crop, isNotNull);
       expect(savedAsset.userAuthoredCrop, isTrue);
       expect(savedAsset.suggestedCrop, isNull);
+      for (var i = 0; i < 4; i++) {
+        expect(
+          savedAsset.crop!.corners[i].x,
+          closeTo(editor.lastPreviewRecipe!.geometry.corners[i].x, 1e-9),
+        );
+        expect(
+          savedAsset.crop!.corners[i].y,
+          closeTo(editor.lastPreviewRecipe!.geometry.corners[i].y, 1e-9),
+        );
+      }
       expect(tester.takeException(), isNull);
     },
   );

@@ -160,6 +160,35 @@ bool _usableSuggestedCorners(
   ).acceptable;
 }
 
+typedef _PreviewValidationRequest = (TransferableTypedData, SendPort);
+
+void _validatePreviewInIsolate(_PreviewValidationRequest request) {
+  try {
+    final bytes = request.$1.materialize().asUint8List();
+    final decoded = decodeForProcessing(bytes);
+    request.$2.send(decoded.width > 0 && decoded.height > 0);
+  } catch (_) {
+    request.$2.send(false);
+  }
+}
+
+Future<bool> _hasDecodablePreview(Uint8List bytes) async {
+  final resultPort = ReceivePort();
+  Isolate? worker;
+  try {
+    worker = await Isolate.spawn<_PreviewValidationRequest>(
+      _validatePreviewInIsolate,
+      (TransferableTypedData.fromList([bytes]), resultPort.sendPort),
+      debugName: 'crop-preview-validation',
+    );
+    final result = await resultPort.first;
+    return result is bool && result;
+  } finally {
+    resultPort.close();
+    worker?.kill(priority: Isolate.immediate);
+  }
+}
+
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();
   final _view = TransformationController();
@@ -831,10 +860,8 @@ class _CropScreenState extends State<CropScreen> {
     final asset = widget.asset;
     final operation = _beginOperation(canCancel: true);
     final draftRevision = _draftRevision;
-    var stage = 'validating crop recipe';
     try {
       final recipe = _recipe();
-      stage = 'rendering crop preview';
       final bytes = await _editor.preview(asset, recipe);
       if (!mounted ||
           operation != _operationGeneration ||
@@ -842,17 +869,8 @@ class _CropScreenState extends State<CropScreen> {
         return;
       }
       final previewBytes = Uint8List.fromList(bytes);
-      stage = 'decoding preview bytes in isolate';
       final validPreview =
-          previewBytes.isNotEmpty &&
-          await Isolate.run(() {
-            try {
-              final decoded = decodeForProcessing(previewBytes);
-              return decoded.width > 0 && decoded.height > 0;
-            } catch (_) {
-              return false;
-            }
-          });
+          previewBytes.isNotEmpty && await _hasDecodablePreview(previewBytes);
       if (!mounted ||
           operation != _operationGeneration ||
           draftRevision != _draftRevision) {
@@ -871,12 +889,6 @@ class _CropScreenState extends State<CropScreen> {
         _error = null;
       });
     } catch (error) {
-      assert(() {
-        debugPrint(
-          'CROP_RENDER_DIAGNOSTIC [$stage]: ${error.runtimeType}: $error',
-        );
-        return true;
-      }());
       if (_isCurrentOperation(operation)) {
         setState(() => _error = userError(error));
       }

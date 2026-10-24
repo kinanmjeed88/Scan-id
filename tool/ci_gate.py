@@ -55,18 +55,6 @@ if code:
     lines = text.splitlines()
     marks = []
     seen = set()
-    # Preserve unique, debug-only CropScreen failure stages as annotations. The
-    # production UI continues to show the safe localized error, while CI records
-    # the underlying exception needed to diagnose a failed preview.
-    preview_diagnostics = []
-    for line in lines:
-        if 'CROP_RENDER_DIAGNOSTIC [' not in line:
-            continue
-        diagnostic = line.strip()
-        if diagnostic not in preview_diagnostics:
-            preview_diagnostics.append(diagnostic)
-    marks.extend(preview_diagnostics)
-
     # A widget-test exception is printed in a framed block ("EXCEPTION CAUGHT
     # BY ...") and the reporter's own `[E]` line then says only "Test failed.
     # See exception logs above." The block is ABOVE that line, and because

@@ -1094,10 +1094,7 @@ class _CropScreenState extends State<CropScreen> {
               )
             : Column(
                 children: [
-                  if (_busy)
-                    const LinearProgressIndicator(
-                      key: Key('crop-operation-progress'),
-                    ),
+                  if (_busy) const LinearProgressIndicator(),
                   if (_showingReviewProposal)
                     Container(
                       key: const Key('crop-proposed-banner'),
@@ -1126,6 +1123,7 @@ class _CropScreenState extends State<CropScreen> {
                     ),
                   if (_error != null)
                     Padding(
+                      key: const Key('crop-error'),
                       padding: const EdgeInsets.all(12),
                       child: Text(
                         _error!,

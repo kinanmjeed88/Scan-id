@@ -146,7 +146,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('accept-crop'));
 
@@ -230,7 +230,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('accept-crop'));
 
@@ -243,7 +243,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('accept-crop'));
 
@@ -444,7 +444,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -471,7 +471,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('accept-crop')));
       await tester.pumpAndSettle();
@@ -599,7 +599,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropOperationToIdle(tester);
+      await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('accept-crop'));
 

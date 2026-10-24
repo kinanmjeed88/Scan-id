@@ -270,10 +270,14 @@ class _CropScreenState extends State<CropScreen> {
     }
     final oldItem = a.targetItemId == null
         ? null
-        : a.project.items.where((item) => item.id == a.targetItemId).firstOrNull;
+        : a.project.items
+              .where((item) => item.id == a.targetItemId)
+              .firstOrNull;
     final newItem = b.targetItemId == null
         ? null
-        : b.project.items.where((item) => item.id == b.targetItemId).firstOrNull;
+        : b.project.items
+              .where((item) => item.id == b.targetItemId)
+              .firstOrNull;
     return oldItem?.documentKind == newItem?.documentKind &&
         oldItem?.sizeConfirmed == newItem?.sizeConfirmed &&
         oldItem?.width == newItem?.width &&
@@ -497,7 +501,8 @@ class _CropScreenState extends State<CropScreen> {
               ? 'لم يظهر اقتراح جديد؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.'
               : 'الاقتراح المحدّث غير صالح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
         } catch (_) {
-          notice = 'تعذر تحديث الاقتراح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
+          notice =
+              'تعذر تحديث الاقتراح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
         }
       }
     }
@@ -767,7 +772,10 @@ class _CropScreenState extends State<CropScreen> {
           _proposalNotice =
               'لم يظهر اقتراح جديد؛ بقي الإطار الحالي كما هو. حرّك الزوايا يدوياً عند الحاجة.';
         });
-        showMessage(context, 'لم يعثر الكشف على حدود جديدة؛ لم يتغير الإطار الحالي.');
+        showMessage(
+          context,
+          'لم يعثر الكشف على حدود جديدة؛ لم يتغير الإطار الحالي.',
+        );
       } else if (!_usableSuggestedCorners(
         points,
         sourceWidth: source.width,
@@ -815,7 +823,8 @@ class _CropScreenState extends State<CropScreen> {
       final recipe = _recipe();
       final bytes = await _editor.preview(asset, recipe);
       if (!_isCurrentOperation(operation)) return;
-      final validPreview = bytes.isNotEmpty &&
+      final validPreview =
+          bytes.isNotEmpty &&
           await Isolate.run(() {
             try {
               final decoded = decodeForProcessing(bytes);
@@ -863,7 +872,8 @@ class _CropScreenState extends State<CropScreen> {
     final operation = _beginOperation(canCancel: false);
     try {
       final kindOrSizeChanged =
-          (selectedKind != initialKind && selectedKind != DocumentKind.unknown) ||
+          (selectedKind != initialKind &&
+              selectedKind != DocumentKind.unknown) ||
           (selectedKind == DocumentKind.other &&
               (_state!.customWidthText != initialWidthText ||
                   _state!.customHeightText != initialHeightText));
@@ -1011,7 +1021,9 @@ class _CropScreenState extends State<CropScreen> {
         appBar: AppBar(
           leading: IconButton(
             tooltip: _busy
-                ? (_busyCancelable ? 'إلغاء العملية والخروج' : 'انتظر انتهاء الحفظ')
+                ? (_busyCancelable
+                      ? 'إلغاء العملية والخروج'
+                      : 'انتظر انتهاء الحفظ')
                 : 'إلغاء القص',
             onPressed: _busy && !_busyCancelable ? null : _leave,
             icon: const Icon(Icons.close),

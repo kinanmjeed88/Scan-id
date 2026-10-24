@@ -739,11 +739,7 @@ void main() {
         MaterialApp(
           home: Directionality(
             textDirection: TextDirection.rtl,
-            child: CropScreen(
-              project: project,
-              asset: asset,
-              service: service,
-            ),
+            child: CropScreen(project: project, asset: asset, service: service),
           ),
         ),
       );
@@ -802,11 +798,7 @@ void main() {
         MaterialApp(
           home: Directionality(
             textDirection: TextDirection.rtl,
-            child: CropScreen(
-              project: project,
-              asset: asset,
-              service: service,
-            ),
+            child: CropScreen(project: project, asset: asset, service: service),
           ),
         ),
       );
@@ -816,7 +808,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('لا يحتوي على أربع زوايا صالحة'), findsOneWidget);
+      expect(
+        find.textContaining('لا يحتوي على أربع زوايا صالحة'),
+        findsOneWidget,
+      );
 
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
@@ -832,59 +827,55 @@ void main() {
       expect(find.textContaining('لم يظهر اقتراح جديد'), findsOneWidget);
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        tester
+            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+            .onPressed,
         isNotNull,
-        reason: 'the still-current valid preview remains available after an empty refresh',
+        reason:
+            'the still-current valid preview remains available after an empty refresh',
       );
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets(
-    'CropScreen never enables save for an undecodable crop preview',
-    (tester) async {
-      tester.view.physicalSize = const Size(1100, 820);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('CropScreen never enables save for an undecodable crop preview', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      final repository = MemoryProjects();
-      final editor = _InvalidPreviewEditor();
-      final asset = assetFixture(id: 'asset-invalid-preview');
-      final project = await repository.create(projectFixture(assets: [asset]));
-      final service = ProjectService(
-        repository,
-        NoAssets(),
-        imageEditor: editor,
-      );
+    final repository = MemoryProjects();
+    final editor = _InvalidPreviewEditor();
+    final asset = assetFixture(id: 'asset-invalid-preview');
+    final project = await repository.create(projectFixture(assets: [asset]));
+    final service = ProjectService(repository, NoAssets(), imageEditor: editor);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Directionality(
-            textDirection: TextDirection.rtl,
-            child: CropScreen(
-              project: project,
-              asset: asset,
-              service: service,
-            ),
-          ),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: CropScreen(project: project, asset: asset, service: service),
         ),
-      );
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('معاينة التصحيح'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('معاينة التصحيح'));
+    await tester.pumpAndSettle();
 
-      expect(find.textContaining('معاينة القص غير صالحة'), findsOneWidget);
-      expect(
-        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
-        isNull,
-      );
-      expect(editor.revisions, 0);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(find.textContaining('معاينة القص غير صالحة'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+          .onPressed,
+      isNull,
+    );
+    expect(editor.revisions, 0);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'CropScreen discards a late AI refresh when the edited asset changes',

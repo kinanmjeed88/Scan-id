@@ -359,7 +359,10 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
+      await pumpCropPreviewResult(
+        tester,
+        expectedErrorContaining: 'زوايا القص',
+      );
       await tester.pumpAndSettle();
       expect(editor.previewCount, 0);
       expect(repository.values[project.id]!.revision, 0);

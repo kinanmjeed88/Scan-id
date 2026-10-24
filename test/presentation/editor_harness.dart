@@ -148,22 +148,51 @@ PageCanvas firstCanvas(WidgetTester tester) =>
 double pageScale(WidgetTester tester) => firstCanvas(tester).scale;
 
 /// Waits for CropScreen's isolate-backed preview validation without asking
-/// pumpAndSettle to wait on an indeterminate progress animation.
-Future<void> pumpCropPreviewResult(WidgetTester tester) async {
+/// pumpAndSettle to wait on an indeterminate progress animation. By default a
+/// valid preview is required; tests for rejected recipes provide the expected
+/// error text so a generic or unrelated error cannot masquerade as success.
+Future<void> pumpCropPreviewResult(
+  WidgetTester tester, {
+  String? expectedErrorContaining,
+}) async {
   final accept = find.byKey(const Key('accept-crop'));
   final error = find.byKey(const Key('crop-error'));
   for (var attempt = 0; attempt < 100; attempt++) {
     await tester.pump();
-    if (error.evaluate().isNotEmpty) return;
+    if (error.evaluate().isNotEmpty) {
+      final messageFinder = find.descendant(
+        of: error,
+        matching: find.byType(Text),
+      );
+      final message = tester.widget<Text>(messageFinder.first).data ?? '';
+      if (expectedErrorContaining == null ||
+          !message.contains(expectedErrorContaining)) {
+        final expectation = expectedErrorContaining == null
+            ? 'a valid preview'
+            : 'an error containing "$expectedErrorContaining"';
+        throw StateError(
+          'CropScreen preview error was "$message"; expected $expectation.',
+        );
+      }
+      return;
+    }
     if (accept.evaluate().isNotEmpty &&
         tester.widget<FilledButton>(accept).onPressed != null) {
+      if (expectedErrorContaining != null) {
+        throw StateError(
+          'CropScreen accepted a preview; expected error containing '
+          '"$expectedErrorContaining".',
+        );
+      }
       return;
     }
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
   }
-  throw StateError('Crop preview did not reach a valid or error state.');
+  throw StateError(
+    'Crop preview did not reach its expected valid or error state.',
+  );
 }
 
 Future<void> tapKey(WidgetTester tester, Key key) async {

@@ -879,7 +879,10 @@ void main() {
     await tester.ensureVisible(find.text('معاينة التصحيح'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('معاينة التصحيح'));
-    await pumpCropPreviewResult(tester);
+    await pumpCropPreviewResult(
+      tester,
+      expectedErrorContaining: 'معاينة القص غير صالحة',
+    );
     await tester.pumpAndSettle();
 
     expect(find.textContaining('معاينة القص غير صالحة'), findsOneWidget);

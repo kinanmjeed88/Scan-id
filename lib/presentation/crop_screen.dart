@@ -831,8 +831,10 @@ class _CropScreenState extends State<CropScreen> {
     final asset = widget.asset;
     final operation = _beginOperation(canCancel: true);
     final draftRevision = _draftRevision;
+    var stage = 'validating crop recipe';
     try {
       final recipe = _recipe();
+      stage = 'rendering crop preview';
       final bytes = await _editor.preview(asset, recipe);
       if (!mounted ||
           operation != _operationGeneration ||
@@ -840,6 +842,7 @@ class _CropScreenState extends State<CropScreen> {
         return;
       }
       final previewBytes = Uint8List.fromList(bytes);
+      stage = 'decoding preview bytes in isolate';
       final validPreview =
           previewBytes.isNotEmpty &&
           await Isolate.run(() {
@@ -868,6 +871,12 @@ class _CropScreenState extends State<CropScreen> {
         _error = null;
       });
     } catch (error) {
+      assert(() {
+        debugPrint(
+          'CROP_RENDER_DIAGNOSTIC [$stage]: ${error.runtimeType}: $error',
+        );
+        return true;
+      }());
       if (_isCurrentOperation(operation)) {
         setState(() => _error = userError(error));
       }

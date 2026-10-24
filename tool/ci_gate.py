@@ -64,7 +64,10 @@ if code:
     # `[E]` nor the tail of the log ever reaches it. That is exactly the case
     # where a failing test names itself but never says why, so the blocks are
     # collected first and ahead of everything else in the annotation budget.
-    FRAMES, PER_FRAME = 4, 45
+    # Keep every UI failure visible when several widget suites fail together.
+    # The Actions log blob host is not available to API-only CI clients, so the
+    # annotations must carry the failure frames, not just the first few.
+    FRAMES, PER_FRAME = 12, 45
     framed = 0
     for index, line in enumerate(lines):
         if 'EXCEPTION CAUGHT BY' not in line:

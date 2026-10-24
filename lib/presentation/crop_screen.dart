@@ -171,7 +171,11 @@ class _CropScreenState extends State<CropScreen> {
         aspectRatio: initialAspect,
       );
       final proposed = crop == null && !widget.extractDerived
-          ? _resolveSuggestedCorners(source.width, source.height)
+          ? await _resolveSuggestedCorners(
+              source.preview,
+              source.width,
+              source.height,
+            )
           : null;
       final EditHistory<_CropEditorState> history;
       final _CropEditorState activeState;
@@ -230,9 +234,13 @@ class _CropScreenState extends State<CropScreen> {
     }
   }
 
-  List<Point2>? _resolveSuggestedCorners(int sourceWidth, int sourceHeight) {
-    List<Point2>? candidate =
-        widget.suggestedCorners ?? widget.asset.suggestedCrop;
+  Future<List<Point2>?> _resolveSuggestedCorners(
+    Uint8List preview,
+    int sourceWidth,
+    int sourceHeight,
+  ) async {
+    final explicit = widget.suggestedCorners;
+    List<Point2>? candidate = explicit ?? widget.asset.suggestedCrop;
     if (candidate == null) {
       for (final record in widget.project.documents) {
         for (final side in record.sides) {
@@ -252,7 +260,32 @@ class _CropScreenState extends State<CropScreen> {
         if (candidate != null) break;
       }
     }
-    if (candidate == null || candidate.length != 4) return null;
+    if (candidate == null) return null;
+
+    // Persisted suggestions carry no detector/version/decision provenance.
+    // Refresh them with the current local proposal when available; this only
+    // replaces an editable review outline and never authorizes an automatic crop.
+    if (explicit == null) {
+      final editor = widget.service.imageEditor;
+      if (editor is BoundaryProposalImageEditor) {
+        try {
+          final refreshed = await editor.suggestProposal(preview);
+          final freshCorners = refreshed?.corners;
+          if (freshCorners != null && freshCorners.length == 4) {
+            final freshCheck = assessQuad(
+              freshCorners,
+              sourceWidth: sourceWidth,
+              sourceHeight: sourceHeight,
+            );
+            if (freshCheck.acceptable) return freshCorners;
+          }
+        } catch (_) {
+          // A failed optional refresh must not block manual cropping.
+        }
+      }
+    }
+
+    if (candidate.length != 4) return null;
     final check = assessQuad(
       candidate,
       sourceWidth: sourceWidth,

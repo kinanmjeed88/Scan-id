@@ -84,6 +84,23 @@ class _TrackingFakeEditor extends FakeImageEditor {
   }
 }
 
+class _RefreshingFakeEditor extends _TrackingFakeEditor
+    implements BoundaryProposalImageEditor {
+  _RefreshingFakeEditor(this._proposal);
+
+  final BoundaryProposal? _proposal;
+  int refreshCount = 0;
+
+  @override
+  String? get boundaryModelId => 'synthetic-review-test';
+
+  @override
+  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
+    refreshCount++;
+    return _proposal;
+  }
+}
+
 Uint8List _exifRotatedCardJpeg(Uint8List goldenCardPng) {
   final upright = img.decodePng(goldenCardPng)!;
   // Rotate pixels 270 deg CW so EXIF Orientation 6 (90 deg CW display) restores upright
@@ -540,6 +557,109 @@ void main() {
           closeTo(editor.lastPreviewRecipe!.geometry.corners[i].y, 1e-9),
         );
       }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen refreshes an unversioned saved suggestion but keeps the fresh proposal review-only',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final staleStrip = [
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
+      ];
+      final currentQuad = [
+        Point2(0.12, 0.12),
+        Point2(0.88, 0.12),
+        Point2(0.88, 0.88),
+        Point2(0.12, 0.88),
+      ];
+      final currentProposal = BoundaryProposal(
+        producer: BoundaryProducer.learnedModel,
+        corners: currentQuad,
+        modelConfidence: 0.42,
+        minAutoAcceptConfidence: 0.55,
+      );
+      final repository = MemoryProjects();
+      final editor = _RefreshingFakeEditor(currentProposal);
+      final asset = assetFixture(
+        id: 'asset-refresh-review',
+      ).withSuggestedCrop(staleStrip);
+      final initialProject = await repository.create(
+        projectFixture(assets: [asset]),
+      );
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: FilledButton(
+                    key: const Key('open-crop-refresh'),
+                    onPressed: () => Navigator.push<Project>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CropScreen(
+                          project: initialProject,
+                          asset: asset,
+                          service: service,
+                        ),
+                      ),
+                    ),
+                    child: const Text('فتح القص'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('open-crop-refresh')));
+      await tester.pumpAndSettle();
+      expect(editor.refreshCount, 1);
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
+      expect(
+        verifyBoundary(
+          currentProposal,
+          sourceWidth: 64,
+          sourceHeight: 40,
+        ).kind,
+        BoundaryDecisionKind.needsReview,
+      );
+
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 4; i++) {
+        expect(
+          editor.lastPreviewRecipe!.geometry.corners[i].x,
+          closeTo(currentQuad[i].x, 1e-9),
+        );
+        expect(
+          editor.lastPreviewRecipe!.geometry.corners[i].y,
+          closeTo(currentQuad[i].y, 1e-9),
+        );
+      }
+
+      final unchanged = await repository.get(initialProject.id);
+      expect(unchanged.assets.single.crop, isNull);
+      expect(unchanged.assets.single.suggestedCrop, isNotNull);
       expect(tester.takeException(), isNull);
     },
   );

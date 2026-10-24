@@ -490,7 +490,9 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('accept-crop')));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        tester
+            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+            .onPressed,
         isNull,
         reason: 'a proposal cannot be saved before previewing its crop',
       );

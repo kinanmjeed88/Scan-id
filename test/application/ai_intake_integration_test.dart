@@ -634,11 +634,7 @@ void main() {
       expect(editor.refreshCount, 1);
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       expect(
-        verifyBoundary(
-          currentProposal,
-          sourceWidth: 64,
-          sourceHeight: 40,
-        ).kind,
+        verifyBoundary(currentProposal, sourceWidth: 64, sourceHeight: 40).kind,
         BoundaryDecisionKind.needsReview,
       );
 

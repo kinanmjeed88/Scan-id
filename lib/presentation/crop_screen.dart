@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,10 +11,12 @@ import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
 import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
+import '../domain/image_adjustments.dart';
 import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
+import '../imaging/prepare_image.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
@@ -89,6 +92,74 @@ String _formatMillimeters(double value) {
   return two.endsWith('0') ? two.substring(0, two.length - 1) : two;
 }
 
+class _SuggestedCornersResolution {
+  const _SuggestedCornersResolution({
+    this.corners,
+    this.previousSavedCorners,
+    this.notice,
+  });
+
+  final List<Point2>? corners;
+  final List<Point2>? previousSavedCorners;
+  final String? notice;
+}
+
+bool _samePoints(List<Point2>? a, List<Point2>? b) {
+  if (identical(a, b)) return true;
+  if (a == null || b == null || a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].x != b[i].x || a[i].y != b[i].y) return false;
+  }
+  return true;
+}
+
+List<Point2>? _savedSuggestionFor(Project project, ImageAsset asset) {
+  final assetSuggestion = asset.suggestedCrop;
+  if (assetSuggestion != null) return assetSuggestion;
+  for (final record in project.documents) {
+    for (final side in record.sides) {
+      final saved = side.detection?.suggestedPolygon;
+      if (saved == null) continue;
+      if (assetOwnsProjectPath(
+            project.id,
+            asset.id,
+            side.processedAsset.workingPath,
+          ) ||
+          (record.sides.length == 1 && record.sourceImageId == asset.id)) {
+        return saved;
+      }
+    }
+  }
+  return null;
+}
+
+bool _usableSuggestedCorners(
+  List<Point2>? corners, {
+  required int sourceWidth,
+  required int sourceHeight,
+}) {
+  if (corners == null ||
+      corners.length != 4 ||
+      sourceWidth < 2 ||
+      sourceHeight < 2 ||
+      corners.any(
+        (point) =>
+            !point.x.isFinite ||
+            !point.y.isFinite ||
+            point.x < 0 ||
+            point.x > 1 ||
+            point.y < 0 ||
+            point.y > 1,
+      )) {
+    return false;
+  }
+  return assessQuad(
+    corners,
+    sourceWidth: sourceWidth,
+    sourceHeight: sourceHeight,
+  ).acceptable;
+}
+
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();
   final _view = TransformationController();
@@ -99,8 +170,12 @@ class _CropScreenState extends State<CropScreen> {
   _CropEditorState? _state;
   String? _coalescedCustomField;
   Uint8List? _preview;
+  ImageEditRecipe? _previewRecipe;
   String? _error;
+  String? _proposalNotice;
   bool _busy = true;
+  bool _busyCancelable = true;
+  int _operationGeneration = 0;
   bool _showResult = false;
   bool _dirty = false;
   CropDraft? _initialReviewDraft;
@@ -117,13 +192,18 @@ class _CropScreenState extends State<CropScreen> {
   @override
   void initState() {
     super.initState();
+    _initializeInitialMetadata();
+    unawaited(_load());
+  }
+
+  void _initializeInitialMetadata() {
     var resolvedKind = widget.documentKind;
     var resolvedW = '85.6';
     var resolvedH = '54.0';
     final targetItem = widget.targetItemId == null
         ? null
         : widget.project.items
-              .where((i) => i.id == widget.targetItemId)
+              .where((item) => item.id == widget.targetItemId)
               .firstOrNull;
     if (targetItem != null) {
       if (resolvedKind == DocumentKind.unknown &&
@@ -140,6 +220,86 @@ class _CropScreenState extends State<CropScreen> {
     _initialHeightText = resolvedH;
     _customWidthController.text = resolvedW;
     _customHeightController.text = resolvedH;
+  }
+
+  bool _sameGeometry(CropGeometry? a, CropGeometry? b) {
+    if (identical(a, b)) return true;
+    if (a == null ||
+        b == null ||
+        a.outputWidth != b.outputWidth ||
+        a.outputHeight != b.outputHeight) {
+      return false;
+    }
+    return _samePoints(a.corners, b.corners);
+  }
+
+  bool _sameAdjustments(ImageAdjustments a, ImageAdjustments b) =>
+      a.brightness == b.brightness &&
+      a.contrast == b.contrast &&
+      a.saturation == b.saturation &&
+      a.sharpness == b.sharpness &&
+      a.quarterTurns == b.quarterTurns;
+
+  bool _sameCropTarget(CropScreen a, CropScreen b) {
+    final oldAsset = a.asset;
+    final newAsset = b.asset;
+    if (a.project.id != b.project.id ||
+        a.service != b.service ||
+        oldAsset.id != newAsset.id ||
+        oldAsset.originalPath != newAsset.originalPath ||
+        oldAsset.workingPath != newAsset.workingPath ||
+        oldAsset.thumbnailPath != newAsset.thumbnailPath ||
+        oldAsset.width != newAsset.width ||
+        oldAsset.height != newAsset.height ||
+        oldAsset.derivedFrom != newAsset.derivedFrom ||
+        oldAsset.userAuthoredCrop != newAsset.userAuthoredCrop ||
+        !_sameAdjustments(oldAsset.adjustments, newAsset.adjustments) ||
+        !_sameGeometry(oldAsset.crop, newAsset.crop) ||
+        !_samePoints(oldAsset.suggestedCrop, newAsset.suggestedCrop) ||
+        !_samePoints(
+          _savedSuggestionFor(a.project, oldAsset),
+          _savedSuggestionFor(b.project, newAsset),
+        ) ||
+        a.documentKind != b.documentKind ||
+        !_samePoints(a.suggestedCorners, b.suggestedCorners) ||
+        a.targetItemId != b.targetItemId ||
+        a.confirmForSheet != b.confirmForSheet ||
+        a.extractDerived != b.extractDerived ||
+        !identical(a.project.catalog, b.project.catalog)) {
+      return false;
+    }
+    final oldItem = a.targetItemId == null
+        ? null
+        : a.project.items.where((item) => item.id == a.targetItemId).firstOrNull;
+    final newItem = b.targetItemId == null
+        ? null
+        : b.project.items.where((item) => item.id == b.targetItemId).firstOrNull;
+    return oldItem?.documentKind == newItem?.documentKind &&
+        oldItem?.sizeConfirmed == newItem?.sizeConfirmed &&
+        oldItem?.width == newItem?.width &&
+        oldItem?.height == newItem?.height;
+  }
+
+  @override
+  void didUpdateWidget(covariant CropScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_sameCropTarget(oldWidget, widget)) return;
+    ++_operationGeneration;
+    _source = null;
+    _history = null;
+    _state = null;
+    _coalescedCustomField = null;
+    _preview = null;
+    _previewRecipe = null;
+    _error = null;
+    _proposalNotice = null;
+    _busy = true;
+    _busyCancelable = true;
+    _showResult = false;
+    _dirty = false;
+    _initialReviewDraft = null;
+    _view.value = Matrix4.identity();
+    _initializeInitialMetadata();
     unawaited(_load());
   }
 
@@ -152,146 +312,208 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   Future<void> _load() async {
+    final operation = ++_operationGeneration;
+    _busyCancelable = true;
+    final asset = widget.asset;
+    final project = widget.project;
+    final service = widget.service;
+    final extractDerived = widget.extractDerived;
+    final initialKind = _initialKind;
+    final initialWidthText = _initialWidthText;
+    final initialHeightText = _initialHeightText;
     try {
-      final source = await _editor.open(widget.asset);
-      if (!mounted) {
-        return;
-      }
-      final crop = widget.extractDerived ? null : widget.asset.crop;
-      final shape = widget.project.catalog.sizeFor(
-        _initialKind,
+      final editor = service.imageEditor!;
+      final source = await editor.open(asset);
+      if (!_isCurrentOperation(operation)) return;
+      final crop = extractDerived ? null : asset.crop;
+      final shape = project.catalog.sizeFor(
+        initialKind,
         landscape: source.width >= source.height,
       );
       final initialAspect = shape == null ? null : shape.width / shape.height;
       final baseFull = CropDraft(
         corners: CropDraft.fullImage().corners,
-        adjustments: widget.extractDerived
+        adjustments: extractDerived
             ? CropDraft.fullImage().adjustments
-            : widget.asset.adjustments,
+            : asset.adjustments,
         aspectRatio: initialAspect,
       );
-      final proposed = crop == null && !widget.extractDerived
+      final resolution = crop == null && !extractDerived
           ? await _resolveSuggestedCorners(
               source.preview,
               source.width,
               source.height,
+              project: project,
+              asset: asset,
+              service: service,
             )
-          : null;
+          : const _SuggestedCornersResolution();
+      if (!_isCurrentOperation(operation)) return;
+      final proposed = resolution.corners;
       final EditHistory<_CropEditorState> history;
       final _CropEditorState activeState;
       if (crop != null) {
         final activeDraft = CropDraft(
           corners: crop.corners,
-          adjustments: widget.asset.adjustments,
+          adjustments: asset.adjustments,
           aspectRatio: crop.outputWidth / crop.outputHeight,
           preservedGeometry: crop,
         );
         activeState = _CropEditorState(
           draft: activeDraft,
-          selectedKind: _initialKind,
-          customWidthText: _initialWidthText,
-          customHeightText: _initialHeightText,
+          selectedKind: initialKind,
+          customWidthText: initialWidthText,
+          customHeightText: initialHeightText,
         );
         history = EditHistory(activeState);
-      } else if (proposed != null) {
+      } else {
         final baseState = _CropEditorState(
           draft: baseFull,
-          selectedKind: _initialKind,
-          customWidthText: _initialWidthText,
-          customHeightText: _initialHeightText,
+          selectedKind: initialKind,
+          customWidthText: initialWidthText,
+          customHeightText: initialHeightText,
         );
         history = EditHistory(baseState);
-        final proposedDraft = CropDraft(
-          corners: proposed,
-          adjustments: widget.asset.adjustments,
-          aspectRatio: initialAspect,
-        );
-        activeState = baseState.copyWith(draft: proposedDraft);
-        history.record(activeState);
-      } else {
-        activeState = _CropEditorState(
-          draft: baseFull,
-          selectedKind: _initialKind,
-          customWidthText: _initialWidthText,
-          customHeightText: _initialHeightText,
-        );
-        history = EditHistory(activeState);
+        final previous = resolution.previousSavedCorners;
+        if (previous != null) {
+          history.record(
+            baseState.copyWith(
+              draft: CropDraft(
+                corners: previous,
+                adjustments: asset.adjustments,
+                aspectRatio: initialAspect,
+              ),
+            ),
+          );
+        }
+        if (proposed != null) {
+          final proposedDraft = CropDraft(
+            corners: proposed,
+            adjustments: asset.adjustments,
+            aspectRatio: initialAspect,
+          );
+          activeState = baseState.copyWith(draft: proposedDraft);
+          history.record(activeState);
+        } else {
+          activeState = baseState;
+        }
       }
       setState(() {
         _source = source;
         _history = history;
         _state = activeState;
         _initialReviewDraft = proposed != null ? activeState.draft : null;
+        _proposalNotice = resolution.notice;
         _busy = false;
+        _busyCancelable = false;
       });
     } catch (error) {
-      if (mounted) {
+      if (_isCurrentOperation(operation)) {
         setState(() {
           _error = userError(error);
           _busy = false;
+          _busyCancelable = false;
         });
       }
     }
   }
 
-  Future<List<Point2>?> _resolveSuggestedCorners(
+  bool _isCurrentOperation(int operation) =>
+      mounted && operation == _operationGeneration;
+
+  int _beginOperation({required bool canCancel}) {
+    final operation = ++_operationGeneration;
+    setState(() {
+      _busy = true;
+      _busyCancelable = canCancel;
+      _error = null;
+    });
+    return operation;
+  }
+
+  void _finishOperation(int operation) {
+    if (!_isCurrentOperation(operation)) return;
+    setState(() {
+      _busy = false;
+      _busyCancelable = false;
+    });
+  }
+
+  void _clearPreview() {
+    _preview = null;
+    _previewRecipe = null;
+    _showResult = false;
+  }
+
+  bool _cancelCancelableOperation() {
+    if (!_busy || !_busyCancelable) return false;
+    ++_operationGeneration;
+    setState(() {
+      _busy = false;
+      _busyCancelable = false;
+    });
+    return true;
+  }
+
+  Future<_SuggestedCornersResolution> _resolveSuggestedCorners(
     Uint8List preview,
     int sourceWidth,
-    int sourceHeight,
-  ) async {
+    int sourceHeight, {
+    required Project project,
+    required ImageAsset asset,
+    required ProjectService service,
+  }) async {
     final explicit = widget.suggestedCorners;
-    List<Point2>? candidate = explicit ?? widget.asset.suggestedCrop;
-    if (candidate == null) {
-      for (final record in widget.project.documents) {
-        for (final side in record.sides) {
-          final sp = side.detection?.suggestedPolygon;
-          if (sp == null) continue;
-          if (assetOwnsProjectPath(
-                widget.project.id,
-                widget.asset.id,
-                side.processedAsset.workingPath,
-              ) ||
-              (record.sides.length == 1 &&
-                  record.sourceImageId == widget.asset.id)) {
-            candidate = sp;
-            break;
-          }
-        }
-        if (candidate != null) break;
-      }
-    }
-    if (candidate == null) return null;
+    final candidate = explicit ?? _savedSuggestionFor(project, asset);
+    if (candidate == null) return const _SuggestedCornersResolution();
 
-    // Persisted suggestions carry no detector/version/decision provenance.
-    // Refresh them with the current local proposal when available; this only
-    // replaces an editable review outline and never authorizes an automatic crop.
+    String? notice;
     if (explicit == null) {
-      final editor = widget.service.imageEditor;
+      final editor = service.imageEditor;
       if (editor is BoundaryProposalImageEditor) {
         try {
           final refreshed = await editor.suggestProposal(preview);
           final freshCorners = refreshed?.corners;
-          if (freshCorners != null && freshCorners.length == 4) {
-            final freshCheck = assessQuad(
-              freshCorners,
+          if (_usableSuggestedCorners(
+            freshCorners,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+          )) {
+            final previous = _usableSuggestedCorners(
+              candidate,
               sourceWidth: sourceWidth,
               sourceHeight: sourceHeight,
             );
-            if (freshCheck.acceptable) return freshCorners;
+            final changed = !_samePoints(freshCorners, candidate);
+            return _SuggestedCornersResolution(
+              corners: freshCorners,
+              previousSavedCorners: changed && previous ? candidate : null,
+              notice: changed
+                  ? 'حُدّث الاقتراح المحلي للمراجعة فقط؛ تراجع يعيد الحدود المحفوظة السابقة. لم يُحفظ أي قص.'
+                  : 'الحدود المعروضة اقتراح للمراجعة فقط؛ لا يُعتمد قص قبل المعاينة والحفظ.',
+            );
           }
+          notice = freshCorners == null
+              ? 'لم يظهر اقتراح جديد؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.'
+              : 'الاقتراح المحدّث غير صالح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
         } catch (_) {
-          // A failed optional refresh must not block manual cropping.
+          notice = 'تعذر تحديث الاقتراح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
         }
       }
     }
 
-    if (candidate.length != 4) return null;
-    final check = assessQuad(
+    if (_usableSuggestedCorners(
       candidate,
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
+    )) {
+      return _SuggestedCornersResolution(corners: candidate, notice: notice);
+    }
+    return _SuggestedCornersResolution(
+      notice: notice == null
+          ? 'الحدود المحفوظة غير صالحة؛ عُرضت الصورة كاملة لضبطها يدوياً.'
+          : '$notice الحدود المحفوظة غير صالحة؛ عُرضت الصورة كاملة لضبطها يدوياً.',
     );
-    return check.acceptable ? candidate : null;
   }
 
   /// Whether the quadrilateral currently selected is wider than tall.
@@ -351,10 +573,10 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
-      _preview = null;
-      _showResult = false;
+      _clearPreview();
       _dirty = true;
       _error = null;
+      _proposalNotice = null;
     });
   }
 
@@ -407,10 +629,10 @@ class _CropScreenState extends State<CropScreen> {
     }
     setState(() {
       _state = next;
-      _preview = null;
-      _showResult = false;
+      _clearPreview();
       _dirty = true;
       _error = null;
+      _proposalNotice = null;
     });
   }
 
@@ -421,10 +643,10 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
-      _preview = null;
-      _showResult = false;
+      _clearPreview();
       _dirty = true;
       _error = null;
+      _proposalNotice = null;
     });
   }
 
@@ -484,158 +706,207 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   Future<void> _revertSavedCrop() async {
-    setState(() => _busy = true);
+    final service = widget.service;
+    final project = widget.project;
+    final asset = widget.asset;
+    final operation = _beginOperation(canCancel: false);
     try {
-      final saved = await widget.service.resetManualCrop(
-        widget.project,
-        widget.asset,
-      );
-      if (mounted) {
+      final saved = await service.resetManualCrop(project, asset);
+      if (_isCurrentOperation(operation)) {
         Navigator.pop(context, saved);
       }
     } catch (error) {
-      if (mounted) {
+      if (_isCurrentOperation(operation)) {
         setState(() {
           _error = userError(error);
           _busy = false;
+          _busyCancelable = false;
         });
       }
     }
   }
 
   Future<void> _autoAdjust() async {
-    setState(() => _busy = true);
+    final service = widget.service;
+    final project = widget.project;
+    final asset = widget.asset;
+    final draft = _draft!;
+    final operation = _beginOperation(canCancel: true);
     try {
-      final value = await widget.service.suggestAutoAdjustments(
-        widget.project,
-        widget.asset,
-      );
-      if (!mounted) return;
-      _change(_draft!.withAdjustments(value));
+      final value = await service.suggestAutoAdjustments(project, asset);
+      if (!_isCurrentOperation(operation)) return;
+      _change(draft.withAdjustments(value));
       showMessage(
         context,
         'طُبّق اقتراح تحسين محلي قابل للتعديل؛ راجع النتيجة قبل الحفظ.',
       );
     } catch (error) {
-      if (mounted) setState(() => _error = userError(error));
+      if (_isCurrentOperation(operation)) {
+        setState(() => _error = userError(error));
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      _finishOperation(operation);
     }
   }
 
   Future<void> _suggest() async {
-    setState(() => _busy = true);
+    final editor = _editor;
+    final source = _source!;
+    final draft = _draft!;
+    final operation = _beginOperation(canCancel: true);
     try {
-      final points = await _editor.suggest(_source!.preview);
-      if (!mounted) {
-        return;
+      final List<Point2>? points;
+      if (editor is BoundaryProposalImageEditor) {
+        points = (await editor.suggestProposal(source.preview))?.corners;
+      } else {
+        points = await editor.suggest(source.preview);
       }
+      if (!_isCurrentOperation(operation)) return;
       if (points == null) {
-        showMessage(
-          context,
-          'لم نجد حدوداً موثوقة. حرّك الزوايا يدوياً؛ لم تتغير الصورة.',
-        );
+        setState(() {
+          _proposalNotice =
+              'لم يظهر اقتراح جديد؛ بقي الإطار الحالي كما هو. حرّك الزوايا يدوياً عند الحاجة.';
+        });
+        showMessage(context, 'لم يعثر الكشف على حدود جديدة؛ لم يتغير الإطار الحالي.');
+      } else if (!_usableSuggestedCorners(
+        points,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      )) {
+        setState(() {
+          _proposalNotice =
+              'الاقتراح لا يحتوي على أربع زوايا صالحة؛ بقي الإطار الحالي كما هو.';
+        });
+        showMessage(context, 'الاقتراح غير صالح؛ احتُفظ بالحدود الحالية.');
       } else {
         _change(
           CropDraft(
             corners: points,
-            adjustments: _draft!.adjustments,
-            aspectRatio: _draft!.aspectRatio,
+            adjustments: draft.adjustments,
+            aspectRatio: draft.aspectRatio,
           ),
         );
+        setState(() {
+          _proposalNotice =
+              'اقتراح جديد للمراجعة فقط؛ لم يتغير الأصل. تراجع يعيد الحدود السابقة، واعرض المعاينة قبل الحفظ.';
+        });
         showMessage(
           context,
-          'اقتراح فقط: راجع الزوايا وعدّلها أو تراجع عنه قبل المعاينة.',
+          'اقتراح للمراجعة فقط؛ تراجع يستعيد الحدود السابقة. عاين النتيجة قبل الحفظ.',
         );
       }
     } catch (error) {
-      if (mounted) {
-        setState(() => _error = userError(error));
+      if (_isCurrentOperation(operation)) {
+        setState(() {
+          _error = userError(error);
+          _proposalNotice =
+              'تعذر تحديث الاقتراح؛ بقيت الحدود الحالية ولم يتغير الأصل.';
+        });
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      _finishOperation(operation);
     }
   }
 
   Future<void> _render() async {
-    setState(() => _busy = true);
+    final asset = widget.asset;
+    final operation = _beginOperation(canCancel: true);
     try {
       final recipe = _recipe();
-      final bytes = await _editor.preview(widget.asset, recipe);
-      if (mounted) {
-        setState(() {
-          _preview = bytes;
-          _showResult = true;
-          _error = null;
-        });
+      final bytes = await _editor.preview(asset, recipe);
+      if (!_isCurrentOperation(operation)) return;
+      final validPreview = bytes.isNotEmpty &&
+          await Isolate.run(() {
+            try {
+              final decoded = decodeForProcessing(bytes);
+              return decoded.width > 0 && decoded.height > 0;
+            } catch (_) {
+              return false;
+            }
+          });
+      if (!_isCurrentOperation(operation)) return;
+      if (!validPreview) {
+        throw const ValidationException(
+          'معاينة القص غير صالحة؛ لم يُسمح بالاعتماد.',
+        );
       }
+      setState(() {
+        _preview = bytes;
+        _previewRecipe = recipe;
+        _showResult = true;
+        _error = null;
+      });
     } catch (error) {
-      if (mounted) {
+      if (_isCurrentOperation(operation)) {
         setState(() => _error = userError(error));
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      _finishOperation(operation);
     }
   }
 
   Future<void> _accept() async {
-    if (_preview == null) {
-      return;
-    }
-    setState(() => _busy = true);
+    final preview = _preview;
+    final recipe = _previewRecipe;
+    final source = _source;
+    if (preview == null || recipe == null || source == null) return;
+    final service = widget.service;
+    final project = widget.project;
+    final asset = widget.asset;
+    final targetItemId = widget.targetItemId;
+    final confirmForSheet = widget.confirmForSheet;
+    final extractDerived = widget.extractDerived;
+    final selectedKind = _selectedKind;
+    final initialKind = _initialKind;
+    final initialWidthText = _initialWidthText;
+    final initialHeightText = _initialHeightText;
+    final operation = _beginOperation(canCancel: false);
     try {
-      final recipe = _recipe();
-      final Project saved;
       final kindOrSizeChanged =
-          (_selectedKind != _initialKind &&
-              _selectedKind != DocumentKind.unknown) ||
-          (_selectedKind == DocumentKind.other &&
-              (_state!.customWidthText != _initialWidthText ||
-                  _state!.customHeightText != _initialHeightText));
-      if (widget.extractDerived) {
-        final customSize = _parseCustomSize();
-        saved = await widget.service.extractManualDerivedDocument(
-          widget.project,
-          widget.asset,
+          (selectedKind != initialKind && selectedKind != DocumentKind.unknown) ||
+          (selectedKind == DocumentKind.other &&
+              (_state!.customWidthText != initialWidthText ||
+                  _state!.customHeightText != initialHeightText));
+      final Project saved;
+      if (extractDerived) {
+        saved = await service.extractManualDerivedDocument(
+          project,
+          asset,
           recipe,
-          documentKind: _selectedKind,
-          customSizeMm: customSize,
-          sourceWidth: _source!.width,
-          sourceHeight: _source!.height,
+          documentKind: selectedKind,
+          customSizeMm: _parseCustomSize(),
+          sourceWidth: source.width,
+          sourceHeight: source.height,
         );
-      } else if (widget.confirmForSheet || kindOrSizeChanged) {
-        final customSize = _parseCustomSize();
-        saved = await widget.service.confirmManualBoundary(
-          widget.project,
-          widget.asset,
+      } else if (confirmForSheet || kindOrSizeChanged) {
+        saved = await service.confirmManualBoundary(
+          project,
+          asset,
           recipe,
-          documentKind: _selectedKind,
-          customSizeMm: customSize,
-          targetItemId: widget.targetItemId,
-          sourceWidth: _source!.width,
-          sourceHeight: _source!.height,
+          documentKind: selectedKind,
+          customSizeMm: _parseCustomSize(),
+          targetItemId: targetItemId,
+          sourceWidth: source.width,
+          sourceHeight: source.height,
         );
       } else {
-        saved = await widget.service.applyManualCrop(
-          widget.project,
-          widget.asset,
+        saved = await service.applyManualCrop(
+          project,
+          asset,
           recipe,
-          sourceWidth: _source!.width,
-          sourceHeight: _source!.height,
+          sourceWidth: source.width,
+          sourceHeight: source.height,
         );
       }
-      if (mounted) {
+      if (_isCurrentOperation(operation)) {
         Navigator.pop(context, saved);
       }
     } catch (error) {
-      if (mounted) {
+      if (_isCurrentOperation(operation)) {
         setState(() {
           _error = userError(error);
           _busy = false;
+          _busyCancelable = false;
         });
       }
     }
@@ -643,7 +914,7 @@ class _CropScreenState extends State<CropScreen> {
 
   Future<void> _leave() async {
     if (_busy) {
-      return;
+      if (!_cancelCancelableOperation()) return;
     }
     if (!_dirty) {
       Navigator.pop(context);
@@ -739,8 +1010,10 @@ class _CropScreenState extends State<CropScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
-            tooltip: 'إلغاء القص',
-            onPressed: _busy ? null : _leave,
+            tooltip: _busy
+                ? (_busyCancelable ? 'إلغاء العملية والخروج' : 'انتظر انتهاء الحفظ')
+                : 'إلغاء القص',
+            onPressed: _busy && !_busyCancelable ? null : _leave,
             icon: const Icon(Icons.close),
           ),
           title: Text(
@@ -797,6 +1070,17 @@ class _CropScreenState extends State<CropScreen> {
                       ),
                       child: const Text(
                         'حدود مقترحة للمراجعة فقط: عدّل الزوايا الأربع عند الحاجة، ثم اضغط «معاينة التصحيح» قبل الاعتماد.',
+                      ),
+                    ),
+                  if (_proposalNotice != null)
+                    Padding(
+                      key: const Key('crop-proposal-status'),
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        _proposalNotice!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   if (_error != null)
@@ -963,10 +1247,10 @@ class _CropScreenState extends State<CropScreen> {
                                                 _state = _state!.copyWith(
                                                   draft: next,
                                                 );
-                                                _preview = null;
-                                                _showResult = false;
+                                                _clearPreview();
                                                 _dirty = true;
                                                 _error = null;
+                                                _proposalNotice = null;
                                               });
                                             },
                                       onPanEnd: _busy
@@ -1174,9 +1458,9 @@ class _CropScreenState extends State<CropScreen> {
                         adjustments.copyWith(brightness: v),
                       ),
                     );
-                    _preview = null;
-                    _showResult = false;
+                    _clearPreview();
                     _dirty = true;
+                    _proposalNotice = null;
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1196,9 +1480,9 @@ class _CropScreenState extends State<CropScreen> {
                         adjustments.copyWith(contrast: v),
                       ),
                     );
-                    _preview = null;
-                    _showResult = false;
+                    _clearPreview();
                     _dirty = true;
+                    _proposalNotice = null;
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1218,9 +1502,9 @@ class _CropScreenState extends State<CropScreen> {
                         adjustments.copyWith(saturation: v),
                       ),
                     );
-                    _preview = null;
-                    _showResult = false;
+                    _clearPreview();
                     _dirty = true;
+                    _proposalNotice = null;
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1240,9 +1524,9 @@ class _CropScreenState extends State<CropScreen> {
                         adjustments.copyWith(sharpness: v),
                       ),
                     );
-                    _preview = null;
-                    _showResult = false;
+                    _clearPreview();
                     _dirty = true;
+                    _proposalNotice = null;
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1278,7 +1562,9 @@ class _CropScreenState extends State<CropScreen> {
           const SizedBox(height: 8),
           FilledButton(
             key: const Key('accept-crop'),
-            onPressed: _busy || _preview == null ? null : _accept,
+            onPressed: _busy || _preview == null || _previewRecipe == null
+                ? null
+                : _accept,
             child: const Text('اعتماد القص وحفظ'),
           ),
         ],

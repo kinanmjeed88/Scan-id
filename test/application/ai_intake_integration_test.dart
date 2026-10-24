@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -76,9 +77,11 @@ class _UncertainAiEditor implements BoundaryProposalImageEditor {
 
 class _TrackingFakeEditor extends FakeImageEditor {
   ImageEditRecipe? lastPreviewRecipe;
+  String? lastPreviewAssetId;
 
   @override
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+    lastPreviewAssetId = asset.id;
     lastPreviewRecipe = recipe;
     return super.preview(asset, recipe);
   }
@@ -99,6 +102,33 @@ class _RefreshingFakeEditor extends _TrackingFakeEditor
     refreshCount++;
     return _proposal;
   }
+}
+
+class _ControlledBoundaryEditor extends _TrackingFakeEditor
+    implements BoundaryProposalImageEditor {
+  BoundaryProposal? proposal;
+  Object? refreshError;
+  Completer<BoundaryProposal?>? pendingRefresh;
+  int refreshCount = 0;
+
+  @override
+  String? get boundaryModelId => 'synthetic-controlled-review-test';
+
+  @override
+  Future<BoundaryProposal?> suggestProposal(Uint8List preview) {
+    refreshCount++;
+    final pending = pendingRefresh;
+    if (pending != null) return pending.future;
+    final error = refreshError;
+    if (error != null) return Future<BoundaryProposal?>.error(error);
+    return Future.value(proposal);
+  }
+}
+
+class _InvalidPreviewEditor extends FakeImageEditor {
+  @override
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async =>
+      Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 
 Uint8List _exifRotatedCardJpeg(Uint8List goldenCardPng) {
@@ -638,6 +668,24 @@ void main() {
         BoundaryDecisionKind.needsReview,
       );
 
+      expect(find.byKey(const Key('crop-proposal-status')), findsOneWidget);
+      // Refresh replaces only the review outline: Undo exposes the saved
+      // suggestion again, and Redo restores the fresh local proposal.
+      await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 4; i++) {
+        expect(
+          editor.lastPreviewRecipe!.geometry.corners[i].x,
+          closeTo(staleStrip[i].x, 1e-9),
+        );
+      }
+
+      await tester.tap(find.byTooltip('إعادة'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -657,6 +705,349 @@ void main() {
       expect(unchanged.assets.single.crop, isNull);
       expect(unchanged.assets.single.suggestedCrop, isNotNull);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen reports failed refresh and keeps the saved review boundary',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final savedQuad = [
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
+      ];
+      final repository = MemoryProjects();
+      final editor = _ControlledBoundaryEditor()
+        ..refreshError = StateError('synthetic offline refresh');
+      final asset = assetFixture(
+        id: 'asset-refresh-failure',
+      ).withSuggestedCrop(savedQuad);
+      final project = await repository.create(projectFixture(assets: [asset]));
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: CropScreen(
+              project: project,
+              asset: asset,
+              service: service,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editor.refreshCount, 1);
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
+      expect(find.byKey(const Key('crop-proposal-status')), findsOneWidget);
+      expect(find.textContaining('تعذر تحديث الاقتراح'), findsOneWidget);
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 4; i++) {
+        expect(
+          editor.lastPreviewRecipe!.geometry.corners[i].x,
+          closeTo(savedQuad[i].x, 1e-9),
+        );
+        expect(
+          editor.lastPreviewRecipe!.geometry.corners[i].y,
+          closeTo(savedQuad[i].y, 1e-9),
+        );
+      }
+      final unchanged = await repository.get(project.id);
+      expect(unchanged.assets.single.crop, isNull);
+      expect(unchanged.assets.single.suggestedCrop, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen rejects empty or malformed suggestions without replacing current corners',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final repository = MemoryProjects();
+      final editor = _ControlledBoundaryEditor()
+        ..proposal = const BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: [Point2(0.1, 0.1), Point2(0.9, 0.1), Point2(0.9, 0.9)],
+          modelConfidence: 0.91,
+          minAutoAcceptConfidence: 0.55,
+        );
+      final asset = assetFixture(id: 'asset-invalid-suggestion');
+      final project = await repository.create(projectFixture(assets: [asset]));
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: CropScreen(
+              project: project,
+              asset: asset,
+              service: service,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('لا يحتوي على أربع زوايا صالحة'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+
+      editor.proposal = null;
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('لم يظهر اقتراح جديد'), findsOneWidget);
+      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        isNotNull,
+        reason: 'the still-current valid preview remains available after an empty refresh',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen never enables save for an undecodable crop preview',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final repository = MemoryProjects();
+      final editor = _InvalidPreviewEditor();
+      final asset = assetFixture(id: 'asset-invalid-preview');
+      final project = await repository.create(projectFixture(assets: [asset]));
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: CropScreen(
+              project: project,
+              asset: asset,
+              service: service,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('معاينة القص غير صالحة'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('accept-crop'))).onPressed,
+        isNull,
+      );
+      expect(editor.revisions, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen discards a late AI refresh when the edited asset changes',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final savedQuad = [
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
+      ];
+      final firstAsset = assetFixture(
+        id: 'asset-switch-first',
+      ).withSuggestedCrop(savedQuad);
+      final secondAsset = assetFixture(id: 'asset-switch-second');
+      final repository = MemoryProjects();
+      final editor = _ControlledBoundaryEditor()
+        ..pendingRefresh = Completer<BoundaryProposal?>();
+      final project = await repository.create(
+        projectFixture(assets: [firstAsset, secondAsset]),
+      );
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+      var selectedAsset = firstAsset;
+      late StateSetter replaceAsset;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                replaceAsset = setState;
+                return CropScreen(
+                  key: const ValueKey('reused-crop-route'),
+                  project: project,
+                  asset: selectedAsset,
+                  service: service,
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(editor.refreshCount, 1);
+
+      replaceAsset(() => selectedAsset = secondAsset);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
+
+      editor.pendingRefresh!.complete(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: const [
+            Point2(0.12, 0.12),
+            Point2(0.88, 0.12),
+            Point2(0.88, 0.88),
+            Point2(0.12, 0.88),
+          ],
+          modelConfidence: 0.48,
+          minAutoAcceptConfidence: 0.55,
+        ),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
+
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('معاينة التصحيح'));
+      await tester.pumpAndSettle();
+      expect(editor.lastPreviewAssetId, secondAsset.id);
+      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'CropScreen can cancel an in-flight AI refresh and ignore its late completion',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final savedQuad = [
+        Point2(0.06, 0.48),
+        Point2(0.87, 0.51),
+        Point2(0.85, 0.83),
+        Point2(0.07, 0.85),
+      ];
+      final repository = MemoryProjects();
+      final editor = _ControlledBoundaryEditor()
+        ..pendingRefresh = Completer<BoundaryProposal?>();
+      final asset = assetFixture(
+        id: 'asset-cancel-refresh',
+      ).withSuggestedCrop(savedQuad);
+      final project = await repository.create(projectFixture(assets: [asset]));
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: editor,
+      );
+      Project? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: FilledButton(
+                    key: const Key('open-cancel-refresh'),
+                    onPressed: () async {
+                      result = await Navigator.push<Project>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CropScreen(
+                            project: project,
+                            asset: asset,
+                            service: service,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('فتح القص'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('open-cancel-refresh')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(editor.refreshCount, 1);
+      expect(find.byTooltip('إلغاء العملية والخروج'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('open-cancel-refresh')), findsOneWidget);
+      expect(result, isNull);
+
+      editor.pendingRefresh!.complete(null);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final unchanged = await repository.get(project.id);
+      expect(unchanged.assets.single.crop, isNull);
+      expect(unchanged.assets.single.suggestedCrop, isNotNull);
     },
   );
 

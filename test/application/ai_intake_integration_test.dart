@@ -552,6 +552,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
 
@@ -570,6 +571,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(
         editor.lastPreviewRecipe!.geometry.corners.first.x,
@@ -685,6 +687,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       for (var i = 0; i < 4; i++) {
         expect(
@@ -698,6 +701,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       for (var i = 0; i < 4; i++) {
         expect(
@@ -761,6 +765,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       for (var i = 0; i < 4; i++) {
         expect(
@@ -825,6 +830,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
 
@@ -873,6 +879,7 @@ void main() {
     await tester.ensureVisible(find.text('معاينة التصحيح'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('معاينة التصحيح'));
+    await pumpCropOperationToIdle(tester);
     await tester.pumpAndSettle();
 
     expect(find.textContaining('معاينة القص غير صالحة'), findsOneWidget);
@@ -965,6 +972,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(editor.lastPreviewAssetId, secondAsset.id);
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);

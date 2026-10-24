@@ -274,6 +274,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(editor.previewCount, 1);
       expect(
@@ -299,6 +300,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.byKey(const Key('accept-crop')));
       await tester.pumpAndSettle();
@@ -357,6 +359,7 @@ void main() {
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropOperationToIdle(tester);
       await tester.pumpAndSettle();
       expect(editor.previewCount, 0);
       expect(repository.values[project.id]!.revision, 0);

@@ -147,6 +147,20 @@ PageCanvas firstCanvas(WidgetTester tester) =>
 
 double pageScale(WidgetTester tester) => firstCanvas(tester).scale;
 
+/// Waits for CropScreen's isolate-backed preview validation without asking
+/// pumpAndSettle to wait on an indeterminate progress animation.
+Future<void> pumpCropOperationToIdle(WidgetTester tester) async {
+  final progress = find.byKey(const Key('crop-operation-progress'));
+  for (var attempt = 0; attempt < 100; attempt++) {
+    await tester.pump();
+    if (progress.evaluate().isEmpty) return;
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  }
+  throw StateError('Crop operation did not become idle within two seconds.');
+}
+
 Future<void> tapKey(WidgetTester tester, Key key) async {
   final finder = find.byKey(key);
   expect(finder, findsOneWidget, reason: '$key');

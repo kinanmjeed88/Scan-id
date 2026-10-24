@@ -171,6 +171,8 @@ class _CropScreenState extends State<CropScreen> {
   String? _coalescedCustomField;
   Uint8List? _preview;
   ImageEditRecipe? _previewRecipe;
+  int _draftRevision = 0;
+  int? _previewRevision;
   String? _error;
   String? _proposalNotice;
   bool _busy = true;
@@ -240,25 +242,14 @@ class _CropScreenState extends State<CropScreen> {
       a.sharpness == b.sharpness &&
       a.quarterTurns == b.quarterTurns;
 
-  bool _sameRecipe(ImageEditRecipe a, ImageEditRecipe b) =>
-      _sameGeometry(a.geometry, b.geometry) &&
-      _sameAdjustments(a.adjustments, b.adjustments);
-
   bool get _hasCurrentPreview {
     final preview = _preview;
-    final previewRecipe = _previewRecipe;
-    if (preview == null ||
-        preview.isEmpty ||
-        previewRecipe == null ||
-        _source == null ||
-        _draft == null) {
-      return false;
-    }
-    try {
-      return _sameRecipe(previewRecipe, _recipe());
-    } catch (_) {
-      return false;
-    }
+    return preview != null &&
+        preview.isNotEmpty &&
+        _previewRecipe != null &&
+        _previewRevision == _draftRevision &&
+        _source != null &&
+        _draft != null;
   }
 
   bool _sameCropTarget(CropScreen a, CropScreen b) {
@@ -314,13 +305,11 @@ class _CropScreenState extends State<CropScreen> {
     _history = null;
     _state = null;
     _coalescedCustomField = null;
-    _preview = null;
-    _previewRecipe = null;
+    _clearPreview();
     _error = null;
     _proposalNotice = null;
     _busy = true;
     _busyCancelable = true;
-    _showResult = false;
     _dirty = false;
     _initialReviewDraft = null;
     _view.value = Matrix4.identity();
@@ -465,8 +454,10 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   void _clearPreview() {
+    ++_draftRevision;
     _preview = null;
     _previewRecipe = null;
+    _previewRevision = null;
     _showResult = false;
   }
 
@@ -839,10 +830,15 @@ class _CropScreenState extends State<CropScreen> {
   Future<void> _render() async {
     final asset = widget.asset;
     final operation = _beginOperation(canCancel: true);
+    final draftRevision = _draftRevision;
     try {
       final recipe = _recipe();
       final bytes = await _editor.preview(asset, recipe);
-      if (!mounted || operation != _operationGeneration) return;
+      if (!mounted ||
+          operation != _operationGeneration ||
+          draftRevision != _draftRevision) {
+        return;
+      }
       final previewBytes = Uint8List.fromList(bytes);
       final validPreview =
           previewBytes.isNotEmpty &&
@@ -854,7 +850,11 @@ class _CropScreenState extends State<CropScreen> {
               return false;
             }
           });
-      if (!mounted || operation != _operationGeneration) return;
+      if (!mounted ||
+          operation != _operationGeneration ||
+          draftRevision != _draftRevision) {
+        return;
+      }
       if (!validPreview) {
         throw const ValidationException(
           'معاينة القص غير صالحة؛ لم يُسمح بالاعتماد.',
@@ -863,6 +863,7 @@ class _CropScreenState extends State<CropScreen> {
       setState(() {
         _preview = previewBytes;
         _previewRecipe = recipe;
+        _previewRevision = draftRevision;
         _showResult = true;
         _error = null;
       });
@@ -1093,7 +1094,10 @@ class _CropScreenState extends State<CropScreen> {
               )
             : Column(
                 children: [
-                  if (_busy) const LinearProgressIndicator(),
+                  if (_busy)
+                    const LinearProgressIndicator(
+                      key: Key('crop-operation-progress'),
+                    ),
                   if (_showingReviewProposal)
                     Container(
                       key: const Key('crop-proposed-banner'),

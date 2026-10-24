@@ -8,6 +8,8 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/imaging/ai_document_detector.dart';
+import 'package:scan_id/imaging/document_detector.dart';
+import 'package:scan_id/imaging/hybrid_boundary_arbitrator.dart';
 import 'package:scan_id/imaging/onnx_lite_runtime.dart';
 import 'package:scan_id/imaging/prepare_image.dart';
 
@@ -301,6 +303,76 @@ void main() {
         final proposal = suggestProposalWithAiBundle(pngBytes, bundle);
         expect(proposal, isNotNull);
         expect(proposal!.producer, BoundaryProducer.learnedModel);
+      },
+    );
+
+    test(
+      'tilted seed-101 model corner jump recovers outer boundary for review, not auto-crop',
+      () {
+        final image = decodeForProcessing(
+          File('test/fixtures/ai_tilted_seed_101.png').readAsBytesSync(),
+        );
+        final groundTruth = [
+          Point2(0.4038794339, 0.2073566914),
+          Point2(0.7412029505, 0.5108851790),
+          Point2(0.5976855159, 0.7947310209),
+          Point2(0.2603619695, 0.4912025332),
+        ];
+        final detector = AiDocumentDetector.fromBundle(_loadBundleFromRepo());
+        final scene = detector.detectImage(image);
+        expect(scene.candidates, isNotEmpty);
+
+        final raw = scene.candidates.reduce(
+          (best, candidate) =>
+              convexPolygonIou(groundTruth, candidate.corners) >
+                  convexPolygonIou(groundTruth, best.corners)
+              ? candidate
+              : best,
+        );
+        final rawIou = convexPolygonIou(groundTruth, raw.corners);
+        expect(raw.eligibleForAutoAccept, isTrue);
+        expect(rawIou, lessThan(0.82));
+        final rawPhysics = measureQuadPhysics(image, raw.corners);
+        expect(rawPhysics.minAllSideStep, lessThan(35.0));
+
+        final classical = detectDocumentCornersScored(image);
+        expect(classical, isNotNull);
+        expect(
+          convexPolygonIou(groundTruth, classical!.corners),
+          greaterThan(0.95),
+        );
+
+        final aiProposals = scene.candidates
+            .map((candidate) => candidate.toBoundaryProposal())
+            .toList();
+        final arbitrated = arbitrateSingleBoundary(
+          image,
+          aiProposals.first,
+          extraAiProposals: aiProposals.skip(1).toList(),
+        );
+        expect(arbitrated, isNotNull);
+        expect(arbitrated!.producer, BoundaryProducer.wholeFrameDetector);
+        expect(arbitrated.modelConfidence, lessThan(0.55));
+
+        final decision = verifyBoundary(
+          arbitrated,
+          sourceWidth: image.width,
+          sourceHeight: image.height,
+        );
+        expect(decision.kind, BoundaryDecisionKind.needsReview);
+        expect(decision.acceptedCorners, isNull);
+        expect(decision.cropAuthorization, isNull);
+        expect(
+          decision.verification.reasons,
+          contains(BoundaryReviewReason.lowModelConfidence),
+        );
+        expect(decision.proposal.corners, hasLength(4));
+        final reviewedIou = convexPolygonIou(
+          groundTruth,
+          decision.proposal.corners!,
+        );
+        expect(reviewedIou, greaterThan(0.95));
+        expect(reviewedIou, greaterThan(rawIou + 0.15));
       },
     );
 

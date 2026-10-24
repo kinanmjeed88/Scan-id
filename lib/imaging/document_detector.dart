@@ -32,31 +32,246 @@ List<Point2>? suggestDocumentCorners(Uint8List preview) {
   return detectDocumentCorners(decoded);
 }
 
+/// Diagnostic result pairing normalized corners with classical support score.
+class ScoredQuad {
+  const ScoredQuad({
+    required this.corners,
+    required this.score,
+    required this.viewportLeft,
+    required this.viewportTop,
+    required this.viewportWidth,
+    required this.viewportHeight,
+  });
+
+  final List<Point2> corners;
+  final double score;
+  final int viewportLeft;
+  final int viewportTop;
+  final int viewportWidth;
+  final int viewportHeight;
+}
+
 /// Same as [suggestDocumentCorners] for an already decoded image.
-List<Point2>? detectDocumentCorners(img.Image image) {
+List<Point2>? detectDocumentCorners(img.Image image) =>
+    detectDocumentCornersScored(image)?.corners;
+
+/// Detects document corners on [image] and returns both the normalized
+/// clockwise `[TL, TR, BR, BL]` corners in full-image coordinates and the
+/// classical edge-support score.
+ScoredQuad? detectDocumentCornersScored(img.Image image) {
   if (image.width < 20 || image.height < 20) {
     return null;
   }
-  final fine = _Raster.fromImage(image, _fineSide);
-  final coarse = _Raster.fromImage(image, _coarseSide);
+  final vp = _detectLetterboxViewport(image);
+  final hasLetterbox =
+      vp.left > 0 ||
+      vp.top > 0 ||
+      vp.width < image.width ||
+      vp.height < image.height;
+  if (hasLetterbox) {
+    final active = img.copyCrop(
+      image,
+      x: vp.left,
+      y: vp.top,
+      width: vp.width,
+      height: vp.height,
+    );
+    final croppedResult = _detectOnActiveImage(
+      active,
+      fullWidth: image.width,
+      fullHeight: image.height,
+      vpLeft: vp.left,
+      vpTop: vp.top,
+      vpWidth: vp.width,
+      vpHeight: vp.height,
+    );
+    if (croppedResult != null) {
+      return croppedResult;
+    }
+  }
+  return _detectOnActiveImage(
+    image,
+    fullWidth: image.width,
+    fullHeight: image.height,
+    vpLeft: 0,
+    vpTop: 0,
+    vpWidth: image.width,
+    vpHeight: image.height,
+  );
+}
+
+ScoredQuad? _detectOnActiveImage(
+  img.Image active, {
+  required int fullWidth,
+  required int fullHeight,
+  required int vpLeft,
+  required int vpTop,
+  required int vpWidth,
+  required int vpHeight,
+}) {
+  final fine = _Raster.fromImage(active, _fineSide);
+  final coarse = _Raster.fromImage(active, _coarseSide);
   final detector = _Detector(fine, coarse);
-  final quad =
-      detector.run(sensitivity: 1, needMean: .5, needMin: .3) ??
-      detector.run(sensitivity: .5, needMean: .7, needMin: .5);
-  if (quad == null) {
+  final pass1 = detector.runScored(sensitivity: 1, needMean: .5, needMin: .3);
+  final pass2 = detector.runScored(sensitivity: .5, needMean: .7, needMin: .5);
+  final picked = switch ((pass1, pass2)) {
+    (null, final b) => b,
+    (final a, null) => a,
+    (final a!, final b!) => b.$2 > a.$2 + .04 ? b : a,
+  };
+  if (picked == null) {
     return null;
   }
-  final w = fine.width - 1, h = fine.height - 1;
+  final quad = picked.$1;
+  final w = math.max(1, fine.width - 1), h = math.max(1, fine.height - 1);
+  final fullW = math.max(1, fullWidth - 1);
+  final fullH = math.max(1, fullHeight - 1);
+  final vpMaxX = math.max(0, vpWidth - 1);
+  final vpMaxY = math.max(0, vpHeight - 1);
   final normalized = [
     for (final p in quad)
-      Point2((p.x / w).clamp(0.0, 1.0), (p.y / h).clamp(0.0, 1.0)),
+      Point2(
+        ((vpLeft + (p.x / w) * vpMaxX) / fullW).clamp(0.0, 1.0),
+        ((vpTop + (p.y / h) * vpMaxY) / fullH).clamp(0.0, 1.0),
+      ),
   ];
   try {
     CropGeometry(corners: normalized, outputWidth: 1, outputHeight: 1);
   } on ValidationException {
     return null;
   }
-  return normalized;
+  return ScoredQuad(
+    corners: normalized,
+    score: picked.$2,
+    viewportLeft: vpLeft,
+    viewportTop: vpTop,
+    viewportWidth: vpWidth,
+    viewportHeight: vpHeight,
+  );
+}
+
+/// Detects uniform screenshot letterbox/pillarbox bars only when the bar
+/// terminates at a full-span step transition (`>= 92%` of perpendicular pixels
+/// jump by `>= 18` RGB units from the uniform bar colour). Uniform studio or
+/// synthetic backgrounds surrounding an isolated card keep the same background
+/// colour along the card's side margins (`< 92%` span jump) and are therefore
+/// never stripped.
+({int left, int top, int width, int height}) _detectLetterboxViewport(
+  img.Image image,
+) {
+  final w = image.width, h = image.height;
+  if (w < 40 || h < 40) {
+    return (left: 0, top: 0, width: w, height: h);
+  }
+
+  int scanRows(int start, int step) {
+    List<double>? ref;
+    var count = 0;
+    for (var y = start; y >= 0 && y < h; y += step) {
+      var sr = 0.0, sg = 0.0, sb = 0.0;
+      var srr = 0.0, sgg = 0.0, sbb = 0.0;
+      for (var x = 0; x < w; x++) {
+        final p = image.getPixel(x, y);
+        final r = p.rNormalized.toDouble() * 255;
+        final g = p.gNormalized.toDouble() * 255;
+        final b = p.bNormalized.toDouble() * 255;
+        sr += r;
+        sg += g;
+        sb += b;
+        srr += r * r;
+        sgg += g * g;
+        sbb += b * b;
+      }
+      final mr = sr / w, mg = sg / w, mb = sb / w;
+      ref ??= [mr, mg, mb];
+      final vr = math.max(0.0, srr / w - mr * mr);
+      final vg = math.max(0.0, sgg / w - mg * mg);
+      final vb = math.max(0.0, sbb / w - mb * mb);
+      final maxStd = math.sqrt(math.max(vr, math.max(vg, vb)));
+      if (maxStd <= 5.0 &&
+          (mr - ref[0]).abs() <= 3.0 &&
+          (mg - ref[1]).abs() <= 3.0 &&
+          (mb - ref[2]).abs() <= 3.0) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    if (count < 6 || ref == null) return 0;
+    final boundaryY = start + count * step;
+    if (boundaryY < 0 || boundaryY >= h) return 0;
+    var jumped = 0;
+    for (var x = 0; x < w; x++) {
+      final p = image.getPixel(x, boundaryY);
+      final dr = p.rNormalized.toDouble() * 255 - ref[0];
+      final dg = p.gNormalized.toDouble() * 255 - ref[1];
+      final db = p.bNormalized.toDouble() * 255 - ref[2];
+      if (dr * dr + dg * dg + db * db >= 324.0) {
+        jumped++;
+      }
+    }
+    return jumped >= .92 * w ? count : 0;
+  }
+
+  int scanCols(int start, int step) {
+    List<double>? ref;
+    var count = 0;
+    for (var x = start; x >= 0 && x < w; x += step) {
+      var sr = 0.0, sg = 0.0, sb = 0.0;
+      var srr = 0.0, sgg = 0.0, sbb = 0.0;
+      for (var y = 0; y < h; y++) {
+        final p = image.getPixel(x, y);
+        final r = p.rNormalized.toDouble() * 255;
+        final g = p.gNormalized.toDouble() * 255;
+        final b = p.bNormalized.toDouble() * 255;
+        sr += r;
+        sg += g;
+        sb += b;
+        srr += r * r;
+        sgg += g * g;
+        sbb += b * b;
+      }
+      final mr = sr / h, mg = sg / h, mb = sb / h;
+      ref ??= [mr, mg, mb];
+      final vr = math.max(0.0, srr / h - mr * mr);
+      final vg = math.max(0.0, sgg / h - mg * mg);
+      final vb = math.max(0.0, sbb / h - mb * mb);
+      final maxStd = math.sqrt(math.max(vr, math.max(vg, vb)));
+      if (maxStd <= 5.0 &&
+          (mr - ref[0]).abs() <= 3.0 &&
+          (mg - ref[1]).abs() <= 3.0 &&
+          (mb - ref[2]).abs() <= 3.0) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    if (count < 6 || ref == null) return 0;
+    final boundaryX = start + count * step;
+    if (boundaryX < 0 || boundaryX >= w) return 0;
+    var jumped = 0;
+    for (var y = 0; y < h; y++) {
+      final p = image.getPixel(boundaryX, y);
+      final dr = p.rNormalized.toDouble() * 255 - ref[0];
+      final dg = p.gNormalized.toDouble() * 255 - ref[1];
+      final db = p.bNormalized.toDouble() * 255 - ref[2];
+      if (dr * dr + dg * dg + db * db >= 324.0) {
+        jumped++;
+      }
+    }
+    return jumped >= .92 * h ? count : 0;
+  }
+
+  final top = scanRows(0, 1);
+  final bottom = scanRows(h - 1, -1);
+  final left = scanCols(0, 1);
+  final right = scanCols(w - 1, -1);
+  final vw = w - left - right;
+  final vh = h - top - bottom;
+  if (vw < (w * .6).floor() || vh < (h * .6).floor() || vw < 20 || vh < 20) {
+    return (left: 0, top: 0, width: w, height: h);
+  }
+  return (left: left, top: top, width: vw, height: vh);
 }
 
 const _coarseSide = 480;
@@ -240,6 +455,16 @@ class _Detector {
     required double sensitivity,
     required double needMean,
     required double needMin,
+  }) => runScored(
+    sensitivity: sensitivity,
+    needMean: needMean,
+    needMin: needMin,
+  )?.$1;
+
+  (List<_P>, double)? runScored({
+    required double sensitivity,
+    required double needMean,
+    required double needMin,
   }) {
     final f = coarse;
     final w = f.width, h = f.height;
@@ -247,6 +472,7 @@ class _Detector {
       return null;
     }
     final sorted = Float32List.fromList(f.mag)..sort();
+    final p75 = sorted[((sorted.length - 1) * .75).round()];
     final p90 = sorted[((sorted.length - 1) * .9).round()];
     final high = math.max(12.0, p90);
     final low = math.max(3.0, .45 * high * sensitivity);
@@ -259,7 +485,19 @@ class _Detector {
     for (final q in quads) {
       final s = _scoreQuad(f, q, low);
       if (s != null && s.texture < 30 && s.area < .985) {
-        scored.add(_Candidate(q, s));
+        final content = _contentBonus(f, q, p75);
+        scored.add(
+          _Candidate(
+            q,
+            _Score(
+              total: s.total + .06 * content,
+              mean: s.mean,
+              min: s.min,
+              area: s.area,
+              texture: s.texture,
+            ),
+          ),
+        );
       }
     }
     if (scored.isEmpty) {
@@ -321,7 +559,44 @@ class _Detector {
       }
       q = refined;
     }
-    return _orderQuad(q);
+    return (_orderQuad(q), pickValue);
+  }
+
+  /// Gentle structured-interior tie-breaker: prefers halves of dual-page or
+  /// low-background scans that actually contain printed text/features when
+  /// two candidate quads share identical outer edge strength.
+  double _contentBonus(_Field f, List<_P> q, double frameP75) {
+    if (frameP75 <= 1e-6) return 0;
+    final w = f.width, h = f.height;
+    var minX = w - 1, maxX = 0, minY = h - 1, maxY = 0;
+    for (final p in q) {
+      minX = math.min(minX, p.x.floor().clamp(0, w - 1));
+      maxX = math.max(maxX, p.x.ceil().clamp(0, w - 1));
+      minY = math.min(minY, p.y.floor().clamp(0, h - 1));
+      maxY = math.max(maxY, p.y.ceil().clamp(0, h - 1));
+    }
+    final stepX = math.max(1, ((maxX - minX) / 24).floor());
+    final stepY = math.max(1, ((maxY - minY) / 24).floor());
+    var sum = 0.0;
+    var count = 0;
+    for (var y = minY; y <= maxY; y += stepY) {
+      for (var x = minX; x <= maxX; x += stepX) {
+        final pt = _P(x.toDouble(), y.toDouble());
+        var inside = true;
+        for (var e = 0; e < 4; e++) {
+          if (_cross(q[e], q[(e + 1) % 4], pt) <= 0) {
+            inside = false;
+            break;
+          }
+        }
+        if (inside) {
+          sum += f.mag[y * w + x];
+          count++;
+        }
+      }
+    }
+    if (count < 8) return 0;
+    return ((sum / count) / frameP75).clamp(0.0, 1.0);
   }
 
   // ---------------------------------------------------------------- segmentation
@@ -398,49 +673,74 @@ class _Detector {
       dist[i] = math.sqrt(best);
       maxDist = math.max(maxDist, dist[i]);
     }
-    final threshold = math.max(18.0, _otsu(dist, maxDist));
-    var mask = Uint8List(n);
-    for (var i = 0; i < n; i++) {
-      mask[i] = dist[i] > threshold ? 1 : 0;
+    final otsuThreshold = math.max(18.0, _otsu(dist, maxDist));
+    final borderDist = Float32List(border.length);
+    for (var j = 0; j < border.length; j++) {
+      borderDist[j] = dist[border[j]];
     }
-    mask = _morph(_morph(mask, w, h, 2, dilate: true), w, h, 2, dilate: false);
-    mask = _fillHoles(mask, w, h);
-    mask = _morph(_morph(mask, w, h, 2, dilate: false), w, h, 2, dilate: true);
+    borderDist.sort();
+    final borderP90 = borderDist[((borderDist.length - 1) * .9).round()];
+    final thresholds = <double>[
+      otsuThreshold,
+      if (borderP90 <= 32.0) math.max(18.0, 2.5 * borderP90),
+    ];
 
     final result = <List<_P>>[];
-    final components = _components(mask, w, h)
-      ..sort((a, b) => b.length.compareTo(a.length));
-    for (final component in components.take(3)) {
-      if (component.length < .03 * n) {
-        break;
+    for (final threshold in thresholds) {
+      var mask = Uint8List(n);
+      for (var i = 0; i < n; i++) {
+        mask[i] = dist[i] > threshold ? 1 : 0;
       }
-      if (component.length > .995 * n) {
-        continue;
-      }
-      // Leftmost/rightmost pixel per row are enough for an exact hull.
-      final left = <int, int>{}, right = <int, int>{};
-      for (final i in component) {
-        final x = i % w, y = i ~/ w;
-        left[y] = math.min(left[y] ?? x, x);
-        right[y] = math.max(right[y] ?? x, x);
-      }
-      final points = <_P>[
-        for (final y in left.keys) ...[
-          _P(left[y]!.toDouble(), y.toDouble()),
-          _P(right[y]!.toDouble(), y.toDouble()),
-        ],
-      ];
-      final hull = _hull(points);
-      if (hull.length < 4) {
-        continue;
-      }
-      final quad = _enclosingQuad(hull);
-      if (quad.length != 4) {
-        continue;
-      }
-      final ordered = _orderQuad(quad);
-      if (_validQuad(ordered, w, h, .03)) {
-        result.add(ordered);
+      mask = _morph(
+        _morph(mask, w, h, 2, dilate: true),
+        w,
+        h,
+        2,
+        dilate: false,
+      );
+      mask = _fillHoles(mask, w, h);
+      mask = _morph(
+        _morph(mask, w, h, 2, dilate: false),
+        w,
+        h,
+        2,
+        dilate: true,
+      );
+
+      final components = _components(mask, w, h)
+        ..sort((a, b) => b.length.compareTo(a.length));
+      for (final component in components.take(3)) {
+        if (component.length < .03 * n) {
+          break;
+        }
+        if (component.length > .995 * n) {
+          continue;
+        }
+        // Leftmost/rightmost pixel per row are enough for an exact hull.
+        final left = <int, int>{}, right = <int, int>{};
+        for (final i in component) {
+          final x = i % w, y = i ~/ w;
+          left[y] = math.min(left[y] ?? x, x);
+          right[y] = math.max(right[y] ?? x, x);
+        }
+        final points = <_P>[
+          for (final y in left.keys) ...[
+            _P(left[y]!.toDouble(), y.toDouble()),
+            _P(right[y]!.toDouble(), y.toDouble()),
+          ],
+        ];
+        final hull = _hull(points);
+        if (hull.length < 4) {
+          continue;
+        }
+        final quad = _enclosingQuad(hull);
+        if (quad.length != 4) {
+          continue;
+        }
+        final ordered = _orderQuad(quad);
+        if (_validQuad(ordered, w, h, .03)) {
+          result.add(ordered);
+        }
       }
     }
     return result;
@@ -502,7 +802,7 @@ class _Detector {
     return result;
   }
 
-  List<_Peak> _houghPeaks(_Field f, double low, {int maxLines = 16}) {
+  List<_Peak> _houghPeaks(_Field f, double low, {int maxLines = 20}) {
     final w = f.width, h = f.height;
     final diag = math.sqrt(w * w + h * h).ceil();
     final rhoBins = 2 * diag + 1;
@@ -551,9 +851,11 @@ class _Detector {
         }
       }
     }
-    final minVotes = .12 * math.min(w, h);
+    final minVotes = math.max(18.0, .065 * math.min(w, h));
     final peaks = <_Peak>[];
-    for (var n = 0; n < maxLines; n++) {
+    var guard = 0;
+    while (peaks.length < maxLines && guard < maxLines * 4) {
+      guard++;
       var bestIndex = 0;
       var bestValue = -1.0;
       for (var i = 0; i < acc.length; i++) {
@@ -566,7 +868,6 @@ class _Detector {
         break;
       }
       final t = bestIndex ~/ rhoBins, r = bestIndex % rhoBins;
-      peaks.add(_Peak(t, (r - diag).toDouble()));
       for (var dt = -6; dt <= 6; dt++) {
         final raw = t + dt;
         final tt = raw % 180;
@@ -576,6 +877,28 @@ class _Detector {
           if (k >= 0 && k < rhoBins) {
             acc[tt * rhoBins + k] = 0;
           }
+        }
+      }
+      final candidate = _Peak(t, (r - diag).toDouble());
+      final sameOrientation = peaks
+          .where((p) => _angleDiff(p.theta, candidate.theta) <= 14)
+          .length;
+      if (sameOrientation < 6) {
+        peaks.add(candidate);
+      }
+    }
+    if (peaks.length >= 3) {
+      for (final (bt, brho) in [
+        (90, 0.0),
+        (90, (h - 1).toDouble()),
+        (0, 0.0),
+        (0, (w - 1).toDouble()),
+      ]) {
+        final exists = peaks.any(
+          (p) => _angleDiff(p.theta, bt) <= 8 && (p.rho - brho).abs() <= 6.0,
+        );
+        if (!exists) {
+          peaks.add(_Peak(bt, brho));
         }
       }
     }
@@ -589,6 +912,7 @@ class _Detector {
     final supports = <double>[], strengths = <double>[];
     final contrasts = <double>[], textures = <double>[];
     final c = f.rgb;
+    var unverifiedBorderSides = 0;
     for (var i = 0; i < 4; i++) {
       final a = q[i], b = q[(i + 1) % 4];
       final length = _dist(a, b);
@@ -597,11 +921,7 @@ class _Detector {
       }
       final tx = (b.x - a.x) / length, ty = (b.y - a.y) / length;
       final nx = ty, ny = -tx; // outward for a clockwise (y-down) polygon
-      if (_onBorder(a, b, w, h, 2.5)) {
-        supports.add(.55);
-        strengths.add(.5);
-        continue;
-      }
+      final isBorder = _onBorder(a, b, w, h, 2.5);
       final n = (length / 3).clamp(12, 80).toInt();
       var hits = 0;
       final st = <double>[], cs = <double>[];
@@ -641,14 +961,22 @@ class _Detector {
           outside.add(pout);
         }
       }
-      supports.add(hits / n);
-      strengths.add(math.min(1.0, _median(st) / (2.5 * low)));
+      final supVal = hits / n;
+      final strVal = math.min(1.0, _median(st) / (2.5 * low));
+      if (isBorder && supVal < .65) {
+        unverifiedBorderSides++;
+      }
+      supports.add(isBorder ? math.max(.55, supVal) : supVal);
+      strengths.add(isBorder ? math.max(.5, strVal) : strVal);
       if (cs.isNotEmpty) {
         contrasts.add(_median(cs));
       }
       if (inside.length >= 6) {
         textures.add(math.min(_colourSpread(inside), _colourSpread(outside)));
       }
+    }
+    if (unverifiedBorderSides > 2) {
+      return null;
     }
     final saturated = [for (final s in supports) math.min(1.0, s / .9)];
     final meanSupport = _mean(supports);
@@ -662,7 +990,7 @@ class _Detector {
     // colours fluctuate strongly along it; three such sides mean the
     // quadrilateral is drawn on a pattern, not around a document.
     textures.sort();
-    final texture = textures.length >= 3 ? textures[1] : 0.0;
+    final texture = textures.length >= 2 ? textures[1] : 0.0;
     final penalty = ((texture - 15) / 30).clamp(0.0, 1.0);
     final total =
         .4 * meanSaturated +
@@ -859,8 +1187,13 @@ bool _onBorder(_P a, _P b, int w, int h, double tol) =>
     (a.x >= w - 1 - tol && b.x >= w - 1 - tol) ||
     (a.y >= h - 1 - tol && b.y >= h - 1 - tol);
 
-/// Clockwise (y-down) order starting at the vertex whose outgoing edge points
-/// most to the right.
+/// Clockwise (y-down) order starting at canonical top-left `[TL, TR, BR, BL]`.
+///
+/// Enforces positive signed area in y-down pixel space, then selects the top
+/// edge (`TL -> TR`) among rightward-heading edges (`b.x > a.x`) using true
+/// pixel-space cosine heading plus relative edge-length tie-breaking so neither
+/// severe perspective foreshortening nor tilts around `45°` flip landscape
+/// documents by `90°` or confuse non-`min(x + y)` perspective corners.
 List<_P> _orderQuad(List<_P> q) {
   final cx = _mean([for (final p in q) p.x]);
   final cy = _mean([for (final p in q) p.y]);
@@ -870,14 +1203,32 @@ List<_P> _orderQuad(List<_P> q) {
           .atan2(a.y - cy, a.x - cx)
           .compareTo(math.atan2(b.y - cy, b.x - cx)),
     );
-  var start = 0;
-  var bestDx = -2.0;
+  var area2 = 0.0;
   for (var i = 0; i < 4; i++) {
     final a = sorted[i], b = sorted[(i + 1) % 4];
-    final length = _dist(a, b);
-    final dx = length == 0 ? -1.0 : (b.x - a.x) / length;
-    if (dx > bestDx) {
-      bestDx = dx;
+    area2 += a.x * b.y - b.x * a.y;
+  }
+  if (area2 < 0) {
+    final rev = sorted.reversed.toList();
+    sorted
+      ..clear()
+      ..addAll(rev);
+  }
+  final lengths = [
+    for (var i = 0; i < 4; i++) _dist(sorted[i], sorted[(i + 1) % 4]),
+  ];
+  final maxLen = math.max(1e-6, lengths.reduce(math.max));
+  var start = 0;
+  var bestScore = double.negativeInfinity;
+  for (var i = 0; i < 4; i++) {
+    final a = sorted[i], b = sorted[(i + 1) % 4];
+    final len = lengths[i];
+    if (len <= 0) continue;
+    final dx = (b.x - a.x) / len;
+    if (dx <= 0) continue;
+    final score = dx + 1.15 * (len / maxLen);
+    if (score > bestScore) {
+      bestScore = score;
       start = i;
     }
   }

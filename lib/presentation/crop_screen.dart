@@ -240,6 +240,27 @@ class _CropScreenState extends State<CropScreen> {
       a.sharpness == b.sharpness &&
       a.quarterTurns == b.quarterTurns;
 
+  bool _sameRecipe(ImageEditRecipe a, ImageEditRecipe b) =>
+      _sameGeometry(a.geometry, b.geometry) &&
+      _sameAdjustments(a.adjustments, b.adjustments);
+
+  bool get _hasCurrentPreview {
+    final preview = _preview;
+    final previewRecipe = _previewRecipe;
+    if (preview == null ||
+        preview.isEmpty ||
+        previewRecipe == null ||
+        _source == null ||
+        _draft == null) {
+      return false;
+    }
+    try {
+      return _sameRecipe(previewRecipe, _recipe());
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool _sameCropTarget(CropScreen a, CropScreen b) {
     final oldAsset = a.asset;
     final newAsset = b.asset;
@@ -717,9 +738,8 @@ class _CropScreenState extends State<CropScreen> {
     final operation = _beginOperation(canCancel: false);
     try {
       final saved = await service.resetManualCrop(project, asset);
-      if (_isCurrentOperation(operation)) {
-        Navigator.pop(context, saved);
-      }
+      if (!mounted || operation != _operationGeneration) return;
+      Navigator.pop(context, saved);
     } catch (error) {
       if (_isCurrentOperation(operation)) {
         setState(() {
@@ -739,7 +759,7 @@ class _CropScreenState extends State<CropScreen> {
     final operation = _beginOperation(canCancel: true);
     try {
       final value = await service.suggestAutoAdjustments(project, asset);
-      if (!_isCurrentOperation(operation)) return;
+      if (!mounted || operation != _operationGeneration) return;
       _change(draft.withAdjustments(value));
       showMessage(
         context,
@@ -766,7 +786,7 @@ class _CropScreenState extends State<CropScreen> {
       } else {
         points = await editor.suggest(source.preview);
       }
-      if (!_isCurrentOperation(operation)) return;
+      if (!mounted || operation != _operationGeneration) return;
       if (points == null) {
         setState(() {
           _proposalNotice =
@@ -822,25 +842,26 @@ class _CropScreenState extends State<CropScreen> {
     try {
       final recipe = _recipe();
       final bytes = await _editor.preview(asset, recipe);
-      if (!_isCurrentOperation(operation)) return;
+      if (!mounted || operation != _operationGeneration) return;
+      final previewBytes = Uint8List.fromList(bytes);
       final validPreview =
-          bytes.isNotEmpty &&
+          previewBytes.isNotEmpty &&
           await Isolate.run(() {
             try {
-              final decoded = decodeForProcessing(bytes);
+              final decoded = decodeForProcessing(previewBytes);
               return decoded.width > 0 && decoded.height > 0;
             } catch (_) {
               return false;
             }
           });
-      if (!_isCurrentOperation(operation)) return;
+      if (!mounted || operation != _operationGeneration) return;
       if (!validPreview) {
         throw const ValidationException(
           'معاينة القص غير صالحة؛ لم يُسمح بالاعتماد.',
         );
       }
       setState(() {
-        _preview = bytes;
+        _preview = previewBytes;
         _previewRecipe = recipe;
         _showResult = true;
         _error = null;
@@ -858,7 +879,12 @@ class _CropScreenState extends State<CropScreen> {
     final preview = _preview;
     final recipe = _previewRecipe;
     final source = _source;
-    if (preview == null || recipe == null || source == null) return;
+    if (preview == null ||
+        recipe == null ||
+        source == null ||
+        !_hasCurrentPreview) {
+      return;
+    }
     final service = widget.service;
     final project = widget.project;
     final asset = widget.asset;
@@ -908,9 +934,8 @@ class _CropScreenState extends State<CropScreen> {
           sourceHeight: source.height,
         );
       }
-      if (_isCurrentOperation(operation)) {
-        Navigator.pop(context, saved);
-      }
+      if (!mounted || operation != _operationGeneration) return;
+      Navigator.pop(context, saved);
     } catch (error) {
       if (_isCurrentOperation(operation)) {
         setState(() {
@@ -1574,9 +1599,7 @@ class _CropScreenState extends State<CropScreen> {
           const SizedBox(height: 8),
           FilledButton(
             key: const Key('accept-crop'),
-            onPressed: _busy || _preview == null || _previewRecipe == null
-                ? null
-                : _accept,
+            onPressed: _busy || !_hasCurrentPreview ? null : _accept,
             child: const Text('اعتماد القص وحفظ'),
           ),
         ],

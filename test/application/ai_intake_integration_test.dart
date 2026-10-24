@@ -555,9 +555,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
 
-      // Redo restores proposed quad, then preview and accept manual crop
+      // Redo restores proposed quad, then preview and accept manual crop.
       await tester.tap(find.byTooltip('إعادة'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
+            .onPressed,
+        isNull,
+        reason: 'redo changes the recipe, so the previous preview is stale',
+      );
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -780,7 +789,7 @@ void main() {
 
       final repository = MemoryProjects();
       final editor = _ControlledBoundaryEditor()
-        ..proposal = const BoundaryProposal(
+        ..proposal = BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
           corners: [Point2(0.1, 0.1), Point2(0.9, 0.1), Point2(0.9, 0.9)],
           modelConfidence: 0.91,
@@ -939,7 +948,7 @@ void main() {
       editor.pendingRefresh!.complete(
         BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
-          corners: const [
+          corners: [
             Point2(0.12, 0.12),
             Point2(0.88, 0.12),
             Point2(0.88, 0.88),

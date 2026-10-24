@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 import struct
 import sys
@@ -23,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tool.ai.dataset_gen import (
     CATALOG_SPECS,
+    canonicalize_quad_clockwise_tl,
     load_disjoint_background_pools,
     load_disjoint_specimen_pools,
     polygon_iou,
@@ -364,7 +366,108 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         self.assertIsNotNone(golden_decision)
         self.assertEqual(golden_decision.kind, "needsReview")
 
-    def test_05_tilted_seed_101_model_corner_jump_is_reviewed(self) -> None:
+    def test_05_tilted_cards_multi_seed_hybrid_geometry(self) -> None:
+        """Keep the original 101/303/404 procedural tilt set in the gate.
+
+        Its old raw-IoU assertion (< 0.90) encoded a historical model defect,
+        rather than a quality/safety requirement. With the frozen model and the
+        current deterministic renderer, the measured raw mean is 0.939539 and
+        all three cases exceed 0.90. Preserve the 0.90 bar as a positive floor
+        here; the separate byte-stable seed-101 regression below still exercises
+        a genuine low-IoU corner jump and verifies production arbitration.
+        """
+        sw, sh = 640, 480
+        raw_model_ious: list[float] = []
+        final_boundary_ious: list[float] = []
+        bbox_ious: list[float] = []
+        decisions: list[str] = []
+        expected_decisions = {
+            101: "accepted",
+            303: "accepted",
+            404: "needsReview",
+        }
+        for seed in (101, 303, 404):
+            rng = np.random.default_rng(seed)
+            bg = render_procedural_background(rng, sw, sh, self.bg_pools["test"])
+            sp = CATALOG_SPECS[0]
+            tex, al = render_specimen_card_texture(
+                rng,
+                sp[0],
+                sp[1],
+                sp[2],
+                float(bg.mean()),
+                self.spec_pools["test"],
+            )
+            rad = math.radians(34.0)
+            cw_c, ch_c = 260.0, 164.0
+            base = np.array(
+                [
+                    [-cw_c / 2, -ch_c / 2],
+                    [cw_c / 2, -ch_c / 2],
+                    [cw_c / 2, ch_c / 2],
+                    [-cw_c / 2, ch_c / 2],
+                ],
+                dtype=np.float32,
+            )
+            rot = np.array(
+                [[math.cos(rad), -math.sin(rad)], [math.sin(rad), math.cos(rad)]],
+                dtype=np.float32,
+            )
+            q_px = canonicalize_quad_clockwise_tl(
+                base @ rot.T + np.array([320.0, 240.0], dtype=np.float32)
+            )
+            scene = warp_card_onto_scene(bg, tex, al, q_px, rng)
+            gt_n = q_px / np.array([sw - 1.0, sh - 1.0], dtype=np.float32)
+            xs, ys = gt_n[:, 0], gt_n[:, 1]
+            axis_bbox = np.array(
+                [
+                    [xs.min(), ys.min()],
+                    [xs.max(), ys.min()],
+                    [xs.max(), ys.max()],
+                    [xs.min(), ys.max()],
+                ],
+                dtype=np.float32,
+            )
+            bbox_ious.append(polygon_iou(gt_n, axis_bbox))
+
+            result = self.detector.detect(scene)
+            self.assertGreaterEqual(len(result.candidates), 1)
+            raw_iou = max(
+                polygon_iou(gt_n, candidate.corners)
+                for candidate in result.candidates
+            )
+            raw_model_ious.append(raw_iou)
+
+            # Use the same gate confidence and region policy as
+            # AiQuadProposal.toBoundaryProposal(): no geom_confidence substitute
+            # and no implicit measured region in the single-boundary path.
+            proposals = _boundary_proposals_from_detection(result)
+            final = boundary_mirror.arbitrate_single_boundary(
+                scene,
+                proposals[0],
+                extra_ai=proposals[1:],
+                has_learned_model=True,
+            )
+            self.assertIsNotNone(final)
+            self.assertIsNotNone(final.corners)
+            decision = boundary_mirror.verify_boundary(final, sw, sh)
+            self.assertEqual(decision.kind, expected_decisions[seed])
+            final_iou = polygon_iou(
+                gt_n, np.asarray(final.corners, dtype=np.float32)
+            )
+            final_boundary_ious.append(final_iou)
+            decisions.append(decision.kind)
+
+        # These thresholds are specific to the controlled 34-degree tilted
+        # synthetic set; they are not generalized to arbitrary documents.
+        self.assertGreater(min(raw_model_ious), 0.90)
+        self.assertGreater(float(np.mean(final_boundary_ious)), 0.95)
+        self.assertGreater(min(final_boundary_ious), 0.90)
+        self.assertEqual(decisions.count("needsReview"), 1)
+        self.assertEqual(decisions.count("accepted"), 2)
+        self.assertLess(float(np.mean(bbox_ious)), 0.62)
+
+    def test_06_tilted_seed_101_model_corner_jump_is_reviewed(self) -> None:
         # This checked-in synthetic fixture is reproducible across Python/OpenCV
         # environments and mirrors the production Dart regression test. The
         # threshold is specific to this observed failure; it is not a global IoU
@@ -430,7 +533,7 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         )
         self.assertLess(polygon_iou(gt, axis_bbox), 0.62)
 
-    def test_06_multi_card_scene_separates_cards_without_merging(self) -> None:
+    def test_07_multi_card_scene_separates_cards_without_merging(self) -> None:
         rng = np.random.default_rng(99887)
         sw, sh = 640, 480
         scene = render_procedural_background(rng, sw, sh, self.bg_pools["test"])
@@ -450,7 +553,7 @@ class ScanIdAiPipelineTest(unittest.TestCase):
             biou = max(polygon_iou(gt_n, c.corners) for c in res.candidates)
             self.assertGreater(biou, 0.90)
 
-    def test_07_report_and_manifest_single_source_of_truth_sync(self) -> None:
+    def test_08_report_and_manifest_single_source_of_truth_sync(self) -> None:
         """Guarantees AI_DOCUMENT_BOUNDARY_STAGE_2026-10-22.md matches the JSON
         single source of truth byte-for-byte with zero manual drift."""
         from tool.ai.generate_benchmark_report import (
@@ -473,7 +576,7 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         actual_md = REPORT_MD_PATH.read_text(encoding="utf-8")
         self.assertEqual(actual_md, expected_md)
 
-    def test_08_golden_png_lossless_parity(self) -> None:
+    def test_09_golden_png_lossless_parity(self) -> None:
         """Verifies test/fixtures/ai_golden_card.png matches ai_golden_vectors.json."""
         from PIL import Image
 
@@ -498,7 +601,7 @@ class ScanIdAiPipelineTest(unittest.TestCase):
             places=5,
         )
 
-    def test_09_frame_border_and_structural_nms_regressions(self) -> None:
+    def test_10_frame_border_and_structural_nms_regressions(self) -> None:
         """Verifies Stage-2 0.016 border quantization margin, near-border weak-edge
         truncation gate, and outer-document vs inner-table-box structural NMS."""
         from PIL import Image
@@ -529,7 +632,7 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         )
         self.assertGreater(polygon_iou(outer_gt, res_inner.candidates[0].corners), 0.95)
 
-    def test_10_mandatory_heldout_regression_invariants(self) -> None:
+    def test_11_mandatory_heldout_regression_invariants(self) -> None:
         """Verifies wild_pos_jscanify_test3 and jscanify_test7_truncated remain
         untouched in Track A and Track B achieves 0/60 safety false accepts."""
         bench = json.loads(

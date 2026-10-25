@@ -309,8 +309,7 @@ BoundaryDecision verifyBoundary(
   }
   final measuredAspect = assessment.aspect!;
   final reasons = <BoundaryReviewReason>[
-    if (proposal.forceReview)
-      BoundaryReviewReason.multiSceneNotCorroborated,
+    if (proposal.forceReview) BoundaryReviewReason.multiSceneNotCorroborated,
   ];
 
   // Outer claim refusal only. Above [maxAspectClaimRatio] the imposed size

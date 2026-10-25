@@ -490,8 +490,7 @@ void main() {
           corners: kept.candidates.last.corners,
           region: kept.candidates.last.region,
           modelConfidence: kept.candidates.last.detectionConfidence,
-          minAutoAcceptConfidence:
-              kept.candidates.last.minAutoAcceptConfidence,
+          minAutoAcceptConfidence: kept.candidates.last.minAutoAcceptConfidence,
           forceReview: kept.candidates.last.requiresReview,
         ),
         sourceWidth: flat.width,

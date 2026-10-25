@@ -6,6 +6,7 @@ import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/ocr_engine.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
 import 'package:scan_id/application/recognition_worker.dart';
+import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
@@ -234,6 +235,55 @@ void main() {
       expect(
         analysis.detections[0].classification.confidences.detection?.value,
         .8,
+      );
+    },
+  );
+
+  test(
+    'an uncorroborated candidate keeps its confidence and cannot authorize an automatic crop',
+    () async {
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) => fail('measured region must not fall back'),
+        segment: (bytes) async => SegmentationResult(
+          multi: false,
+          candidates: [
+            SegmentCandidate(
+              region: const [.1, .15, .9, .95],
+              corners: _quad(),
+              detectionConfidence: .91,
+              producer: BoundaryProducer.learnedModel,
+              minAutoAcceptConfidence: .55,
+              requiresReview: true,
+              reason: 'synthetic-unconfirmed-multi-region',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+      final detection = analysis.detections.single;
+      final expected = _quad();
+      expect(detection.detectionConfidence, .91);
+      expect(detection.suggestedCorners, hasLength(4));
+      for (var i = 0; i < 4; i++) {
+        expect(detection.suggestedCorners![i].x, expected[i].x);
+        expect(detection.suggestedCorners![i].y, expected[i].y);
+      }
+      expect(detection.corners, isNull);
+      expect(detection.cropAuthorization, isNull);
+      expect(detection.needsManualBoundary, isTrue);
+      expect(analysis.needsMultiIntake, isTrue);
+      expect(
+        detection.boundaryDecision!.verification.reasons,
+        contains(BoundaryReviewReason.multiSceneNotCorroborated),
+      );
+      expect(
+        analysis.issues.map((issue) => issue.message),
+        contains(
+          boundaryReviewReasonMessage(
+            BoundaryReviewReason.multiSceneNotCorroborated,
+          ),
+        ),
       );
     },
   );

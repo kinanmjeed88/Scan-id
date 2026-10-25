@@ -22,7 +22,20 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
+      # Mostmskat/ contains private, local-only evaluation data. Sparse partial
+      # checkout keeps those blobs out of every GitHub Actions runner.
       - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
+      - name: Assert local-only evaluation data is excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e Mostmskat
+          python tool/check_private_ci_checkout.py
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

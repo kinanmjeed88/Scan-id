@@ -56,14 +56,14 @@ because the Flutter/Android integration is unmaintained, the two-platform
 packaging work is unverified here, and its reported Arabic accuracy is the
 weakest of the viable options.
 
-### 3. PaddleOCR PP-OCRv5 Arabic — **the recommended candidate, not yet shippable**
+### 3. PaddleOCR PP-OCRv5 Arabic — **a research candidate only; not selected or shippable**
 
 | | |
 |---|---|
 | Arabic | Yes — a dedicated multilingual model, `arabic_PP-OCRv5_mobile_rec` |
 | Licence | Apache-2.0 ([PaddlePaddle/PaddleOCR][paddle-license]) |
-| Model size | ONNX: `PP-OCRv5_mobile_det.onnx` 4,766,440 B (≈4.5 MiB) + `arabic_PP-OCRv5_mobile_rec.onnx` 7,994,035 B (≈7.6 MiB) ≈ **12.2 MiB** total, plus a 2.4 KB dictionary ([ONNX export][onnx-hf]; [model table][oar-models]) |
-| Runtime | Paddle Inference **or** ONNX Runtime; PaddleOCR 3.2.0 (2025-08-21) added a full C++ local deployment path for **Windows** with parity to the Python implementation ([release notes][paddle-rel]) |
+| Model size | A third-party ONNX export reports `PP-OCRv5_mobile_det.onnx` 4,766,440 B + `arabic_PP-OCRv5_mobile_rec.onnx` 7,994,035 B (about 12.2 MiB total) plus a small dictionary ([ONNX export][onnx-hf]; [model table][oar-models]). These artifacts were not downloaded, hash-pinned, license-checked individually, or validated in this repository. |
+| Runtime | Paddle Inference **or** ONNX Runtime; PaddleOCR 3.2.0 added a C++ local deployment path for **Windows** ([release notes][paddle-rel]). A matching Android ABI/package path and parity on the two application targets were not verified. |
 | Offline | Yes — models are bundled artefacts, never fetched at runtime |
 | Accuracy | PaddleOCR publishes 81.29 % average accuracy for `PP-OCRv5_mobile_rec`, but that figure is for the general (Chinese/English) model. **No Arabic benchmark was found.** This is a real gap, not a detail. |
 
@@ -89,20 +89,25 @@ which is worse for the user than having no OCR and saying so.
 
 ## Decision
 
-**No OCR engine is integrated.** The most promising route is ONNX Runtime
-Mobile/Desktop plus the PP-OCRv5 Arabic detection and recognition models
-(~12.2 MiB of ONNX weights) behind the existing `OcrEngine` interface — but it
-is not shippable on the evidence available here, because:
+**No OCR engine is integrated or selected.** ONNX Runtime plus a PP-OCRv5
+Arabic detection/recognition export is one research route behind the existing
+`OcrEngine` interface; the approximately 12.2 MiB size is a third-party report,
+not a verified project artifact. It is not shippable on the evidence available
+here, because:
 
-1. **No Arabic accuracy figure is published for the candidate model.** Arabic
+1. **No suitable Arabic accuracy figure is published for the candidate model.** Arabic
    is a cursive, right-to-left script with contextual shaping and ligatures;
    a benchmark measured on Chinese/English text cannot be transferred to Iraqi
-   civil documents. There is no real, representative Iraqi document dataset in
-   this repository to measure against.
-2. **No native runtime has been exercised on either target.** Adding one means
-   an Android ABI matrix, a Windows x64 build, a memory budget on a mid-range
-   phone, and a cold-start measurement — none of which can be verified from
-   this environment (see "Local verification limits" below).
+   civil documents. A small local-only sample exists under `Mostmskat/`, but it
+   has no independently reviewed OCR transcriptions, no session-separated
+   evaluation split, and no permission to send its pixels or text to CI/services.
+   It cannot support an Arabic OCR accuracy claim.
+2. **No OCR runtime has been exercised on either target.** The existing
+   document detector uses a small custom pure-Dart ONNX runtime, but its operator
+   set was implemented for ScanIdDocNet and is not proven to run OCR graphs.
+   Reusing it or adding a native/runtime package requires an Android ABI matrix,
+   a Windows x64 build, a phone memory budget, and cold-start measurements —
+   none of which can be verified from this environment.
 3. **Bundling an unverified native runtime is exactly the failure mode
    ADR-005 and ADR-006 exist to prevent.** ADR-007 makes OCR evidence *optional*:
    classification already continues from geometry, aspect, structure and
@@ -112,13 +117,27 @@ The abstraction stays honest: `UnavailableOcrEngine` is explicit, versioned and
 recorded in provenance (`modelVersions['ocr']`), so a later engine drop changes
 one implementation and nothing else.
 
+## Local-only work performed on 2026-10-25
+
+A separate boundary-pipeline behavior screen read the 19 still JPEGs in the
+local `Mostmskat/` directory after EXIF normalization. It deliberately did not
+read OCR text, the video, or the `.scanid` backup, and it does not evaluate OCR.
+The run completed on the Python ONNX mirror; with no independent labels it is
+not an accuracy benchmark and says nothing about CER/WER. Its aggregate-only
+method and limits are documented in
+[`scan-id-local-evaluation-2026-10-25.md`](reports/scan-id-local-evaluation-2026-10-25.md).
+The still-image directory is excluded from all GitHub Actions checkouts using
+sparse partial checkout; CI also checks that exclusion rule. No image, text,
+per-image outcome, OCR model, or OCR output was added to CI or this report.
+
 ## What must happen before an engine is adopted
 
 1. A new ADR covering runtime choice, ABI matrix, model provenance and hashes,
    licence review, size budget and the build-time-fetch question.
 2. A representative, licensed Iraqi document test set (the four catalog
-   categories, front and back, several capture qualities) held outside the
-   repository.
+   categories, front and back, several capture qualities) with independent,
+   reviewed OCR references and session-separated splits. The unlabelled local
+   sample is not an OCR benchmark and must remain outside CI and external services.
 3. Measured on-device numbers on the lowest supported Android device and on
    Windows x64: Arabic character/word error rate on *label anchor fields only*
    (ADR-007 forbids extracting or persisting personal values), peak memory,
@@ -128,10 +147,10 @@ one implementation and nothing else.
 
 ## Local verification limits
 
-This evaluation was produced without a Dart/Flutter SDK in the authoring
-environment (the Flutter/Dart download host is not reachable from it), so no
-option was benchmarked locally. Every figure above is cited from the upstream
-sources linked below; none is a measurement made in this repository.
+No OCR option was benchmarked in this environment: Dart/Flutter is unavailable,
+and no Arabic/Latin OCR references are labeled. Figures in the option tables
+are source-reported, not project measurements. The local boundary behavior
+screen above is not an OCR run and cannot produce CER/WER.
 
 [mlkit-langs]: https://developers.google.com/ml-kit/vision/text-recognition/v2/languages
 [mlkit-arabic]: https://www.b4x.com/android/forum/threads/textrecognition-based-on-mlkit-will-it-support-arabic.161926/

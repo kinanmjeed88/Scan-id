@@ -34,6 +34,10 @@ jobs:
       - name: Checkout with full history
         uses: actions/checkout@v5
         with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true
 

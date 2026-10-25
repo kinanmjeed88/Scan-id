@@ -79,9 +79,9 @@
       "role": "Frozen Python port of classical detector baseline"
     },
     "lib/domain/boundary_decision.dart": {
-      "sha256": "f10f48cfadadffa11cb167d480bb06eadaeb9f200487214b91110d553f6562ef",
-      "size_bytes": 17927,
-      "role": "Frozen automatic boundary acceptance gate (verifyBoundary)"
+      "sha256": "92b55e6232673de7c9a246bfb502b05c23289adefea4c68033fc7cad9003556f",
+      "size_bytes": 18856,
+      "role": "Frozen automatic boundary gate; explicit set-level review constraint added 2026-10-25 without changing numeric thresholds"
     },
     "lib/domain/quad_assessment.dart": {
       "sha256": "a12aeaf66e523639c4a945260046b2262fe925516e07a005d5aa58590d88503b",

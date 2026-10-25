@@ -348,8 +348,8 @@ void main() {
 
       // Uncorroborated classical multi-region rescue (e.g. non-document boxes
       // on a white page rejected by Stage-1, or pale multi-card sheet missed
-      // by Stage-2A) keeps `BoundaryProducer.segmenter` provenance and routes
-      // every candidate to `needsReview` rather than silently auto-cropping.
+      // by Stage-2A) keeps authentic confidence/provenance and routes every
+      // candidate to `needsReview` rather than silently auto-cropping.
       final whiteBoxes = _solidCanvas(900, 700, 248, 249, 250);
       img.fillRect(
         whiteBoxes,
@@ -367,16 +367,26 @@ void main() {
         y2: 410,
         color: img.ColorRgb8(155, 62, 54),
       );
+      final rawClassical = segmentDecoded(whiteBoxes);
       final rescuedMulti = arbitrateSceneBoundaries(
         whiteBoxes,
         const SegmentationResult(candidates: [], multi: false),
       );
       expect(rescuedMulti.multi, isTrue);
       expect(rescuedMulti.candidates.length, 2);
-      for (final candidate in rescuedMulti.candidates) {
+      for (var i = 0; i < rescuedMulti.candidates.length; i++) {
+        final candidate = rescuedMulti.candidates[i];
         expect(candidate.producer, BoundaryProducer.segmenter);
-        expect(candidate.minAutoAcceptConfidence, .55);
-        expect(candidate.detectionConfidence, 0.0);
+        expect(candidate.requiresReview, isTrue);
+        expect(
+          candidate.detectionConfidence,
+          rawClassical.candidates[i].detectionConfidence,
+          reason: 'the arbitration must preserve authentic region support',
+        );
+        expect(
+          candidate.minAutoAcceptConfidence,
+          rawClassical.candidates[i].minAutoAcceptConfidence,
+        );
         final decision = verifyBoundary(
           BoundaryProposal(
             producer: candidate.producer,
@@ -385,12 +395,146 @@ void main() {
             modelConfidence: candidate.detectionConfidence,
             minAutoAcceptConfidence: candidate.minAutoAcceptConfidence,
             touchesFrameEdge: candidate.touchesFrameEdge,
+            forceReview: candidate.requiresReview,
           ),
           sourceWidth: whiteBoxes.width,
           sourceHeight: whiteBoxes.height,
         );
         expect(decision.kind, BoundaryDecisionKind.needsReview);
+        expect(
+          decision.verification.reasons,
+          contains(BoundaryReviewReason.multiSceneNotCorroborated),
+        );
       }
+    },
+  );
+
+  test(
+    'uncorroborated multi-region evidence survives for review and invalid geometry never authorizes a crop',
+    () {
+      final flat = _solidCanvas(500, 350, 92, 94, 98);
+      final valid = [
+        Point2(.08, .12),
+        Point2(.46, .12),
+        Point2(.46, .82),
+        Point2(.08, .82),
+      ];
+      final invalid = [
+        Point2(.56, .18),
+        Point2(.92, .18),
+        Point2(.74, .18),
+        Point2(.56, .18),
+      ];
+      final input = SegmentationResult(
+        multi: true,
+        candidates: [
+          SegmentCandidate(
+            region: const [.08, .12, .46, .82],
+            corners: valid,
+            detectionConfidence: .91,
+            producer: BoundaryProducer.learnedModel,
+            minAutoAcceptConfidence: .55,
+            reason: 'synthetic-valid-but-unconfirmed',
+          ),
+          SegmentCandidate(
+            region: const [.56, .18, .92, .72],
+            corners: invalid,
+            detectionConfidence: .88,
+            producer: BoundaryProducer.learnedModel,
+            minAutoAcceptConfidence: .55,
+            reason: 'synthetic-invalid-quad',
+          ),
+        ],
+      );
+
+      final kept = arbitrateSceneBoundaries(flat, input);
+      expect(kept.multi, isTrue);
+      expect(kept.candidates, hasLength(2));
+      expect(kept.candidates.map((c) => c.region).toList(), [
+        const [.08, .12, .46, .82],
+        const [.56, .18, .92, .72],
+      ]);
+      expect(kept.candidates.map((c) => c.detectionConfidence).toList(), [
+        .91,
+        .88,
+      ]);
+      expect(
+        kept.candidates.every((c) => c.requiresReview),
+        isTrue,
+        reason: 'weak multi-set corroboration is a separate review constraint',
+      );
+
+      final validDecision = verifyBoundary(
+        BoundaryProposal(
+          producer: kept.candidates.first.producer,
+          corners: kept.candidates.first.corners,
+          region: kept.candidates.first.region,
+          modelConfidence: kept.candidates.first.detectionConfidence,
+          minAutoAcceptConfidence:
+              kept.candidates.first.minAutoAcceptConfidence,
+          forceReview: kept.candidates.first.requiresReview,
+        ),
+        sourceWidth: flat.width,
+        sourceHeight: flat.height,
+      );
+      expect(validDecision.kind, BoundaryDecisionKind.needsReview);
+      expect(validDecision.cropAuthorization, isNull);
+      expect(
+        validDecision.verification.reasons,
+        contains(BoundaryReviewReason.multiSceneNotCorroborated),
+      );
+
+      final invalidDecision = verifyBoundary(
+        BoundaryProposal(
+          producer: kept.candidates.last.producer,
+          corners: kept.candidates.last.corners,
+          region: kept.candidates.last.region,
+          modelConfidence: kept.candidates.last.detectionConfidence,
+          minAutoAcceptConfidence:
+              kept.candidates.last.minAutoAcceptConfidence,
+          forceReview: kept.candidates.last.requiresReview,
+        ),
+        sourceWidth: flat.width,
+        sourceHeight: flat.height,
+      );
+      expect(invalidDecision.kind, BoundaryDecisionKind.needsReview);
+      expect(invalidDecision.acceptedCorners, isNull);
+      expect(invalidDecision.cropAuthorization, isNull);
+      expect(
+        invalidDecision.verification.reasons,
+        contains(BoundaryReviewReason.geometryRejected),
+      );
+      expect(
+        invalidDecision.verification.reasons,
+        contains(BoundaryReviewReason.multiSceneNotCorroborated),
+      );
+    },
+  );
+
+  test(
+    'hybrid arbitration keeps a measured cornerless classical region when AI finds no candidate',
+    () {
+      final roundRegion = _solidCanvas(900, 700, 45, 55, 70);
+      img.fillCircle(
+        roundRegion,
+        x: 450,
+        y: 350,
+        radius: 100,
+        color: img.ColorRgb8(235, 233, 228),
+      );
+      final raw = segmentDecoded(roundRegion);
+      expect(raw.candidates, hasLength(1));
+      expect(raw.candidates.single.corners, isNull);
+
+      final kept = arbitrateSceneBoundaries(
+        roundRegion,
+        const SegmentationResult(candidates: [], multi: false),
+      );
+      expect(kept.candidates, hasLength(1));
+      expect(kept.candidates.single.region, raw.candidates.single.region);
+      expect(kept.candidates.single.corners, isNull);
+      expect(kept.candidates.single.requiresReview, isTrue);
+      expect(kept.multi, isFalse);
     },
   );
 

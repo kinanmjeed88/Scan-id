@@ -224,6 +224,7 @@ class BoundaryProposalPy:
     model_confidence: Optional[float] = None
     min_auto_accept_confidence: Optional[float] = None
     touches_frame_edge: bool = False
+    force_review: bool = False
 
 
 @dataclass
@@ -240,8 +241,11 @@ def verify_boundary(
 ) -> BoundaryDecisionPy:
     """Mirrors `verifyBoundary` in `lib/domain/boundary_decision.dart`."""
     if proposal.corners is None:
+        reasons = ["noBoundary"]
+        if proposal.force_review:
+            reasons.append("multiSceneNotCorroborated")
         return BoundaryDecisionPy(
-            kind="needsReview", proposal=proposal, reasons=["noBoundary"]
+            kind="needsReview", proposal=proposal, reasons=reasons
         )
     if len(proposal.corners) != 4:
         return BoundaryDecisionPy(
@@ -249,13 +253,18 @@ def verify_boundary(
         )
     assess = assess_quad(proposal.corners, source_width, source_height)
     if not assess.acceptable:
+        reasons = ["geometryRejected"]
+        if proposal.force_review:
+            reasons.append("multiSceneNotCorroborated")
         return BoundaryDecisionPy(
             kind="needsReview",
             proposal=proposal,
-            reasons=["geometryRejected"],
+            reasons=reasons,
             has_usable_geometry=False,
         )
     reasons: List[str] = []
+    if proposal.force_review:
+        reasons.append("multiSceneNotCorroborated")
     measured = assess.aspect or 1.0
     if proposal.imposed_aspect is not None and proposal.imposed_aspect > 0:
         ratio = (
@@ -1307,6 +1316,7 @@ class SegmentCandidatePy:
     producer: str = "segmenter"
     min_auto_accept_confidence: Optional[float] = None
     touches_frame_edge: bool = False
+    requires_review: bool = False
 
 
 @dataclass
@@ -1828,7 +1838,11 @@ def arbitrate_scene_boundaries(
         valid_cnt = 0
         strongest_sub = 0.0
         for c in ai_scene.candidates:
-            if c.corners is None or (c.detection_confidence or 0.0) < 0.35:
+            if (
+                c.corners is None
+                or len(c.corners) != 4
+                or (c.detection_confidence or 0.0) < 0.35
+            ):
                 continue
             if not assess_quad(c.corners, w, h).acceptable:
                 continue
@@ -1837,49 +1851,79 @@ def arbitrate_scene_boundaries(
                 strongest_sub = float(m["min_all_step"])
             if m["min_all_step"] >= 20.0:
                 valid_cnt += 1
-        if valid_cnt < 2:
-            return SegmentationResultPy(multi=False, candidates=[])
         if cl_single is not None and single_m is not None:
             all_inside = all(
-                c.corners is not None and intersection_over_first(c.corners, cl_single.corners) >= 0.85
+                c.corners is not None
+                and len(c.corners) == 4
+                and (c.detection_confidence or 0.0) >= 0.35
+                and assess_quad(c.corners, w, h).acceptable
+                and intersection_over_first(c.corners, cl_single.corners) >= 0.85
                 for c in ai_scene.candidates
             )
             if all_inside and single_m["min_all_step"] > 2.2 * strongest_sub:
-                return SegmentationResultPy(multi=False, candidates=[])
+                return SegmentationResultPy(
+                    multi=False, candidates=[], rejected=ai_scene.rejected
+                )
+        if valid_cnt < 2:
+            retained = [
+                SegmentCandidatePy(
+                    region=c.region,
+                    reason=c.reason,
+                    corners=c.corners,
+                    detection_confidence=c.detection_confidence,
+                    producer=c.producer,
+                    min_auto_accept_confidence=c.min_auto_accept_confidence,
+                    touches_frame_edge=c.touches_frame_edge,
+                    requires_review=True,
+                )
+                for c in ai_scene.candidates
+            ]
+            return SegmentationResultPy(
+                multi=len(retained) >= 2,
+                candidates=retained,
+                rejected=ai_scene.rejected,
+            )
         return ai_scene
 
     cl_multi = segment_decoded(rgb)
-    if cl_multi.multi and len(cl_multi.candidates) >= 2:
-        valid_multi: List[SegmentCandidatePy] = []
+    if cl_multi.candidates:
+        retained: List[SegmentCandidatePy] = []
         for c in cl_multi.candidates:
-            if c.corners is None:
-                continue
-            if not assess_quad(c.corners, w, h).acceptable:
-                continue
-            if ai_scene is not None:
-                m = measure_quad_physics(rgb, c.corners)
-                valid_multi.append(
+            metrics = None
+            if c.corners is not None and len(c.corners) == 4:
+                assess = assess_quad(c.corners, w, h)
+                if assess.acceptable:
+                    metrics = measure_quad_physics(rgb, c.corners)
+            if ai_scene is None:
+                # Keep the pure-classical measured region, including unresolved
+                # or rejected corners; the downstream boundary gate owns safety.
+                retained.append(c)
+            else:
+                # Preserve detector evidence/provenance and express the missing
+                # model corroboration as an explicit review constraint.
+                retained.append(
                     SegmentCandidatePy(
                         region=c.region,
                         corners=c.corners,
-                        detection_confidence=0.0,
+                        detection_confidence=c.detection_confidence,
                         producer="segmenter",
-                        min_auto_accept_confidence=0.55,
+                        min_auto_accept_confidence=c.min_auto_accept_confidence,
                         touches_frame_edge=bool(
-                            c.touches_frame_edge or m["out_of_frame_sides"] > 0
+                            c.touches_frame_edge
+                            or (metrics is not None and metrics["out_of_frame_sides"] > 0)
                         ),
+                        requires_review=True,
                         reason=c.reason,
                     )
                 )
-            else:
-                valid_multi.append(c)
-        if len(valid_multi) >= 2:
-            return SegmentationResultPy(
-                multi=True,
-                candidates=valid_multi,
-                rejected=cl_multi.rejected,
-            )
-    return SegmentationResultPy(multi=False, candidates=[])
+        return SegmentationResultPy(
+            multi=len(retained) >= 2,
+            candidates=retained,
+            rejected=cl_multi.rejected,
+        )
+    return SegmentationResultPy(
+        multi=False, candidates=[], rejected=cl_multi.rejected
+    )
 
 
 def arbitrate_single_boundary(
@@ -2012,6 +2056,27 @@ def arbitrate_single_boundary(
 _CACHED_ONNX_DETECTOR = None
 
 
+def _dart_ai_gate_confidence(raw_confidence: float, accepted: bool) -> float:
+    """Mirror `AiQuadProposal.asNeedsReview` and its `gateConfidence` field."""
+    return float(raw_confidence) if accepted else min(float(raw_confidence), 0.50)
+
+
+def _dart_ai_region(corners: Sequence[Tuple[float, float]]) -> List[float]:
+    """Mirror the 2.5% corner-bounds padding in `AiSceneDetection` proposals."""
+    xs = [point[0] for point in corners]
+    ys = [point[1] for point in corners]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    pad_x = (right - left) * 0.025
+    pad_y = (bottom - top) * 0.025
+    return [
+        min(1.0, max(0.0, left - pad_x)),
+        min(1.0, max(0.0, top - pad_y)),
+        min(1.0, max(0.0, right + pad_x)),
+        min(1.0, max(0.0, bottom + pad_y)),
+    ]
+
+
 def run_onnx_ai_scene(
     preview_rgb: np.ndarray,
     models_dir: Path,
@@ -2039,9 +2104,11 @@ def run_onnx_ai_scene(
     seg_cands: List[SegmentCandidatePy] = []
     for c in scene.candidates:
         pts = [(float(p[0]), float(p[1])) for p in c.corners]
-        reg = [float(v) for v in c.region]
+        reg = _dart_ai_region(pts)
         verdict_val = c.verdict.value if hasattr(c.verdict, "value") else str(c.verdict)
-        gate_conf = float(c.geom_confidence) if verdict_val == "accepted" else 0.0
+        gate_conf = _dart_ai_gate_confidence(
+            float(c.confidence), verdict_val == "accepted"
+        )
         edge_touch = int(c.frame_touch_count) > 0
         proposals.append(
             BoundaryProposalPy(
@@ -2234,6 +2301,7 @@ def detect_full_pipeline(
                 ),
                 min_auto_accept_confidence=c.min_auto_accept_confidence,
                 touches_frame_edge=c.touches_frame_edge,
+                force_review=c.requires_review,
             )
             decisions.append(verify_boundary(prop, pw, ph))
         return decisions

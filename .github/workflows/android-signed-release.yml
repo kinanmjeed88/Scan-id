@@ -49,7 +49,13 @@ jobs:
       ANDROID_CMAKE_VERSION: '3.22.1'
       ANDROID_SDK_CMAKE_CACHE_PATH: /usr/local/lib/android/sdk/cmake
     steps:
+      # Keep the local-only Mostmskat/ corpus out of every Actions runner.
       - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -543,6 +549,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true
       - name: Read version from pubspec

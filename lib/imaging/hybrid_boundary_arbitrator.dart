@@ -228,7 +228,11 @@ SegmentationResult arbitrateSceneBoundaries(
     var physicallyValidCount = 0;
     var strongestSubMinStep = 0.0;
     for (final c in aiScene.candidates) {
-      if (c.corners == null || (c.detectionConfidence ?? 0) < .35) continue;
+      if (c.corners == null ||
+          c.corners!.length != 4 ||
+          (c.detectionConfidence ?? 0) < .35) {
+        continue;
+      }
       final assess = assessQuad(
         c.corners!,
         sourceWidth: preview.width,
@@ -244,68 +248,114 @@ SegmentationResult arbitrateSceneBoundaries(
       }
     }
 
-    if (physicallyValidCount < 2) {
-      return const SegmentationResult(candidates: [], multi: false);
-    }
-
     if (classicalSingle != null && singleMetrics != null) {
       final allInsideOuterCard = aiScene.candidates.every(
         (c) =>
             c.corners != null &&
+            c.corners!.length == 4 &&
+            (c.detectionConfidence ?? 0) >= .35 &&
+            assessQuad(
+              c.corners!,
+              sourceWidth: preview.width,
+              sourceHeight: preview.height,
+            ).acceptable &&
             _intersectionOverFirst(c.corners!, classicalSingle.corners) >= .85,
       );
       if (allInsideOuterCard &&
           singleMetrics.minAllSideStep > 2.2 * strongestSubMinStep) {
-        return const SegmentationResult(candidates: [], multi: false);
+        // All geometrically valid proposals lie inside a substantially stronger
+        // measured outer card. This is the explicit single-document exception;
+        // unresolved candidates are never suppressed by this rule.
+        return SegmentationResult(
+          candidates: const [],
+          multi: false,
+          rejected: aiScene.rejected,
+        );
       }
+    }
+
+    // A weak or geometrically unresolved member is not a reason to erase the
+    // entire scene unless the measured outer-card exception above independently
+    // proved that every valid proposal is a false split. Keep every remaining
+    // region, but make set-level uncertainty an explicit review constraint (not
+    // a fabricated confidence).
+    if (physicallyValidCount < 2) {
+      return SegmentationResult(
+        candidates: [
+          for (final c in aiScene.candidates)
+            SegmentCandidate(
+              region: c.region,
+              corners: c.corners,
+              detectionConfidence: c.detectionConfidence,
+              producer: c.producer,
+              minAutoAcceptConfidence: c.minAutoAcceptConfidence,
+              touchesFrameEdge: c.touchesFrameEdge,
+              requiresReview: true,
+              reason: c.reason,
+            ),
+        ],
+        multi: aiScene.candidates.length >= 2,
+        rejected: aiScene.rejected,
+      );
     }
     return aiScene;
   }
 
   final classicalMulti = segmentDecoded(preview);
-  if (classicalMulti.multi && classicalMulti.candidates.length >= 2) {
-    final validClassicalMulti = <SegmentCandidate>[];
+  if (classicalMulti.candidates.isNotEmpty) {
+    final retained = <SegmentCandidate>[];
     for (final c in classicalMulti.candidates) {
-      if (c.corners == null) continue;
-      final assess = assessQuad(
-        c.corners!,
-        sourceWidth: preview.width,
-        sourceHeight: preview.height,
-      );
-      if (!assess.acceptable) continue;
-      if (aiScene != null) {
-        final m = measureQuadPhysics(preview, c.corners!);
-        // Stage-2A did not corroborate multi-document presence on this preview:
-        // preserve authentic classical `segmenter` provenance and gate to
-        // `needsReview` via `minAutoAcceptConfidence` without inflating
-        // confidence or silently auto-cropping non-document multi-box sheets.
-        validClassicalMulti.add(
+      QuadPhysicalMetrics? metrics;
+      if (c.corners != null && c.corners!.length == 4) {
+        final assess = assessQuad(
+          c.corners!,
+          sourceWidth: preview.width,
+          sourceHeight: preview.height,
+        );
+        if (assess.acceptable) {
+          metrics = measureQuadPhysics(preview, c.corners!);
+        }
+      }
+
+      if (aiScene == null) {
+        // Keep the existing pure-classical route, including measured
+        // cornerless and geometrically rejected regions. The downstream gate
+        // prevents invalid geometry from becoming a crop.
+        retained.add(c);
+      } else {
+        // Stage-2A did not corroborate the classical region. Preserve its
+        // measured confidence and provenance, and express the review constraint
+        // separately instead of replacing the score with a fabricated zero.
+        retained.add(
           SegmentCandidate(
             region: c.region,
             corners: c.corners,
-            detectionConfidence: 0.0,
+            detectionConfidence: c.detectionConfidence,
             producer: BoundaryProducer.segmenter,
-            minAutoAcceptConfidence: .55,
-            touchesFrameEdge: c.touchesFrameEdge || m.outOfFrameSides > 0,
+            minAutoAcceptConfidence: c.minAutoAcceptConfidence,
+            touchesFrameEdge:
+                c.touchesFrameEdge || (metrics?.outOfFrameSides ?? 0) > 0,
+            requiresReview: true,
             reason: c.reason,
           ),
         );
-      } else {
-        validClassicalMulti.add(c);
       }
     }
-    if (validClassicalMulti.length >= 2) {
-      return SegmentationResult(
-        candidates: validClassicalMulti,
-        multi: true,
-        rejected: classicalMulti.rejected,
-      );
-    }
+    return SegmentationResult(
+      candidates: retained,
+      multi: retained.length >= 2,
+      rejected: classicalMulti.rejected,
+    );
   }
-  // Single-document scenes (including lone uncertain AI candidates) always
-  // defer to whole-frame single-document arbitration (`suggestProposal`) so
-  // physical edge cross-checking runs identically across all single-doc inputs.
-  return const SegmentationResult(candidates: [], multi: false);
+
+  // A single-document scene with no measured unresolved region defers to
+  // whole-frame arbitration. Keep any measured rejection diagnostics so a
+  // fallback cannot make the segmenter's decision invisible.
+  return SegmentationResult(
+    candidates: const [],
+    multi: false,
+    rejected: classicalMulti.rejected,
+  );
 }
 
 /// Arbitrates single-document boundary claims across `ScanIdDocNet-v1`

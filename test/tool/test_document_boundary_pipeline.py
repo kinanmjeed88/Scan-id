@@ -240,6 +240,17 @@ class DocumentBoundaryPipelineTest(unittest.TestCase):
     # 4. Hybrid Arbitrator, provenance honesty, & un-clamped physics
     # ------------------------------------------------------------------
 
+    def test_ai_scene_gate_confidence_and_region_padding_match_dart(self) -> None:
+        """Mirror the Dart review cap and padded candidate region exactly."""
+        self.assertEqual(m._dart_ai_gate_confidence(0.84, accepted=False), 0.50)
+        self.assertAlmostEqual(m._dart_ai_gate_confidence(0.42, accepted=False), 0.42)
+        self.assertAlmostEqual(m._dart_ai_gate_confidence(0.84, accepted=True), 0.84)
+        region = m._dart_ai_region(
+            [(0.10, 0.20), (0.90, 0.20), (0.90, 0.80), (0.10, 0.80)]
+        )
+        for actual, expected in zip(region, [0.08, 0.185, 0.92, 0.815]):
+            self.assertAlmostEqual(actual, expected, places=12)
+
     def test_arbitrator_rejects_face_slice_and_inner_box_without_inflating_confidence(self) -> None:
         im = Image.new("RGB", (1000, 700), (40, 44, 52))
         draw = ImageDraw.Draw(im)
@@ -621,19 +632,109 @@ class DocumentBoundaryPipelineTest(unittest.TestCase):
         draw.rectangle([490, 180, 830, 410], fill=(155, 62, 54))
         rgb = np.asarray(im, dtype=np.uint8)
 
+        raw_classical = m.segment_decoded(rgb)
         rescued = m.arbitrate_scene_boundaries(
             rgb, m.SegmentationResultPy(multi=False, candidates=[])
         )
         self.assertTrue(rescued.multi)
-        for c in rescued.candidates:
+        self.assertEqual(len(rescued.candidates), 2)
+        for index, c in enumerate(rescued.candidates):
             self.assertEqual(c.producer, "segmenter")
-            self.assertEqual(c.detection_confidence, 0.0)
-            self.assertEqual(c.min_auto_accept_confidence, 0.55)
+            self.assertEqual(c.detection_confidence, raw_classical.candidates[index].detection_confidence)
+            self.assertEqual(c.min_auto_accept_confidence, raw_classical.candidates[index].min_auto_accept_confidence)
+            self.assertTrue(c.requires_review)
 
         full_decisions = m.detect_full_pipeline(rgb, use_learned_model=True)
         for d in full_decisions:
             self.assertNotEqual(d.kind, "accepted")
             self.assertNotEqual(d.proposal.producer, "learnedModel")
+            if d.proposal.force_review:
+                self.assertIn("multiSceneNotCorroborated", d.reasons)
+
+    def test_uncorroborated_ai_multi_keeps_each_measured_region_for_review(self) -> None:
+        rgb = np.full((350, 500, 3), 92, dtype=np.uint8)
+        valid = [(0.08, 0.12), (0.46, 0.12), (0.46, 0.82), (0.08, 0.82)]
+        invalid = [(0.56, 0.18), (0.92, 0.18), (0.74, 0.18), (0.56, 0.18)]
+        ai = m.SegmentationResultPy(
+            multi=True,
+            candidates=[
+                m.SegmentCandidatePy(
+                    region=[0.08, 0.12, 0.46, 0.82],
+                    corners=valid,
+                    detection_confidence=0.91,
+                    producer="learnedModel",
+                    min_auto_accept_confidence=0.55,
+                    reason="synthetic-valid-but-unconfirmed",
+                ),
+                m.SegmentCandidatePy(
+                    region=[0.56, 0.18, 0.92, 0.72],
+                    corners=invalid,
+                    detection_confidence=0.88,
+                    producer="learnedModel",
+                    min_auto_accept_confidence=0.55,
+                    reason="synthetic-invalid-quad",
+                ),
+            ],
+        )
+
+        kept = m.arbitrate_scene_boundaries(rgb, ai)
+        self.assertTrue(kept.multi)
+        self.assertEqual(len(kept.candidates), 2)
+        self.assertEqual(
+            [c.detection_confidence for c in kept.candidates], [0.91, 0.88]
+        )
+        self.assertTrue(all(c.requires_review for c in kept.candidates))
+        self.assertEqual(kept.candidates[1].corners, invalid)
+
+        accepted = m.verify_boundary(
+            m.BoundaryProposalPy(
+                producer="learnedModel",
+                corners=kept.candidates[0].corners,
+                region=kept.candidates[0].region,
+                model_confidence=kept.candidates[0].detection_confidence,
+                min_auto_accept_confidence=kept.candidates[0].min_auto_accept_confidence,
+                force_review=kept.candidates[0].requires_review,
+            ),
+            500,
+            350,
+        )
+        self.assertEqual(accepted.kind, "needsReview")
+        self.assertIn("multiSceneNotCorroborated", accepted.reasons)
+        self.assertTrue(accepted.has_usable_geometry)
+
+        invalid_decision = m.verify_boundary(
+            m.BoundaryProposalPy(
+                producer="learnedModel",
+                corners=kept.candidates[1].corners,
+                region=kept.candidates[1].region,
+                model_confidence=kept.candidates[1].detection_confidence,
+                min_auto_accept_confidence=kept.candidates[1].min_auto_accept_confidence,
+                force_review=kept.candidates[1].requires_review,
+            ),
+            500,
+            350,
+        )
+        self.assertEqual(invalid_decision.kind, "needsReview")
+        self.assertFalse(invalid_decision.has_usable_geometry)
+        self.assertIn("geometryRejected", invalid_decision.reasons)
+        self.assertIn("multiSceneNotCorroborated", invalid_decision.reasons)
+
+    def test_hybrid_arbitration_preserves_a_cornerless_classical_region(self) -> None:
+        im = Image.new("RGB", (900, 700), (45, 55, 70))
+        ImageDraw.Draw(im).ellipse([350, 250, 550, 450], fill=(235, 233, 228))
+        rgb = np.asarray(im, dtype=np.uint8)
+        raw = m.segment_decoded(rgb)
+        self.assertEqual(len(raw.candidates), 1)
+        self.assertIsNone(raw.candidates[0].corners)
+
+        kept = m.arbitrate_scene_boundaries(
+            rgb, m.SegmentationResultPy(multi=False, candidates=[])
+        )
+        self.assertEqual(len(kept.candidates), 1)
+        self.assertIsNone(kept.candidates[0].corners)
+        self.assertEqual(kept.candidates[0].region, raw.candidates[0].region)
+        self.assertTrue(kept.candidates[0].requires_review)
+        self.assertFalse(kept.multi)
 
 
 if __name__ == "__main__":

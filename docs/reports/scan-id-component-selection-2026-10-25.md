@@ -30,7 +30,7 @@
 
 ## Android وWindows
 
-المعمارية الحالية تستخدم Dart/Flutter وruntime Dart نفسه على المنصتين، وهي مصممة لتفادي NDK/مكتبة ONNX أصلية للكاشف الحالي. لكن في هذه البيئة لم يتوفر `dart` أو `flutter`؛ لذا لم يُنفذ `flutter analyze`, `flutter test`, Android build أو Windows build لهذا التغيير. التصميم المصدرّي ليس بديلاً عن نجاح CI على SHA النهائي أو اختبار جهاز فعلي. لا نعلن تحقق التكامل لهذه الجولة إلى أن يكتمل ذلك.
+المعمارية الحالية تستخدم Dart/Flutter وruntime Dart نفسه على المنصتين، وهي مصممة لتفادي NDK/مكتبة ONNX أصلية للكاشف الحالي. لم يتوفر `dart` أو `flutter` محلياً، لكن GitHub Actions run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA `73507aab0213653d1d7bf1fcd7a7738f7969faa5` اجتاز `dart format` و`flutter analyze` و`flutter test` وبناء Android debug واختبار instrumentation، كما اجتاز بناء Windows واختبارات scaler الأصلية. هذا يثبت اجتياز مسار CI، لا اختباراً على هاتف أو جهاز Windows فعلي ولا أداءً ميدانياً؛ ولم يُنشأ GitHub Release.
 
 ## شروط إعادة فتح قرار الاختيار
 

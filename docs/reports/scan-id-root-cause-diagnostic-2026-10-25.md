@@ -253,8 +253,8 @@ PR #34 يبقي أوزان `ScanIdDocNet-v1` وبيان العتبات كما ه
 ## 12. متابعة التنفيذ بعد التفويض
 
 - نُفّذ حفظ كل المناطق المقاسة عند تعذر corroboration للتعدد، مع `requiresReview` منفصل عن الثقة، ومنع القص الآلي للمرشح غير المؤكد أو ذي الهندسة غير الصالحة. استثناء الحد الخارجي المفرد يتطلب رباعيات صالحة ومحتواة ومسنودة بقياس أقوى.
-- حُدثت مرآة Python لتطابق cap الثقة `.50` وهامش المنطقة 2.5% في Dart. هذا يعالج اختلاف المرآة الذي وثقه §4؛ اختلافات BOX/`package:image` وسلوك Dart runtime تظل بحاجة إلى Flutter CI.
+- حُدثت مرآة Python لتطابق cap الثقة `.50` وهامش المنطقة 2.5% في Dart. اجتاز CI تنسيق Dart والتحليل والاختبارات، لكن مقارنة مخرجات Pillow BOX مع `package:image` على أجهزة فعلية تظل خارج ما أثبته هذا التحقق.
 - عُزل `Mostmskat/` من استدعاءات checkout العشرة في workflows، وأضيف فحص ساكن وفحص runner. لم تُضف صور أو نصوص أو مخرجات لكل صورة إلى tests أو artifacts.
-- اجتاز Python بعد الإصلاح 11 اختبار AI و17 اختبار خط حدود؛ اجتاز فحص الأوزان/العتبات، وفحص الخصوصية، و`py_compile`. لم تتوفر أوامر `dart` أو `flutter`، لذا لم يثبت التحليل أو اختبارات Dart أو Android/Windows build في هذه البيئة.
+- اجتاز Python بعد الإصلاح 11 اختبار AI و17 اختبار خط حدود؛ اجتاز فحص الأوزان/العتبات، وفحص الخصوصية، و`py_compile`. كما نجح GitHub Actions run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA `73507aab0213653d1d7bf1fcd7a7738f7969faa5`: `dart format` و`flutter analyze` و`flutter test` وبناء Android debug واختبار instrumentation، وبناء Windows واختبارات scaler الأصلية.
 - سُجل فحص محلي غير موسوم لـ19 صورة ثابتة بلا OCR أو مخرجات مفصلة لكل صورة؛ لا يثبت accuracy أو ground truth. الأرقام والقيود في [`scan-id-local-evaluation-2026-10-25.md`](scan-id-local-evaluation-2026-10-25.md).
-- انظر [`scan-id-implementation-2026-10-25.md`](scan-id-implementation-2026-10-25.md) للتغييرات والبوابات المعلقة، و[`scan-id-component-selection-2026-10-25.md`](scan-id-component-selection-2026-10-25.md) لاختيار المكونات. لم يُجرَ تدريب أو إصدار Release، ولم يُدمج أي تغيير جديد في `searchidf`.
+- انظر [`scan-id-implementation-2026-10-25.md`](scan-id-implementation-2026-10-25.md) للتغييرات والتحقق، و[`scan-id-component-selection-2026-10-25.md`](scan-id-component-selection-2026-10-25.md) لاختيار المكونات. لم يُجرَ تدريب أو إصدار Release، ولم يُدمج أي تغيير جديد في `searchidf`؛ CI ليس اختبار أداء على جهاز فعلي.

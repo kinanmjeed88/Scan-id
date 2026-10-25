@@ -60,7 +60,7 @@ python tool/evaluate_local_mostmskat.py
 
 - لا توجد labels مستقلة لعدد الوثائق أو الزوايا أو القص المقبول؛ لذلك لا توجد دقة أو IoU أو false-positive/false-negative صالحة للإعلان.
 - لم تُقرأ نصوص عربية أو لاتينية أو أرقام؛ التطبيق لا يضم محرك OCR، ولا توجد CER/WER.
-- لا يمثل القياس استدلال Dart، ولا Flutter Analyze/Test، ولا Android/Windows build، ولا أداء جهاز فعلي. SDK غير متوفر في بيئة العمل.
+- هذه الأرقام ناتجة حصراً عن مرآة Python، ولا تمثل استدلال Dart أو أداء جهاز فعلي. على نحو منفصل، اجتاز GitHub Actions run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA البرمجي `73507aab0213653d1d7bf1fcd7a7738f7969faa5` بوابات Flutter analyze/tests وبناء Android debug وWindows. CI لا يثبت الأداء على جهاز حقيقي ولا يحوّل العينة غير الموسومة إلى ground truth؛ وSDK غير متوفر محلياً.
 - لم يُجرَ تدريب أو تكييف أو تصدير أوزان جديدة. الأوزان الأصلية والعتبات العصبية الـ14 وعتبات التوجيه الـ5 بقيت كما هي.
 
 ## الخطوة التالية للقياس

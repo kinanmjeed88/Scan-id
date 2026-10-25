@@ -2,7 +2,7 @@
 
 **التاريخ:** 2026-10-25
 **الفرع:** `arena/84234269-scan-id`
-**الحالة:** التغيير منفذ واختبارات Python الأساسية ناجحة؛ تحقق Dart/Flutter وGitHub Actions على SHA النهائي ما زالا بوابتين معلقتين.
+**الحالة:** الإصلاح واختبارات Python مكتملة. نجح GitHub Actions run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA البرمجي `73507aab0213653d1d7bf1fcd7a7738f7969faa5`: تنسيق Dart، وFlutter analyze/tests، وبناء Android debug واختبار instrumentation، وبناء Windows واختبارات scaler. لا يثبت ذلك أداء جهاز فعلياً أو جودة OCR.
 
 ## السبب الجذري الذي عولج
 
@@ -40,7 +40,9 @@
 | `git diff --check` | PASS |
 | Python screen محلي لـ`Mostmskat/` | 19 صورة ثابتة؛ 0 أخطاء فك/استدلال؛ ملخصه في [`scan-id-local-evaluation-2026-10-25.md`](scan-id-local-evaluation-2026-10-25.md) |
 
-**غير متحقق محلياً:** `dart` و`flutter` غير مثبتين/غير متاحين. لذلك لم يُنفّذ `dart format` أو `flutter analyze` أو `flutter test`، ولم يُبنَ Android أو Windows. GitHub Actions run `40210894861` يخص commit التقرير السابق `6c91cee…`، وليس هذا الإصلاح؛ لا أعدّه إثباتاً على SHA الحالي. يجب انتظار CI بعد إرسال التغييرات إلى الفرع المحدد، ثم تسجيل run/SHA ونتائج Android وWindows بلا إطلاق Release.
+**تحقق CI عن بعد:** run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA `73507aab0213653d1d7bf1fcd7a7738f7969faa5` اكتمل بنجاح على Android وWindows. اجتازت خطوات Android: `Dart format gate` و`Flutter analyze` و`Flutter tests` وبناء debug APK واختبار `BitmapRegionDecoder`؛ واجتاز Windows بناء التطبيق واختبار scaler الأصلي. أظهر تشغيل سابق، [`40228983152`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40228983152) على `ca042608…`، فشل بوابة التنسيق فقط؛ أصلحت تنسيق الملفين اللذين حددهما Dart formatter ثم أُعيد CI ونجح. لم يُخفَ فشل المحاولة الأولى.
+
+**حدود التحقق:** لم يتوفر `dart` أو `flutter` محلياً، ولم يُجرَ اختبار على هاتف/جهاز Windows فعلي أو قياس زمن/ذاكرة ميداني. Windows build في CI ليس نشر Release؛ لم يُنشأ Release ولم يُدمج شيء في `searchidf`.
 
 ## القرارات المتبقية
 

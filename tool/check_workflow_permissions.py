@@ -82,6 +82,20 @@ def verify() -> list[str]:
         failures.append("cleanup job must scope its required deletion permissions to that job.")
     if "github.event.repository.default_branch" not in cleanup_job:
         failures.append("live cleanup must be guarded to the repository default branch.")
+    if not re.search(r"(?m)^\s*DELETE_BRANCHES:\s*'false'\s*$", cleanup_job):
+        failures.append("cleanup must default to no deletion and fail closed.")
+    if not re.search(
+        r'if \[\[ "\$\{\{ github\.event_name \}\}" == "schedule" \]\]; then\s+'
+        r'export DELETE_BRANCHES="false"',
+        cleanup_job,
+    ):
+        failures.append("scheduled cleanup must be forced to dry-run mode.")
+    if not re.search(
+        r'if \[\[ "\$\{\{ inputs\.dry_run \}\}" == "false" \]\]; then\s+'
+        r'export DELETE_BRANCHES="true"',
+        cleanup_job,
+    ):
+        failures.append("live cleanup must require an explicit manual dry_run=false input.")
     cleanup_code = text("tool/branch_cleanup.py")
     if re.search(r'run\(\s*\[\s*["\']git["\']\s*,\s*["\']push["\']', cleanup_code):
         failures.append("branch cleanup must not fall back to git push for deletion.")

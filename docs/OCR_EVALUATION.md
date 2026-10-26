@@ -2,6 +2,7 @@
 
 **Status (2026-10-26): no OCR engine ships in this build. This document records
 why, and what would have to be true before one can.**
+**Source revision audited:** `d142e85ab927e7c5503c61c9b105216409d1e69a` on `arena/84234269-scan-id`; GitHub Actions run `40335966175` built/tested Android and Windows successfully, but contains no OCR runtime or CER/WER test.
 
 The current classifier does not infer document kind from filenames, paths,
 image dimensions, or boundary aspect. With `UnavailableOcrEngine`, it receives

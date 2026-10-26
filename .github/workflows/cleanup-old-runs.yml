@@ -83,7 +83,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          DELETE_BRANCHES: ${{ inputs.dry_run == true && 'false' || 'true' }}
+          # Fail closed; the guarded script below enables deletion only for an explicit manual dry_run=false dispatch.
+          DELETE_BRANCHES: 'false'
         shell: bash
         run: |
           set -euo pipefail

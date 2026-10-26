@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kinanmjeed88/Scan-id/tool/schemas/local_reference_dataset_v2.schema.json",
+  "title": "Scan-id Local Reference Dataset Annotations v2",
+  "description": "Versioned local-only human reference schema for document detection, boundary localization, and document-kind classification. Never store personal names, ID numbers, filenames, or raw image bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "annotator_id",
+    "created_at",
+    "coordinate_system",
+    "exif_policy",
+    "pii_policy",
+    "samples"
+  ],
+  "properties": {
+    "schema": {
+      "const": "scan-id-local-annotations-v2"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^2\\.[0-9]+\\.[0-9]+$"
+    },
+    "annotator_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,32}$",
+      "description": "Non-identifying local reviewer or adjudicator code (e.g. R1, R2, ADJ1)."
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 40
+    },
+    "coordinate_system": {
+      "const": "normalized_xy_after_exif_orientation_clockwise_from_display_top_left"
+    },
+    "exif_policy": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 400
+    },
+    "pii_policy": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 400
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sample"
+      }
+    }
+  },
+  "$defs": {
+    "point2d": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0
+      }
+    },
+    "difficultyFlag": {
+      "type": "string",
+      "enum": [
+        "occlusion",
+        "partial_truncation",
+        "glare",
+        "blur",
+        "severe_perspective",
+        "document_overlap",
+        "low_light",
+        "compression",
+        "laminated_outer_pouch",
+        "other"
+      ]
+    },
+    "secondReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reviewer_id",
+        "reviewed_at",
+        "dispute_status",
+        "adjudicator_id",
+        "adjudicated_at",
+        "resolution_code"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "agreed",
+            "disputed",
+            "resolved",
+            "excluded_after_dispute"
+          ]
+        },
+        "reviewer_id": {
+          "type": "string",
+          "pattern": "^(|[A-Za-z0-9_-]{1,32})$"
+        },
+        "reviewed_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "dispute_status": {
+          "type": "string",
+          "enum": [
+            "none",
+            "open_dispute",
+            "resolved_by_protocol",
+            "excluded_unresolvable"
+          ]
+        },
+        "adjudicator_id": {
+          "type": "string",
+          "pattern": "^(|[A-Za-z0-9_-]{1,32})$"
+        },
+        "adjudicated_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "resolution_code": {
+          "type": "string",
+          "enum": [
+            "",
+            "unanimous_primary_and_secondary",
+            "adjudicated_visible_boundary",
+            "adjudicated_kind_to_unknown",
+            "adjudicated_boundary_undeterminable",
+            "excluded_due_to_ambiguity"
+          ]
+        }
+      }
+    },
+    "documentAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_id",
+        "label_origin",
+        "human_verified",
+        "document_kind",
+        "boundary_status",
+        "corners",
+        "visible_polygon",
+        "crop_quality",
+        "quality_flags"
+      ],
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{3,80}$"
+        },
+        "label_origin": {
+          "type": "string",
+          "enum": [
+            "human_manual",
+            "human_verified_from_suggestion"
+          ]
+        },
+        "human_verified": {
+          "type": "boolean"
+        },
+        "document_kind": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "unifiedNationalId",
+            "residenceCard",
+            "passport",
+            "rationCard",
+            "other"
+          ]
+        },
+        "boundary_status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "occluded",
+            "partial",
+            "undeterminable"
+          ]
+        },
+        "corners": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/point2d" }
+            }
+          ]
+        },
+        "visible_polygon": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 12,
+          "items": { "$ref": "#/$defs/point2d" }
+        },
+        "crop_quality": {
+          "type": "string",
+          "enum": [
+            "acceptable",
+            "unacceptable",
+            "uncertain",
+            "not_applicable"
+          ]
+        },
+        "quality_flags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/difficultyFlag" }
+        }
+      }
+    },
+    "aiSuggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "suggestion_id",
+        "proposal_source",
+        "corners",
+        "confidence",
+        "gate_verdict"
+      ],
+      "properties": {
+        "suggestion_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{3,80}$"
+        },
+        "proposal_source": {
+          "type": "string",
+          "enum": [
+            "frozen_ai_hybrid",
+            "classical_only",
+            "external_detector"
+          ]
+        },
+        "corners": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "$ref": "#/$defs/point2d" }
+            }
+          ]
+        },
+        "region_bbox": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "gate_verdict": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "needsReview",
+            "rejected",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_id",
+        "image_format",
+        "decode_status",
+        "raw_width_px",
+        "raw_height_px",
+        "exif_orientation",
+        "width_px",
+        "height_px",
+        "image_source",
+        "capture_group_id",
+        "suitability_status",
+        "annotation_status",
+        "exclusion_reason",
+        "image_quality_level",
+        "difficulty_reasons",
+        "annotator_id",
+        "annotated_at",
+        "second_review",
+        "no_document",
+        "document_count",
+        "documents"
+      ],
+      "properties": {
+        "image_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "internal_code": {
+          "type": "string",
+          "pattern": "^(|[A-Z]{2,8}-[0-9]{2,5})$"
+        },
+        "image_format": {
+          "type": "string",
+          "enum": [
+            "jpeg",
+            "png",
+            "webp",
+            "bmp",
+            "unknown"
+          ]
+        },
+        "decode_status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "failed"
+          ]
+        },
+        "raw_width_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_height_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exif_orientation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "width_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "perceptual_dhash64": {
+          "type": "string",
+          "pattern": "^(|[0-9a-f]{16})$"
+        },
+        "near_duplicate_cluster_id": {
+          "type": "string",
+          "pattern": "^(|[A-Za-z0-9_.-]{1,64})$"
+        },
+        "image_source": {
+          "type": "string",
+          "enum": [
+            "camera_photo",
+            "screenshot",
+            "collage",
+            "video_frame",
+            "flatbed_or_web_scan",
+            "synthetic_graphic",
+            "unknown"
+          ]
+        },
+        "capture_group_id": {
+          "type": "string",
+          "pattern": "^(|[A-Za-z0-9_.-]{1,80})$"
+        },
+        "suitability_status": {
+          "type": "string",
+          "enum": [
+            "annotatable",
+            "unreadable",
+            "unclear",
+            "needs_review"
+          ]
+        },
+        "annotation_status": {
+          "type": "string",
+          "enum": [
+            "unannotated",
+            "in_progress",
+            "annotated",
+            "second_review",
+            "excluded"
+          ]
+        },
+        "exclusion_reason": {
+          "type": "string",
+          "enum": [
+            "",
+            "decode_failed",
+            "exact_or_near_duplicate",
+            "video_or_ui_recording",
+            "backup_container",
+            "synthetic_or_promotional_mockup",
+            "pre_cropped_no_background",
+            "unreadable_or_extreme_blur",
+            "boundary_unscorable",
+            "unresolved_annotator_dispute"
+          ]
+        },
+        "image_quality_level": {
+          "type": "string",
+          "enum": [
+            "good",
+            "medium",
+            "poor",
+            "unusable",
+            "unassessed"
+          ]
+        },
+        "difficulty_reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/difficultyFlag" }
+        },
+        "annotator_id": {
+          "type": "string",
+          "pattern": "^(|[A-Za-z0-9_-]{1,32})$"
+        },
+        "annotated_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "second_review": {
+          "$ref": "#/$defs/secondReview"
+        },
+        "no_document": {
+          "type": "boolean"
+        },
+        "document_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "documents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/documentAnnotation" }
+        },
+        "ai_suggestions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/aiSuggestion" }
+        }
+      }
+    }
+  }
+}

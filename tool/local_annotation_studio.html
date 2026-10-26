@@ -4,315 +4,1978 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src blob: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Scan ID — Local Annotation Studio</title>
+  <title>Scan ID — استوديو التوسيم المرجعي المحلي (v2)</title>
   <style>
-    :root{color-scheme:dark;--bg:#09111f;--panel:#101c2e;--panel2:#15243a;--line:#273a56;--text:#e8eff9;--muted:#9aabc2;--teal:#57d6c4;--blue:#78a9ff;--amber:#ffc66d;--red:#ff8585;--green:#8be3aa;font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
-    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 10% 0%,#122746 0,transparent 42%),var(--bg);color:var(--text)}
-    header{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem clamp(1rem,4vw,3rem);border-bottom:1px solid var(--line);background:#09111fd9;position:sticky;top:0;z-index:5;backdrop-filter:blur(10px)}
-    h1,h2,h3,p{margin-top:0}h1{font-size:1.25rem;margin:0}h2{font-size:1.1rem;margin-bottom:.65rem}h3{font-size:.96rem;margin-bottom:.5rem}.brand{display:flex;align-items:center;gap:.8rem}.logo{width:2.2rem;height:2.2rem;border-radius:.75rem;background:linear-gradient(135deg,var(--teal),#477be9);display:grid;place-items:center;color:#07131f;font-weight:900}.badge{border:1px solid #266b68;color:#a8fff1;background:#0d302f;padding:.3rem .65rem;border-radius:99px;font-size:.78rem;white-space:nowrap}
-    main{max-width:1500px;margin:auto;padding:clamp(1rem,3vw,2.2rem)}.intro{max-width:820px;color:var(--muted)}.privacy{border:1px solid #266b68;border-right:4px solid var(--teal);border-radius:12px;background:#0d2428;padding:1rem 1.1rem;margin:1rem 0 1.4rem}.privacy strong{color:#b9fff4}.privacy p{margin:.25rem 0}.privacy ul{margin:.4rem 0 0;padding-inline-start:1.3rem;color:#c7d6e8}
-    .card{background:linear-gradient(145deg,#111e31,#0e1929);border:1px solid var(--line);border-radius:16px;padding:1.1rem;box-shadow:0 14px 36px #0002}.setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.wide{grid-column:1/-1}.row{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}.field{display:flex;flex-direction:column;gap:.3rem;margin:.65rem 0}.field label,.label{font-size:.86rem;color:#c8d6e9}.hint{font-size:.78rem;color:var(--muted)}input[type=text],select,textarea{width:100%;background:#0a1423;border:1px solid #35506f;border-radius:9px;color:var(--text);padding:.62rem .7rem;font:inherit}input[type=file]{width:100%;color:var(--muted);padding:.6rem 0}input[type=checkbox]{accent-color:var(--teal);width:1.05rem;height:1.05rem}textarea{min-height:76px;resize:vertical}.consent{background:#171f2e;border:1px solid #56472b;border-radius:9px;padding:.65rem;color:#ffe0a2;font-size:.82rem}
-    button{border:1px solid #385476;border-radius:9px;background:#182b45;color:var(--text);padding:.62rem .9rem;font:inherit;font-weight:650;cursor:pointer;transition:transform .12s,background .12s,border-color .12s}button:hover:not(:disabled){transform:translateY(-1px);background:#203a5d;border-color:#6b93c2}button.primary{background:linear-gradient(120deg,#168c82,#346fd2);border-color:transparent;color:white}button.primary:hover:not(:disabled){background:linear-gradient(120deg,#1da99d,#477fe6)}button.danger{background:#351e28;border-color:#744052;color:#ffb3bd}button:disabled{opacity:.4;cursor:not-allowed}.notice{min-height:1.4rem;color:var(--amber);font-size:.83rem;margin:.55rem 0}.notice.ok{color:var(--green)}
-    #workspace{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(330px,.8fr);gap:1rem;align-items:start;margin-top:1rem}.viewer{position:sticky;top:5.2rem}.viewer-top{display:flex;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:.8rem}.viewer-top .meta{color:var(--muted);font-size:.82rem}.canvas-wrap{background:#07101b;border:1px solid var(--line);border-radius:12px;min-height:280px;display:grid;place-items:center;padding:.5rem;overflow:hidden}.canvas-wrap canvas{display:block;max-width:100%;max-height:72vh;object-fit:contain;cursor:crosshair}.empty{color:#71849e;text-align:center;padding:3rem 1rem}.nav{display:flex;justify-content:space-between;gap:.5rem;margin-top:.8rem}.nav button{min-width:7rem}.side{display:flex;flex-direction:column;gap:1rem}.progressline{height:7px;background:#1c2e46;border-radius:10px;overflow:hidden;margin:.45rem 0 .8rem}.progressline span{height:100%;display:block;background:linear-gradient(90deg,var(--teal),var(--blue));width:0;transition:width .2s}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.45rem}.stat{background:#0b1626;border:1px solid #213551;border-radius:10px;padding:.5rem;text-align:center}.stat strong{display:block;color:#c5fff4;font-size:1.1rem}.stat small{display:block;color:var(--muted);font-size:.7rem}.docbar{display:flex;gap:.5rem;align-items:center}.docbar select{flex:1}.point-list{font-variant-numeric:tabular-nums;color:#b9cae1;background:#0b1626;border-radius:8px;padding:.5rem;font-size:.76rem;min-height:2.2rem;direction:ltr;text-align:left;overflow-wrap:anywhere}.splitline{border:0;border-top:1px solid var(--line);margin:.8rem 0}.small-check{display:flex;align-items:flex-start;gap:.55rem;color:#d0dced;font-size:.84rem}.statuschip{display:inline-block;padding:.15rem .45rem;border:1px solid var(--line);border-radius:99px;font-size:.72rem;color:var(--muted)}.hidden{display:none!important}.footer{color:#71849e;font-size:.76rem;text-align:center;padding:1.5rem}
-    @media(max-width:900px){#workspace{grid-template-columns:1fr}.viewer{position:static;order:1}.side{order:2}.canvas-wrap canvas{max-height:58vh}.setup-grid{grid-template-columns:1fr}.wide{grid-column:auto}header{position:static}}
+    :root{color-scheme:dark;--bg:#08101d;--panel:#101c2e;--panel2:#15253c;--line:#273b59;--text:#eaf1fb;--muted:#98aac2;--teal:#4fd8c5;--blue:#7aaaff;--amber:#ffc66d;--red:#ff8585;--green:#8be3aa;--cyan:#5ce1e6;font:14.5px/1.55 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 12% 0%,#13294b 0,transparent 44%),var(--bg);color:var(--text)}
+    header{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.85rem clamp(1rem,3vw,2.4rem);border-bottom:1px solid var(--line);background:#08101de6;position:sticky;top:0;z-index:20;backdrop-filter:blur(10px)}
+    h1,h2,h3,p{margin-top:0}h1{font-size:1.18rem;margin:0}h2{font-size:1.02rem;margin-bottom:.55rem;color:#d6e6ff}h3{font-size:.92rem;margin:.5rem 0 .35rem;color:#bfe0ff}
+    .brand{display:flex;align-items:center;gap:.75rem}.logo{width:2.15rem;height:2.15rem;border-radius:.7rem;background:linear-gradient(135deg,var(--teal),#4277e6);display:grid;place-items:center;color:#06121e;font-weight:900}
+    .badges{display:flex;gap:.5rem;flex-wrap:wrap}.badge{border:1px solid #266b68;color:#a8fff1;background:#0d302f;padding:.26rem .62rem;border-radius:99px;font-size:.75rem;white-space:nowrap}
+    main{max-width:1620px;margin:auto;padding:clamp(.85rem,2vw,1.6rem)}
+    .card{background:linear-gradient(150deg,#111e32,#0d1727);border:1px solid var(--line);border-radius:14px;padding:1rem;box-shadow:0 12px 32px #0004}
+    .privacy{border:1px solid #266b68;border-right:4px solid var(--teal);border-radius:11px;background:#0c2227;padding:.85rem 1rem;margin:.75rem 0 1rem;font-size:.84rem}
+    .privacy ul{margin:.35rem 0 0;padding-inline-start:1.25rem;color:#c9d8ea}
+    .setup-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.85rem}
+    .two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}
+    .row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+    .field{display:flex;flex-direction:column;gap:.26rem;margin:.5rem 0}
+    .field label,.label{font-size:.82rem;color:#c8d7eb;font-weight:600}
+    .hint{font-size:.76rem;color:var(--muted)}
+    input[type=text],select{width:100%;background:#091322;border:1px solid #355070;border-radius:8px;color:var(--text);padding:.5rem .65rem;font:inherit}
+    input[type=file]{width:100%;color:var(--muted);padding:.35rem 0;font-size:.8rem}
+    input[type=checkbox]{accent-color:var(--teal);width:1rem;height:1rem;flex:none}
+    button{border:1px solid #365274;border-radius:8px;background:#172a44;color:var(--text);padding:.48rem .78rem;font:inherit;font-size:.83rem;font-weight:650;cursor:pointer;transition:background .12s,border-color .12s}
+    button:hover:not(:disabled){background:#213b5f;border-color:#6e96c7}
+    button.primary{background:linear-gradient(120deg,#168c82,#336ed0);border-color:transparent;color:#fff}
+    button.primary:hover:not(:disabled){background:linear-gradient(120deg,#1ca69a,#447fe3)}
+    button.active{background:#1b4d56;border-color:var(--teal);color:#bafff3}
+    button.danger{background:#361d27;border-color:#784053;color:#ffb8c1}
+    button.small{padding:.32rem .58rem;font-size:.77rem}
+    button:disabled{opacity:.38;cursor:not-allowed}
+    .notice{min-height:1.3rem;color:var(--amber);font-size:.82rem;margin:.45rem 0}
+    .notice.ok{color:var(--green)}.notice.err{color:var(--red)}
+    #workspace{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(360px,.85fr);gap:1rem;align-items:start;margin-top:1rem}
+    .viewer{position:sticky;top:4.6rem}
+    .viewer-top{display:flex;justify-content:space-between;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:.55rem}
+    .toolbar{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;padding:.45rem .55rem;background:#0a1525;border:1px solid var(--line);border-radius:10px;margin-bottom:.55rem}
+    .toolbar .sep{width:1px;height:1.3rem;background:var(--line);margin:0 .2rem}
+    .viewport{position:relative;background:repeating-conic-gradient(#0b1524 0 25%,#070e19 0 50%) 50%/22px 22px;border:1px solid var(--line);border-radius:12px;height:66vh;min-height:360px;overflow:hidden;user-select:none;touch-action:none}
+    .viewport canvas{position:absolute;top:0;left:0;transform-origin:0 0;cursor:crosshair;image-rendering:auto}
+    .viewport.panning canvas{cursor:grab}.viewport.dragging-pan canvas{cursor:grabbing}
+    .hud{position:absolute;bottom:.55rem;left:.65rem;right:.65rem;display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;pointer-events:none;font-size:.74rem;direction:ltr}
+    .hud span{background:#07101cd9;border:1px solid #284060;padding:.22rem .55rem;border-radius:6px;color:#cde0f8;font-variant-numeric:tabular-nums}
+    .geom-banner{padding:.45rem .65rem;border-radius:8px;font-size:.8rem;margin-top:.55rem;border:1px solid var(--line);background:#0b1728}
+    .geom-banner.ok{border-color:#246347;background:#0c261d;color:#a5f3c4}
+    .geom-banner.warn{border-color:#6d5223;background:#261d0d;color:#ffd894}
+    .geom-banner.err{border-color:#753543;background:#2b131b;color:#ffb4c0}
+    .sample-strip{display:flex;gap:.35rem;overflow-x:auto;padding:.45rem 0;margin-top:.45rem}
+    .sample-pill{flex:none;padding:.26rem .55rem;border-radius:99px;font-size:.74rem;border:1px solid var(--line);background:#0c1728;color:var(--muted);cursor:pointer}
+    .sample-pill.current{border-color:var(--blue);color:#fff;background:#1a3358}
+    .sample-pill.st-annotated{border-color:#2a7a53;color:#9df0bd}
+    .sample-pill.st-second_review{border-color:#34859c;color:#a8f7ff}
+    .sample-pill.st-in_progress{border-color:#8a6b28;color:#ffd98e}
+    .sample-pill.st-excluded{border-color:#743a47;color:#ffaab7}
+    .side{display:flex;flex-direction:column;gap:.85rem}
+    .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:.38rem;margin-bottom:.45rem}
+    .stat{background:#0a1525;border:1px solid #203450;border-radius:9px;padding:.42rem .3rem;text-align:center}
+    .stat strong{display:block;color:#c6fff4;font-size:1rem;font-variant-numeric:tabular-nums}
+    .stat small{display:block;color:var(--muted);font-size:.67rem}
+    .progressline{height:6px;background:#1b2d45;border-radius:99px;overflow:hidden;margin:.35rem 0 .6rem}
+    .progressline span{height:100%;display:block;background:linear-gradient(90deg,var(--teal),var(--blue));width:0;transition:width .2s}
+    .checks-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem .65rem}
+    .small-check{display:flex;align-items:flex-start;gap:.45rem;color:#d2def0;font-size:.8rem;cursor:pointer}
+    .point-chips{display:flex;gap:.35rem;flex-wrap:wrap;margin:.35rem 0}
+    .pt-chip{font-size:.74rem;padding:.22rem .5rem;border-radius:7px;border:1px solid #304b6d;background:#0c192c;color:#cbe0ff;cursor:pointer;direction:ltr}
+    .pt-chip.selected{border-color:var(--teal);background:#14383d;color:#fff}
+    .point-list{font-variant-numeric:tabular-nums;color:#b8cbe3;background:#091322;border:1px solid #223652;border-radius:8px;padding:.45rem;font-size:.74rem;direction:ltr;text-align:left;overflow-wrap:anywhere}
+    .statuschip{display:inline-block;padding:.18rem .55rem;border:1px solid var(--line);border-radius:99px;font-size:.74rem;color:#d6e4f7;background:#112238}
+    .ai-box{border:1px dashed #2e7885;background:#0a1f28;border-radius:10px;padding:.65rem;margin-top:.5rem}
+    details{border:1px solid var(--line);border-radius:10px;padding:.55rem .75rem;background:#0b1627;margin-top:.65rem}
+    summary{cursor:pointer;font-weight:700;color:#cbe2ff;font-size:.85rem}
+    details ul{margin:.45rem 0 0;padding-inline-start:1.2rem;font-size:.8rem;color:#bfd0e6}
+    .splitline{border:0;border-top:1px solid var(--line);margin:.7rem 0}
+    .empty{position:absolute;inset:0;display:grid;place-items:center;color:#8397b2;text-align:center;padding:2rem}
+    .hidden{display:none!important}
+    .footer{color:#7387a3;font-size:.75rem;text-align:center;padding:1.2rem}
+    @media(max-width:1024px){#workspace{grid-template-columns:1fr}.viewer{position:static}.setup-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(3,1fr)}}
   </style>
 </head>
 <body>
 <header>
-  <div class="brand"><div class="logo">S</div><div><h1>Scan ID · استوديو الوسم المحلي</h1><div class="hint">وسم بشري مستقل لصور الحدود وأنواع المستندات</div></div></div>
-  <span class="badge">محلي فقط · بلا رفع أو اتصال</span>
+  <div class="brand">
+    <div class="logo">S</div>
+    <div>
+      <h1>Scan ID · استوديو التوسيم المرجعي المحلي (الإصدار 2.0)</h1>
+      <div class="hint">توسيم بشري مستقل لاكتشاف المستندات وحدودها وتصنيف أنواعها — دون رفع أو اتصال شبكي</div>
+    </div>
+  </div>
+  <div class="badges">
+    <span class="badge">Schema v2.0.0</span>
+    <span class="badge">CSP: connect-src 'none'</span>
+  </div>
 </header>
+
 <main>
   <section id="setup" class="card">
-    <p class="intro">أداة ثابتة تعمل داخل المتصفح لوسم مجموعة تقييم محلية. لا تستخدم خادماً، ولا ترسل الصور أو النصوص إلى أي جهة.</p>
     <div class="privacy">
-      <strong>الخصوصية قبل البدء</strong>
+      <strong>قواعد الخصوصية وبروتوكول المرجع البشري</strong>
       <ul>
-        <li>اختر الصور فقط؛ لا تختَر الفيديو أو نسخة المشروع الاحتياطية.</li>
-        <li>تُقرأ الصور داخل تبويب المتصفح، وتُحفظ التسميات فقط عند تنزيل ملف JSON يدوياً.</li>
-        <li>لا تظهر أسماء الملفات في الواجهة أو ملف الوسم. معرّف الصورة هو SHA-256 محلي لمطابقة مراجعتين؛ اعتبر ملف JSON خاصاً ولا ترفعه إلى Git أو CI.</li>
-        <li>مرجع OCR اختياري: لا تدخله إلا بعد مطابقته حرفياً مع الصورة. قد يتضمن أرقاماً أو بيانات شخصية؛ ملف JSON الناتج حساس، فاحفظه محلياً فقط ولا ترفعه إلى Git أو CI أو خدمة خارجية.</li>
-        <li>للمراجعة المستقلة: لكل مراجع ملف منفصل، ولا يطّلع أحدهما على وسوم الآخر قبل الحفظ.</li>
+        <li>تعمل هذه الأداة محلياً بالكامل داخل المتصفح دون خادم خارجي أو طلبات شبكة. لا تُسجل أسماء الملفات ولا بايتات الصور ولا أي نصوص شخصية (أسماء أو أرقام هويات) داخل ملف الوسوم.</li>
+        <li>يُحسب لكل صورة معرّف SHA-256 محلي وبصمة إدراكية <code>dHash64</code> لاكتشاف الصور المكررة وشبه المكررة ومنع تسرب البيانات بين مجموعات التقسيم.</li>
+        <li>المقترحات الآلية — عند تحميل ملف بذرة اختياري — تُعرض كخطوط متقطعة للمساعدة البصرية فقط، ولا تتحول أبداً إلى وسم مرجعي معتمد إلا بنسخ صريح وتعديل/تأكيد بشري.</li>
+        <li>يُحفظ التقدم تلقائياً في مسودة محلية داخل المتصفح (إحداثيات ورموز غير شخصية فقط) مع إمكانية التصدير والاستئناف عبر ملف JSON محلي في <code>local-data/</code>.</li>
       </ul>
     </div>
+
     <div class="setup-grid">
       <div class="field">
-        <label for="reviewerId">معرّف المراجع (مثل R1 أو R2؛ لا تستخدم اسماً شخصياً)</label>
-        <input id="reviewerId" type="text" maxlength="32" pattern="[A-Za-z0-9_-]{1,32}" autocomplete="off" placeholder="R1">
+        <label for="reviewerId">رمز الموسِّم أو المحكِّم المحلي (غير شخصي)</label>
+        <input id="reviewerId" type="text" maxlength="32" pattern="[A-Za-z0-9_-]{1,32}" autocomplete="off" placeholder="R1 أو R2 أو ADJ1">
+        <span class="hint">استخدم R1 للمراجع الأول، R2 للمراجعة الثانية المستقلة، وADJ1 للتحكيم.</span>
       </div>
       <div class="field">
-        <label for="imageFiles">اختيار صور ثابتة محلية</label>
+        <label for="imageFiles">1. اختيار الصور الأصلية المحلية</label>
         <input id="imageFiles" type="file" accept="image/jpeg,image/png,image/webp,image/bmp" multiple>
-        <span class="hint">يمكن اختيار ملفات متعددة. تتم مطابقة الصور المتطابقة ببصمة محتوى محلية.</span>
+        <span class="hint">اختر الصور الثابتة فقط (JPEG/PNG/WebP/BMP)؛ استبعد ملفات الفيديو والنسخ الاحتياطية.</span>
       </div>
       <div class="field">
-        <label for="resumeFile">استئناف ملفك أنت فقط (اختياري، بعد اختيار الصور)</label>
+        <label for="resumeFile">2. استئناف وسوم JSON أو تحميل بذرة جرد (اختياري)</label>
         <input id="resumeFile" type="file" accept="application/json,.json" disabled>
-        <span class="hint">يُرفض ملف مراجع آخر للمحافظة على استقلال التوسيم.</span>
-      </div>
-      <div class="field">
-        <label>التحكم في الملف</label>
-        <div class="row"><button id="loadImages" class="primary">تحميل الصور في الذاكرة</button><button id="clearSession" class="danger">مسح الجلسة</button></div>
+        <span class="hint">يدعم ملفات v2 (أو ترقية v1) وملف البذرة غير الموسوم مع المقترحات الآلية المنفصلة.</span>
       </div>
     </div>
+
+    <div class="row" style="margin-top:.55rem">
+      <button id="loadImages" class="primary">تحميل الصور وفحص EXIF والتكرار</button>
+      <label class="small-check"><input id="autoSaveToggle" type="checkbox" checked><span>حفظ المسودة تلقائياً في التخزين المحلي للمتصفح</span></label>
+      <button id="clearDraftStorage" class="danger small">مسح المسودة المحفوظة</button>
+      <button id="clearSession" class="danger small">إغلاق الجلسة الحالية</button>
+    </div>
+
+    <details>
+      <summary>تعليمات الموسِّم البشري (بروتوكول الزوايا، الحجب، التداخل، النوع، والاستبعاد)</summary>
+      <ul>
+        <li><strong>ترتيب الزوايا الأربع (للمستند الكامل):</strong> انقر الزوايا الأربع للمستند الفعلي بترتيب عقارب الساعة بدءاً من الزاوية العلوية اليسرى في العرض (<code>1:TL → 2:TR → 3:BR → 4:BL</code>). يمكنك سحب أي زاوية لتعديلها أو الضغط على «ترتيب تلقائي TL→TR→BR→BL». للبطاقات المغلفة بغلاف بلاستيكي شفاف، حدّد حواف البطاقة الورقية/البلاستيكية نفسها وسجّل مؤشر «غلاف بلاستيكي شفاف».</li>
+        <li><strong>الحجب والقص الجزئي (الفصل بين المرئي والمخفي):</strong> إذا غطّت الأصابع زاوية أو خرج جزء من المستند خارج إطار الصورة، اختر «محجوبة» أو «جزئية/مقطوعة» وارسم مضلع الجزء المرئي فقط (3–12 نقطة) <strong>دون تخمين موقع الزاوية المخفية خارج الإطار أو تحت اليد</strong>.</li>
+        <li><strong>المستندات المتعددة والمتداخلة:</strong> أضف مستنداً مستقلاً لكل وثيقة مرئية (<code>إضافة مستند</code>). عند تداخل مستندين، فعّل «تداخل المستندات»، وحدّد المستند الأمامي كـ«كاملة» إن ظهرت زواياه الأربع، والمستند الخلفي المحجوب كـ«محجوبة» حول جزئه المرئي فقط.</li>
+        <li><strong>متى يُسجل النوع <code>unknown</code>:</strong> إذا كانت الكتابة مطموسة أو الإضاءة/الدقة لا تسمح بالتأكد البصري القاطع من فئة المستند من الصورة وحدها، اختر <code>unknown</code>؛ لا تستنتج النوع من نسبة الأبعاد وحدها.</li>
+        <li><strong>متى تُستبعد الصورة من تقييم الحدود:</strong> استبعد (<code>excluded</code> مع تحديد السبب) الصور التالفة، النسخ المكررة/شبه المكررة الثانوية، التصاميم الإعلانية ثلاثية الأبعاد غير المصورة بكاميرا، أو المسح المقصوص مسبقاً لحافة الإطار بلا أي خلفية محيطة.</li>
+      </ul>
+    </details>
     <div id="setupNotice" class="notice" role="status" aria-live="polite"></div>
   </section>
 
   <section id="workspace" class="hidden">
     <div class="card viewer">
-      <div class="viewer-top"><div><strong id="sampleTitle">الصورة 0 / 0</strong><div id="sampleMeta" class="meta"></div></div><span id="sampleStatusChip" class="statuschip">غير موسومة</span></div>
-      <div class="progressline"><span id="progressBar"></span></div>
-      <div class="canvas-wrap" id="canvasWrap"><canvas id="imageCanvas" aria-label="صورة محلية للنقر على محيط المستند"></canvas><div id="emptyCanvas" class="empty hidden">تعذر فك هذه الصورة. علّمها «غير قابلة للتقييم» بدلاً من تجاهلها.</div></div>
-      <div class="nav"><button id="prevSample">السابق</button><button id="nextSample">التالي</button></div>
-      <p class="hint" style="margin:.7rem 0 0">انقر النقاط بترتيب عقارب الساعة بدءاً من الزاوية العلوية اليسرى في العرض. الإحداثيات تحفظ كنسب من الصورة بعد تصحيح EXIF.</p>
+      <div class="viewer-top">
+        <div>
+          <strong id="sampleTitle">الصورة 0 / 0</strong>
+          <div id="sampleMeta" class="hint"></div>
+        </div>
+        <div class="row">
+          <select id="filterStatus" aria-label="تصفية حسب الحالة" style="width:auto">
+            <option value="all">كل الحالات</option>
+            <option value="unannotated">غير موسومة</option>
+            <option value="in_progress">قيد التوسيم</option>
+            <option value="annotated">موسومة</option>
+            <option value="second_review">مراجعة ثانية</option>
+            <option value="excluded">مستبعدة</option>
+          </select>
+          <span id="sampleStatusChip" class="statuschip">غير موسومة</span>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button id="modeDrawBtn" class="small active" title="انقر لإضافة زوايا أو اسحب زاوية موجودة لتعديلها">وضع الرسم/التعديل</button>
+        <button id="modePanBtn" class="small" title="اسحب لتحريك الصورة (أو اضغط باستمرار على مسطرة المسافة Space)">وضع التحريك (Pan)</button>
+        <span class="sep"></span>
+        <button id="zoomInBtn" class="small" title="تكبير">+</button>
+        <button id="zoomOutBtn" class="small" title="تصغير">−</button>
+        <button id="zoom100Btn" class="small" title="عرض بدقة البكسل 100%">100%</button>
+        <button id="zoomFitBtn" class="small" title="ملاءمة الصورة داخل العارض">ملاءمة</button>
+        <span class="sep"></span>
+        <button id="autoOrderBtn" class="small" title="ترتيب الزوايا الأربع مع عقارب الساعة بدءاً من أعلى اليسار">ترتيب TL→TR→BR→BL</button>
+        <button id="rotateOrderBtn" class="small" title="تدوير نقطة البداية دورياً">تدوير البداية ↻</button>
+        <button id="reverseOrderBtn" class="small" title="عكس اتجاه دوران المضلع">عكس الاتجاه ⇄</button>
+        <button id="undoBtn" class="small" title="التراجع عن آخر تعديل هندسي">تراجع</button>
+      </div>
+
+      <div class="viewport" id="viewport">
+        <canvas id="imageCanvas" aria-label="عارض الصورة الأصلية للتوسيم البصري"></canvas>
+        <div id="emptyCanvas" class="empty hidden">تعذر فك ترميز هذه الصورة؛ حدّد حالتها «مستبعدة — تعذر فك الترميز».</div>
+        <div class="hud">
+          <span id="hudZoom">Zoom: 100%</span>
+          <span id="hudCoords">xy: — | px: —</span>
+          <span id="hudExif">EXIF: —</span>
+        </div>
+      </div>
+
+      <div id="geomBanner" class="geom-banner warn">لم يُرسم مضلع بعد لهذه الوثيقة.</div>
+
+      <div class="row" style="justify-content:space-between;margin-top:.55rem">
+        <div class="row">
+          <button id="prevSample">→ السابق</button>
+          <button id="nextSample">التالي ←</button>
+          <button id="nextPendingBtn" class="small">التالي غير المكتمل</button>
+        </div>
+        <span class="hint">عجلة الفأرة للتكبير حول المؤشر · Space+سحب للتحريك · اسحب أي زاوية لتعديل موقعها</span>
+      </div>
+
+      <div id="sampleStrip" class="sample-strip" aria-label="شريط الانتقال السريع للصور"></div>
     </div>
 
     <div class="side">
       <section class="card">
-        <h2>حالة مجموعة التقييم</h2>
-        <div class="stats"><div class="stat"><strong id="statTotal">0</strong><small>صورة</small></div><div class="stat"><strong id="statReviewed">0</strong><small>مراجعة مكتملة</small></div><div class="stat"><strong id="statGroups">0</strong><small>جلسة التقاط معرّفة</small></div></div>
-        <div class="field"><label for="captureGroup">معرّف جلسة/مصدر الالتقاط</label><input id="captureGroup" type="text" maxlength="80" pattern="[A-Za-z0-9_.-]{1,80}" autocomplete="off" placeholder="session-camera-01"><span class="hint">استخدم رمز جلسة غير شخصي تعرفه من خارج اسم الملف (ASCII فقط). اتركه فارغاً إذا لم تعرف الجلسة؛ لا تقسّم صوراً من جلسة واحدة بين train/validation/test.</span></div>
-        <div class="field"><label for="reviewStatus">حالة هذه المراجعة</label><select id="reviewStatus"><option value="pending">لم تكتمل</option><option value="reviewed">راجعتها</option><option value="uncertain">غير متأكد — تحتاج تحكيماً</option><option value="unscorable">غير قابلة للتقييم</option></select></div>
-        <div class="field"><label for="adjudicationStatus">الحكم النهائي بعد مقارنة المراجعتين</label><select id="adjudicationStatus"><option value="not_adjudicated">لم يُحكَّم بعد</option><option value="adjudicated">حُكِّم يدوياً بعد المقارنة</option></select><span class="hint">لا تحدد «حُكِّم» قبل حفظ مراجعتين مستقلتين ومراجعة كل اختلاف.</span></div>
-        <label class="small-check"><input id="noDocument" type="checkbox"><span>لا يوجد مستند قابل للتعرف في الصورة (حالة سلبية/خلفية).</span></label>
+        <h2>1. التقدم وحالة الصورة ومصدرها</h2>
+        <div class="stats">
+          <div class="stat"><strong id="statTotal">0</strong><small>الإجمالي</small></div>
+          <div class="stat"><strong id="statUnannotated">0</strong><small>غير موسومة</small></div>
+          <div class="stat"><strong id="statAnnotated">0</strong><small>موسومة</small></div>
+          <div class="stat"><strong id="statSecond">0</strong><small>مراجعة 2</small></div>
+          <div class="stat"><strong id="statExcluded">0</strong><small>مستبعدة</small></div>
+        </div>
+        <div class="progressline"><span id="progressBar"></span></div>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="annotationStatus">حالة توسيم الصورة</label>
+            <select id="annotationStatus">
+              <option value="unannotated">غير موسومة (unannotated)</option>
+              <option value="in_progress">قيد التوسيم (in_progress)</option>
+              <option value="annotated">موسومة بشرياً (annotated)</option>
+              <option value="second_review">مراجعة ثانية / محكّمة (second_review)</option>
+              <option value="excluded">مستبعدة مع السبب (excluded)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="suitabilityStatus">صلاحية الصورة للتوسيم</label>
+            <select id="suitabilityStatus">
+              <option value="annotatable">صالحة للتوسيم</option>
+              <option value="needs_review">تحتاج مراجعة</option>
+              <option value="unclear">غير واضحة</option>
+              <option value="unreadable">غير قابلة للقراءة</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="exclusionField" class="field hidden">
+          <label for="exclusionReason">سبب الاستبعاد الإلزامي</label>
+          <select id="exclusionReason">
+            <option value="">— اختر سبب الاستبعاد —</option>
+            <option value="exact_or_near_duplicate">نسخة مكررة أو شبه مكررة</option>
+            <option value="synthetic_or_promotional_mockup">تصميم ترويجي / بطاقة مولدة غير مادية</option>
+            <option value="pre_cropped_no_background">مقصوصة مسبقاً لحافة الإطار بلا خلفية</option>
+            <option value="video_or_ui_recording">إطار فيديو / تسجيل واجهة غير مستقل</option>
+            <option value="unreadable_or_extreme_blur">غير قابلة للقراءة أو طمس شديد</option>
+            <option value="boundary_unscorable">حدود غير قابلة للتحديد بثقة</option>
+            <option value="unresolved_annotator_dispute">خلاف غير محسوم بين الموسّمين</option>
+            <option value="decode_failed">تعذر فك ترميز الملف</option>
+          </select>
+        </div>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="imageSource">مصدر الصورة</label>
+            <select id="imageSource">
+              <option value="unknown">غير معروف</option>
+              <option value="camera_photo">صورة كاميرا</option>
+              <option value="screenshot">لقطة شاشة</option>
+              <option value="collage">كولاج / ملصق مركب</option>
+              <option value="video_frame">إطار فيديو</option>
+              <option value="flatbed_or_web_scan">مسح مسطح / عينة ويب مقصوصة</option>
+              <option value="synthetic_graphic">تصميم رقمي ترويجي</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="imageQualityLevel">مستوى جودة الصورة</label>
+            <select id="imageQualityLevel">
+              <option value="unassessed">غير مقيّم بعد</option>
+              <option value="good">جيدة</option>
+              <option value="medium">متوسطة</option>
+              <option value="poor">ضعيفة</option>
+              <option value="unusable">غير صالحة</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="captureGroup">رمز جلسة/مصدر الالتقاط (للتقسيم المستقل)</label>
+            <input id="captureGroup" type="text" maxlength="80" pattern="[A-Za-z0-9_.-]{1,80}" autocomplete="off" placeholder="session-cam-01">
+          </div>
+          <div class="field">
+            <label for="dupCluster">مجموعة التشابه/التكرار (تلقائي أو يدوي)</label>
+            <input id="dupCluster" type="text" maxlength="64" pattern="[A-Za-z0-9_.-]{1,64}" autocomplete="off" placeholder="dup-cluster-01">
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="label">أسباب صعوبة الصورة على مستوى المشهد</span>
+          <div class="checks-grid" id="sceneDifficultyFlags">
+            <label class="small-check"><input type="checkbox" value="occlusion"><span>حجب (يد/جسم)</span></label>
+            <label class="small-check"><input type="checkbox" value="partial_truncation"><span>قص جزئي بحافة الإطار</span></label>
+            <label class="small-check"><input type="checkbox" value="glare"><span>انعكاس / وهج</span></label>
+            <label class="small-check"><input type="checkbox" value="blur"><span>ضبابية / اهتزاز</span></label>
+            <label class="small-check"><input type="checkbox" value="severe_perspective"><span>منظور شديد</span></label>
+            <label class="small-check"><input type="checkbox" value="document_overlap"><span>تداخل المستندات</span></label>
+            <label class="small-check"><input type="checkbox" value="low_light"><span>إضاءة ضعيفة / ظلال</span></label>
+            <label class="small-check"><input type="checkbox" value="compression"><span>ضغط / دقة منخفضة</span></label>
+            <label class="small-check"><input type="checkbox" value="laminated_outer_pouch"><span>غلاف بلاستيكي شفاف</span></label>
+            <label class="small-check"><input type="checkbox" value="other"><span>أخرى</span></label>
+          </div>
+        </div>
+
+        <label class="small-check" style="margin-top:.45rem">
+          <input id="noDocument" type="checkbox">
+          <span>لا يوجد أي مستند في الصورة (عينة خلفية سلبية — <code>document_count = 0</code>)</span>
+        </label>
       </section>
 
       <section id="documentCard" class="card">
-        <h2>تسميات المستندات والحدود</h2>
-        <div class="docbar"><select id="documentSelector" aria-label="المستند المحدد"></select><button id="addDocument">إضافة مستند</button><button id="removeDocument" class="danger">إزالة</button></div>
-        <div class="field"><label for="documentKind">نوع المستند — من قائمة التطبيق</label><select id="documentKind"><option value="unknown">غير معروف</option><option value="unifiedNationalId">البطاقة الوطنية</option><option value="residenceCard">بطاقة السكن</option><option value="passport">جواز السفر</option><option value="rationCard">البطاقة التموينية</option><option value="other">أخرى</option></select></div>
-        <div class="field"><label for="visibility">حالة الظهور/الحدود</label><select id="visibility"><option value="fully_visible">ظاهر بالكامل — أربع زوايا</option><option value="partially_occluded">محجوب جزئياً</option><option value="truncated">مقطوع من إطار الصورة</option><option value="unscorable">غير قابل للتوسيم</option></select></div>
-        <div class="field"><label for="cropQuality">جودة حدّ القص المقترح وفق المراجعة البشرية</label><select id="cropQuality"><option value="uncertain">غير محسوم</option><option value="acceptable">مقبول بالكامل</option><option value="unacceptable">يقطع المستند أو يضم خلفية غير مقبولة</option><option value="not_applicable">لا ينطبق</option></select></div>
-        <div class="field"><span class="label">مؤشرات جودة الالتقاط (اختر ما تراه فقط)</span>
-          <div class="row" id="qualityFlags">
-            <label class="small-check"><input type="checkbox" value="blur"><span>اهتزاز/ضبابية</span></label>
-            <label class="small-check"><input type="checkbox" value="glare"><span>وهج</span></label>
-            <label class="small-check"><input type="checkbox" value="low_light"><span>إضاءة ضعيفة</span></label>
-            <label class="small-check"><input type="checkbox" value="perspective"><span>منظور شديد</span></label>
-            <label class="small-check"><input type="checkbox" value="occlusion"><span>حجب</span></label>
-            <label class="small-check"><input type="checkbox" value="compression"><span>ضغط/دقة منخفضة</span></label>
-            <label class="small-check"><input type="checkbox" value="other"><span>أخرى ظاهرة</span></label>
+        <h2>2. المستندات الظاهرة وزواياها وتصنيفها</h2>
+        <div class="row">
+          <select id="documentSelector" aria-label="اختيار المستند النشط" style="flex:1"></select>
+          <button id="addDocument" class="small primary">+ إضافة مستند</button>
+          <button id="removeDocument" class="small danger">حذف المستند</button>
+        </div>
+
+        <div class="two-col">
+          <div class="field">
+            <label for="documentKind">نوع المستند</label>
+            <select id="documentKind">
+              <option value="unknown">unknown — غير مؤكد بصرياً</option>
+              <option value="unifiedNationalId">البطاقة الوطنية الموحدة</option>
+              <option value="residenceCard">بطاقة السكن</option>
+              <option value="passport">جواز السفر</option>
+              <option value="rationCard">البطاقة التموينية</option>
+              <option value="other">مستند آخر معروف</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="boundaryStatus">حالة حدود المستند</label>
+            <select id="boundaryStatus">
+              <option value="complete">كاملة — 4 زوايا مرئية</option>
+              <option value="occluded">محجوبة جزئياً</option>
+              <option value="partial">جزئية / مقطوعة بالإطار</option>
+              <option value="undeterminable">غير قابلة للتحديد</option>
+            </select>
           </div>
         </div>
+
+        <div class="field">
+          <label for="cropQuality">صلاحية القص البشري المتوقعة لهذا المستند</label>
+          <select id="cropQuality">
+            <option value="uncertain">غير محسوم بعد</option>
+            <option value="acceptable">كامل ومقبول للقص</option>
+            <option value="unacceptable">مقطوع أو مدمج أو غير صالح للقص</option>
+            <option value="not_applicable">لا ينطبق</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <span class="label">حالات الصعوبة الخاصة بهذا المستند</span>
+          <div class="checks-grid" id="docQualityFlags">
+            <label class="small-check"><input type="checkbox" value="occlusion"><span>حجب</span></label>
+            <label class="small-check"><input type="checkbox" value="partial_truncation"><span>قص جزئي</span></label>
+            <label class="small-check"><input type="checkbox" value="glare"><span>انعكاس/وهج</span></label>
+            <label class="small-check"><input type="checkbox" value="blur"><span>ضبابية</span></label>
+            <label class="small-check"><input type="checkbox" value="severe_perspective"><span>منظور شديد</span></label>
+            <label class="small-check"><input type="checkbox" value="document_overlap"><span>تداخل مستندات</span></label>
+            <label class="small-check"><input type="checkbox" value="low_light"><span>إضاءة ضعيفة</span></label>
+            <label class="small-check"><input type="checkbox" value="compression"><span>ضغط/دقة منخفضة</span></label>
+            <label class="small-check"><input type="checkbox" value="laminated_outer_pouch"><span>غلاف شفاف</span></label>
+            <label class="small-check"><input type="checkbox" value="other"><span>أخرى</span></label>
+          </div>
+        </div>
+
         <hr class="splitline">
-        <div class="row"><button id="undoPoint">تراجع عن نقطة</button><button id="resetOutline">مسح الحدود</button><button id="finishOutline">إنهاء المضلع الجزئي</button></div>
-        <div class="field"><span class="label">نقاط المضلع المرئي (0–1)</span><div id="pointList" class="point-list">[]</div><span id="outlineHint" class="hint">للمستند الكامل أدخل أربع زوايا. للحد الجزئي أدخل مضلع الجزء المرئي؛ لا تخمّن الزوايا المخفية.</span></div>
-        <div class="field"><label for="ocrReference">مرجع OCR اختياري — النص المرئي بعد نسخه ومراجعته يدوياً</label><textarea id="ocrReference" maxlength="500" placeholder="لا تكتب إلا النص الذي قرأته حرفياً من الصورة. الملف محلي وحساس."></textarea><span class="consent">قد يحتوي النص أرقام هوية أو بيانات شخصية. لن يُرفع، لكن JSON الناتج غير مشفر ويجب حفظه محلياً فقط. لا تُدخل أي نص لم تتحقق منه بصرياً.</span><label class="small-check"><input id="ocrReferenceVerified" type="checkbox"><span>أؤكد أنني قارنت النص أعلاه مباشرة بالصورة وراجعت كل محرف. هذا تأكيد يدوي وليس تحققاً آلياً.</span></label></div>
+        <div class="row">
+          <button id="deleteVertexBtn" class="small danger" disabled>حذف الزاوية المحددة</button>
+          <button id="resetOutlineBtn" class="small danger">مسح جميع نقاط المستند</button>
+          <span id="originBadge" class="statuschip">وسم بشري يدوي</span>
+        </div>
+
+        <div id="pointChips" class="point-chips"></div>
+        <div id="pointList" class="point-list">[]</div>
+
+        <label class="small-check" style="margin-top:.45rem">
+          <input id="humanVerifiedCheck" type="checkbox" checked>
+          <span>أؤكد أن حدود هذا المستند ونوعه قد رُوجعت بصريةً يدوياً (إلزامي لاعتماد الوسم).</span>
+        </label>
+
+        <div id="aiAssistBox" class="ai-box hidden">
+          <div class="row" style="justify-content:space-between">
+            <strong style="color:var(--cyan);font-size:.82rem">مقترحات آلية منفصلة (ليست حقيقة مرجعية)</strong>
+            <span id="aiCountLabel" class="hint">0 مقترح</span>
+          </div>
+          <label class="small-check" style="margin:.35rem 0">
+            <input id="showAiOverlay" type="checkbox">
+            <span>إظهار المقترحات الآلية كخطوط متقطعة سماوية للمساعدة (أبقِه مغلقاً أثناء الوسم المستقل الأعمى).</span>
+          </label>
+          <div class="row">
+            <select id="aiSuggestionSelect" style="flex:1"></select>
+            <button id="copyAiSuggestionBtn" class="small">نسخ للمراجعة والتعديل البشري</button>
+          </div>
+        </div>
       </section>
 
       <section class="card">
-        <h2>الحفظ المحلي</h2>
-        <p class="hint">التصدير لا يتضمن أسماء الملفات أو الصور. لا تحفظ الناتج داخل مجلد Git؛ استخدم مجلداً محلياً خاصاً ومتجاهلاً مثل <code>local-data/</code>.</p>
-        <div class="row"><button id="exportJson" class="primary">تنزيل ملف وسوم JSON</button><span id="exportSummary" class="hint"></span></div>
+        <h2>3. المراجعة الثانية والتحكيم البشري</h2>
+        <div class="two-col">
+          <div class="field">
+            <label for="srStatus">حالة المراجعة الثانية</label>
+            <select id="srStatus">
+              <option value="not_started">لم تبدأ (not_started)</option>
+              <option value="agreed">اتفاق كامل (agreed)</option>
+              <option value="disputed">خلاف مفتوح (disputed)</option>
+              <option value="resolved">حُسم بالتحكيم (resolved)</option>
+              <option value="excluded_after_dispute">استُبعدت لعدم إمكان الحسم</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="srReviewerId">رمز المراجع الثاني</label>
+            <input id="srReviewerId" type="text" maxlength="32" placeholder="R2">
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="field">
+            <label for="srAdjudicatorId">رمز المحكّم (عند الحسم)</label>
+            <input id="srAdjudicatorId" type="text" maxlength="32" placeholder="ADJ1">
+          </div>
+          <div class="field">
+            <label for="srResolutionCode">قرار التحكيم الموثق</label>
+            <select id="srResolutionCode">
+              <option value="">— بدون قرار تحكيم —</option>
+              <option value="unanimous_primary_and_secondary">تطابق المراجعين الأول والثاني</option>
+              <option value="adjudicated_visible_boundary">اعتماد الحد المرئي المحكّم يدوياً</option>
+              <option value="adjudicated_kind_to_unknown">تحويل النوع المتنازع عليه إلى unknown</option>
+              <option value="adjudicated_boundary_undeterminable">اعتبار الحد غير قابل للتحديد</option>
+              <option value="excluded_due_to_ambiguity">استبعاد العينة لغموض غير قابل للحسم</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>4. الحفظ المحلي والتصدير المنظم</h2>
+        <div class="row">
+          <button id="exportJsonBtn" class="primary">تصدير وسوم JSON (v2.0.0)</button>
+          <button id="saveLocalDraftBtn" class="small">حفظ المسودة الآن</button>
+          <span id="exportSummary" class="hint"></span>
+        </div>
         <div id="workspaceNotice" class="notice" role="status" aria-live="polite"></div>
       </section>
     </div>
   </section>
-  <div class="footer">لا يوجد خادم أو طلب شبكة في هذه الأداة. أغلق التبويب لمسح الصور والوسوم من الذاكرة؛ نزّل ملفك الخاص قبل الإغلاق.</div>
+
+  <div class="footer">استوديو التوسيم المحلي لـ Scan ID — جميع العمليات تتم داخل المتصفح محلياً؛ احفظ ملفات JSON في <code>local-data/</code> فقط وخارج Git وCI.</div>
 </main>
+
 <script>
 (() => {
   'use strict';
-  const SCHEMA = 'scan-id-local-annotations-v1';
-  const state = {samples: [], current: 0, activeDocument: 0, currentBitmap: null, canvasScale: 1, dirty: false};
+
+  const SCHEMA = 'scan-id-local-annotations-v2';
+  const LEGACY_SCHEMA_V1 = 'scan-id-local-annotations-v1';
+  const SCHEMA_VERSION = '2.0.0';
+  const COORDINATE_SYSTEM = 'normalized_xy_after_exif_orientation_clockwise_from_display_top_left';
+  const EXIF_POLICY = 'apply EXIF orientation (tag 274) before display and measurement; coordinates are [x/width_px, y/height_px] in [0, 1]';
+  const PII_POLICY = 'boundary and document-kind labels only; never store personal names, ID numbers, filenames, or OCR text';
+  const MIN_POLY_AREA = 0.0001;
+  const MIN_VERTEX_DIST = 0.005;
+  const STORAGE_PREFIX = 'scan_id_annotation_studio_v2_draft_';
+
+  const state = {
+    samples: [],
+    current: 0,
+    activeDocument: 0,
+    selectedVertex: -1,
+    filter: 'all',
+    mode: 'draw',
+    spacePressed: false,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    draggingVertex: -1,
+    panning: false,
+    panStartX: 0,
+    panStartY: 0,
+    currentBitmap: null,
+    dirty: false,
+    showAi: false
+  };
+
   const $ = (id) => document.getElementById(id);
   const canvas = $('imageCanvas');
   const ctx = canvas.getContext('2d', {alpha: false});
-  const setNotice = (id, message, ok=false) => { const el=$(id); el.textContent=message; el.className=`notice${ok?' ok':''}`; };
-  const selectedSample = () => state.samples[state.current] || null;
-  const currentDocument = () => { const s=selectedSample(); return s && !s.no_document ? s.documents[state.activeDocument] : null; };
-  const clamp = (v) => Math.max(0, Math.min(1, v));
-  const round = (v) => Math.round(v * 1000000) / 1000000;
-  const sha256 = async (file) => {
-    if (!globalThis.crypto?.subtle) throw new Error('يتطلب إنشاء معرّف محلي متصفحاً يدعم Web Crypto. افتح الملف مباشرة في Chrome أو Edge حديثين.');
-    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
-    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2,'0')).join('');
-  };
-  const defaultDocument = () => ({document_kind:'unknown', visibility:'fully_visible', crop_quality:'uncertain', quality_flags:[], visible_polygon:[], ocr_reference_text:'', ocr_reference_verified:false});
-  const shortId = (id) => id ? id.slice(0,12) : 'غير متاح';
-  const pointArray = (points) => (points || []).map(([x,y]) => [round(x), round(y)]);
+  const viewport = $('viewport');
 
-  function saveCurrentFields() {
-    const s=selectedSample(); if (!s) return;
-    const captureGroup=$('captureGroup').value.trim();
-    if (!captureGroup || /^[A-Za-z0-9_.-]{1,80}$/.test(captureGroup)) s.capture_group_id=captureGroup;
-    else setNotice('workspaceNotice','رمز جلسة الالتقاط غير صالح؛ استخدم ASCII وأرقاماً و _ . - فقط.');
-    s.review_status=$('reviewStatus').value;
-    s.adjudication_status=$('adjudicationStatus').value;
-    s.no_document=$('noDocument').checked;
-    const d=currentDocument(); if (!d) return;
-    d.document_kind=$('documentKind').value;
-    d.visibility=$('visibility').value;
-    d.crop_quality=$('cropQuality').value;
-    d.quality_flags=Array.from($('qualityFlags').querySelectorAll('input:checked')).map((x)=>x.value).sort();
-    d.ocr_reference_text=$('ocrReference').value;
-    d.ocr_reference_verified=$('ocrReferenceVerified').checked;
-    if (!d.ocr_reference_text.trim()) d.ocr_reference_verified=false;
-    if (d.visibility==='fully_visible' && d.visible_polygon.length===4) d.quadrilateral=pointArray(d.visible_polygon);
-    else d.quadrilateral=null;
-    state.dirty=true;
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const round6 = (v) => Math.round(v * 1000000) / 1000000;
+  const roundPoints = (pts) => (pts || []).map(([x, y]) => [round6(clamp01(x)), round6(clamp01(y))]);
+  const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  function setNotice(id, message, kind = 'warn') {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = 'notice' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+  }
+
+  function selectedSample() {
+    return state.samples[state.current] || null;
+  }
+
+  function currentDocument() {
+    const s = selectedSample();
+    return s && !s.no_document ? (s.documents[state.activeDocument] || null) : null;
+  }
+
+  function nextDocId(sample) {
+    const prefix = sample.image_id.slice(0, 12);
+    const used = new Set((sample.documents || []).map((d) => d.document_id));
+    let n = 1;
+    while (used.has(`${prefix}-doc-${String(n).padStart(2, '0')}`)) n++;
+    return `${prefix}-doc-${String(n).padStart(2, '0')}`;
+  }
+
+  function defaultDocument(sample) {
+    return {
+      document_id: nextDocId(sample),
+      label_origin: 'human_manual',
+      human_verified: true,
+      document_kind: 'unknown',
+      boundary_status: 'complete',
+      corners: null,
+      visible_polygon: [],
+      crop_quality: 'uncertain',
+      quality_flags: []
+    };
+  }
+
+  function defaultSecondReview() {
+    return {
+      status: 'not_started',
+      reviewer_id: '',
+      reviewed_at: '',
+      dispute_status: 'none',
+      adjudicator_id: '',
+      adjudicated_at: '',
+      resolution_code: ''
+    };
+  }
+
+  async function sha256Hex(buffer) {
+    if (!globalThis.crypto?.subtle) {
+      throw new Error('يتطلب إنشاء معرّف SHA-256 متصفحاً حديثاً يدعم Web Crypto.');
+    }
+    const digest = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function parseJpegExifAndRawSize(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.byteLength < 4 || view.getUint16(0, false) !== 0xFFD8) {
+      return {format: null, exifOrientation: 1, rawWidth: 0, rawHeight: 0};
+    }
+    let offset = 2;
+    let exifOrientation = 1;
+    let rawWidth = 0;
+    let rawHeight = 0;
+    while (offset + 4 <= view.byteLength) {
+      if (view.getUint8(offset) !== 0xFF) break;
+      const marker = view.getUint8(offset + 1);
+      if (marker === 0xFF) { offset += 1; continue; }
+      if (marker === 0xD9 || marker === 0xDA) break;
+      const segLen = view.getUint16(offset + 2, false);
+      if (segLen < 2 || offset + 2 + segLen > view.byteLength) break;
+
+      if (marker === 0xE1 && segLen >= 14) {
+        const exifHdr =
+          view.getUint8(offset + 4) === 0x45 &&
+          view.getUint8(offset + 5) === 0x78 &&
+          view.getUint8(offset + 6) === 0x69 &&
+          view.getUint8(offset + 7) === 0x66 &&
+          view.getUint8(offset + 8) === 0x00 &&
+          view.getUint8(offset + 9) === 0x00;
+        if (exifHdr) {
+          const tiff = offset + 10;
+          const little = view.getUint16(tiff, false) === 0x4949;
+          if (little || view.getUint16(tiff, false) === 0x4D4D) {
+            const ifd0 = tiff + view.getUint32(tiff + 4, little);
+            if (ifd0 + 2 <= offset + 2 + segLen) {
+              const count = view.getUint16(ifd0, little);
+              for (let i = 0; i < count; i++) {
+                const entry = ifd0 + 2 + i * 12;
+                if (entry + 12 > offset + 2 + segLen) break;
+                if (view.getUint16(entry, little) === 0x0112) {
+                  const val = view.getUint16(entry + 8, little);
+                  if (val >= 0 && val <= 8) exifOrientation = val;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } else if (
+        (marker >= 0xC0 && marker <= 0xC3) ||
+        (marker >= 0xC5 && marker <= 0xC7) ||
+        (marker >= 0xC9 && marker <= 0xCB) ||
+        (marker >= 0xCD && marker <= 0xCF)
+      ) {
+        if (offset + 9 <= view.byteLength) {
+          rawHeight = view.getUint16(offset + 5, false);
+          rawWidth = view.getUint16(offset + 7, false);
+        }
+      }
+      offset += 2 + segLen;
+    }
+    return {format: 'jpeg', exifOrientation, rawWidth, rawHeight};
+  }
+
+  function detectFormatFromMimeOrMagic(file, bytes) {
+    if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'png';
+    if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8) return 'jpeg';
+    if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[8] === 0x57 && bytes[9] === 0x45) return 'webp';
+    if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4D) return 'bmp';
+    const t = (file.type || '').toLowerCase();
+    if (t.includes('jpeg') || t.includes('jpg')) return 'jpeg';
+    if (t.includes('png')) return 'png';
+    if (t.includes('webp')) return 'webp';
+    if (t.includes('bmp')) return 'bmp';
+    return 'unknown';
+  }
+
+  function computeDhash64FromBitmap(bitmap) {
+    const off = document.createElement('canvas');
+    off.width = 9;
+    off.height = 8;
+    const octx = off.getContext('2d', {willReadFrequently: true});
+    octx.drawImage(bitmap, 0, 0, 9, 8);
+    const data = octx.getImageData(0, 0, 9, 8).data;
+    const lum = new Float64Array(72);
+    for (let i = 0; i < 72; i++) {
+      lum[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    }
+    let hex = '';
+    for (let row = 0; row < 8; row++) {
+      let byteVal = 0;
+      for (let col = 0; col < 8; col++) {
+        const idx = row * 9 + col;
+        byteVal = (byteVal << 1) | (lum[idx + 1] > lum[idx] ? 1 : 0);
+      }
+      hex += byteVal.toString(16).padStart(2, '0');
+    }
+    return hex;
+  }
+
+  function dhashHamming(a, b) {
+    if (!a || !b || a.length !== 16 || b.length !== 16) return 64;
+    let dist = 0;
+    for (let i = 0; i < 16; i++) {
+      let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+      while (x) { dist += x & 1; x >>= 1; }
+    }
+    return dist;
+  }
+
+  function signedArea(pts) {
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[(i + 1) % pts.length];
+      s += x1 * y2 - x2 * y1;
+    }
+    return s / 2;
+  }
+
+  function orient2d(a, b, c) {
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  }
+
+  function onSeg(a, b, p) {
+    const eps = 1e-9;
+    return (
+      Math.min(a[0], b[0]) - eps <= p[0] && p[0] <= Math.max(a[0], b[0]) + eps &&
+      Math.min(a[1], b[1]) - eps <= p[1] && p[1] <= Math.max(a[1], b[1]) + eps
+    );
+  }
+
+  function segsIntersect(a, b, c, d) {
+    const eps = 1e-11;
+    const o1 = orient2d(a, b, c), o2 = orient2d(a, b, d);
+    const o3 = orient2d(c, d, a), o4 = orient2d(c, d, b);
+    if (o1 * o2 < -eps && o3 * o4 < -eps) return true;
+    if (Math.abs(o1) <= eps && onSeg(a, b, c)) return true;
+    if (Math.abs(o2) <= eps && onSeg(a, b, d)) return true;
+    if (Math.abs(o3) <= eps && onSeg(c, d, a)) return true;
+    if (Math.abs(o4) <= eps && onSeg(c, d, b)) return true;
+    return false;
+  }
+
+  function canonicalizeQuadClockwiseTL(pts) {
+    if (!pts || pts.length !== 4) return pts;
+    const cx = pts.reduce((a, p) => a + p[0], 0) / 4;
+    const cy = pts.reduce((a, p) => a + p[1], 0) / 4;
+    let ordered = pts.slice().sort((p, q) => Math.atan2(p[1] - cy, p[0] - cx) - Math.atan2(q[1] - cy, q[0] - cx));
+    if (signedArea(ordered) < 0) ordered.reverse();
+    let bestIdx = 0;
+    for (let i = 1; i < 4; i++) {
+      const sBest = ordered[bestIdx][0] + ordered[bestIdx][1];
+      const sCur = ordered[i][0] + ordered[i][1];
+      if (sCur < sBest - 1e-9 || (Math.abs(sCur - sBest) <= 1e-9 && ordered[i][1] < ordered[bestIdx][1])) {
+        bestIdx = i;
+      }
+    }
+    return ordered.slice(bestIdx).concat(ordered.slice(0, bestIdx)).map(([x, y]) => [round6(x), round6(y)]);
+  }
+
+  function inspectDocumentGeometry(doc, sample) {
+    if (!doc) return {level: 'ok', text: 'لا يوجد مستند محدد.'};
+    if (doc.boundary_status === 'undeterminable') {
+      return {level: 'warn', text: 'الحدود معلمة كـ«غير قابلة للتحديد»؛ ستُستبعد تلقائياً من مقاييس دقة الحدود.'};
+    }
+    const pts = doc.visible_polygon || [];
+    const reqMin = doc.boundary_status === 'complete' ? 4 : 3;
+    const reqMax = doc.boundary_status === 'complete' ? 4 : 12;
+    if (pts.length < reqMin) {
+      return {level: 'warn', text: `أضف النقاط المتبقية (${pts.length} / ${reqMin} كحد أدنى).`};
+    }
+    if (pts.length > reqMax) {
+      return {level: 'err', text: `عدد النقاط يتجاوز الحد المسموح (${reqMax}).`};
+    }
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]);
+        if (d < MIN_VERTEX_DIST) {
+          return {level: 'err', text: `الزاويتان ${i + 1} و${j + 1} متطابقتان أو متقاربتان جداً.`};
+        }
+        if (sample && sample.width_px > 0 && sample.height_px > 0) {
+          const dp = Math.hypot((pts[i][0] - pts[j][0]) * sample.width_px, (pts[i][1] - pts[j][1]) * sample.height_px);
+          if (dp < 2.0) return {level: 'err', text: `الزاويتان ${i + 1} و${j + 1} أقرب من 2 بكسل.`};
+        }
+      }
+    }
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (j === i || j === i + 1 || (i === 0 && j === n - 1)) continue;
+        if (segsIntersect(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) {
+          return {level: 'err', text: 'المضلع متقاطع ذاتياً؛ اسحب الزوايا أو اضغط «ترتيب TL→TR→BR→BL».'};
+        }
+      }
+    }
+    const area = signedArea(pts);
+    if (Math.abs(area) < MIN_POLY_AREA) {
+      return {level: 'err', text: 'مساحة المضلع صفرية أو صغيرة جداً.'};
+    }
+    if (area < 0) {
+      return {level: 'err', text: 'اتجاه النقاط عكس عقارب الساعة؛ اضغط «عكس الاتجاه ⇄» أو «ترتيب TL→TR→BR→BL».'};
+    }
+    if (doc.boundary_status === 'complete') {
+      for (let i = 0; i < 4; i++) {
+        const a = pts[i], b = pts[(i + 1) % 4], c = pts[(i + 2) % 4];
+        const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+        if (cross <= 1e-6) {
+          return {level: 'err', text: 'الرباعي الكامل غير محدب؛ راجع مواضع الزوايا الأربع.'};
+        }
+      }
+      let startIdx = 0;
+      for (let i = 1; i < 4; i++) {
+        if (pts[i][0] + pts[i][1] < pts[startIdx][0] + pts[startIdx][1] - 1e-4) startIdx = i;
+      }
+      if (startIdx !== 0) {
+        return {level: 'err', text: `نقطة البداية ليست أعلى اليسار (الزاوية ${startIdx + 1} هي الأعلى يساراً)؛ اضغط «ترتيب TL→TR→BR→BL».`};
+      }
+      return {level: 'ok', text: `✓ رباعي محدب صالح ومرتب مع عقارب الساعة (TL→TR→BR→BL) · المساحة ${(area * 100).toFixed(1)}%`};
+    }
+    return {level: 'ok', text: `✓ مضلع مرئي صالح (${pts.length} نقاط) مع عقارب الساعة · المساحة ${(area * 100).toFixed(1)}%`};
+  }
+
+  function syncCornersWithPolygon(doc) {
+    if (!doc) return;
+    if (doc.boundary_status === 'undeterminable') {
+      doc.visible_polygon = [];
+      doc.corners = null;
+      return;
+    }
+    doc.visible_polygon = roundPoints(doc.visible_polygon || []);
+    if (doc.boundary_status === 'complete' && doc.visible_polygon.length === 4) {
+      doc.corners = roundPoints(doc.visible_polygon);
+    } else {
+      doc.corners = null;
+    }
+  }
+
+  function pushUndo(sample) {
+    if (!sample) return;
+    sample._undo = sample._undo || [];
+    sample._undo.push(JSON.stringify(sample.documents));
+    if (sample._undo.length > 30) sample._undo.shift();
+  }
+
+  function saveDraftToLocalStorage(silent = true) {
+    if (!$('autoSaveToggle').checked && silent) return;
+    const reviewer = $('reviewerId').value.trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(reviewer) || !state.samples.length) return;
+    try {
+      const payload = buildExportPayload(reviewer);
+      localStorage.setItem(STORAGE_PREFIX + reviewer, JSON.stringify(payload));
+      if (!silent) setNotice('workspaceNotice', 'تم حفظ المسودة في التخزين المحلي للمتصفح.', 'ok');
+    } catch (_) {
+      if (!silent) setNotice('workspaceNotice', 'تعذر الحفظ في التخزين المحلي للمتصفح؛ استخدم تصدير JSON.', 'err');
+    }
+  }
+
+  function restoreFromPayloadObject(data, {fromDraftStorage = false} = {}) {
+    const reviewer = $('reviewerId').value.trim();
+    let normalized = data;
+    if (data && data.schema === LEGACY_SCHEMA_V1) {
+      normalized = upgradeLegacyV1InBrowser(data);
+    }
+    if (!normalized || normalized.schema !== SCHEMA) {
+      throw new Error('صيغة ملف JSON غير مدعومة (المطلوب scan-id-local-annotations-v2).');
+    }
+    const fileOwner = normalized.annotator_id || '';
+    const isSeed = fileOwner === 'SEED_UNANNOTATED';
+    const isAdjudicator = reviewer.startsWith('ADJ');
+    if (!isSeed && !isAdjudicator && reviewer && fileOwner && fileOwner !== reviewer) {
+      throw new Error('رموز الموسّمين مختلفة؛ لا تفتح ملف مراجع آخر أثناء المراجعة المستقلة العمياء.');
+    }
+
+    const byId = new Map((normalized.samples || []).map((x) => [x.image_id, x]));
+    let restored = 0;
+    state.samples.forEach((s) => {
+      const old = byId.get(s.image_id);
+      if (!old) return;
+      s.image_source = old.image_source || s.image_source || 'unknown';
+      s.capture_group_id = old.capture_group_id || '';
+      s.near_duplicate_cluster_id = old.near_duplicate_cluster_id || s.near_duplicate_cluster_id || '';
+      s.suitability_status = old.suitability_status || s.suitability_status;
+      s.annotation_status = old.annotation_status || s.annotation_status;
+      s.exclusion_reason = old.exclusion_reason || '';
+      s.image_quality_level = old.image_quality_level || 'unassessed';
+      s.difficulty_reasons = Array.isArray(old.difficulty_reasons) ? [...old.difficulty_reasons] : [];
+      s.annotator_id = old.annotator_id || '';
+      s.annotated_at = old.annotated_at || '';
+      s.second_review = Object.assign(defaultSecondReview(), old.second_review || {});
+      s.no_document = !!old.no_document;
+      s.documents = Array.isArray(old.documents) ? old.documents.map((d, idx) => ({
+        document_id: d.document_id || `${s.image_id.slice(0, 12)}-doc-${String(idx + 1).padStart(2, '0')}`,
+        label_origin: d.label_origin || 'human_manual',
+        human_verified: typeof d.human_verified === 'boolean' ? d.human_verified : true,
+        document_kind: d.document_kind || 'unknown',
+        boundary_status: d.boundary_status || 'complete',
+        corners: Array.isArray(d.corners) ? roundPoints(d.corners) : null,
+        visible_polygon: Array.isArray(d.visible_polygon) ? roundPoints(d.visible_polygon) : [],
+        crop_quality: d.crop_quality || 'uncertain',
+        quality_flags: Array.isArray(d.quality_flags) ? [...d.quality_flags] : []
+      })) : [];
+      if (Array.isArray(old.ai_suggestions) && old.ai_suggestions.length) {
+        s.ai_suggestions = old.ai_suggestions.map((a) => ({...a}));
+      }
+      restored++;
+    });
+    if (restored > 0 && !fromDraftStorage) {
+      setNotice('setupNotice', `تم استرجاع بيانات مطابقة لـ ${restored} صورة بنجاح.`, 'ok');
+    }
+    return restored;
+  }
+
+  function upgradeLegacyV1InBrowser(v1) {
+    const visMap = {fully_visible: 'complete', partially_occluded: 'occluded', truncated: 'partial', unscorable: 'undeterminable'};
+    const flagMap = {blur: 'blur', glare: 'glare', low_light: 'low_light', perspective: 'severe_perspective', occlusion: 'occlusion', compression: 'compression', other: 'other'};
+    const reviewer = v1.reviewer_id || 'R1';
+    const createdAt = v1.created_at || nowIso();
+    return {
+      schema: SCHEMA,
+      schema_version: SCHEMA_VERSION,
+      annotator_id: reviewer,
+      created_at: createdAt,
+      coordinate_system: COORDINATE_SYSTEM,
+      exif_policy: EXIF_POLICY,
+      pii_policy: PII_POLICY,
+      samples: (v1.samples || []).map((old, idx) => {
+        const annStatus = old.decode_status === 'failed' || old.review_status === 'unscorable'
+          ? 'excluded'
+          : old.review_status === 'reviewed'
+            ? (old.adjudication_status === 'adjudicated' ? 'second_review' : 'annotated')
+            : 'unannotated';
+        const docs = (old.documents || []).map((d, dIdx) => {
+          const bStatus = visMap[d.visibility] || 'complete';
+          const poly = bStatus === 'undeterminable' ? [] : roundPoints(d.visible_polygon || []);
+          return {
+            document_id: `${String(old.sample_id || '').slice(0, 12)}-doc-${String(dIdx + 1).padStart(2, '0')}`,
+            label_origin: 'human_manual',
+            human_verified: annStatus === 'annotated' || annStatus === 'second_review',
+            document_kind: d.document_kind || 'unknown',
+            boundary_status: bStatus,
+            corners: bStatus === 'complete' && poly.length === 4 ? roundPoints(poly) : null,
+            visible_polygon: poly,
+            crop_quality: d.crop_quality || 'uncertain',
+            quality_flags: (d.quality_flags || []).map((f) => flagMap[f]).filter(Boolean)
+          };
+        });
+        return {
+          image_id: old.sample_id,
+          internal_code: `IMG-${String(idx + 1).padStart(2, '0')}`,
+          image_format: 'jpeg',
+          decode_status: old.decode_status || 'ok',
+          raw_width_px: old.width_px || 0,
+          raw_height_px: old.height_px || 0,
+          exif_orientation: 1,
+          width_px: old.width_px || 0,
+          height_px: old.height_px || 0,
+          perceptual_dhash64: '',
+          near_duplicate_cluster_id: '',
+          image_source: 'unknown',
+          capture_group_id: old.capture_group_id || '',
+          suitability_status: annStatus === 'excluded' ? 'unreadable' : 'annotatable',
+          annotation_status: annStatus,
+          exclusion_reason: old.decode_status === 'failed' ? 'decode_failed' : (annStatus === 'excluded' ? 'boundary_unscorable' : ''),
+          image_quality_level: 'unassessed',
+          difficulty_reasons: [],
+          annotator_id: annStatus === 'annotated' || annStatus === 'second_review' ? reviewer : '',
+          annotated_at: annStatus === 'annotated' || annStatus === 'second_review' ? createdAt : '',
+          second_review: defaultSecondReview(),
+          no_document: !!old.no_document,
+          document_count: old.no_document ? 0 : docs.length,
+          documents: old.no_document ? [] : docs,
+          ai_suggestions: []
+        };
+      })
+    };
   }
 
   async function loadImages() {
-    const reviewer=$('reviewerId').value.trim();
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(reviewer)) { setNotice('setupNotice','أدخل رمز مراجع غير شخصي من 1 إلى 32 حرفاً/رقماً أو _/- (مثال R1).'); return; }
-    const files=Array.from($('imageFiles').files || []);
-    if (!files.length) { setNotice('setupNotice','اختر صوراً محلية أولاً.'); return; }
-    const imageFiles=files.filter((f)=>/^image\/(jpeg|png|webp|bmp)$/i.test(f.type));
-    if (!imageFiles.length) { setNotice('setupNotice','لم يتم العثور على صور JPEG/PNG/WebP/BMP قابلة للاختيار.'); return; }
-    $('loadImages').disabled=true;
-    $('workspace').classList.add('hidden');
-    setNotice('setupNotice',`جارٍ حساب بصمات محلية وتحميل ${imageFiles.length} صورة؛ لا يغادر أي ملف هذا التبويب.`);
-    const samples=[]; const seen=new Set(); let decodeFailures=0; let duplicates=0;
+    const reviewer = $('reviewerId').value.trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(reviewer)) {
+      setNotice('setupNotice', 'أدخل رمز موسِّم غير شخصي من 1 إلى 32 حرفاً/رقماً لاتينياً أو _/- (مثال R1).', 'err');
+      return;
+    }
+    const files = Array.from($('imageFiles').files || []);
+    if (!files.length) {
+      setNotice('setupNotice', 'اختر ملفات الصور المحلية أولاً.', 'err');
+      return;
+    }
+    $('loadImages').disabled = true;
+    setNotice('setupNotice', `جارٍ قراءة ${files.length} ملف محلياً وحساب SHA-256 وEXIF وdHash64...`);
+
     try {
-      for (let i=0;i<imageFiles.length;i++) {
-        const file=imageFiles[i];
-        const id=await sha256(file);
-        if (seen.has(id)) { duplicates++; continue; }
-        seen.add(id);
-        let decodeStatus='ok', width=0, height=0;
-        try { const probe=await createImageBitmap(file,{imageOrientation:'from-image'}); width=probe.width; height=probe.height; probe.close?.(); }
-        catch (_) { decodeStatus='failed'; decodeFailures++; }
-        samples.push({sample_id:id,width_px:width,height_px:height,decode_status:decodeStatus,review_status:decodeStatus==='failed'?'unscorable':'pending',adjudication_status:'not_adjudicated',capture_group_id:'',no_document:false,documents:[],_file:file});
-        setNotice('setupNotice',`تمت معالجة ${i+1} / ${imageFiles.length} صورة داخل المتصفح فقط.`);
+      const records = [];
+      const seenSha = new Set();
+      let byteDuplicates = 0;
+      let decodeFailed = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const buf = await file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        const fmt = detectFormatFromMimeOrMagic(file, bytes);
+        if (fmt === 'unknown' && !/\.(jpe?g|png|webp|bmp)$/i.test(file.name || '')) continue;
+        const sha = await sha256Hex(buf);
+        if (seenSha.has(sha)) { byteDuplicates++; continue; }
+        seenSha.add(sha);
+
+        const jpegMeta = fmt === 'jpeg'
+          ? parseJpegExifAndRawSize(bytes)
+          : {exifOrientation: 1, rawWidth: 0, rawHeight: 0};
+
+        let decodeStatus = 'ok';
+        let widthPx = 0, heightPx = 0, rawW = jpegMeta.rawWidth, rawH = jpegMeta.rawHeight;
+        let exifOrient = jpegMeta.exifOrientation;
+        let dhash = '';
+
+        try {
+          const bmp = await createImageBitmap(file, {imageOrientation: 'from-image'});
+          widthPx = bmp.width;
+          heightPx = bmp.height;
+          if (!rawW || !rawH) {
+            if (exifOrient >= 5 && exifOrient <= 8) { rawW = heightPx; rawH = widthPx; }
+            else { rawW = widthPx; rawH = heightPx; }
+          }
+          dhash = computeDhash64FromBitmap(bmp);
+          bmp.close?.();
+        } catch (_) {
+          decodeStatus = 'failed';
+          rawW = 0; rawH = 0; widthPx = 0; heightPx = 0; exifOrient = 0;
+          decodeFailed++;
+        }
+
+        records.push({sha, file, fmt: decodeStatus === 'ok' ? (fmt === 'unknown' ? 'jpeg' : fmt) : 'unknown', decodeStatus, rawW, rawH, exifOrient, widthPx, heightPx, dhash});
       }
-      state.samples=samples; state.current=0; state.activeDocument=0; state.dirty=false;
-      $('resumeFile').disabled=false;
+
+      if (!records.length) {
+        setNotice('setupNotice', 'لم يُعثر على ملفات صور مدعومة (JPEG/PNG/WebP/BMP).', 'err');
+        return;
+      }
+
+      records.sort((a, b) => a.sha.localeCompare(b.sha));
+
+      const samples = records.map((r, idx) => ({
+        image_id: r.sha,
+        internal_code: `IMG-${String(idx + 1).padStart(2, '0')}`,
+        image_format: r.fmt,
+        decode_status: r.decodeStatus,
+        raw_width_px: r.rawW,
+        raw_height_px: r.rawH,
+        exif_orientation: r.exifOrient,
+        width_px: r.widthPx,
+        height_px: r.heightPx,
+        perceptual_dhash64: r.dhash,
+        near_duplicate_cluster_id: '',
+        image_source: 'unknown',
+        capture_group_id: '',
+        suitability_status: r.decodeStatus === 'ok' ? (Math.min(r.widthPx, r.heightPx) < 280 ? 'unclear' : 'annotatable') : 'unreadable',
+        annotation_status: r.decodeStatus === 'ok' ? 'unannotated' : 'excluded',
+        exclusion_reason: r.decodeStatus === 'ok' ? '' : 'decode_failed',
+        image_quality_level: 'unassessed',
+        difficulty_reasons: r.decodeStatus === 'ok' && Math.min(r.widthPx, r.heightPx) < 280 ? ['compression'] : [],
+        annotator_id: '',
+        annotated_at: '',
+        second_review: defaultSecondReview(),
+        no_document: false,
+        document_count: 0,
+        documents: [],
+        ai_suggestions: [],
+        _file: r.file,
+        _undo: []
+      }));
+
+      // Auto-detect perceptual near-duplicates (dHash64 Hamming <= 10)
+      let clusterSeq = 1;
+      for (let i = 0; i < samples.length; i++) {
+        for (let j = i + 1; j < samples.length; j++) {
+          if (!samples[i].perceptual_dhash64 || !samples[j].perceptual_dhash64) continue;
+          if (dhashHamming(samples[i].perceptual_dhash64, samples[j].perceptual_dhash64) <= 10) {
+            const cid = samples[i].near_duplicate_cluster_id || samples[j].near_duplicate_cluster_id || `dup-cluster-${String(clusterSeq++).padStart(2, '0')}`;
+            samples[i].near_duplicate_cluster_id = cid;
+            samples[j].near_duplicate_cluster_id = cid;
+          }
+        }
+      }
+
+      state.samples = samples;
+      state.current = 0;
+      state.activeDocument = 0;
+      state.selectedVertex = -1;
+      state.dirty = false;
+
+      let draftRestored = 0;
+      try {
+        const saved = localStorage.getItem(STORAGE_PREFIX + reviewer);
+        if (saved) draftRestored = restoreFromPayloadObject(JSON.parse(saved), {fromDraftStorage: true});
+      } catch (_) {}
+
+      $('resumeFile').disabled = false;
       $('workspace').classList.remove('hidden');
-      render();
-      setNotice('setupNotice',`اكتمل التحميل: ${samples.length} صورة فريدة، ${duplicates} مكررة، ${decodeFailures} تعذر فكّها. لا تظهر أسماء الملفات.`,true);
-      setNotice('workspaceNotice','');
-    } catch (error) {
-      setNotice('setupNotice',error?.message || 'تعذر تحميل الصور محلياً.');
-    } finally { $('loadImages').disabled=false; }
+      await loadBitmapForCurrentSample(true);
+      renderAll();
+
+      const nearDupCount = samples.filter((s) => s.near_duplicate_cluster_id).length;
+      setNotice(
+        'setupNotice',
+        `تم تحميل ${samples.length} صورة فريدة (${byteDuplicates} مكررة بايتياً، ${nearDupCount} ضمن مجموعات تشابه بصري، ${decodeFailed} فشل فكّها)` +
+          (draftRestored ? ` · استُعيدت مسودة محلية لـ ${draftRestored} صورة.` : '.'),
+        'ok'
+      );
+    } catch (err) {
+      setNotice('setupNotice', err?.message || 'تعذر تحميل الصور محلياً.', 'err');
+    } finally {
+      $('loadImages').disabled = false;
+    }
   }
 
-  function drawCurrentBitmap(s, bitmap) {
-    $('emptyCanvas').classList.add('hidden'); canvas.classList.remove('hidden');
-    const maxEdge=2200; state.canvasScale=Math.min(1,maxEdge/Math.max(bitmap.width,bitmap.height));
-    canvas.width=Math.max(1,Math.round(bitmap.width*state.canvasScale)); canvas.height=Math.max(1,Math.round(bitmap.height*state.canvasScale));
-    ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
-    const colors=['#ffd166','#65e0cf','#8ab6ff','#ff8bab','#c598ff','#b6e879','#ff9e65'];
-    const docs=s.no_document?[]:s.documents;
-    docs.forEach((doc,index)=>{
-      const pts=doc.visible_polygon || []; if (!pts.length) return;
-      ctx.save(); ctx.lineWidth=Math.max(3,canvas.width/450); ctx.strokeStyle=colors[index%colors.length]; ctx.fillStyle=colors[index%colors.length]+'26';
-      ctx.beginPath(); pts.forEach(([x,y],i)=>{const px=x*canvas.width,py=y*canvas.height;i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);});
-      if (pts.length>=3) {ctx.closePath();ctx.fill();} ctx.stroke();
-      pts.forEach(([x,y],pi)=>{const px=x*canvas.width,py=y*canvas.height;ctx.beginPath();ctx.arc(px,py,Math.max(5,canvas.width/180),0,Math.PI*2);ctx.fillStyle=colors[index%colors.length];ctx.fill();ctx.fillStyle='#08111c';ctx.font=`bold ${Math.max(12,canvas.width/80)}px system-ui`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(pi+1),px,py);});
-      const [lx,ly]=pts[0];ctx.fillStyle=colors[index%colors.length];ctx.font=`bold ${Math.max(14,canvas.width/65)}px system-ui`;ctx.textAlign='left';ctx.fillText(`D${index+1}`,lx*canvas.width+8,ly*canvas.height-10);ctx.restore();
+  async function loadBitmapForCurrentSample(fit = false) {
+    const s = selectedSample();
+    if (!s || s.decode_status === 'failed') {
+      state.currentBitmap?.bitmap?.close?.();
+      state.currentBitmap = null;
+      canvas.classList.add('hidden');
+      $('emptyCanvas').classList.remove('hidden');
+      return;
+    }
+    if (state.currentBitmap?.imageId === s.image_id) {
+      if (fit) fitZoomToViewport();
+      drawCanvas();
+      return;
+    }
+    state.currentBitmap?.bitmap?.close?.();
+    state.currentBitmap = null;
+    try {
+      const bitmap = await createImageBitmap(s._file, {imageOrientation: 'from-image'});
+      if (selectedSample()?.image_id !== s.image_id) { bitmap.close?.(); return; }
+      const maxCanvasEdge = 4096;
+      const scale = Math.min(1, maxCanvasEdge / Math.max(bitmap.width, bitmap.height));
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      state.currentBitmap = {imageId: s.image_id, bitmap};
+      canvas.classList.remove('hidden');
+      $('emptyCanvas').classList.add('hidden');
+      if (fit) fitZoomToViewport();
+      drawCanvas();
+    } catch (_) {
+      s.decode_status = 'failed';
+      s.annotation_status = 'excluded';
+      s.exclusion_reason = 'decode_failed';
+      s.suitability_status = 'unreadable';
+      canvas.classList.add('hidden');
+      $('emptyCanvas').classList.remove('hidden');
+    }
+  }
+
+  function fitZoomToViewport() {
+    if (!state.currentBitmap || !canvas.width || !canvas.height) return;
+    const vw = viewport.clientWidth || 720;
+    const vh = viewport.clientHeight || 480;
+    const pad = 28;
+    const z = Math.min((vw - pad) / canvas.width, (vh - pad) / canvas.height);
+    state.zoom = Math.max(0.1, Math.min(6, z));
+    state.panX = Math.round((vw - canvas.width * state.zoom) / 2);
+    state.panY = Math.round((vh - canvas.height * state.zoom) / 2);
+    applyCanvasTransform();
+  }
+
+  function setZoomAround(factorOrExact, centerX, centerY, isExact = false) {
+    if (!canvas.width || !canvas.height) return;
+    const oldZ = state.zoom;
+    const nextZ = isExact ? factorOrExact : oldZ * factorOrExact;
+    const clamped = Math.max(0.15, Math.min(12, nextZ));
+    const imgX = (centerX - state.panX) / oldZ;
+    const imgY = (centerY - state.panY) / oldZ;
+    state.zoom = clamped;
+    state.panX = centerX - imgX * clamped;
+    state.panY = centerY - imgY * clamped;
+    applyCanvasTransform();
+    drawCanvas();
+  }
+
+  function applyCanvasTransform() {
+    canvas.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    const s = selectedSample();
+    const effectiveRatio = s && s.width_px > 0 ? Math.round((canvas.width * state.zoom / s.width_px) * 100) : Math.round(state.zoom * 100);
+    $('hudZoom').textContent = `Zoom: ${effectiveRatio}%`;
+  }
+
+  function viewportEventToNorm(event) {
+    const rect = viewport.getBoundingClientRect();
+    const vx = event.clientX - rect.left;
+    const vy = event.clientY - rect.top;
+    const cx = (vx - state.panX) / state.zoom;
+    const cy = (vy - state.panY) / state.zoom;
+    return {
+      vx,
+      vy,
+      nx: round6(clamp01(cx / Math.max(1, canvas.width))),
+      ny: round6(clamp01(cy / Math.max(1, canvas.height)))
+    };
+  }
+
+  function drawArrowHead(x1, y1, x2, y2, size) {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    ctx.beginPath();
+    ctx.moveTo(mx + Math.cos(ang) * size, my + Math.sin(ang) * size);
+    ctx.lineTo(mx + Math.cos(ang + 2.5) * size, my + Math.sin(ang + 2.5) * size);
+    ctx.lineTo(mx + Math.cos(ang - 2.5) * size, my + Math.sin(ang - 2.5) * size);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawCanvas() {
+    const s = selectedSample();
+    if (!s || !state.currentBitmap || state.currentBitmap.imageId !== s.image_id) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(state.currentBitmap.bitmap, 0, 0, canvas.width, canvas.height);
+
+    const invScale = 1 / Math.max(0.35, state.zoom);
+
+    // Optional AI Suggestions Overlay (strictly dashed & labeled as non-ground-truth)
+    if (state.showAi && Array.isArray(s.ai_suggestions)) {
+      s.ai_suggestions.forEach((sug, idx) => {
+        if (!Array.isArray(sug.corners) || sug.corners.length !== 4) return;
+        ctx.save();
+        ctx.strokeStyle = '#5ce1e6';
+        ctx.lineWidth = Math.max(1.5, 2.4 * invScale);
+        ctx.setLineDash([8 * invScale, 6 * invScale]);
+        ctx.beginPath();
+        sug.corners.forEach(([x, y], i) => {
+          const px = x * canvas.width, py = y * canvas.height;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const [tx, ty] = sug.corners[0];
+        ctx.fillStyle = '#071b22e0';
+        const label = `AI#${idx + 1} (${sug.gate_verdict})`;
+        ctx.font = `bold ${Math.max(10, 12 * invScale)}px system-ui`;
+        ctx.fillRect(tx * canvas.width, ty * canvas.height - 18 * invScale, (label.length * 7 + 10) * invScale, 17 * invScale);
+        ctx.fillStyle = '#7ef7ff';
+        ctx.fillText(label, tx * canvas.width + 4 * invScale, ty * canvas.height - 5 * invScale);
+        ctx.restore();
+      });
+    }
+
+    // Human Document Polygons
+    const palette = ['#ffd166', '#57d6c4', '#8ab6ff', '#ff8bab', '#c598ff', '#b6e879'];
+    const docs = s.no_document ? [] : s.documents;
+    const cornerLabels = ['1:TL', '2:TR', '3:BR', '4:BL'];
+
+    docs.forEach((doc, dIdx) => {
+      const pts = doc.visible_polygon || [];
+      if (!pts.length) return;
+      const isActive = dIdx === state.activeDocument;
+      const color = palette[dIdx % palette.length];
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color + (isActive ? '2c' : '14');
+      ctx.lineWidth = Math.max(1.5, (isActive ? 3.2 : 2.0) * invScale);
+
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => {
+        const px = x * canvas.width, py = y * canvas.height;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      if (pts.length >= 3) {
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.stroke();
+
+      // Edge direction arrows
+      if (isActive && pts.length >= 2) {
+        ctx.fillStyle = color;
+        const count = pts.length >= 3 ? pts.length : pts.length - 1;
+        for (let i = 0; i < count; i++) {
+          const [x1, y1] = pts[i];
+          const [x2, y2] = pts[(i + 1) % pts.length];
+          drawArrowHead(x1 * canvas.width, y1 * canvas.height, x2 * canvas.width, y2 * canvas.height, 6.5 * invScale);
+        }
+      }
+
+      // Vertex handles
+      pts.forEach(([x, y], pIdx) => {
+        const px = x * canvas.width, py = y * canvas.height;
+        const isSel = isActive && pIdx === state.selectedVertex;
+        const r = (isSel ? 8.5 : 6.2) * invScale;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.fillStyle = isSel ? '#ffffff' : color;
+        ctx.fill();
+        ctx.lineWidth = 2 * invScale;
+        ctx.strokeStyle = '#07101c';
+        ctx.stroke();
+
+        const tag = doc.boundary_status === 'complete' && pts.length <= 4 ? cornerLabels[pIdx] : String(pIdx + 1);
+        ctx.font = `bold ${Math.max(10, 11.5 * invScale)}px system-ui`;
+        ctx.fillStyle = '#07101ce6';
+        const tw = (tag.length * 6.8 + 8) * invScale;
+        ctx.fillRect(px + 8 * invScale, py - 9 * invScale, tw, 16 * invScale);
+        ctx.fillStyle = isSel ? '#fff' : color;
+        ctx.fillText(tag, px + 11 * invScale, py + 3 * invScale);
+      });
+
+      const [lx, ly] = pts[0];
+      ctx.fillStyle = color;
+      ctx.font = `bold ${Math.max(11, 13 * invScale)}px system-ui`;
+      ctx.fillText(`D${dIdx + 1}: ${doc.document_kind}`, lx * canvas.width + 6 * invScale, ly * canvas.height - 10 * invScale);
+      ctx.restore();
     });
   }
 
-  async function renderCanvas() {
-    const s=selectedSample();
-    if (!s || s.decode_status==='failed') {
-      state.currentBitmap?.bitmap.close?.(); state.currentBitmap=null;
-      canvas.classList.add('hidden'); $('emptyCanvas').classList.remove('hidden'); canvas.width=0; canvas.height=0; return;
+  function findHitVertex(nx, ny) {
+    const d = currentDocument();
+    if (!d || !Array.isArray(d.visible_polygon)) return -1;
+    const hitRadiusPx = 13 / Math.max(0.25, state.zoom);
+    let best = -1, bestDist = Infinity;
+    d.visible_polygon.forEach(([vx, vy], idx) => {
+      const dist = Math.hypot((vx - nx) * canvas.width, (vy - ny) * canvas.height);
+      if (dist <= hitRadiusPx && dist < bestDist) {
+        bestDist = dist;
+        best = idx;
+      }
+    });
+    return best;
+  }
+
+  function saveFormIntoState() {
+    const s = selectedSample();
+    if (!s) return;
+    const reviewer = $('reviewerId').value.trim();
+    const grp = $('captureGroup').value.trim();
+    if (!grp || /^[A-Za-z0-9_.-]{1,80}$/.test(grp)) s.capture_group_id = grp;
+    const dup = $('dupCluster').value.trim();
+    if (!dup || /^[A-Za-z0-9_.-]{1,64}$/.test(dup)) s.near_duplicate_cluster_id = dup;
+
+    const prevStatus = s.annotation_status;
+    s.annotation_status = $('annotationStatus').value;
+    s.suitability_status = $('suitabilityStatus').value;
+    s.exclusion_reason = s.annotation_status === 'excluded' ? $('exclusionReason').value : '';
+    s.image_source = $('imageSource').value;
+    s.image_quality_level = $('imageQualityLevel').value;
+    s.difficulty_reasons = Array.from($('sceneDifficultyFlags').querySelectorAll('input:checked')).map((el) => el.value).sort();
+    s.no_document = $('noDocument').checked;
+
+    if ((s.annotation_status === 'annotated' || s.annotation_status === 'second_review') && /^[A-Za-z0-9_-]{1,32}$/.test(reviewer)) {
+      if (!s.annotator_id) s.annotator_id = reviewer;
+      if (!s.annotated_at || prevStatus !== s.annotation_status) s.annotated_at = nowIso();
     }
-    if (state.currentBitmap?.sampleId===s.sample_id) { drawCurrentBitmap(s,state.currentBitmap.bitmap); return; }
-    state.currentBitmap?.bitmap.close?.(); state.currentBitmap=null;
-    canvas.classList.add('hidden'); $('emptyCanvas').classList.remove('hidden'); $('emptyCanvas').textContent='جارٍ فك الصورة محلياً…';
-    const expectedId=s.sample_id;
-    try {
-      const bitmap=await createImageBitmap(s._file,{imageOrientation:'from-image'});
-      if (selectedSample()?.sample_id!==expectedId) { bitmap.close?.(); return; }
-      state.currentBitmap={sampleId:expectedId,bitmap};
-      drawCurrentBitmap(s,bitmap);
-    } catch (_) {
-      if (selectedSample()?.sample_id===expectedId) {s.decode_status='failed';s.review_status='unscorable';canvas.classList.add('hidden');$('emptyCanvas').classList.remove('hidden');$('emptyCanvas').textContent='تعذر فك هذه الصورة. علّمها «غير قابلة للتقييم» بدلاً من تجاهلها.';render();}
+
+    s.second_review = s.second_review || defaultSecondReview();
+    const srStatus = $('srStatus').value;
+    s.second_review.status = srStatus;
+    s.second_review.reviewer_id = $('srReviewerId').value.trim();
+    s.second_review.adjudicator_id = $('srAdjudicatorId').value.trim();
+    s.second_review.resolution_code = $('srResolutionCode').value;
+    if (srStatus === 'not_started') {
+      s.second_review.reviewed_at = '';
+      s.second_review.dispute_status = 'none';
+      s.second_review.adjudicated_at = '';
+      s.second_review.resolution_code = '';
+    } else {
+      if (!s.second_review.reviewed_at) s.second_review.reviewed_at = nowIso();
+      if (srStatus === 'agreed') s.second_review.dispute_status = 'none';
+      else if (srStatus === 'disputed') s.second_review.dispute_status = 'open_dispute';
+      else if (srStatus === 'resolved') {
+        s.second_review.dispute_status = 'resolved_by_protocol';
+        if (!s.second_review.adjudicated_at) s.second_review.adjudicated_at = nowIso();
+      } else if (srStatus === 'excluded_after_dispute') {
+        s.second_review.dispute_status = 'excluded_unresolvable';
+        s.annotation_status = 'excluded';
+        if (!s.exclusion_reason) s.exclusion_reason = 'unresolved_annotator_dispute';
+      }
+    }
+
+    const d = currentDocument();
+    if (d) {
+      d.document_kind = $('documentKind').value;
+      d.boundary_status = $('boundaryStatus').value;
+      d.crop_quality = $('cropQuality').value;
+      d.quality_flags = Array.from($('docQualityFlags').querySelectorAll('input:checked')).map((el) => el.value).sort();
+      d.human_verified = $('humanVerifiedCheck').checked;
+      syncCornersWithPolygon(d);
+    }
+    s.document_count = s.no_document ? 0 : s.documents.length;
+    state.dirty = true;
+    saveDraftToLocalStorage(true);
+  }
+
+  function renderSampleStrip() {
+    const strip = $('sampleStrip');
+    strip.replaceChildren();
+    state.samples.forEach((s, idx) => {
+      if (state.filter !== 'all' && s.annotation_status !== state.filter) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `sample-pill st-${s.annotation_status}${idx === state.current ? ' current' : ''}`;
+      btn.textContent = `${s.internal_code}${s.near_duplicate_cluster_id ? ' ⧉' : ''}`;
+      btn.addEventListener('click', async () => {
+        saveFormIntoState();
+        state.current = idx;
+        state.activeDocument = 0;
+        state.selectedVertex = -1;
+        await loadBitmapForCurrentSample(true);
+        renderAll();
+      });
+      strip.appendChild(btn);
+    });
+  }
+
+  function renderDocumentSection() {
+    const s = selectedSample();
+    const card = $('documentCard');
+    if (!s || s.no_document || s.decode_status === 'failed' || s.annotation_status === 'excluded') {
+      card.classList.add('hidden');
+      $('geomBanner').className = 'geom-banner ok';
+      $('geomBanner').textContent = s?.annotation_status === 'excluded'
+        ? `الصورة مستبعدة (${s.exclusion_reason || 'حدد السبب'}) — لن تدخل في حساب دقة الحدود.`
+        : 'عينة خلفية سلبية بدون مستندات (document_count = 0).';
+      return;
+    }
+    card.classList.remove('hidden');
+    if (!s.documents.length) s.documents.push(defaultDocument(s));
+    state.activeDocument = Math.max(0, Math.min(state.activeDocument, s.documents.length - 1));
+
+    const sel = $('documentSelector');
+    sel.replaceChildren();
+    s.documents.forEach((doc, idx) => {
+      const opt = document.createElement('option');
+      opt.value = String(idx);
+      opt.textContent = `مستند D${idx + 1} (${doc.document_kind})`;
+      sel.appendChild(opt);
+    });
+    sel.value = String(state.activeDocument);
+    $('removeDocument').disabled = s.documents.length <= 1;
+
+    const d = currentDocument();
+    $('documentKind').value = d.document_kind || 'unknown';
+    $('boundaryStatus').value = d.boundary_status || 'complete';
+    $('cropQuality').value = d.crop_quality || 'uncertain';
+    $('humanVerifiedCheck').checked = !!d.human_verified;
+    $('originBadge').textContent = d.label_origin === 'human_verified_from_suggestion'
+      ? 'مقترح آلي معدّل ومراجع بشرياً'
+      : 'وسم بشري يدوي';
+
+    const qset = new Set(d.quality_flags || []);
+    $('docQualityFlags').querySelectorAll('input').forEach((el) => { el.checked = qset.has(el.value); });
+
+    const chips = $('pointChips');
+    chips.replaceChildren();
+    const labels = ['1:TL', '2:TR', '3:BR', '4:BL'];
+    (d.visible_polygon || []).forEach(([x, y], idx) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pt-chip' + (idx === state.selectedVertex ? ' selected' : '');
+      const tag = d.boundary_status === 'complete' && d.visible_polygon.length <= 4 ? labels[idx] : `P${idx + 1}`;
+      b.textContent = `${tag} (${x.toFixed(3)}, ${y.toFixed(3)})`;
+      b.addEventListener('click', () => {
+        state.selectedVertex = state.selectedVertex === idx ? -1 : idx;
+        renderDocumentSection();
+        drawCanvas();
+      });
+      chips.appendChild(b);
+    });
+
+    $('deleteVertexBtn').disabled = state.selectedVertex < 0 || state.selectedVertex >= (d.visible_polygon || []).length;
+    $('pointList').textContent = JSON.stringify(roundPoints(d.visible_polygon || []));
+
+    const geom = inspectDocumentGeometry(d, s);
+    $('geomBanner').className = `geom-banner ${geom.level}`;
+    $('geomBanner').textContent = geom.text;
+
+    // AI Assist Box
+    const aiBox = $('aiAssistBox');
+    const aiList = s.ai_suggestions || [];
+    if (aiList.length > 0) {
+      aiBox.classList.remove('hidden');
+      $('aiCountLabel').textContent = `${aiList.length} مقترح آلي منفصل`;
+      $('showAiOverlay').checked = state.showAi;
+      const aiSel = $('aiSuggestionSelect');
+      aiSel.replaceChildren();
+      aiList.forEach((sug, idx) => {
+        const o = document.createElement('option');
+        o.value = String(idx);
+        o.textContent = `AI#${idx + 1} · ${sug.gate_verdict} · conf=${Number(sug.confidence || 0).toFixed(2)}`;
+        aiSel.appendChild(o);
+      });
+    } else {
+      aiBox.classList.add('hidden');
     }
   }
 
-  function renderDocumentControls() {
-    const s=selectedSample(), selector=$('documentSelector'); selector.replaceChildren();
-    if (!s || s.no_document || s.decode_status==='failed') { $('documentCard').classList.add('hidden'); return; }
-    $('documentCard').classList.remove('hidden');
-    if (!s.documents.length) s.documents.push(defaultDocument());
-    s.documents.forEach((_,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent=`مستند ${i+1}`;selector.appendChild(o);});
-    state.activeDocument=Math.min(state.activeDocument,s.documents.length-1); selector.value=String(state.activeDocument);
-    const d=currentDocument(); if (!d) return;
-    $('documentKind').value=d.document_kind || 'unknown'; $('visibility').value=d.visibility || 'fully_visible'; $('cropQuality').value=d.crop_quality || 'uncertain'; $('ocrReference').value=d.ocr_reference_text || ''; $('ocrReferenceVerified').checked=!!d.ocr_reference_verified;
-    const flags=new Set(d.quality_flags || []); $('qualityFlags').querySelectorAll('input').forEach((x)=>x.checked=flags.has(x.value));
-    $('pointList').textContent=JSON.stringify(pointArray(d.visible_polygon || []));
-    $('outlineHint').textContent=d.visibility==='fully_visible'?'أدخل أربع زوايا بالترتيب. لا تضف نقطة خامسة.':'أدخل مضلع الجزء المرئي فقط. لا تخمّن الزوايا المحجوبة أو خارج الإطار.';
-    $('finishOutline').disabled=d.visibility==='fully_visible';
-    $('undoPoint').disabled=!(d.visible_polygon || []).length; $('resetOutline').disabled=!(d.visible_polygon || []).length;
-    $('removeDocument').disabled=s.documents.length===1;
+  function renderAll() {
+    const s = selectedSample();
+    if (!s) return;
+
+    const statusLabels = {
+      unannotated: 'غير موسومة',
+      in_progress: 'قيد التوسيم',
+      annotated: 'موسومة بشرياً',
+      second_review: 'مراجعة ثانية',
+      excluded: 'مستبعدة'
+    };
+
+    $('sampleTitle').textContent = `${s.internal_code} · الصورة ${state.current + 1} من ${state.samples.length}`;
+    $('sampleMeta').textContent =
+      `معرّف SHA-256 مختصر: ${s.image_id.slice(0, 12)} · الصيغة: ${s.image_format.toUpperCase()} · ` +
+      `الأبعاد بعد EXIF: ${s.width_px}×${s.height_px} (الأصل: ${s.raw_width_px}×${s.raw_height_px}, EXIF=${s.exif_orientation})` +
+      (s.near_duplicate_cluster_id ? ` · تنبيه تشابه: ${s.near_duplicate_cluster_id}` : '');
+    $('hudExif').textContent = `EXIF=${s.exif_orientation} | ${s.width_px}x${s.height_px}px`;
+    $('sampleStatusChip').textContent = statusLabels[s.annotation_status] || s.annotation_status;
+
+    const counts = {unannotated: 0, in_progress: 0, annotated: 0, second_review: 0, excluded: 0};
+    state.samples.forEach((item) => { counts[item.annotation_status] = (counts[item.annotation_status] || 0) + 1; });
+    $('statTotal').textContent = String(state.samples.length);
+    $('statUnannotated').textContent = String(counts.unannotated);
+    $('statAnnotated').textContent = String(counts.annotated);
+    $('statSecond').textContent = String(counts.second_review);
+    $('statExcluded').textContent = String(counts.excluded);
+    const done = counts.annotated + counts.second_review + counts.excluded;
+    $('progressBar').style.width = `${Math.round((done / Math.max(1, state.samples.length)) * 100)}%`;
+    $('exportSummary').textContent = `مكتمل/مستبعد: ${done} / ${state.samples.length}`;
+
+    $('annotationStatus').value = s.annotation_status;
+    $('suitabilityStatus').value = s.suitability_status;
+    $('exclusionField').classList.toggle('hidden', s.annotation_status !== 'excluded');
+    $('exclusionReason').value = s.exclusion_reason || '';
+    $('imageSource').value = s.image_source || 'unknown';
+    $('imageQualityLevel').value = s.image_quality_level || 'unassessed';
+    $('captureGroup').value = s.capture_group_id || '';
+    $('dupCluster').value = s.near_duplicate_cluster_id || '';
+    $('noDocument').checked = !!s.no_document;
+
+    const dset = new Set(s.difficulty_reasons || []);
+    $('sceneDifficultyFlags').querySelectorAll('input').forEach((el) => { el.checked = dset.has(el.value); });
+
+    const sr = s.second_review || defaultSecondReview();
+    $('srStatus').value = sr.status || 'not_started';
+    $('srReviewerId').value = sr.reviewer_id || '';
+    $('srAdjudicatorId').value = sr.adjudicator_id || '';
+    $('srResolutionCode').value = sr.resolution_code || '';
+
+    $('prevSample').disabled = state.current === 0;
+    $('nextSample').disabled = state.current >= state.samples.length - 1;
+    $('undoBtn').disabled = !(s._undo && s._undo.length);
+
+    renderSampleStrip();
+    renderDocumentSection();
+    drawCanvas();
   }
 
-  function render() {
-    const s=selectedSample(); if (!s) return;
-    $('sampleTitle').textContent=`الصورة ${state.current+1} / ${state.samples.length}`;
-    $('sampleMeta').textContent=`معرّف محلي: ${shortId(s.sample_id)} · ${s.width_px||'?'} × ${s.height_px||'?'} px · فك الصورة: ${s.decode_status==='ok'?'نجح':'تعذر'}`;
-    $('sampleStatusChip').textContent=({pending:'غير موسومة',reviewed:'مراجعة مكتملة',uncertain:'تحتاج تحكيماً',unscorable:'غير قابلة للتقييم'})[s.review_status] || 'غير موسومة';
-    $('progressBar').style.width=`${Math.round((state.samples.filter(x=>x.review_status==='reviewed').length/Math.max(1,state.samples.length))*100)}%`;
-    $('captureGroup').value=s.capture_group_id||''; $('reviewStatus').value=s.review_status||'pending'; $('adjudicationStatus').value=s.adjudication_status||'not_adjudicated'; $('noDocument').checked=!!s.no_document;
-    $('statTotal').textContent=String(state.samples.length); $('statReviewed').textContent=String(state.samples.filter(x=>x.review_status==='reviewed').length); $('statGroups').textContent=String(new Set(state.samples.map(x=>x.capture_group_id).filter(Boolean)).size);
-    $('prevSample').disabled=state.current===0; $('nextSample').disabled=state.current>=state.samples.length-1;
-    $('exportSummary').textContent=`${state.samples.filter(x=>x.review_status==='reviewed').length} / ${state.samples.length} مكتملة`;
-    renderDocumentControls(); renderCanvas();
+  function buildExportPayload(reviewer) {
+    return {
+      schema: SCHEMA,
+      schema_version: SCHEMA_VERSION,
+      annotator_id: reviewer,
+      created_at: nowIso(),
+      coordinate_system: COORDINATE_SYSTEM,
+      exif_policy: EXIF_POLICY,
+      pii_policy: PII_POLICY,
+      samples: state.samples.map((s) => {
+        const docs = s.no_document ? [] : (s.documents || []).map((d) => {
+          const bStat = d.boundary_status || 'complete';
+          const poly = bStat === 'undeterminable' ? [] : roundPoints(d.visible_polygon || []);
+          const corners = bStat === 'complete' && poly.length === 4 ? roundPoints(poly) : null;
+          return {
+            document_id: d.document_id,
+            label_origin: d.label_origin || 'human_manual',
+            human_verified: !!d.human_verified,
+            document_kind: d.document_kind || 'unknown',
+            boundary_status: bStat,
+            corners,
+            visible_polygon: poly,
+            crop_quality: d.crop_quality || 'uncertain',
+            quality_flags: [...new Set(d.quality_flags || [])].sort()
+          };
+        });
+        return {
+          image_id: s.image_id,
+          internal_code: s.internal_code || '',
+          image_format: s.image_format || 'unknown',
+          decode_status: s.decode_status || 'ok',
+          raw_width_px: s.raw_width_px || 0,
+          raw_height_px: s.raw_height_px || 0,
+          exif_orientation: s.exif_orientation ?? 1,
+          width_px: s.width_px || 0,
+          height_px: s.height_px || 0,
+          perceptual_dhash64: s.perceptual_dhash64 || '',
+          near_duplicate_cluster_id: s.near_duplicate_cluster_id || '',
+          image_source: s.image_source || 'unknown',
+          capture_group_id: s.capture_group_id || '',
+          suitability_status: s.suitability_status || 'annotatable',
+          annotation_status: s.annotation_status || 'unannotated',
+          exclusion_reason: s.annotation_status === 'excluded' ? (s.exclusion_reason || '') : '',
+          image_quality_level: s.image_quality_level || 'unassessed',
+          difficulty_reasons: [...new Set(s.difficulty_reasons || [])].sort(),
+          annotator_id: s.annotator_id || '',
+          annotated_at: s.annotated_at || '',
+          second_review: Object.assign(defaultSecondReview(), s.second_review || {}),
+          no_document: !!s.no_document,
+          document_count: s.no_document ? 0 : docs.length,
+          documents: docs,
+          ai_suggestions: (s.ai_suggestions || []).map((a) => ({
+            suggestion_id: a.suggestion_id,
+            proposal_source: a.proposal_source,
+            corners: Array.isArray(a.corners) ? roundPoints(a.corners) : null,
+            confidence: Number(a.confidence || 0),
+            gate_verdict: a.gate_verdict || 'unknown'
+          }))
+        };
+      })
+    };
   }
 
-  function navigate(delta) { saveCurrentFields(); state.current=Math.max(0,Math.min(state.samples.length-1,state.current+delta)); state.activeDocument=0; render(); }
-  function markDirtyAndRender() { saveCurrentFields(); render(); }
+  function validateBeforeExport(payload) {
+    for (let i = 0; i < payload.samples.length; i++) {
+      const s = payload.samples[i];
+      const tag = s.internal_code || `#${i + 1}`;
+      if (s.annotation_status === 'excluded' && !s.exclusion_reason) {
+        return `${tag}: الصورة المستبعدة تتطلب تحديد سبب الاستبعاد.`;
+      }
+      if (s.annotation_status === 'annotated' || s.annotation_status === 'second_review') {
+        if (!s.no_document && s.documents.length === 0) {
+          return `${tag}: الصورة الموسومة يجب أن تحتوي مستنداً واحداً على الأقل أو تُعلّم كخلفية سلبية.`;
+        }
+        for (let j = 0; j < s.documents.length; j++) {
+          const d = s.documents[j];
+          if (!d.human_verified) {
+            return `${tag} مستند D${j + 1}: يجب تفعيل خانة التأكيد البصري البشري قبل اعتماد الصورة.`;
+          }
+          const check = inspectDocumentGeometry(d, s);
+          if (check.level === 'err' || (d.boundary_status !== 'undeterminable' && check.level === 'warn')) {
+            return `${tag} مستند D${j + 1}: ${check.text}`;
+          }
+        }
+      }
+      if (s.annotation_status === 'second_review' && s.second_review.status === 'not_started') {
+        return `${tag}: حالة الصورة «مراجعة ثانية» لكن حقول المراجعة الثانية لم تُعبأ.`;
+      }
+    }
+    return null;
+  }
 
-  canvas.addEventListener('click',(event)=>{
-    const s=selectedSample(),d=currentDocument(); if (!s || !d || state.currentBitmap?.sampleId!==s.sample_id) return;
-    if (d.visibility==='unscorable') { setNotice('workspaceNotice','غيّر حالة الظهور إذا كان بالإمكان وسم جزء مرئي.'); return; }
-    const rect=canvas.getBoundingClientRect(); const x=round(clamp((event.clientX-rect.left)/rect.width)); const y=round(clamp((event.clientY-rect.top)/rect.height));
-    const max=d.visibility==='fully_visible'?4:12;
-    if ((d.visible_polygon||[]).length>=max) { setNotice('workspaceNotice',d.visibility==='fully_visible'?'اكتملت أربع نقاط؛ لا تضف نقطة خامسة.':'وصل المضلع الجزئي إلى حد 12 نقطة.'); return; }
-    d.visible_polygon=d.visible_polygon||[]; d.visible_polygon.push([x,y]);
-    if (d.visibility==='fully_visible' && d.visible_polygon.length===4) d.quadrilateral=pointArray(d.visible_polygon); else d.quadrilateral=null;
-    state.dirty=true; renderDocumentControls(); renderCanvas(); setNotice('workspaceNotice','تم حفظ النقطة في الذاكرة المحلية.',true);
+  // Viewport Mouse & Wheel Events (Zoom, Pan, Draw, Drag Vertex)
+  viewport.addEventListener('wheel', (e) => {
+    if (!state.currentBitmap) return;
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+    setZoomAround(factor, e.clientX - rect.left, e.clientY - rect.top, false);
+  }, {passive: false});
+
+  viewport.addEventListener('pointerdown', (e) => {
+    const s = selectedSample();
+    if (!s || !state.currentBitmap) return;
+    const wantPan = state.mode === 'pan' || state.spacePressed || e.button === 1 || e.button === 2;
+    if (wantPan) {
+      e.preventDefault();
+      state.panning = true;
+      state.panStartX = e.clientX - state.panX;
+      state.panStartY = e.clientY - state.panY;
+      viewport.classList.add('dragging-pan');
+      viewport.setPointerCapture?.(e.pointerId);
+      return;
+    }
+    if (e.button !== 0 || s.no_document || s.annotation_status === 'excluded') return;
+    const d = currentDocument();
+    if (!d || d.boundary_status === 'undeterminable') return;
+
+    const {nx, ny} = viewportEventToNorm(e);
+    const hit = findHitVertex(nx, ny);
+    if (hit >= 0) {
+      pushUndo(s);
+      state.selectedVertex = hit;
+      state.draggingVertex = hit;
+      viewport.setPointerCapture?.(e.pointerId);
+      renderDocumentSection();
+      drawCanvas();
+      return;
+    }
+
+    const maxPts = d.boundary_status === 'complete' ? 4 : 12;
+    if ((d.visible_polygon || []).length >= maxPts) {
+      setNotice('workspaceNotice', `اكتمل عدد النقاط (${maxPts})؛ اسحب أي زاوية لتعديل موقعها أو احذف زاوية.`, 'warn');
+      return;
+    }
+    pushUndo(s);
+    d.visible_polygon = d.visible_polygon || [];
+    d.visible_polygon.push([nx, ny]);
+    if (d.boundary_status === 'complete' && d.visible_polygon.length === 4) {
+      d.visible_polygon = canonicalizeQuadClockwiseTL(d.visible_polygon);
+    }
+    syncCornersWithPolygon(d);
+    if (s.annotation_status === 'unannotated') s.annotation_status = 'in_progress';
+    state.selectedVertex = d.visible_polygon.length - 1;
+    state.dirty = true;
+    saveDraftToLocalStorage(true);
+    renderAll();
   });
 
-  $('loadImages').addEventListener('click',loadImages);
-  $('prevSample').addEventListener('click',()=>navigate(-1)); $('nextSample').addEventListener('click',()=>navigate(1));
-  $('captureGroup').addEventListener('input',()=>{const s=selectedSample();if(s){const value=$('captureGroup').value.trim();if(value&&!/^[A-Za-z0-9_.-]{1,80}$/.test(value)){setNotice('workspaceNotice','رمز الجلسة يجب أن يستخدم أحرف ASCII وأرقاماً و _ . - فقط؛ لا تستخدم اسماً شخصياً.');return;}s.capture_group_id=value;state.dirty=true;$('statGroups').textContent=String(new Set(state.samples.map(x=>x.capture_group_id).filter(Boolean)).size);}});
-  $('reviewStatus').addEventListener('change',()=>{const s=selectedSample();if(s){s.review_status=$('reviewStatus').value;state.dirty=true;render();}});
-  $('adjudicationStatus').addEventListener('change',()=>{const s=selectedSample();if(s){s.adjudication_status=$('adjudicationStatus').value;state.dirty=true;render();}});
-  $('noDocument').addEventListener('change',()=>{const s=selectedSample();if(s){s.no_document=$('noDocument').checked;state.dirty=true;render();}});
-  $('documentSelector').addEventListener('change',()=>{saveCurrentFields();state.activeDocument=Number($('documentSelector').value);render();});
-  $('addDocument').addEventListener('click',()=>{const s=selectedSample();if(!s)return;s.documents.push(defaultDocument());state.activeDocument=s.documents.length-1;state.dirty=true;render();});
-  $('removeDocument').addEventListener('click',()=>{const s=selectedSample();if(!s||s.documents.length<2)return;if(!confirm('إزالة المستند المحدد من الوسم المحلي؟'))return;s.documents.splice(state.activeDocument,1);state.activeDocument=Math.max(0,state.activeDocument-1);state.dirty=true;render();});
-  ['documentKind','visibility','cropQuality','ocrReference','ocrReferenceVerified'].forEach((id)=>$(id).addEventListener('change',markDirtyAndRender));
-  $('ocrReference').addEventListener('input',saveCurrentFields);
-  $('qualityFlags').addEventListener('change',markDirtyAndRender);
-  $('undoPoint').addEventListener('click',()=>{const d=currentDocument();if(!d)return;d.visible_polygon.pop();d.quadrilateral=null;state.dirty=true;render();});
-  $('resetOutline').addEventListener('click',()=>{const d=currentDocument();if(!d)return;d.visible_polygon=[];d.quadrilateral=null;state.dirty=true;render();});
-  $('finishOutline').addEventListener('click',()=>{const d=currentDocument();if(!d)return;if(d.visible_polygon.length<3){setNotice('workspaceNotice','المضلع الجزئي يحتاج ثلاث نقاط على الأقل.');return;}d.visible_polygon=pointArray(d.visible_polygon);d.quadrilateral=null;state.dirty=true;setNotice('workspaceNotice','تم إنهاء المضلع المرئي من دون تخمين الأجزاء المخفية.',true);render();});
+  viewport.addEventListener('pointermove', (e) => {
+    const s = selectedSample();
+    if (!s || !state.currentBitmap) return;
+    const {nx, ny} = viewportEventToNorm(e);
+    const px = Math.round(nx * s.width_px);
+    const py = Math.round(ny * s.height_px);
+    $('hudCoords').textContent = `xy: (${nx.toFixed(4)}, ${ny.toFixed(4)}) | px: (${px}, ${py})`;
 
-  $('resumeFile').addEventListener('change',async(event)=>{
-    const file=event.target.files?.[0]; if(!file)return;
+    if (state.panning) {
+      state.panX = e.clientX - state.panStartX;
+      state.panY = e.clientY - state.panStartY;
+      applyCanvasTransform();
+      return;
+    }
+    if (state.draggingVertex >= 0) {
+      const d = currentDocument();
+      if (d && d.visible_polygon && d.visible_polygon[state.draggingVertex]) {
+        d.visible_polygon[state.draggingVertex] = [nx, ny];
+        syncCornersWithPolygon(d);
+        drawCanvas();
+      }
+    }
+  });
+
+  const endPointer = () => {
+    if (state.panning) {
+      state.panning = false;
+      viewport.classList.remove('dragging-pan');
+    }
+    if (state.draggingVertex >= 0) {
+      state.draggingVertex = -1;
+      state.dirty = true;
+      saveDraftToLocalStorage(true);
+      renderDocumentSection();
+      drawCanvas();
+    }
+  };
+  viewport.addEventListener('pointerup', endPointer);
+  viewport.addEventListener('pointercancel', endPointer);
+  viewport.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      state.spacePressed = true;
+      viewport.classList.add('panning');
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+      state.spacePressed = false;
+      if (state.mode !== 'pan') viewport.classList.remove('panning');
+    }
+  });
+
+  // Toolbar & Form Bindings
+  $('loadImages').addEventListener('click', loadImages);
+  $('modeDrawBtn').addEventListener('click', () => {
+    state.mode = 'draw';
+    $('modeDrawBtn').classList.add('active');
+    $('modePanBtn').classList.remove('active');
+    viewport.classList.remove('panning');
+  });
+  $('modePanBtn').addEventListener('click', () => {
+    state.mode = 'pan';
+    $('modePanBtn').classList.add('active');
+    $('modeDrawBtn').classList.remove('active');
+    viewport.classList.add('panning');
+  });
+  $('zoomInBtn').addEventListener('click', () => setZoomAround(1.25, viewport.clientWidth / 2, viewport.clientHeight / 2));
+  $('zoomOutBtn').addEventListener('click', () => setZoomAround(1 / 1.25, viewport.clientWidth / 2, viewport.clientHeight / 2));
+  $('zoomFitBtn').addEventListener('click', () => { fitZoomToViewport(); drawCanvas(); });
+  $('zoom100Btn').addEventListener('click', () => {
+    const s = selectedSample();
+    if (!s || !canvas.width) return;
+    const ratio = s.width_px / canvas.width;
+    setZoomAround(ratio, viewport.clientWidth / 2, viewport.clientHeight / 2, true);
+  });
+
+  $('autoOrderBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d || !d.visible_polygon?.length) return;
+    pushUndo(s);
+    if (d.visible_polygon.length === 4) {
+      d.visible_polygon = canonicalizeQuadClockwiseTL(d.visible_polygon);
+    } else if (signedArea(d.visible_polygon) < 0) {
+      d.visible_polygon.reverse();
+    }
+    syncCornersWithPolygon(d);
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('rotateOrderBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d || (d.visible_polygon || []).length < 2) return;
+    pushUndo(s);
+    d.visible_polygon.push(d.visible_polygon.shift());
+    syncCornersWithPolygon(d);
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('reverseOrderBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d || (d.visible_polygon || []).length < 2) return;
+    pushUndo(s);
+    d.visible_polygon.reverse();
+    syncCornersWithPolygon(d);
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('undoBtn').addEventListener('click', () => {
+    const s = selectedSample();
+    if (!s || !s._undo?.length) return;
+    s.documents = JSON.parse(s._undo.pop());
+    state.selectedVertex = -1;
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('deleteVertexBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d || state.selectedVertex < 0) return;
+    pushUndo(s);
+    d.visible_polygon.splice(state.selectedVertex, 1);
+    state.selectedVertex = -1;
+    syncCornersWithPolygon(d);
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('resetOutlineBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d) return;
+    pushUndo(s);
+    d.visible_polygon = [];
+    d.corners = null;
+    state.selectedVertex = -1;
+    saveDraftToLocalStorage(true);
+    renderAll();
+  });
+
+  $('addDocument').addEventListener('click', () => {
+    const s = selectedSample();
+    if (!s) return;
+    pushUndo(s);
+    s.documents.push(defaultDocument(s));
+    state.activeDocument = s.documents.length - 1;
+    state.selectedVertex = -1;
+    saveFormIntoState();
+    renderAll();
+  });
+
+  $('removeDocument').addEventListener('click', () => {
+    const s = selectedSample();
+    if (!s || s.documents.length <= 1) return;
+    pushUndo(s);
+    s.documents.splice(state.activeDocument, 1);
+    state.activeDocument = Math.max(0, state.activeDocument - 1);
+    state.selectedVertex = -1;
+    saveFormIntoState();
+    renderAll();
+  });
+
+  $('documentSelector').addEventListener('change', () => {
+    saveFormIntoState();
+    state.activeDocument = Number($('documentSelector').value);
+    state.selectedVertex = -1;
+    renderAll();
+  });
+
+  $('showAiOverlay').addEventListener('change', () => {
+    state.showAi = $('showAiOverlay').checked;
+    drawCanvas();
+  });
+
+  $('copyAiSuggestionBtn').addEventListener('click', () => {
+    const s = selectedSample(), d = currentDocument();
+    if (!s || !d || !s.ai_suggestions?.length) return;
+    const idx = Number($('aiSuggestionSelect').value || 0);
+    const sug = s.ai_suggestions[idx];
+    if (!sug || !Array.isArray(sug.corners) || sug.corners.length !== 4) {
+      setNotice('workspaceNotice', 'هذا المقترح الآلي لا يحمل 4 زوايا قابلة للنسخ.', 'err');
+      return;
+    }
+    pushUndo(s);
+    d.visible_polygon = canonicalizeQuadClockwiseTL(sug.corners);
+    d.boundary_status = 'complete';
+    d.label_origin = 'human_verified_from_suggestion';
+    d.human_verified = false;
+    syncCornersWithPolygon(d);
+    if (s.annotation_status === 'unannotated') s.annotation_status = 'in_progress';
+    setNotice('workspaceNotice', 'نُسخ المقترح كنقطة بداية فقط؛ راجع الزوايا وعدّلها بصرياً ثم فعّل خانة التأكيد البشري.', 'warn');
+    renderAll();
+  });
+
+  [
+    'annotationStatus', 'suitabilityStatus', 'exclusionReason', 'imageSource',
+    'imageQualityLevel', 'noDocument', 'documentKind', 'boundaryStatus',
+    'cropQuality', 'humanVerifiedCheck', 'srStatus', 'srResolutionCode'
+  ].forEach((id) => $(id).addEventListener('change', () => { saveFormIntoState(); renderAll(); }));
+
+  ['captureGroup', 'dupCluster', 'srReviewerId', 'srAdjudicatorId'].forEach((id) => {
+    $(id).addEventListener('input', () => { saveFormIntoState(); renderSampleStrip(); });
+  });
+  $('sceneDifficultyFlags').addEventListener('change', () => { saveFormIntoState(); });
+  $('docQualityFlags').addEventListener('change', () => { saveFormIntoState(); });
+  $('filterStatus').addEventListener('change', () => { state.filter = $('filterStatus').value; renderSampleStrip(); });
+
+  async function stepSample(delta) {
+    saveFormIntoState();
+    state.current = Math.max(0, Math.min(state.samples.length - 1, state.current + delta));
+    state.activeDocument = 0;
+    state.selectedVertex = -1;
+    await loadBitmapForCurrentSample(true);
+    renderAll();
+  }
+  $('prevSample').addEventListener('click', () => stepSample(-1));
+  $('nextSample').addEventListener('click', () => stepSample(1));
+  $('nextPendingBtn').addEventListener('click', async () => {
+    saveFormIntoState();
+    for (let offset = 1; offset <= state.samples.length; offset++) {
+      const idx = (state.current + offset) % state.samples.length;
+      if (state.samples[idx].annotation_status === 'unannotated' || state.samples[idx].annotation_status === 'in_progress') {
+        state.current = idx;
+        state.activeDocument = 0;
+        state.selectedVertex = -1;
+        await loadBitmapForCurrentSample(true);
+        renderAll();
+        return;
+      }
+    }
+    setNotice('workspaceNotice', 'لا توجد صور متبقية بحالة غير موسومة أو قيد التوسيم.', 'ok');
+  });
+
+  $('resumeFile').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     try {
-      const data=JSON.parse(await file.text());
-      const reviewer=$('reviewerId').value.trim();
-      if(data.schema!==SCHEMA)throw new Error('صيغة الملف غير معروفة.');
-      if(!reviewer||data.reviewer_id!==reviewer)throw new Error('معرّف المراجع لا يطابق؛ لا تفتح ملف مراجع آخر ضمن المراجعة المستقلة.');
-      const map=new Map((data.samples||[]).map((x)=>[x.sample_id,x])); let restored=0;
-      state.samples.forEach((s)=>{const old=map.get(s.sample_id);if(!old)return;s.capture_group_id=old.capture_group_id||'';s.review_status=old.review_status||'pending';s.adjudication_status=old.adjudication_status||'not_adjudicated';s.no_document=!!old.no_document;s.documents=Array.isArray(old.documents)?old.documents.map((d)=>({...d,visible_polygon:Array.isArray(d.visible_polygon)?d.visible_polygon:[]})):[];restored++;});
-      state.dirty=false;render();setNotice('setupNotice',`استُعيدت تسمياتك أنت لـ ${restored} صورة مطابقة؛ لم يُستعد أي اسم ملف.`,true);
-    } catch(error) { setNotice('setupNotice',error?.message||'تعذر فتح ملف الاستئناف.'); }
-    finally { event.target.value=''; }
+      const data = JSON.parse(await file.text());
+      restoreFromPayloadObject(data, {fromDraftStorage: false});
+      saveDraftToLocalStorage(true);
+      renderAll();
+    } catch (err) {
+      setNotice('setupNotice', err?.message || 'تعذر قراءة ملف JSON.', 'err');
+    } finally {
+      e.target.value = '';
+    }
   });
 
-  $('exportJson').addEventListener('click',()=>{
-    saveCurrentFields(); const reviewer=$('reviewerId').value.trim();
-    if(!/^[A-Za-z0-9_-]{1,32}$/.test(reviewer)){setNotice('workspaceNotice','معرّف المراجع يجب أن يكون رمزاً غير شخصي من 1 إلى 32 حرفاً/رقماً أو _/-.');return;}
-    const activeGroup=$('captureGroup').value.trim();
-    if(activeGroup&&!/^[A-Za-z0-9_.-]{1,80}$/.test(activeGroup)){setNotice('workspaceNotice','رمز جلسة الالتقاط يجب أن يستخدم ASCII وأرقاماً و _ . - فقط.');return;}
-    if(!state.samples.length){setNotice('workspaceNotice','لا توجد صور محملة.');return;}
-    const unverifiedReference=state.samples.some((s)=>!s.no_document&&(s.documents||[]).some((d)=>(d.ocr_reference_text||'').trim()&&!d.ocr_reference_verified));
-    if(unverifiedReference){setNotice('workspaceNotice','لا يمكن التصدير: راجع كل مرجع OCR على الصورة وفعّل تأكيد المراجعة اليدوية، أو امسح النص غير الموثق.');return;}
-    const output={schema:SCHEMA,reviewer_id:reviewer,created_at:new Date().toISOString(),coordinate_system:'normalized_xy_after_exif_orientation_clockwise_from_display_top_left',reference_text_policy:'full text allowed only after manual visual review; may contain sensitive data; local private JSON only; never upload',samples:state.samples.map((s)=>({sample_id:s.sample_id,width_px:s.width_px,height_px:s.height_px,decode_status:s.decode_status,capture_group_id:s.capture_group_id||'',review_status:s.review_status||'pending',adjudication_status:s.adjudication_status||'not_adjudicated',no_document:!!s.no_document,document_count:s.no_document?0:s.documents.length,documents:s.no_document?[]:s.documents.map((d)=>({document_kind:d.document_kind||'unknown',visibility:d.visibility||'fully_visible',crop_quality:d.crop_quality||'uncertain',quality_flags:[...(d.quality_flags||[])].sort(),visible_polygon:pointArray(d.visible_polygon||[]),quadrilateral:d.visibility==='fully_visible'&&d.visible_polygon?.length===4?pointArray(d.visible_polygon):null,ocr_reference_text:d.ocr_reference_text||'',ocr_reference_verified:!!d.ocr_reference_verified}))}))};
-    const blob=new Blob([JSON.stringify(output,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); const safe=reviewer.replace(/[^A-Za-z0-9_-]/g,'_').slice(0,32)||'reviewer'; a.href=url;a.download=`scan-id-local-review-${safe}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);state.dirty=false;setNotice('workspaceNotice','تم تنزيل ملف الوسوم المحلي. احفظه خارج Git واحتفظ به خاصاً.',true);
+  $('saveLocalDraftBtn').addEventListener('click', () => {
+    saveFormIntoState();
+    saveDraftToLocalStorage(false);
   });
 
-  $('clearSession').addEventListener('click',()=>{if(state.dirty&&!confirm('لم يُصدّر بعض العمل. مسح الذاكرة وإلغاء التغييرات؟'))return;state.currentBitmap?.bitmap.close?.();state.currentBitmap=null;state.samples=[];state.current=0;state.dirty=false;$('workspace').classList.add('hidden');$('resumeFile').disabled=true;$('imageFiles').value='';setNotice('setupNotice','مُسحت صور الجلسة والوسوم من الذاكرة.');});
-  window.addEventListener('beforeunload',(event)=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
-  $('resumeFile').disabled=true;
+  $('clearDraftStorage').addEventListener('click', () => {
+    const reviewer = $('reviewerId').value.trim();
+    if (!reviewer) { setNotice('setupNotice', 'أدخل رمز الموسِّم أولاً لمسح مسودته المحلية.', 'warn'); return; }
+    localStorage.removeItem(STORAGE_PREFIX + reviewer);
+    setNotice('setupNotice', `مُسحت المسودة المحلية الخاصة بـ ${reviewer}.`, 'ok');
+  });
+
+  $('exportJsonBtn').addEventListener('click', () => {
+    saveFormIntoState();
+    const reviewer = $('reviewerId').value.trim();
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(reviewer)) {
+      setNotice('workspaceNotice', 'أدخل رمز موسِّم غير شخصي صالح (مثل R1) قبل التصدير.', 'err');
+      return;
+    }
+    if (!state.samples.length) return;
+    const payload = buildExportPayload(reviewer);
+    const err = validateBeforeExport(payload);
+    if (err) {
+      setNotice('workspaceNotice', `لا يمكن التصدير قبل إصلاح الخطأ: ${err}`, 'err');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safe = reviewer.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 32) || 'reviewer';
+    a.href = url;
+    a.download = `scan-id-local-annotations-v2-${safe}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    state.dirty = false;
+    setNotice('workspaceNotice', 'تم تنزيل ملف الوسوم المرجعي (v2.0.0) بنجاح؛ احفظه داخل local-data/ خارج Git.', 'ok');
+  });
+
+  $('clearSession').addEventListener('click', () => {
+    state.currentBitmap?.bitmap?.close?.();
+    state.currentBitmap = null;
+    state.samples = [];
+    state.current = 0;
+    state.dirty = false;
+    $('workspace').classList.add('hidden');
+    $('resumeFile').disabled = true;
+    $('imageFiles').value = '';
+    setNotice('setupNotice', 'أُغلقت الجلسة ومُسحت الصور من ذاكرة التبويب.');
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if (state.dirty) {
+      saveDraftToLocalStorage(true);
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+  if (globalThis.__SCAN_ID_TEST_HOOK__) {
+    globalThis.__SCAN_ID_TEST_EXPORTS__ = {
+      SCHEMA,
+      SCHEMA_VERSION,
+      parseJpegExifAndRawSize,
+      canonicalizeQuadClockwiseTL,
+      inspectDocumentGeometry,
+      upgradeLegacyV1InBrowser,
+      dhashHamming
+    };
+  }
 })();
 </script>
 </body>

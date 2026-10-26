@@ -48,8 +48,9 @@
 | Python `py_compile`، YAML للـworkflows، و`node --check` لسكربت الاستوديو | PASS | فحوص صياغة؛ لم يُختبر الاستوديو في متصفح. |
 | `git diff --check` | PASS | سلامة whitespace للـdiff المحلي. |
 | GitHub Actions `40332627111` على SHA `684bccf4ac84dbc04caff363487dc48b09836039` | PASS | `dart format` (203 دون تغيير)، analyze، Flutter tests، Android debug + native emulator instrumentation، Windows release + native regression/ZIP. Runner CI فقط، لا جهاز مستخدم فعلي. |
+| GitHub Actions `40334685306` على SHA التوثيق `3154d590d86133486f130d122b7197ac08fab9e0` | Flutter format/analyze/tests وWindows نجحت؛ توقف Android debug عند تثبيت NDK `27.0.12077973` بخطأ `Archive is not a ZIP archive`. | فشل إعداد SDK قبل بناء التطبيق، وتخطى instrumentation؛ إعادة التشغيل رفضها GitHub برسالة أن workflow لا يمكن إعادة تشغيله. هذا لا يغيّر نتيجة البناء الكاملة السابقة على SHA التنفيذ. |
 
-لم يتوفر Flutter أو Dart في مضيف العمل، لذلك لم تُشغّل أوامر Dart/Flutter محلياً. بدلاً من ادعاء جاهزية من فحوص Python، شغّل GitHub Actions على SHA `684bccf4ac84dbc04caff363487dc48b09836039` (run `40332627111`) واجتاز `dart format` و`flutter analyze` و`flutter test` وبناء Android debug وinstrumentation الأصلي على محاكي CI وبناء Windows واختبار scaler الأصلي. هذا إثبات CI على runner، لا اختباراً على هاتف أو حاسوب مستخدم فعلي.
+لم يتوفر Flutter أو Dart في مضيف العمل، لذلك لم تُشغّل أوامر Dart/Flutter محلياً. بدلاً من ادعاء جاهزية من فحوص Python، شغّل GitHub Actions على SHA `684bccf4ac84dbc04caff363487dc48b09836039` (run `40332627111`) واجتاز `dart format` و`flutter analyze` و`flutter test` وبناء Android debug وinstrumentation الأصلي على محاكي CI وبناء Windows واختبار scaler الأصلي. هذا إثبات CI على runner، لا اختباراً على هاتف أو حاسوب مستخدم فعلي. شغّل كذلك run `40334685306` على commit توثيقي لاحق؛ نجحت فحوص Flutter وWindows، لكن بناء Android توقف قبل compile التطبيق بسبب ZIP غير صالح لحزمة NDK `27.0.12077973`، وتخطى instrumentation. رفض GitHub طلب إعادة تشغيل run؛ لذلك تبقى نتيجة البناء الكاملة المثبتة على SHA التنفيذ السابق، ولا يُعرض فشل تهيئة NDK كنجاح.
 
 ## حالة المراحل وحدود القرار
 
@@ -63,7 +64,7 @@
 | تصنيف بصري مستقل | غير متوفر؛ الإخراج `unknown` دون دليل مستقل. |
 | OCR محلي | البروتوكول فقط؛ لا محرك إنتاجي ولا CER/WER. |
 | دورة العمل والأجهزة والأداء | اختبارات Flutter وAndroid native instrumentation على محاكي CI وبناء Windows ناجحة؛ لا اختبار شامل للتطبيق على جهاز فعلي أو قياس أداء Android/Windows. |
-| التسليم/حدود الدمج | دفع إلى `arena/84234269-scan-id` فقط؛ GitHub Actions `40332627111` نجح على SHA `684bccf4ac84dbc04caff363487dc48b09836039`. لا merge إلى `searchidf` ولا إصدار رسمي ولا نشر عام للبيانات. |
+| التسليم/حدود الدمج | دفع إلى `arena/84234269-scan-id` فقط؛ SHA التنفيذ `684bccf4ac84dbc04caff363487dc48b09836039` اجتاز CI كاملاً (`40332627111`). فشل بناء Android في run توثيقي لاحق بسبب NDK ZIP غير صالح؛ التفاصيل أعلاه. لا merge إلى `searchidf` ولا إصدار رسمي ولا نشر عام للبيانات. |
 | التقارير | تُحدّث بالأدلة الإجمالية فقط؛ لا تفاصيل صور أو بيانات شخصية. |
 
-**الخلاصة:** أزيل التصنيف غير المستقل، وأضيفت أدوات الوسم والتقسيم المحلي، واجتاز SHA المبيّن CI الكامل للبناء والتحليل والاختبارات على runners. لا توجد مع ذلك وسوم بشرية أو أدلة تكفي لإعلان دقة الكشف/التصنيف أو OCR؛ ولا اختبار جهاز فعلي أو أداء Android/Windows. لا merge إلى `searchidf` ولا إصدار رسمي ولا نشر عام للبيانات أو الصور أو الأوزان المشتقة.
+**الخلاصة:** أزيل التصنيف غير المستقل، وأضيفت أدوات الوسم والتقسيم المحلي، واجتاز SHA التنفيذ CI الكامل للبناء والتحليل والاختبارات على runners. تعثر run توثيقي لاحق في تهيئة NDK قبل بناء Android؛ وثُبّت السبب وحدود الإثبات أعلاه. لا توجد مع ذلك وسوم بشرية أو أدلة تكفي لإعلان دقة الكشف/التصنيف أو OCR؛ ولا اختبار جهاز فعلي أو أداء Android/Windows. لا merge إلى `searchidf` ولا إصدار رسمي ولا نشر عام للبيانات أو الصور أو الأوزان المشتقة.

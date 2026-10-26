@@ -15,7 +15,7 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
-/// Region 0: an ID-1 shaped card (width .8, height .8 / 1.586 ≈ .5045).
+/// Region 0: a synthetic wide quadrilateral; no document category is assigned.
 List<Point2> _topQuad() => [
   Point2(.1, .1),
   Point2(.9, .1),
@@ -23,7 +23,7 @@ List<Point2> _topQuad() => [
   Point2(.1, .6045),
 ];
 
-/// Region 1: the ID-1 shape again, lower down.
+/// Region 1: another synthetic quadrilateral, lower in the fixture.
 List<Point2> _bottomQuad() => [
   Point2(.2, .62),
   Point2(.8, .62),
@@ -31,7 +31,7 @@ List<Point2> _bottomQuad() => [
   Point2(.2, .9983),
 ];
 
-/// Region 2: a third card, only present when the analysis improves.
+/// Region 2: a third synthetic region, only present in the later pass.
 List<Point2> _thirdQuad() => [
   Point2(.05, .05),
   Point2(.45, .05),
@@ -177,7 +177,7 @@ void main() {
     expect(result.assets, hasLength(3));
     expect(result.items.map((i) => i.id).toList(), itemIds);
     expect(result.documents.map((d) => d.id).toList(), recordIds);
-    // The report keeps saying the photo holds several documents.
+    // The report keeps the measured multi-region state.
     expect(report.multiDocumentImages, 1);
 
     // The derived images were regenerated in place (new revision files, same
@@ -241,7 +241,9 @@ void main() {
       final fixedItem = result.items.firstWhere(
         (i) => i.documentId == fixed.id,
       );
-      expect(fixedItem.sizeConfirmed, isTrue);
+      expect(fixedItem.documentKind, DocumentKind.unknown);
+      expect(fixedItem.sizeConfirmed, isFalse);
+      expect(fixedItem.pageIndex, isNull);
       expect(fixedItem.id, unresolvedItem.id);
       expect((await projects.get(result.id)).toJson(), result.toJson());
     },
@@ -317,10 +319,7 @@ void main() {
       );
       expect(keptConfirmed.overrides, isNotEmpty);
       expect(keptOverride.overrides, isNotEmpty);
-      expect(
-        keptOverride.recognition!.documentKind,
-        DocumentKind.unifiedNationalId,
-      );
+      expect(keptOverride.recognition!.documentKind, DocumentKind.unknown);
       expect(
         report.warnings.join('\n'),
         contains('تُرِك'),

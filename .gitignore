@@ -24,6 +24,9 @@ windows/flutter/ephemeral/
 *.db-journal
 local-data/
 diagnostics/
+.venv/
+# User-owned document corpus: keep local, never commit or send to CI.
+/Mostmskat/
 __pycache__/
 # Scratch copy of the bumped version files staged by the release workflow.
 version-bump/

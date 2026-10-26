@@ -1,5 +1,10 @@
 # تقرير تنفيذ إصلاح التحكيم والخصوصية — Scan-id
 
+> **ملاحظة حالة 2026-10-26:** هذا التقرير يسجل إصلاح التحكيم السابق كما كان وقت
+> إعداده. بعده تغيّر مصنف النوع ومسار الاستيراد في العمل المحلي: لم يعد الاسم أو
+> النسبة دليلاً للتصنيف، وتبقى النتيجة `unknown` بلا دليل مستقل. تفاصيل الحالة
+> الحالية في [`ROOT_CAUSE_AND_IMPLEMENTATION.md`](ROOT_CAUSE_AND_IMPLEMENTATION.md).
+
 **التاريخ:** 2026-10-25
 **الفرع:** `arena/84234269-scan-id`
 **الحالة:** الإصلاح واختبارات Python مكتملة. نجح GitHub Actions run [`40229357634`](https://github.com/kinanmjeed88/Scan-id/actions/runs/40229357634) على SHA البرمجي `73507aab0213653d1d7bf1fcd7a7738f7969faa5`: تنسيق Dart، وFlutter analyze/tests، وبناء Android debug واختبار instrumentation، وبناء Windows واختبارات scaler. لا يثبت ذلك أداء جهاز فعلياً أو جودة OCR.

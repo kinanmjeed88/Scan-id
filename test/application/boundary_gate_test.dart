@@ -8,6 +8,7 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
@@ -26,7 +27,8 @@ List<Point2> _quad() => [
   Point2(.1, .9),
 ];
 
-Uint8List _idCardPhoto() {
+/// Synthetic high-contrast rectangle on a dark background. Geometry fixture only.
+Uint8List _contrastScene() {
   final image = img.Image(width: 640, height: 480);
   img.fill(image, color: img.ColorRgb8(40, 48, 60));
   img.fillRect(
@@ -42,16 +44,15 @@ Uint8List _idCardPhoto() {
 
 void main() {
   group('RecognitionPipeline boundary gate', () {
-    test('D3/D10: a filename label cannot impose a contradicting catalog '
-        'aspect on measured corners', () async {
+    test('valid measured geometry is accepted without type evidence', () async {
       final pipeline = RecognitionPipeline(
         segment: (_) async => SegmentationResult(
           multi: false,
           candidates: [
             SegmentCandidate(
-              corners: _quad(), // measured aspect ~1.6
+              corners: _quad(),
               region: const [.1, .1, .9, .9],
-              reason: 'measured',
+              reason: 'synthetic-measured-geometry',
             ),
           ],
         ),
@@ -60,7 +61,6 @@ void main() {
       final result = await pipeline.analyze(
         PipelineImageInput(
           assetId: 'asset1',
-          name: 'البطاقة التموينية.png', // filename claims the ration kind
           previewBytes: _bytes,
           sourceWidth: 1600,
           sourceHeight: 1000,
@@ -68,13 +68,12 @@ void main() {
         ),
       );
       final detection = result.detections.single;
-      expect(detection.corners, isNull);
-      expect(detection.hasUsableQuad, isFalse);
-      expect(detection.boundary, DetectionBoundary.rejected);
-      expect(
-        result.issues.map((issue) => issue.category),
-        contains(RecognitionErrorCategory.geometryFailure),
-      );
+      expect(detection.corners, isNotNull);
+      expect(detection.hasUsableQuad, isTrue);
+      expect(detection.boundary, DetectionBoundary.trustworthy);
+      expect(detection.classification.kind, DocumentKind.unknown);
+      expect(detection.cropAuthorization, isNotNull);
+      expect(result.issues, isEmpty);
     });
   });
 
@@ -99,7 +98,7 @@ void main() {
 
     Future<AutomaticLayoutReport> importNamed(String name) async {
       var project = await service.create('مشروع');
-      final bytes = _idCardPhoto();
+      final bytes = _contrastScene();
       project = (await service.importImages(project, [
         ImportSource(name, () => Stream.value(bytes)),
       ])).project;
@@ -107,113 +106,131 @@ void main() {
     }
 
     test(
-      'a well-formed card is still auto-cropped (behaviour preserved)',
+      'changing only the filename leaves the geometric result unchanged',
       () async {
-        final report = await importNamed('بطاقة.png');
-        expect(report.cropped, 1);
-        expect(report.project.items, hasLength(1));
-        expect(report.project.assets.single.crop, isNotNull);
+        final first = await importNamed('capture-a.png');
+        final second = await importNamed('different-name.jpg');
+        expect(first.cropped, 1);
+        expect(second.cropped, 1);
+        expect(first.notDetected, 0);
+        expect(second.notDetected, 0);
+        expect(first.project.items, hasLength(1));
+        expect(second.project.items, hasLength(1));
+
+        final firstAsset = first.project.assets.single;
+        final secondAsset = second.project.assets.single;
+        expect(firstAsset.crop, isNotNull);
+        expect(secondAsset.crop, isNotNull);
+        expect(
+          [firstAsset.width, firstAsset.height],
+          [secondAsset.width, secondAsset.height],
+        );
+        expect(firstAsset.crop!.toJson(), secondAsset.crop!.toJson());
+        for (final item in [
+          first.project.items.single,
+          second.project.items.single,
+        ]) {
+          expect(item.documentKind, DocumentKind.unknown);
+          expect(item.sizeConfirmed, isFalse);
+          expect(item.pageIndex, isNull);
+        }
       },
     );
 
-    test('D1/D10: a filename-imposed aspect that contradicts the detected '
-        'boundary blocks the crop and keeps the whole frame', () async {
-      final report = await importNamed('البطاقة التموينية.png');
-      expect(report.cropped, 0);
-      expect(report.notDetected, 1);
-      expect(report.project.assets.single.crop, isNull);
-      expect(report.warnings.join(' '), contains('لا يطابق مقاس النوع'));
-      final item = report.project.items.single;
-      expect(item.sizeConfirmed, isFalse);
-      expect(
-        [item.width, item.height],
-        isNot([52, 287]),
-        reason:
-            'a refused boundary must not be placed at the contradicted size',
-      );
-    });
+    test(
+      'multi-region crops preserve measured geometry without classifying',
+      () async {
+        final gated = ProjectService(
+          projects,
+          LocalAssetRepository(projects.files),
+          imageEditor: LocalImageEditor(projects.files),
+          segmenter: (_) async => SegmentationResult(
+            multi: true,
+            candidates: [
+              SegmentCandidate(
+                region: [.05, .08, .45, .416],
+                corners: [
+                  Point2(.05, .08),
+                  Point2(.45, .08),
+                  Point2(.45, .416),
+                  Point2(.05, .416),
+                ],
+                reason: 'synthetic-geometry',
+              ),
+              SegmentCandidate(
+                region: [.55, .50, .95, .836],
+                corners: [
+                  Point2(.55, .50),
+                  Point2(.95, .50),
+                  Point2(.95, .836),
+                  Point2(.55, .836),
+                ],
+                reason: 'synthetic-geometry',
+              ),
+            ],
+          ),
+        );
+        var project = await gated.create('synthetic multi-region scene');
+        final bytes = _contrastScene();
+        project = (await gated.importImages(project, [
+          ImportSource('scene.png', () => Stream.value(bytes)),
+        ])).project;
+        final sourceId = project.assets.single.id;
+        final report = await gated.arrangeImportedImages(project, [sourceId]);
+        expect(gated.smartRecognitionEnabled, isFalse);
+        expect(gated.multiDocumentSegmentationEnabled, isTrue);
+        expect(report.cropped, 2);
+        expect(
+          report.project.assets
+              .singleWhere((asset) => asset.id == sourceId)
+              .crop,
+          isNull,
+        );
+        expect(report.project.items, hasLength(2));
+        expect(
+          report.project.items.every(
+            (item) =>
+                item.documentKind == DocumentKind.unknown &&
+                !item.sizeConfirmed &&
+                item.pageIndex == null,
+          ),
+          isTrue,
+        );
+        final derived = report.project.assets.where(
+          (asset) => asset.id != sourceId,
+        );
+        expect(derived, hasLength(2));
+        for (final asset in derived) {
+          expect(
+            asset.width / asset.height,
+            closeTo(.4 * 640 / (.336 * 480), .03),
+          );
+        }
+        final source = report.project.assets.singleWhere(
+          (asset) => asset.id == sourceId,
+        );
+        expect(
+          await (await LocalAssetRepository(
+            projects.files,
+          ).resolve(source.originalPath)).readAsBytes(),
+          bytes,
+        );
+      },
+    );
 
-    test('production multi path cannot warp a contradicted boundary', () async {
-      final gated = ProjectService(
-        projects,
-        LocalAssetRepository(projects.files),
-        imageEditor: LocalImageEditor(projects.files),
-        segmenter: (_) async => SegmentationResult(
-          multi: true,
-          candidates: [
-            // Pixel aspect on the 640×480 fixture is the ID-1 shape, so a
-            // ration-card filename contradicts it by more than 2.5×.
-            SegmentCandidate(
-              region: [.05, .08, .45, .416],
-              corners: [
-                Point2(.05, .08),
-                Point2(.45, .08),
-                Point2(.45, .416),
-                Point2(.05, .416),
-              ],
-              reason: 'measured',
-            ),
-            SegmentCandidate(
-              region: [.55, .50, .95, .836],
-              corners: [
-                Point2(.55, .50),
-                Point2(.95, .50),
-                Point2(.95, .836),
-                Point2(.55, .836),
-              ],
-              reason: 'measured',
-            ),
-          ],
-        ),
-      );
-      var project = await gated.create('تعدد');
-      final bytes = _idCardPhoto();
-      project = (await gated.importImages(project, [
-        ImportSource('البطاقة التموينية.png', () => Stream.value(bytes)),
-      ])).project;
-      final sourceId = project.assets.single.id;
-      final report = await gated.arrangeImportedImages(project, [sourceId]);
-      expect(gated.smartRecognitionEnabled, isFalse);
-      expect(gated.multiDocumentSegmentationEnabled, isTrue);
-      expect(report.cropped, 0);
-      expect(
-        report.project.assets.singleWhere((asset) => asset.id == sourceId).crop,
-        isNull,
-      );
-      expect(report.project.items, hasLength(2));
-      expect(report.project.items.every((item) => !item.sizeConfirmed), isTrue);
-      expect(
-        report.project.items.every(
-          (item) =>
-              item.width / item.height < 4 && item.height / item.width < 4,
-        ),
-        isTrue,
-        reason: 'neither derived crop was stretched to the ration-card ratio',
-      );
-      final source = report.project.assets.singleWhere(
-        (asset) => asset.id == sourceId,
-      );
-      expect(
-        await (await LocalAssetRepository(
-          projects.files,
-        ).resolve(source.originalPath)).readAsBytes(),
-        bytes,
-      );
-    });
-
-    test('a passport filename cannot stretch an ID-shaped quad', () async {
+    test('a valid single boundary is cropped but stays unclassified', () async {
       final inner = LocalImageEditor(projects.files);
       final gated = ProjectService(
         projects,
         LocalAssetRepository(projects.files),
-        imageEditor: _FixedSuggest(inner, _idQuadOnSquare()),
+        imageEditor: _FixedSuggest(inner, _wideQuadOnSquare()),
         segmenter: (_) async =>
             const SegmentationResult(multi: false, candidates: []),
       );
-      var project = await gated.create('جواز');
+      var project = await gated.create('synthetic single-region scene');
       final bytes = _square();
       project = (await gated.importImages(project, [
-        ImportSource('جواز السفر.png', () => Stream.value(bytes)),
+        ImportSource('capture.png', () => Stream.value(bytes)),
       ])).project;
       final report = await gated.arrangeImportedImages(project, [
         project.assets.single.id,
@@ -221,11 +238,12 @@ void main() {
       final asset = report.project.assets.single;
       final item = report.project.items.single;
       expect(report.cropped, 1);
+      expect(item.documentKind, DocumentKind.unknown);
       expect(item.sizeConfirmed, isFalse);
-      expect([item.width, item.height], isNot([125, 88]));
-      expect(asset.width / asset.height, closeTo(1.586, .04));
-      expect(asset.width / asset.height, isNot(closeTo(125 / 88, .02)));
-      expect(report.warnings.join(' '), contains('دون مطّ'));
+      expect(item.pageIndex, isNull);
+      expect(asset.width / asset.height, closeTo(.8 / .504, .03));
+      expect(asset.crop?.outputWidth, asset.width);
+      expect(asset.crop?.outputHeight, asset.height);
       expect(
         await (await LocalAssetRepository(
           projects.files,
@@ -235,7 +253,7 @@ void main() {
     });
 
     test(
-      'production multi path does not stretch ID quads to passport',
+      'multi-region boundaries crop measured pixels without inferring size',
       () async {
         final gated = ProjectService(
           projects,
@@ -246,8 +264,8 @@ void main() {
             candidates: [
               SegmentCandidate(
                 region: const [.05, .05, .85, .554],
-                corners: _idQuadOnSquare(),
-                reason: 'measured',
+                corners: _wideQuadOnSquare(),
+                reason: 'synthetic-geometry',
               ),
               SegmentCandidate(
                 region: const [.10, .48, .90, .984],
@@ -257,52 +275,51 @@ void main() {
                   Point2(.90, .984),
                   Point2(.10, .984),
                 ],
-                reason: 'measured',
+                reason: 'synthetic-geometry',
               ),
             ],
           ),
         );
-        var project = await gated.create('تعدد جواز');
+        var project = await gated.create('synthetic multi-region scene');
         final bytes = _square();
         project = (await gated.importImages(project, [
-          ImportSource('جواز السفر.png', () => Stream.value(bytes)),
+          ImportSource('scene.png', () => Stream.value(bytes)),
         ])).project;
         final sourceId = project.assets.single.id;
         final report = await gated.arrangeImportedImages(project, [sourceId]);
         expect(report.cropped, 2);
         expect(report.project.items, hasLength(2));
         expect(
-          report.project.items.every((item) => !item.sizeConfirmed),
-          isTrue,
-        );
-        expect(
           report.project.items.every(
-            (item) => item.width != 125 || item.height != 88,
+            (item) =>
+                item.documentKind == DocumentKind.unknown &&
+                !item.sizeConfirmed &&
+                item.pageIndex == null,
           ),
           isTrue,
         );
-        final derived = report.project.assets.where((a) => a.id != sourceId);
+        final derived = report.project.assets.where(
+          (asset) => asset.id != sourceId,
+        );
         expect(derived, hasLength(2));
         for (final asset in derived) {
-          expect(asset.width / asset.height, closeTo(1.586, .04));
-          expect(asset.width / asset.height, isNot(closeTo(125 / 88, .02)));
+          expect(asset.width / asset.height, closeTo(.8 / .504, .03));
         }
-        expect(report.warnings.join(' '), contains('دون مطّ'));
       },
     );
 
     test(
-      'a catalog match within shapeTolerance does not stretch the saved crop',
+      'trusted boundary cropping preserves measured pixels without type or size inference',
       () async {
         final inner = LocalImageEditor(projects.files);
         final gated = ProjectService(
           projects,
           LocalAssetRepository(projects.files),
-          imageEditor: _FixedSuggest(inner, _nearIdQuad()),
+          imageEditor: _FixedSuggest(inner, _wideQuad()),
           segmenter: (_) async =>
               const SegmentationResult(multi: false, candidates: []),
         );
-        var project = await gated.create('قرب الهوية');
+        var project = await gated.create('synthetic geometry');
         final bytes = _square();
         project = (await gated.importImages(project, [
           ImportSource('frame.png', () => Stream.value(bytes)),
@@ -312,17 +329,19 @@ void main() {
         ]);
         final asset = report.project.assets.single;
         final item = report.project.items.single;
-        // 0.80 * 999 + 1 floors to 800; 0.80/1.64 * 999 + 1 floors to 488.
-        // The removed catalog stretch would have saved 774×488.
+        // The measured .80 × .504 rectangle yields an 800 × 488 pixel crop.
         expect(report.cropped, 1);
         expect(asset.width, 800);
         expect(asset.height, 488);
         expect(asset.crop?.outputWidth, 800);
         expect(asset.crop?.outputHeight, 488);
-        expect(asset.width / asset.height, isNot(closeTo(85.6 / 53.98, .01)));
-        expect(item.sizeConfirmed, isTrue);
-        expect([item.width, item.height], [85.6, 53.98]);
-        expect(report.warnings.join(' '), isNot(contains('دون مطّ')));
+        expect(item.documentKind, DocumentKind.unknown);
+        expect(item.sizeConfirmed, isFalse);
+        expect(item.pageIndex, isNull);
+        expect(
+          item.width / item.height,
+          closeTo(asset.width / asset.height, .01),
+        );
         expect(
           await (await LocalAssetRepository(
             projects.files,
@@ -339,9 +358,9 @@ void main() {
     );
 
     test(
-      'production multi path keeps measured pixels when the catalog slot matches',
+      'multi-region crops retain measured pixel geometry when aspect resembles a catalog size',
       () async {
-        final quads = _twoNearIdQuads();
+        final quads = _twoWideQuads();
         final gated = ProjectService(
           projects,
           LocalAssetRepository(projects.files),
@@ -374,19 +393,13 @@ void main() {
         for (final asset in derived) {
           expect(asset.width, 400);
           expect(asset.height, 244);
-          expect(asset.width / asset.height, isNot(closeTo(85.6 / 53.98, .01)));
         }
         expect(report.project.items, hasLength(2));
-        // The classifier floor may refuse to confirm a 3.4 % match. That must
-        // not become a license to stretch the pixels, and it must not place
-        // the unconfirmed item in the catalog slot.
         for (final item in report.project.items) {
-          if (item.sizeConfirmed) {
-            expect([item.width, item.height], [85.6, 53.98]);
-          } else {
-            expect([item.width, item.height], isNot([85.6, 53.98]));
-            expect(item.width / item.height, closeTo(400 / 244, .02));
-          }
+          expect(item.documentKind, DocumentKind.unknown);
+          expect(item.sizeConfirmed, isFalse);
+          expect(item.pageIndex, isNull);
+          expect(item.width / item.height, closeTo(400 / 244, .02));
         }
         for (final record in report.project.documents) {
           final processed = record.sides.single.processedAsset;
@@ -409,9 +422,8 @@ void main() {
   });
 }
 
-/// Aspect 1.64 on a 1000×1000 frame: inside the 4 % ID-1 tolerance, not equal
-/// to 85.6/53.98. The unstretched recipe is 800×488, not the old 774×488.
-List<Point2> _nearIdQuad() {
+/// Synthetic wide quadrilateral on a 1000×1000 frame; its crop is 800×488 px.
+List<Point2> _wideQuad() {
   const top = 0.10;
   const left = 0.10;
   const width = 0.80;
@@ -424,9 +436,9 @@ List<Point2> _nearIdQuad() {
   ];
 }
 
-/// Two non-overlapping copies of the same 1.64 shape. Each is 0.40 of the
-/// frame, so the unstretched recipe is 400×244 rather than a catalog stretch.
-List<List<Point2>> _twoNearIdQuads() {
+/// Two non-overlapping synthetic wide quads. Each is .40 of the frame, so
+/// the measured crop recipe is approximately 400×244 px.
+List<List<Point2>> _twoWideQuads() {
   List<Point2> quad(double left) {
     const top = 0.20;
     const width = 0.40;
@@ -442,7 +454,7 @@ List<List<Point2>> _twoNearIdQuads() {
   return [quad(0.05), quad(0.55)];
 }
 
-List<Point2> _idQuadOnSquare() => [
+List<Point2> _wideQuadOnSquare() => [
   Point2(.05, .05),
   Point2(.85, .05),
   Point2(.85, .554),

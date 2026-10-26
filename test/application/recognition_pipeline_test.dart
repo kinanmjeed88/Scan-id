@@ -14,15 +14,13 @@ import 'package:scan_id/imaging/document_segmenter.dart';
 
 final _bytes = Uint8List.fromList([1, 2, 3]);
 
-PipelineImageInput _input({String name = 'البطاقة الوطنية الموحدة.png'}) =>
-    PipelineImageInput(
-      assetId: 'asset1',
-      name: name,
-      previewBytes: _bytes,
-      sourceWidth: 1600,
-      sourceHeight: 1000,
-      importIndex: 0,
-    );
+PipelineImageInput _input({String assetId = 'asset1'}) => PipelineImageInput(
+  assetId: assetId,
+  previewBytes: _bytes,
+  sourceWidth: 1600,
+  sourceHeight: 1000,
+  importIndex: 0,
+);
 
 List<Point2> _quad() => [
   Point2(.1, .15),
@@ -34,13 +32,13 @@ List<Point2> _quad() => [
 Uint8List _twoRoundRegions() {
   final image = img.Image(width: 900, height: 700);
   img.fill(image, color: img.ColorRgb8(45, 55, 70));
-  final documentColor = img.ColorRgb8(235, 233, 228);
+  final regionColor = img.ColorRgb8(235, 233, 228);
   for (final center in [(230, 210), (670, 490)]) {
     for (var y = center.$2 - 100; y <= center.$2 + 100; y++) {
       for (var x = center.$1 - 100; x <= center.$1 + 100; x++) {
         final dx = x - center.$1, dy = y - center.$2;
         if (dx * dx + dy * dy <= 100 * 100) {
-          image.setPixel(x, y, documentColor);
+          image.setPixel(x, y, regionColor);
         }
       }
     }
@@ -63,7 +61,7 @@ Uint8List _oneRoundRegion() {
   return Uint8List.fromList(img.encodePng(image));
 }
 
-Uint8List _cardAndRoundRegions() {
+Uint8List _rectangleAndRoundRegions() {
   final image = img.Image(width: 900, height: 700);
   img.fill(image, color: img.ColorRgb8(45, 55, 70));
   img.fillRect(
@@ -89,19 +87,6 @@ Uint8List _cardAndRoundRegions() {
 Future<SegmentationResult> _noMulti(Uint8List bytes) async =>
     const SegmentationResult(candidates: [], multi: false);
 
-class _KeywordOcr implements OcrEngine {
-  @override
-  String get version => 'fake-ocr-1';
-  @override
-  Future<OcrTextResult> recognize(
-    Uint8List imageBytes, {
-    CancellationToken? token,
-  }) async => OcrTextResult.available(
-    lines: [OcrLine(text: 'جواز سفر', confidence: .85)],
-    engineVersion: version,
-  );
-}
-
 class _ThrowingOcr implements OcrEngine {
   @override
   String get version => 'broken-ocr-1';
@@ -113,29 +98,45 @@ class _ThrowingOcr implements OcrEngine {
 }
 
 void main() {
-  test('single path: quad accepted, classified, no issues', () async {
+  test(
+    'a valid quad is crop-authorized without inventing a document kind',
+    () async {
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async => _quad(),
+        segment: _noMulti,
+      );
+      final analysis = await pipeline.analyze(_input());
+      expect(analysis.multi, isFalse);
+      expect(analysis.issues, isEmpty);
+      final detection = analysis.detections.single;
+      expect(detection.detectionId, 'asset1-d0');
+      expect(detection.hasUsableQuad, isTrue);
+      expect(detection.cropAuthorization, isNotNull);
+      expect(detection.geometry!.acceptable, isTrue);
+      expect(detection.classification.kind, DocumentKind.unknown);
+      expect(detection.classification.evidence, isEmpty);
+      expect(
+        detection.detectionConfidence,
+        isNull,
+        reason: 'the single detector has no calibrated score',
+      );
+    },
+  );
+
+  test('asset identity cannot create type or boundary evidence', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),
       segment: _noMulti,
     );
-    final analysis = await pipeline.analyze(_input());
-    expect(analysis.multi, isFalse);
-    expect(analysis.issues, isEmpty);
-    final detection = analysis.detections.single;
-    expect(detection.detectionId, 'asset1-d0');
-    expect(detection.hasUsableQuad, isTrue);
-    expect(detection.cropAuthorization, isNotNull);
-    expect(detection.geometry!.acceptable, isTrue);
-    expect(
-      detection.classification.kind,
-      DocumentKind.unifiedNationalId,
-      reason: '0.8×1599 by 0.8×999 ≈ the ID-1 shape',
-    );
-    expect(
-      detection.detectionConfidence,
-      isNull,
-      reason: 'the single detector has no calibrated score',
-    );
+    final first = await pipeline.analyze(_input());
+    final second = await pipeline.analyze(_input(assetId: 'another-asset'));
+    final a = first.detections.single;
+    final b = second.detections.single;
+    expect(a.classification.kind, DocumentKind.unknown);
+    expect(b.classification.kind, a.classification.kind);
+    expect(b.classification.evidence, a.classification.evidence);
+    expect(b.boundaryDecision?.kind, a.boundaryDecision?.kind);
+    expect(b.cropAuthorization != null, a.cropAuthorization != null);
   });
 
   test(
@@ -226,7 +227,7 @@ void main() {
           ],
         ),
       );
-      final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+      final analysis = await pipeline.analyze(_input());
       expect(analysis.multi, isTrue);
       expect(analysis.detections, hasLength(2));
       expect(analysis.detections[0].detectionId, 'asset1-d0');
@@ -314,7 +315,7 @@ void main() {
         ],
       ),
     );
-    final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+    final analysis = await pipeline.analyze(_input());
     expect(
       analysis.issues.map((i) => i.category),
       contains(RecognitionErrorCategory.detectionFailure),
@@ -331,7 +332,7 @@ void main() {
   });
 
   test(
-    'real segmentation preserves one measured cornerless region for manual recovery',
+    'synthetic segmentation preserves one measured cornerless region for manual recovery',
     () async {
       final bytes = _oneRoundRegion();
       final segmentation = segmentDocumentBytes(bytes);
@@ -350,7 +351,6 @@ void main() {
       final analysis = await pipeline.analyze(
         PipelineImageInput(
           assetId: 'round-region',
-          name: 'حدود غير حاسمة.png',
           previewBytes: bytes,
           sourceWidth: 900,
           sourceHeight: 700,
@@ -369,9 +369,9 @@ void main() {
   );
 
   test(
-    'real segmentation keeps a valid quad beside an unresolved measured region',
+    'synthetic segmentation keeps a valid quad beside an unresolved measured region',
     () async {
-      final bytes = _cardAndRoundRegions();
+      final bytes = _rectangleAndRoundRegions();
       final segmentation = segmentDocumentBytes(bytes);
       expect(segmentation.candidates, hasLength(2));
       expect(segmentation.candidates.first.corners, isNotNull);
@@ -388,7 +388,6 @@ void main() {
       final analysis = await pipeline.analyze(
         PipelineImageInput(
           assetId: 'mixed-regions',
-          name: 'مستندات مختلطة.png',
           previewBytes: bytes,
           sourceWidth: 900,
           sourceHeight: 700,
@@ -407,7 +406,7 @@ void main() {
   );
 
   test(
-    'real segmentation preserves two plausible cornerless regions through pipeline',
+    'synthetic segmentation preserves two plausible cornerless regions through pipeline',
     () async {
       final bytes = _twoRoundRegions();
       final segment = segmentDocumentBytes(bytes);
@@ -429,7 +428,6 @@ void main() {
       final analysis = await pipeline.analyze(
         PipelineImageInput(
           assetId: 'round-regions',
-          name: 'حدود غير حاسمة.png',
           previewBytes: bytes,
           sourceWidth: 900,
           sourceHeight: 700,
@@ -474,9 +472,7 @@ void main() {
         ),
       );
 
-      final analysis = await pipeline.analyze(
-        _input(name: 'two-candidates.png'),
-      );
+      final analysis = await pipeline.analyze(_input());
 
       expect(
         singleCalled,
@@ -527,16 +523,14 @@ void main() {
         ),
       );
 
-      final analysis = await pipeline.analyze(
-        _input(name: 'mixed-quality.png'),
-      );
+      final analysis = await pipeline.analyze(_input());
 
       expect(analysis.unresolvedRegions, hasLength(2));
       expect(analysis.rejectedRegions, [rejected]);
       expect(
         analysis.regionCount,
         2,
-        reason: 'rejected clutter is not a document',
+        reason: 'rejected clutter is not retained as a candidate',
       );
       expect(analysis.allRegions.map((region) => region.region), [
         [.1, .1, .45, .45],
@@ -638,13 +632,13 @@ void main() {
         ],
       ),
     );
-    final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+    final analysis = await pipeline.analyze(_input());
     expect(
       analysis.issues.map((i) => i.category),
       contains(RecognitionErrorCategory.detectionFailure),
     );
     // The measured region SURVIVES with its bounds so it can be recovered:
-    // dropping it is how a photo of several documents loses one.
+    // dropping it is how a multi-region source loses a measured candidate.
     expect(analysis.unresolvedRegions, hasLength(1));
     final unresolved = analysis.unresolvedRegions.single;
     expect(unresolved.region, [.1, .1, .5, .5]);
@@ -693,7 +687,7 @@ void main() {
           ],
         ),
       );
-      final analysis = await pipeline.analyze(_input(name: 'cards.png'));
+      final analysis = await pipeline.analyze(_input());
       expect(
         analysis.issues.map((i) => i.category),
         contains(RecognitionErrorCategory.geometryFailure),
@@ -751,16 +745,16 @@ void main() {
     },
   );
 
-  test('OCR keywords become evidence; the engine version is visible', () async {
+  test('without an offline OCR result, classification stays unknown', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),
       segment: _noMulti,
-      ocr: _KeywordOcr(),
     );
-    final analysis = await pipeline.analyze(_input(name: 'IMG_1.png'));
+    final analysis = await pipeline.analyze(_input());
     final classification = analysis.detections.single.classification;
-    expect(classification.evidence.map((e) => e.kind), contains('ocr-keyword'));
-    expect(classification.confidences.ocr?.value, .85);
+    expect(classification.kind, DocumentKind.unknown);
+    expect(classification.evidence, isEmpty);
+    expect(classification.confidences.ocr, isNull);
   });
 
   test('OCR failure is an issue and never aborts the analysis', () async {
@@ -776,7 +770,7 @@ void main() {
     );
     expect(
       analysis.detections.single.classification.kind,
-      DocumentKind.unifiedNationalId,
+      DocumentKind.unknown,
     );
   });
 

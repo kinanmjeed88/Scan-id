@@ -376,6 +376,12 @@ class ScanIdAiPipelineTest(unittest.TestCase):
         here; the separate byte-stable seed-101 regression below still exercises
         a genuine low-IoU corner jump and verifies production arbitration.
         """
+        if not self.bg_pools["test"] or not self.spec_pools["test"]:
+            self.skipTest(
+                "This source-pool stress case requires locally available test "
+                "background and specimen references; they are intentionally "
+                "not bundled or fetched by CI."
+            )
         sw, sh = 640, 480
         raw_model_ious: list[float] = []
         final_boundary_ious: list[float] = []

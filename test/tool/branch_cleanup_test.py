@@ -10,7 +10,14 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from tool.branch_cleanup import BranchInfo, evaluate_branch, evaluate_all_branches
+from tool.branch_cleanup import (
+    BranchInfo,
+    delete_branch_remote,
+    evaluate_branch,
+    evaluate_all_branches,
+)
+from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 
 
@@ -296,6 +303,30 @@ class TestBranchCleanupPolicy(unittest.TestCase):
             diff_empty=None,
         )
         self.assertEqual(res.action, "keep")
+
+
+class TestRemoteDeletionPermissions(unittest.TestCase):
+    @patch("tool.branch_cleanup.run")
+    def test_api_failure_never_falls_back_to_git_push(self, run_mock):
+        run_mock.return_value = SimpleNamespace(
+            returncode=1,
+            stderr="403 Resource not accessible by integration",
+        )
+
+        self.assertFalse(
+            delete_branch_remote(
+                "kinanmjeed88/Scan-id", "feature/old", dry_run=False
+            )
+        )
+        run_mock.assert_called_once_with(
+            [
+                "gh",
+                "api",
+                "--method",
+                "DELETE",
+                "repos/kinanmjeed88/Scan-id/git/refs/heads/feature/old",
+            ]
+        )
 
 
 class TestRunsCleanupLogic(unittest.TestCase):

@@ -367,7 +367,6 @@ class SmartIntake {
         final analysis = await pipeline.analyze(
           PipelineImageInput(
             assetId: asset.id,
-            name: asset.name,
             previewBytes: source.preview,
             sourceWidth: source.width,
             sourceHeight: source.height,
@@ -1005,7 +1004,7 @@ class SmartIntake {
           'بقي المستند بموضعه وحجمه الحالي لتفادي إفساد ترتيب الورقة. '
           'راجعه من تبويب «المستمسك».',
         );
-      } else if (_shapeUnconfirmed(detection)) {
+      } else if (_shapeUnconfirmed(current, detection)) {
         onPlacedSizeKept(
           '${asset.name}: ${catalogShapeUnconfirmedMessage()} '
           'بقي المستند بموضعه الحالي.',
@@ -1017,7 +1016,7 @@ class SmartIntake {
       );
     }
     if (catalogSize == null) {
-      if (!_shapeUnconfirmed(detection)) return item;
+      if (!_shapeUnconfirmed(current, detection)) return item;
       final provisional = provisionalSize(
         width: asset.width,
         height: asset.height,
@@ -1254,18 +1253,19 @@ class SmartIntake {
       );
     }
 
-    // A proposed boundary that the decision refused must not keep a catalog
-    // size: that was how a filename label placed an uncropped photo at the
-    // contradicted physical size. No proposal (undetected) keeps the
-    // existing filename confirmation.
-    final boundaryRefused = detection.boundary == DetectionBoundary.rejected;
-    final shapeUnconfirmed = _shapeUnconfirmed(detection);
+    // A catalog slot requires both an independent kind claim and a trustworthy
+    // accepted warp whose measured shape validates that slot. A filename,
+    // missing boundary or OCR kind alone cannot confirm physical dimensions.
+    final shapeUnconfirmed = _shapeUnconfirmed(current, detection);
     if (shapeUnconfirmed) {
       warnings.add('${asset.name}: ${catalogShapeUnconfirmedMessage()}');
     }
-    final catalogSize = boundaryRefused || shapeUnconfirmed
-        ? null
-        : current.catalog.sizeFor(kind, landscape: asset.width >= asset.height);
+    final catalogSize = _confirmedCatalogSize(
+      current,
+      detection,
+      warped: automaticRecipe != null,
+      landscape: asset.width >= asset.height,
+    );
     final size =
         catalogSize ??
         provisionalSize(width: asset.width, height: asset.height);
@@ -1749,31 +1749,39 @@ class SmartIntake {
     );
   }
 
-  /// Catalog millimetres only when the warp happened and the measured shape
-  /// matches that catalog size within classification tolerance. A merely
-  /// accepted quadrilateral is not enough: confirming that slot would claim a
-  /// size the pixels do not have. Export contains; it does not fill.
+  /// Catalog millimetres only when an independent kind claim exists, the
+  /// boundary was warped, and the measured shape independently validates that
+  /// size. Shape validates a preset; it never creates the kind or authorizes a
+  /// crop. [shapeTolerance] is unchanged at 0.04.
   PhysicalSizeMm? _confirmedCatalogSize(
     Project current,
     DetectionAnalysis detection, {
     required bool warped,
     required bool landscape,
   }) {
-    if (!warped || detection.boundaryDecision?.catalogShapeMatches != true) {
-      return null;
-    }
+    if (!warped || !_catalogShapeMatches(current, detection)) return null;
     return current.catalog.sizeFor(
       detection.classification.kind,
       landscape: landscape,
     );
   }
 
-  bool _shapeUnconfirmed(DetectionAnalysis detection) {
-    final decision = detection.boundaryDecision;
-    return decision != null &&
-        decision.kind == BoundaryDecisionKind.accepted &&
-        !decision.catalogShapeMatches;
+  bool _catalogShapeMatches(Project current, DetectionAnalysis detection) {
+    if (detection.boundaryDecision?.kind != BoundaryDecisionKind.accepted) {
+      return false;
+    }
+    final expected = current.catalog.natural(detection.classification.kind);
+    final measured = detection.boundaryDecision?.verification.measuredAspect;
+    if (expected == null || measured == null || !measured.isFinite) {
+      return false;
+    }
+    return (measured / expected.aspect - 1).abs() <= shapeTolerance;
   }
+
+  bool _shapeUnconfirmed(Project current, DetectionAnalysis detection) =>
+      current.catalog.natural(detection.classification.kind) != null &&
+      detection.boundaryDecision?.kind == BoundaryDecisionKind.accepted &&
+      !_catalogShapeMatches(current, detection);
 
   /// Automatic perspective recipe, or null when the shared decision did not
   /// accept the claim. The output keeps the measured aspect. A catalog size
@@ -1800,7 +1808,11 @@ class SmartIntake {
     final boundaryId = editor is BoundaryProposalImageEditor
         ? (editor as BoundaryProposalImageEditor).boundaryModelId
         : null;
-    return {'ocr': ocr.version, if (boundaryId != null) 'boundary': boundaryId};
+    return {
+      'classifier': classifierVersion,
+      'ocr': ocr.version,
+      if (boundaryId != null) 'boundary': boundaryId,
+    };
   }
 
   String _producerLabelFor(
@@ -1954,10 +1966,7 @@ class SmartIntake {
     final kind = classification.kind;
     final variantId = _variantFor(current, classification);
     final preset = variantId != null
-        ? PresetSelection.resolved(
-            variantId,
-            presetConfidence: _aspectFit(classification),
-          )
+        ? PresetSelection.resolved(variantId)
         : PresetSelection.awaiting(
             candidates: [
               for (final candidate in classification.candidates)
@@ -2049,20 +2058,8 @@ class SmartIntake {
     ImageAsset asset,
     List<DocumentItem> newItems,
   ) {
-    final suggestion = suggestDocumentType(
-      name: asset.name,
-      width: asset.width,
-      height: asset.height,
-      catalog: current.catalog,
-      fullFrame: true,
-    );
-    final catalogSize = current.catalog.sizeFor(
-      suggestion.kind,
-      landscape: asset.width >= asset.height,
-    );
-    final size =
-        catalogSize ??
-        provisionalSize(width: asset.width, height: asset.height);
+    const kind = DocumentKind.unknown;
+    final size = provisionalSize(width: asset.width, height: asset.height);
     return DocumentItem(
       id: newId(),
       assetId: asset.id,
@@ -2072,9 +2069,9 @@ class SmartIntake {
       height: size.height,
       pageIndex: null,
       zIndex: _nextZ(current, newItems),
-      documentKind: suggestion.kind,
-      recognitionConfidence: suggestion.confidence,
-      sizeConfirmed: catalogSize != null,
+      documentKind: kind,
+      recognitionConfidence: 0,
+      sizeConfirmed: false,
     );
   }
 
@@ -2092,15 +2089,5 @@ class SmartIntake {
   String _derivedName(String base, int position) {
     final stem = base.length > 120 ? base.substring(0, 120) : base;
     return '$stem - مستند $position';
-  }
-
-  double? _aspectFit(ClassificationOutcome classification) {
-    for (final evidence in classification.evidence) {
-      if (evidence.kind == 'aspect-match' &&
-          evidence.reason == classification.kind.name) {
-        return evidence.score;
-      }
-    }
-    return null;
   }
 }

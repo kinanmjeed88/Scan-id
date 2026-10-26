@@ -103,82 +103,59 @@ void main() {
     });
   });
 
-  group('recognition', () {
-    test('explicit Arabic and English filenames win', () {
-      DocumentKind kind(String name) =>
-          suggestDocumentType(name: name, width: 400, height: 300).kind;
-      expect(
-        kind('البطاقة الوطنية الموحدة.jpg'),
-        DocumentKind.unifiedNationalId,
-      );
-      expect(kind('بطاقة السكن.png'), DocumentKind.residenceCard);
-      expect(kind('Passport-scan.jpg'), DocumentKind.passport);
-      expect(kind('البطاقة التموينية.jpg'), DocumentKind.rationCard);
-      expect(kind('ration_card.png'), DocumentKind.rationCard);
-      expect(
-        suggestDocumentType(name: 'جواز.png', width: 1, height: 1).confidence,
-        greaterThan(.9),
-      );
-    });
+  group('kind classification requires independent evidence', () {
+    test(
+      'filename, path, extension and token cannot set the document kind',
+      () {
+        for (final name in const [
+          'البطاقة الوطنية الموحدة.jpg',
+          'Passport-scan.jpg',
+          'بطاقة السكن.png',
+          'ration_card.png',
+          '/private/جواز السفر/photo.png',
+          'IMG_2041.png',
+        ]) {
+          final suggestion = suggestDocumentType(
+            name: name,
+            width: 856,
+            height: 540,
+          );
+          expect(suggestion.kind, DocumentKind.unknown, reason: name);
+          expect(suggestion.confidence, 0, reason: name);
+        }
+      },
+    );
 
-    test('boundary shape recognises each catalog category', () {
-      DocumentKind kind(int w, int h) =>
-          suggestDocumentType(name: 'scan.jpg', width: w, height: h).kind;
-      expect(kind(856, 540), DocumentKind.unifiedNationalId);
-      expect(kind(540, 856), DocumentKind.unifiedNationalId);
-      expect(kind(924, 628), DocumentKind.residenceCard);
-      expect(kind(1250, 880), DocumentKind.passport);
-      expect(kind(104, 574), DocumentKind.rationCard);
-      expect(kind(1000, 1000), DocumentKind.unknown);
-      expect(kind(2000, 600), DocumentKind.unknown);
-    });
-
-    test('small perspective errors are tolerated', () {
-      final kind = suggestDocumentType(
-        name: 'x.png',
-        width: 860,
-        height: 552, // 1.558, 1.8 % below ID-1
-      ).kind;
-      expect(kind, DocumentKind.unifiedNationalId);
-    });
-
-    test('an uncropped camera frame is not guessed', () {
-      for (final size in const [(4000, 3000), (3000, 2000), (1920, 1080)]) {
-        expect(
-          suggestDocumentType(
-            name: 'IMG_0001.jpg',
-            width: size.$1,
-            height: size.$2,
-            fullFrame: true,
-          ).kind,
-          DocumentKind.unknown,
-        );
-      }
-      // An already-cut scan keeps its document shape.
-      expect(
-        suggestDocumentType(
-          name: 'scan.png',
-          width: 856,
-          height: 540,
-          fullFrame: true,
-        ).kind,
-        DocumentKind.unifiedNationalId,
-      );
-    });
-
-    test('edited catalog sizes drive shape recognition', () {
-      const catalog = DocumentSizeCatalog(
+    test('aspect, full-frame flag and catalog edits cannot infer a kind', () {
+      const editedCatalog = DocumentSizeCatalog(
         residenceCard: PhysicalSizeMm(100, 50),
       );
-      expect(
-        suggestDocumentType(
-          name: 'x.png',
-          width: 1000,
-          height: 500,
-          catalog: catalog,
-        ).kind,
-        DocumentKind.residenceCard,
-      );
+      for (final size in const [
+        (856, 540),
+        (540, 856),
+        (924, 628),
+        (1250, 880),
+        (104, 574),
+        (1000, 1000),
+        (2000, 600),
+        (4000, 3000),
+      ]) {
+        for (final fullFrame in [false, true]) {
+          final suggestion = suggestDocumentType(
+            name: 'neutral-name.png',
+            width: size.$1,
+            height: size.$2,
+            catalog: editedCatalog,
+            fullFrame: fullFrame,
+          );
+          expect(suggestion.kind, DocumentKind.unknown);
+          expect(suggestion.confidence, 0);
+        }
+      }
+    });
+
+    test('the catalog shape tolerance remains unchanged', () {
+      expect(shapeTolerance, .04);
     });
 
     test('provisional size keeps proportions for unknown documents', () {

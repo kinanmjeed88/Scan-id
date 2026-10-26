@@ -1,18 +1,11 @@
 /// The document-kind classification path, kept SEPARATE from the question of
 /// whether a region is a usable document candidate.
 ///
-/// Two invariants are pinned here:
-///
-/// 1. Orientation is a presentation detail. `52 × 287 mm` is the ration card in
-///    its natural PORTRAIT orientation; `PhysicalSizeMm.aspect` and the shape
-///    match are both long/short, so a card photographed upright and the same
-///    card photographed on its side classify identically, and are sized by
-///    TURNING the catalog entry — never by editing it.
-/// 2. A catalog size is CONFIRMED only when the boundary was actually resolved
-///    and the classification cleared its own floor. A region can match a
-///    catalogued proportion perfectly and still be refused a confirmed size —
-///    which is what stops a background strip that happens to share a document's
-///    proportion from being placed on the sheet as that document.
+/// These tests separate the catalog's physical-size presets from document-kind
+/// classification. Image dimensions and boundary aspect can validate a size
+/// only after an independent kind is known; neither can create a kind. With no
+/// OCR/visual classifier in this build, automated results remain `unknown` and
+/// retain a measured, editable size.
 ///
 /// The segmenter is injected here on purpose: these tests are about
 /// classification and size confirmation, not about segmentation. Segmenter
@@ -56,10 +49,10 @@ Uint8List _photo(List<List<int>> rects) {
   return Uint8List.fromList(img.encodePng(source));
 }
 
-/// A portrait ration-card quad: 150 × 828 px, ratio 5.520 against the
-/// catalogued 287 / 52 = 5.5192 — an exact shape match in the card's natural
-/// orientation.
-List<Point2> _rationQuad() => [
+/// Synthetic portrait geometry, 150 × 828 px (aspect 5.520). This deliberately
+/// resembles a catalog aspect for boundary/size-validation tests; it is not a
+/// document-kind label or ground-truth sample.
+List<Point2> _portraitQuad() => [
   Point2(.4, .08),
   Point2(.55, .08),
   Point2(.55, .908),
@@ -67,25 +60,24 @@ List<Point2> _rationQuad() => [
 ];
 
 /// The same quad held on its side.
-List<Point2> _rationQuadLandscape() => [
+List<Point2> _landscapeQuad() => [
   Point2(.08, .4),
   Point2(.908, .4),
   Point2(.908, .55),
   Point2(.08, .55),
 ];
 
-/// An ID-1 quad: 320 × 200 px, ratio 1.600, inside the 4 % tolerance of
-/// 85.6 / 53.98 = 1.5858.
-List<Point2> _cardQuad() => [
+/// Synthetic 320 × 200 px geometry (aspect 1.600), near one catalog aspect.
+/// This is not a label or a real-document accuracy fixture.
+List<Point2> _wideQuad() => [
   Point2(.06, .1),
   Point2(.38, .1),
   Point2(.38, .3),
   Point2(.06, .3),
 ];
 
-/// Region bounds carrying the segmenter's own 8 % margin around a quad. The
-/// margin is what makes these regions realistic; measured against the catalog
-/// they still match (5.517 for the ration region, 1.599 for the card region).
+/// Region bounds carrying the synthetic 8 % margin around a quad. The measured
+/// aspects are used only to exercise geometry and size-validation paths.
 List<double> _regionOf(List<Point2> quad) {
   final xs = quad.map((p) => p.x).toList();
   final ys = quad.map((p) => p.y).toList();
@@ -117,23 +109,24 @@ SegmentCandidate _candidate(List<Point2> quad, {double confidence = .8}) =>
 SegmentCandidate _unresolved(List<Point2> quad) =>
     SegmentCandidate(region: _regionOf(quad), reason: 'no-trustworthy-quad');
 
-/// Two regions — the ration card and a national card — the second always
-/// resolved so the multi-document path is taken either way.
-Future<SegmentationResult> Function(Uint8List) _rationAndCard({
-  required bool rationResolved,
+/// Two synthetic measured regions; the first can be unresolved while the
+/// second remains valid. Neither region has a document-kind label.
+Future<SegmentationResult> Function(Uint8List) _twoQuads({
+  required bool firstResolved,
 }) =>
     (Uint8List bytes) async => SegmentationResult(
       multi: true,
       candidates: [
-        rationResolved ? _candidate(_rationQuad()) : _unresolved(_rationQuad()),
-        _candidate(_cardQuad()),
+        firstResolved
+            ? _candidate(_portraitQuad())
+            : _unresolved(_portraitQuad()),
+        _candidate(_wideQuad()),
       ],
     );
 
-/// A quad whose proportion is INSIDE the 4 % shape tolerance of the national
-/// card (900 × 546 px, ratio 1.648, best error 0.039) but whose shape match is
-/// too weak to classify: confidence 0.509, below the R4 floor of 0.6.
-Future<SegmentationResult> _weakShapeMatch(Uint8List bytes) async =>
+/// Two synthetic quads with catalog-like aspects. They exercise the geometric
+/// boundary/size paths only; their dimensions do not supply class evidence.
+Future<SegmentationResult> _twoShapeFixtures(Uint8List bytes) async =>
     SegmentationResult(
       multi: true,
       candidates: [
@@ -209,7 +202,7 @@ void main() {
       expect(naturalRation.isLandscape, isFalse);
     });
 
-    test('the shape match is identical in both orientations', () {
+    test('turning a crop changes only preset orientation, never its kind', () {
       const catalog = DocumentSizeCatalog();
       for (final kind in const [
         DocumentKind.unifiedNationalId,
@@ -223,26 +216,20 @@ void main() {
         final uprightWidth = uprightIsWide ? long : 1000;
         final uprightHeight = uprightIsWide ? 1000 : long;
         final upright = suggestDocumentType(
-          name: 'x',
+          name: 'neutral-name.png',
           width: uprightWidth,
           height: uprightHeight,
           catalog: catalog,
         );
-        // The SAME crop turned a quarter turn: width and height exchanged.
-        // `suggestDocumentType` matches on long/short, so the match and its
-        // confidence must be identical either way round.
         final onItsSide = suggestDocumentType(
-          name: 'x',
+          name: 'different-name/passport.png',
           width: uprightHeight,
           height: uprightWidth,
           catalog: catalog,
         );
-        expect(upright.kind, kind, reason: '$kind upright');
-        expect(onItsSide.kind, kind, reason: '$kind on its side');
+        expect(upright.kind, DocumentKind.unknown);
+        expect(onItsSide.kind, upright.kind);
         expect(onItsSide.confidence, upright.confidence);
-        // Turning the crop turns the SIZE to match it, and the entry it turns
-        // is the same catalog entry either way — never an edited one.
-        // Compared field by field: PhysicalSizeMm has no `operator ==`.
         final asHeld = catalog.sizeFor(kind, landscape: uprightIsWide)!;
         expect([asHeld.width, asHeld.height], [natural.width, natural.height]);
         final turned = catalog.sizeFor(kind, landscape: !uprightIsWide)!;
@@ -250,52 +237,49 @@ void main() {
       }
     });
 
-    test('camera-frame shapes are refused, not guessed', () {
-      final frame = suggestDocumentType(
-        name: 'x',
-        width: 1600,
-        height: 1200,
-        fullFrame: true,
-      );
-      expect(frame.kind, DocumentKind.unknown);
-      expect(frame.confidence, 0);
-      // A document proportion WITH no detected boundary is still a candidate:
-      // an already-cut scan has the document's shape.
-      expect(
-        suggestDocumentType(name: 'x', width: 1586, height: 1000).kind,
-        DocumentKind.unifiedNationalId,
-      );
-      // An explicit filename label outranks the shape.
-      expect(
-        suggestDocumentType(
-          name: 'البطاقة التموينية.png',
+    test('camera-frame and document-shaped images both stay unknown', () {
+      for (final entry in const [
+        (name: 'IMG_0001.jpg', width: 1600, height: 1200, fullFrame: true),
+        (
+          name: 'Passport/photo.png',
           width: 1586,
           height: 1000,
-        ).kind,
-        DocumentKind.rationCard,
-      );
+          fullFrame: false,
+        ),
+        (
+          name: 'بطاقة التموينية.png',
+          width: 1586,
+          height: 1000,
+          fullFrame: true,
+        ),
+      ]) {
+        final suggestion = suggestDocumentType(
+          name: entry.name,
+          width: entry.width,
+          height: entry.height,
+          fullFrame: entry.fullFrame,
+        );
+        expect(suggestion.kind, DocumentKind.unknown);
+        expect(suggestion.confidence, 0);
+      }
     });
   });
 
   group('the orientation a document is held in', () {
     test('cropHeldAspect preserves orientation', () {
       expect(
-        cropHeldAspect(_rationQuad(), sourceWidth: 1000, sourceHeight: 1000),
+        cropHeldAspect(_portraitQuad(), sourceWidth: 1000, sourceHeight: 1000),
         lessThan(1.0),
         reason: 'a portrait crop',
       );
       expect(
-        cropHeldAspect(
-          _rationQuadLandscape(),
-          sourceWidth: 1000,
-          sourceHeight: 1000,
-        ),
+        cropHeldAspect(_landscapeQuad(), sourceWidth: 1000, sourceHeight: 1000),
         greaterThan(1.0),
         reason: 'the same card on its side',
       );
       // It agrees with the catalog's own long/short view of the same quad.
       final held = cropHeldAspect(
-        _rationQuad(),
+        _portraitQuad(),
         sourceWidth: 1000,
         sourceHeight: 1000,
       );
@@ -320,7 +304,7 @@ void main() {
       expect(
         estimateOrientation(
           pixelAspect: cropHeldAspect(
-            _rationQuad(),
+            _portraitQuad(),
             sourceWidth: 1000,
             sourceHeight: 1000,
           ),
@@ -382,187 +366,234 @@ void main() {
       segmenter: segmenter,
     );
 
-    /// Imports one photo under [name] and arranges it.
-    ///
-    /// [name] MUST be neutral: `suggestDocumentType` gives an explicit filename
-    /// label priority over the boundary shape and returns immediately on a
-    /// match, and the label applies to EVERY region of the photo, not just the
-    /// one it describes. Naming a two-document photo 'تموينية' therefore made
-    /// both regions ration cards — and forced the national card's crop to the
-    /// ration card's 52:287 ratio, squashing it. These tests are about geometry
-    /// and orientation, so the filename must not be evidence in them. (That the
-    /// label does win is asserted in `test/domain/document_kind_test.dart`.)
+    /// Imports one synthetic photo under [name] and arranges it. Names are
+    /// deliberately varied by the invariance tests; none is a kind label.
     Future<AutomaticLayoutReport> run(
       ProjectService s,
       String name,
       List<List<int>> rects,
     ) async {
       final bytes = _photo(rects);
-      var project = await s.create(name);
+      var project = await s.create('synthetic classification fixture');
       project = (await s.importImages(project, [
         ImportSource('$name.png', () => Stream<List<int>>.value(bytes)),
       ])).project;
       return s.arrangeImportedImages(project, [project.assets.single.id]);
     }
 
-    DocumentItem itemOfKind(AutomaticLayoutReport report, DocumentKind kind) =>
-        report.project.items.firstWhere((i) => i.documentKind == kind);
+    DocumentItem itemForRecord(
+      AutomaticLayoutReport report,
+      DocumentRecord record,
+    ) =>
+        report.project.items.firstWhere((item) => item.documentId == record.id);
 
-    const rationRect = [400, 80, 550, 908];
-    const cardRect = [60, 100, 380, 300];
+    const tallRect = [400, 80, 550, 908];
+    const wideRect = [60, 100, 380, 300];
 
-    test('a resolved ration card is recognized and sized 52 × 287', () async {
+    test(
+      'resolved regions are cropped without inferring kind or size',
+      () async {
+        final report = await run(
+          service(_twoQuads(firstResolved: true)),
+          'ration-card.png',
+          const [tallRect, wideRect],
+        );
+
+        expect(report.project.documents, hasLength(2));
+        expect(report.project.items, hasLength(2));
+        expect(report.project.assets, hasLength(3));
+
+        for (final record in report.project.documents) {
+          final item = itemForRecord(report, record);
+          final asset = report.project.assets.firstWhere(
+            (entry) => entry.id == item.assetId,
+          );
+          expect(record.sides.single.detection!.polygon, hasLength(4));
+          expect(hasUnresolvedBoundary(record), isFalse);
+          expect(record.recognition!.documentKind, DocumentKind.unknown);
+          expect(record.recognition!.evidence, isEmpty);
+          expect(record.recognition!.preset.awaitingSize, isTrue);
+          expect(item.documentKind, DocumentKind.unknown);
+          expect(item.sizeConfirmed, isFalse);
+          expect(item.pageIndex, isNull);
+          expect(
+            item.width / item.height,
+            closeTo(asset.width / asset.height, 1e-3),
+          );
+        }
+      },
+    );
+
+    test(
+      'changing only the asset name leaves kind and crop result unchanged',
+      () async {
+        const rects = [tallRect, wideRect];
+        final named = await run(
+          service(_twoQuads(firstResolved: true)),
+          'Passport-scan',
+          rects,
+        );
+        final renamed = await run(
+          service(_twoQuads(firstResolved: true)),
+          'IMG_2041',
+          rects,
+        );
+
+        expect(renamed.cropped, named.cropped);
+        expect(renamed.notDetected, named.notDetected);
+        expect(
+          renamed.project.documents,
+          hasLength(named.project.documents.length),
+        );
+        expect(renamed.project.items, hasLength(named.project.items.length));
+        for (var index = 0; index < named.project.items.length; index++) {
+          final a = named.project.items[index];
+          final b = renamed.project.items[index];
+          expect(b.documentKind, a.documentKind);
+          expect(b.documentKind, DocumentKind.unknown);
+          expect(b.sizeConfirmed, a.sizeConfirmed);
+          expect(b.width, a.width);
+          expect(b.height, a.height);
+          expect(b.pageIndex, a.pageIndex);
+        }
+        for (var index = 0; index < named.project.documents.length; index++) {
+          final a = named.project.documents[index];
+          final b = renamed.project.documents[index];
+          expect(b.recognition!.documentKind, a.recognition!.documentKind);
+          expect(b.recognition!.evidence, a.recognition!.evidence);
+          expect(
+            b.sides.single.detection!.polygon,
+            a.sides.single.detection!.polygon,
+          );
+        }
+      },
+    );
+
+    test('an unresolved region stays recoverable and unclassified', () async {
       final report = await run(
-        service(_rationAndCard(rationResolved: true)),
-        'صورة',
-        const [rationRect, cardRect],
+        service(_twoQuads(firstResolved: false)),
+        'unresolved-case',
+        const [tallRect, wideRect],
       );
 
       expect(report.project.documents, hasLength(2));
-      expect(report.project.items, hasLength(2));
       expect(report.project.assets, hasLength(3));
-
-      final ration = itemOfKind(report, DocumentKind.rationCard);
-      expect(ration.sizeConfirmed, isTrue);
-      expect([ration.width, ration.height], [52, 287]);
+      final unresolvedRecord = report.project.documents.firstWhere(
+        (record) => record.sides.single.detection!.polygon == null,
+      );
+      final unresolvedItem = itemForRecord(report, unresolvedRecord);
+      expect(unresolvedItem.documentKind, DocumentKind.unknown);
+      expect(unresolvedItem.sizeConfirmed, isFalse);
+      expect(unresolvedItem.height / unresolvedItem.width, greaterThan(4));
+      expect(unresolvedItem.width, greaterThanOrEqualTo(minDocumentEdgeMm));
+      expect(unresolvedItem.height, greaterThanOrEqualTo(minDocumentEdgeMm));
       expect(
-        hasUnresolvedBoundary(
-          report.project.documents.firstWhere((d) => d.id == ration.documentId),
+        validDocumentSize(
+          PhysicalSizeMm(unresolvedItem.width, unresolvedItem.height),
         ),
-        isFalse,
-      );
-
-      // The national card in the same photo is unaffected.
-      final card = itemOfKind(report, DocumentKind.unifiedNationalId);
-      expect(card.sizeConfirmed, isTrue);
-      expect([card.width, card.height], [85.6, 53.98]);
-
-      // The catalog entry was turned, never edited.
-      final naturalRation = report.project.catalog.natural(
-        DocumentKind.rationCard,
-      )!;
-      expect([naturalRation.width, naturalRation.height], [52, 287]);
-    });
-
-    test('the SAME region unresolved never claims a catalog size', () async {
-      final report = await run(
-        service(_rationAndCard(rationResolved: false)),
-        'بلا حدود',
-        const [rationRect, cardRect],
-      );
-
-      expect(report.project.documents, hasLength(2));
-      expect(report.project.assets, hasLength(3));
-      final ration = itemOfKind(report, DocumentKind.rationCard);
-      final record = report.project.documents.firstWhere(
-        (d) => d.id == ration.documentId,
-      );
-
-      // Identical geometry, identical 5.520 proportion, a perfect catalog
-      // match — and still no confirmed size, because there is no trustworthy
-      // boundary to measure it from. This is the safeguard that keeps a strip
-      // sharing a document's proportion off the sheet: classification can
-      // never override a failed geometry assessment.
-      expect(ration.sizeConfirmed, isFalse);
-      expect([ration.width, ration.height], isNot([52, 287]));
-      // A provisional size keeps the proportion and stays editable, which is
-      // what keeps the item recoverable from the editor.
-      expect(ration.height / ration.width, greaterThan(4));
-      expect(ration.width, greaterThanOrEqualTo(minDocumentEdgeMm));
-      expect(ration.height, greaterThanOrEqualTo(minDocumentEdgeMm));
-      expect(
-        validDocumentSize(PhysicalSizeMm(ration.width, ration.height)),
         isA<PhysicalSizeMm>(),
       );
-      // Preserved and recoverable, never dropped and never confirmed.
-      expect(hasUnresolvedBoundary(record), isTrue);
-      expect(record.sides.single.detection!.polygon, isNull);
-      expect(record.provenance.sourceImageId, isNotNull);
-      expect(recordNeedsReview(record), isTrue);
-      // The preset is resolved from the KIND alone, so it does NOT report
-      // "awaiting size" here — the unresolved boundary has to be named
-      // separately or the queue would hide the one thing to act on.
-      expect(record.recognition!.preset.awaitingSize, isFalse);
+      expect(hasUnresolvedBoundary(unresolvedRecord), isTrue);
+      expect(unresolvedRecord.provenance.sourceImageId, isNotNull);
+      expect(recordNeedsReview(unresolvedRecord), isTrue);
+      expect(unresolvedRecord.recognition!.preset.awaitingSize, isTrue);
       expect(
-        reviewReasons(record),
+        reviewReasons(unresolvedRecord),
         contains('حدود غير محسومة — يحتاج القص إلى مراجعة'),
       );
-      // The resolved card beside it is still confirmed.
-      expect(
-        itemOfKind(report, DocumentKind.unifiedNationalId).sizeConfirmed,
-        isTrue,
+      expect(reviewReasons(unresolvedRecord), contains('بانتظار تحديد المقاس'));
+
+      final resolvedRecord = report.project.documents.firstWhere(
+        (record) => record.sides.single.detection!.polygon != null,
       );
+      final resolvedItem = itemForRecord(report, resolvedRecord);
+      expect(resolvedItem.documentKind, DocumentKind.unknown);
+      expect(resolvedItem.sizeConfirmed, isFalse);
+      expect(resolvedRecord.recognition!.evidence, isEmpty);
     });
 
-    test('the same card on its side is sized 287 × 52', () async {
-      final report = await run(
-        service(
-          (Uint8List bytes) async => SegmentationResult(
-            multi: true,
-            candidates: [
-              _candidate(_rationQuadLandscape()),
-              _candidate(_cardQuad()),
-            ],
+    test(
+      'a turned region keeps measured orientation without inferring kind',
+      () async {
+        final report = await run(
+          service(
+            (Uint8List bytes) async => SegmentationResult(
+              multi: true,
+              candidates: [
+                _candidate(_landscapeQuad()),
+                _candidate(_wideQuad()),
+              ],
+            ),
           ),
-        ),
-        'صورة بالعرض',
-        const [
-          [80, 400, 908, 550],
-          cardRect,
-        ],
-      );
+          'landscape-case',
+          const [
+            [80, 400, 908, 550],
+            wideRect,
+          ],
+        );
 
-      expect(report.project.items, hasLength(2));
-      // Each region is classified from its OWN geometry. With a neutral
-      // filename nothing here can collapse both regions into one kind, which is
-      // what a filename label silently does.
-      final ration = itemOfKind(report, DocumentKind.rationCard);
-      expect(ration.sizeConfirmed, isTrue);
-      expect([ration.width, ration.height], [287, 52]);
-      // The national card beside it is unaffected by the ration card's turn.
-      final card = itemOfKind(report, DocumentKind.unifiedNationalId);
-      expect(card.sizeConfirmed, isTrue);
-      expect([card.width, card.height], [85.6, 53.98]);
-      // Still the same catalog entry, just turned.
-      final naturalRation = report.project.catalog.natural(
-        DocumentKind.rationCard,
-      )!;
-      expect([naturalRation.width, naturalRation.height], [52, 287]);
-    });
+        expect(report.project.items, hasLength(2));
+        final landscapeRecord = report.project.documents.firstWhere(
+          (record) =>
+              record.sides.single.processedAsset.width /
+                  record.sides.single.processedAsset.height >
+              4,
+        );
+        final landscapeItem = itemForRecord(report, landscapeRecord);
+        expect(landscapeItem.documentKind, DocumentKind.unknown);
+        expect(landscapeItem.sizeConfirmed, isFalse);
+        expect(landscapeItem.width, greaterThan(landscapeItem.height));
+        expect(
+          landscapeItem.width / landscapeItem.height,
+          closeTo(
+            landscapeRecord.sides.single.processedAsset.width /
+                landscapeRecord.sides.single.processedAsset.height,
+            1e-3,
+          ),
+        );
+        expect(
+          report.project.items.every(
+            (item) => item.documentKind == DocumentKind.unknown,
+          ),
+          isTrue,
+        );
+        expect(
+          report.project.catalog.natural(DocumentKind.rationCard)!.width,
+          52,
+        );
+        expect(
+          report.project.catalog.natural(DocumentKind.rationCard)!.height,
+          287,
+        );
+      },
+    );
 
-    test('a shape match too weak to classify confirms no size', () async {
-      final report = await run(service(_weakShapeMatch), 'ضعيفة', const [
-        [50, 200, 950, 746],
-        [100, 800, 385, 980],
-      ]);
+    test(
+      'aspect matches alone never produce a kind or confirmed size',
+      () async {
+        final report = await run(
+          service(_twoShapeFixtures),
+          'passport.png',
+          const [
+            [50, 200, 950, 746],
+            [100, 800, 385, 980],
+          ],
+        );
 
-      expect(report.project.items, hasLength(2));
-      // Ratio 1.648 is inside the 4 % tolerance of 85.6 / 53.98, but the
-      // resulting confidence 0.509 is below the R4 floor of 0.6, so the kind
-      // becomes unknown and no catalog size can be claimed.
-      final weak = report.project.items.where((i) => !i.sizeConfirmed).toList();
-      expect(weak, hasLength(1));
-      expect(weak.single.documentKind, DocumentKind.unknown);
-      expect([weak.single.width, weak.single.height], isNot([85.6, 53.98]));
-      final record = report.project.documents.firstWhere(
-        (d) => d.id == weak.single.documentId,
-      );
-      expect(record.recognition!.status, RecognitionStatus.unknown);
-      expect(reviewReasons(record), contains('بانتظار تحديد المقاس'));
-      // The evidence is preserved for review even though the kind is not.
-      final classification = record.recognition!.confidences.classification;
-      expect(classification, isNotNull);
-      expect(
-        classification!.value,
-        lessThan(defaultThresholds.minClassification),
-      );
-      expect(record.recognition!.evidence, isNotEmpty);
-      // The clearly-matched card beside it is unaffected.
-      expect(
-        itemOfKind(report, DocumentKind.unifiedNationalId).sizeConfirmed,
-        isTrue,
-      );
-    });
+        expect(report.project.items, hasLength(2));
+        expect(report.project.documents, hasLength(2));
+        for (final record in report.project.documents) {
+          final item = itemForRecord(report, record);
+          expect(item.documentKind, DocumentKind.unknown);
+          expect(item.sizeConfirmed, isFalse);
+          expect(record.recognition!.status, RecognitionStatus.unknown);
+          expect(record.recognition!.confidences.classification, isNull);
+          expect(record.recognition!.evidence, isEmpty);
+          expect(record.recognition!.preset.awaitingSize, isTrue);
+          expect(reviewReasons(record), contains('بانتظار تحديد المقاس'));
+        }
+      },
+    );
 
     test('provisionalSize stays editable at any proportion', () {
       // An extreme proportion such as a shadow strip would otherwise produce a

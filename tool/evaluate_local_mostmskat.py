@@ -24,7 +24,8 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -183,7 +184,6 @@ def evaluate(input_dir: Path) -> dict[str, Any]:
                     rgb,
                     use_learned_model=use_learned_model,
                     models_dir=MODEL_DIR,
-                    filename="local-anonymous-image",
                 )
             except Exception:
                 aggregate["inference_errors"] += 1
@@ -215,7 +215,7 @@ def evaluate(input_dir: Path) -> dict[str, Any]:
         commit = "unavailable"
 
     summary: dict[str, Any] = {
-        "evaluation_date_local": date.today().isoformat(),
+        "evaluation_date_local": datetime.now(ZoneInfo("Asia/Baghdad")).date().isoformat(),
         "purpose": "unlabelled local behavior screen; not an accuracy estimate",
         "privacy": {
             "input_scope": "local still images only",
@@ -230,7 +230,7 @@ def evaluate(input_dir: Path) -> dict[str, Any]:
             "exif_orientation": "Pillow ImageOps.exif_transpose",
             "preview_long_edge_px": PREVIEW_LONG_EDGE,
             "resize": "Pillow BOX approximation; Dart/package:image parity requires Flutter CI",
-            "filename_evidence": "neutral placeholder; local filenames are not used",
+            "document_kind": "unknown without independent evidence; file names and aspect ratios are not classifiers",
         },
         "implementation": {
             "git_head": commit,

@@ -18,7 +18,8 @@
 /// Rather than compromise the Windows target or bundle an unverified native
 /// dependency, the production pipeline runs against this abstraction with
 /// [UnavailableOcrEngine]: OCR unavailability is an explicit, non-fatal state
-/// and classification continues from the remaining evidence sources.
+/// and boundary analysis continues. Without independent type evidence, the
+/// classifier returns `unknown`.
 library;
 
 import 'dart:typed_data';

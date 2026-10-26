@@ -4,6 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/arrangement.dart';
+import 'package:scan_id/domain/document_edits.dart';
+import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
@@ -12,8 +15,7 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
-// The same simple synthetic card shape used by boundary_gate_test.dart.
-// No detector, boundary verifier, cropper, repository or exporter is mocked.
+// A synthetic rectangle exercises the local crop/export path without mocks.
 // This is path/regression coverage, not evidence of real-document accuracy.
 Uint8List _cardPhoto() {
   final image = img.Image(width: 640, height: 480);
@@ -67,24 +69,32 @@ void main() {
   }
 
   test(
-    'real local intake, authorized crop, persistence and A4 export stay connected',
+    'synthetic intake, manual size choice, persistence and A4 export stay connected',
     () async {
       final bytes = _cardPhoto();
-      final report = await importAndArrange(
-        'البطاقة الوطنية الموحدة.png',
-        bytes,
-      );
+      final report = await importAndArrange('scan.png', bytes);
       expect(service.smartRecognitionEnabled, isFalse);
       expect(service.multiDocumentSegmentationEnabled, isTrue);
       expect(report.cropped, 1);
       expect(report.notDetected, 0);
-      final project = await projects.get(report.project.id);
-      expect(project.toJson(), report.project.toJson());
+      expect(report.project.items.single.documentKind, DocumentKind.unknown);
+      expect(report.project.items.single.sizeConfirmed, isFalse);
+      expect(report.project.items.single.pageIndex, isNull);
+
+      final manuallySelected = DocumentEdits.setKind(
+        report.project,
+        report.project.items.single.id,
+        DocumentKind.other,
+      );
+      final arranged = arrangeDocuments(manuallySelected).result;
+      final project = await projects.save(arranged);
+      expect(project.toJson(), arranged.toJson());
       final asset = project.assets.single;
       expect(asset.crop, isNotNull);
       expect(asset.width, lessThan(640));
       expect(asset.height, lessThan(480));
       final item = project.items.single;
+      expect(item.documentKind, DocumentKind.other);
       expect(item.sizeConfirmed, isTrue);
       expect(item.pageIndex, 0);
       final working = await assets.resolve(asset.workingPath);
@@ -122,7 +132,7 @@ void main() {
 
   test('a refused boundary cannot become a confirmed printable crop', () async {
     final bytes = _cardPhoto();
-    final report = await importAndArrange('البطاقة التموينية.png', bytes);
+    final report = await importAndArrange('capture.png', bytes);
     expect(report.cropped, 0);
     expect(report.notDetected, 1);
     final project = await projects.get(report.project.id);

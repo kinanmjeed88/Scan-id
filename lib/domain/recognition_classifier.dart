@@ -1,9 +1,7 @@
-/// Hybrid document classification (ADR-007): combines independent evidence —
-/// filename label (structure), boundary shape (aspect) and OCR keywords —
-/// into a documentKind, explicit evidence, the five confidence dimensions and
-/// a routing band. OCR is never the sole authority; when it is unavailable
-/// the classifier still works from the remaining sources, and `unknown` is a
-/// valid result.
+/// Document classification (ADR-007) from explicit evidence only. This build
+/// has no validated visual kind classifier and no packaged OCR engine, so a
+/// filename or boundary aspect can never create a kind; without independent
+/// evidence the result is `unknown`.
 library;
 
 import 'document_kind.dart';
@@ -11,32 +9,19 @@ import 'ocr_evidence.dart';
 import 'recognition.dart';
 import 'recognition_routing.dart';
 
-/// All the evidence available for classifying one detected document.
+/// Explicit evidence available for classifying one detected document.
+///
+/// Detection and geometry confidence are used only in final routing; they do
+/// not label the document. Filename/path, pixel dimensions and boundary shape
+/// are deliberately not inputs to this type classifier.
 class ClassificationInput {
   const ClassificationInput({
-    required this.name,
-    required this.width,
-    required this.height,
-    required this.boundaryDetected,
-    this.catalog = const DocumentSizeCatalog(),
     this.detectionConfidence,
     this.geometryConfidence,
     this.ocrKeywords = const [],
     this.ocrConfidence,
     this.thresholds = defaultThresholds,
   });
-
-  /// Source file name (structure evidence through an explicit user label).
-  final String name;
-
-  /// Pixel size of the (cropped or full-frame) document image.
-  final int width;
-  final int height;
-
-  /// Whether a document boundary was actually detected. Without one the
-  /// shape is the whole photo and camera-frame shapes carry no information.
-  final bool boundaryDetected;
-  final DocumentSizeCatalog catalog;
 
   /// Measured upstream confidences; absent when the stage did not run.
   final double? detectionConfidence;
@@ -72,7 +57,7 @@ class ClassificationOutcome {
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'hybrid-1';
+const classifierVersion = 'explicit-evidence-1';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];
@@ -83,47 +68,9 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
     votes.putIfAbsent(kind, () => []).add((source, score));
   }
 
-  // Structure evidence: an explicit filename label. Separated from the shape
-  // signal by re-running the suggester with a label-free name.
-  final labelled = suggestDocumentType(
-    name: input.name,
-    width: input.width,
-    height: input.height,
-    catalog: input.catalog,
-    fullFrame: !input.boundaryDetected,
-  );
-  final shape = suggestDocumentType(
-    name: 'x',
-    width: input.width,
-    height: input.height,
-    catalog: input.catalog,
-    fullFrame: !input.boundaryDetected,
-  );
-  final hasLabel =
-      labelled.kind != DocumentKind.unknown &&
-      (labelled.kind != shape.kind || labelled.confidence != shape.confidence);
-  if (hasLabel) {
-    evidence.add(
-      RecognitionEvidence(
-        source: EvidenceSource.structure,
-        kind: 'filename-label',
-        score: labelled.confidence,
-        reason: labelled.kind.name,
-      ),
-    );
-    vote(labelled.kind, EvidenceSource.structure, labelled.confidence);
-  }
-  if (shape.kind != DocumentKind.unknown) {
-    evidence.add(
-      RecognitionEvidence(
-        source: EvidenceSource.aspect,
-        kind: 'aspect-match',
-        score: shape.confidence,
-        reason: shape.kind.name,
-      ),
-    );
-    vote(shape.kind, EvidenceSource.aspect, shape.confidence);
-  }
+  // OCR keyword evidence is optional and can be supplied only by the OCR
+  // adapter. No filename, path, aspect ratio, catalog size or detector score
+  // is converted into a document-kind vote.
   for (final keyword in input.ocrKeywords) {
     evidence.add(
       RecognitionEvidence(
@@ -160,10 +107,9 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
       votes.length > 1 &&
       winnerScore - runnerUpScore < input.thresholds.conflictGap;
 
-  // classificationConfidence: weighted geometric mean over the AVAILABLE
-  // sources supporting the winner (visual/aspect .4, OCR .3, structure .3 —
-  // AUDIT.md §F). Sources voting for other kinds reduce certainty through
-  // the conflict rule, not by zeroing the mean.
+  // Preserve the existing source-weight policy for any evidence types that
+  // are available. Absent sources stay absent; in this build only OCR keywords
+  // can vote for a kind. A conflict caps routing rather than zeroing the mean.
   double? sourceScore(EvidenceSource source) {
     final list = votes[winner];
     if (list == null) return null;

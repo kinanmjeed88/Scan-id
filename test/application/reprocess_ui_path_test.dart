@@ -450,7 +450,7 @@ void main() {
         // The override still decides the effective kind, while the machine's
         // own recognition truth stays exactly as recognition recorded it.
         expect(rec.effectiveKind(kept), DocumentKind.passport);
-        expect(kept.recognition!.documentKind, DocumentKind.unifiedNationalId);
+        expect(kept.recognition!.documentKind, DocumentKind.unknown);
         expect(
           report.warnings.join('\n'),
           contains('حُفظ قرار المراجعة السابق'),

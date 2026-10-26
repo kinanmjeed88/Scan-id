@@ -8,6 +8,7 @@ from the runner worktree, including reusable and manually-dispatched workflows.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,6 +25,25 @@ REQUIRED = (
 def verify() -> list[str]:
     failures: list[str] = []
     checkout_count = 0
+
+    # Sparse checkout is defense in depth, not permission to keep local document
+    # data in the public Git tree. Check the index so the guard also works before
+    # a local commit (the worktree corpus itself may remain available offline).
+    tracked = subprocess.run(
+        ["git", "ls-files", "--cached", "-z", "--", "Mostmskat"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout
+    if tracked:
+        failures.append(
+            f"Mostmskat/ contains {sum(bool(path) for path in tracked.split(bytes([0])))} tracked index path(s); "
+            "keep the authorized local corpus out of Git."
+        )
+    ignore_file = ROOT / ".gitignore"
+    ignore_lines = ignore_file.read_text(encoding="utf-8").splitlines()
+    if "/Mostmskat/" not in ignore_lines:
+        failures.append(".gitignore must explicitly ignore /Mostmskat/.")
     for workflow in sorted(WORKFLOWS.glob("*.yml")):
         lines = workflow.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):

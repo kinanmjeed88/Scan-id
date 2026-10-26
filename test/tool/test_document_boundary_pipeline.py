@@ -602,7 +602,8 @@ class DocumentBoundaryPipelineTest(unittest.TestCase):
         expected_conf = 0.5 * 0.0 + 0.3 * 1.0 + 0.2 * min(1.0, expected_area / 0.15)
         self.assertAlmostEqual(sharp_res.geometry_confidence or 0.0, expected_conf, places=9)
 
-        # 5. `segmenter` disjoint region triggers `quadOutsideRegion`, and filename `"جواز.jpg"` enforces `imposedAspect`
+        # 5. A disjoint region remains a boundary review; no filename or
+        # measured shape is converted into a catalog-kind/aspect claim.
         seg_bad = m.verify_boundary(
             m.BoundaryProposalPy(
                 producer="segmenter",
@@ -615,14 +616,18 @@ class DocumentBoundaryPipelineTest(unittest.TestCase):
         self.assertEqual(seg_bad.kind, "needsReview")
         self.assertIn("quadOutsideRegion", seg_bad.reasons)
 
-        claimed_passport = m.classify_claimed_aspect_py(
-            "جواز_سفر.jpg",
-            [(0.05, 0.20), (0.95, 0.20), (0.95, 0.52), (0.05, 0.52)],
-            None,
-            1000,
-            1000,
-        )
-        self.assertAlmostEqual(claimed_passport or 0.0, 125.0 / 88.0, places=6)
+        corners = [(0.05, 0.20), (0.95, 0.20), (0.95, 0.52), (0.05, 0.52)]
+        suggestions = [
+            m.suggest_document_type_py("جواز_سفر.jpg", 1250, 880),
+            m.suggest_document_type_py("neutral/IMG_2041.png", 856, 540),
+            m.suggest_document_type_py("ration_card.png", 104, 574),
+        ]
+        self.assertEqual(suggestions, [("unknown", 0.0)] * 3)
+        claims = [
+            m.classify_claimed_aspect_py(name, corners, None, 1000, 1000)
+            for name in ("جواز_سفر.jpg", "neutral/IMG_2041.png", "ration_card.png")
+        ]
+        self.assertEqual(claims, [None, None, None])
 
     def test_adversarial_negative_multi_boxes_never_produce_false_auto_accept(self) -> None:
         """Proves non-document white sheets with multiple colored boxes cannot auto-accept."""
@@ -644,7 +649,16 @@ class DocumentBoundaryPipelineTest(unittest.TestCase):
             self.assertEqual(c.min_auto_accept_confidence, raw_classical.candidates[index].min_auto_accept_confidence)
             self.assertTrue(c.requires_review)
 
-        full_decisions = m.detect_full_pipeline(rgb, use_learned_model=True)
+        full_decisions = m.detect_full_pipeline(
+            rgb, use_learned_model=True, filename="جواز_سفر.png"
+        )
+        renamed_decisions = m.detect_full_pipeline(
+            rgb, use_learned_model=True, filename="neutral/IMG_2041.png"
+        )
+        self.assertEqual(renamed_decisions, full_decisions)
+        self.assertTrue(
+            all(d.proposal.imposed_aspect is None for d in full_decisions)
+        )
         for d in full_decisions:
             self.assertNotEqual(d.kind, "accepted")
             self.assertNotEqual(d.proposal.producer, "learnedModel")

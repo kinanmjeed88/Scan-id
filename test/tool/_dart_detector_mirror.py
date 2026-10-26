@@ -2141,76 +2141,11 @@ def run_onnx_ai_scene(
     return ai_seg, proposals
 
 
-_CATALOG_NATURAL_ASPECTS: Dict[str, float] = {
-    "unifiedNationalId": 85.6 / 53.98,
-    "residenceCard": 92.4 / 62.8,
-    "passport": 125.0 / 88.0,
-    "rationCard": 287.0 / 52.0,
-}
-
-_NAME_TOKENS: List[Tuple[str, List[str]]] = [
-    ("rationCard", ["تموين", "تموينيه", "التموينيه", "ration"]),
-    ("residenceCard", ["بطاقةالسكن", "السكن", "سكن", "residence", "housing"]),
-    ("passport", ["جواز", "passport"]),
-    (
-        "unifiedNationalId",
-        [
-            "البطاقةالوطنية",
-            "بطاقةوطنية",
-            "البطاقةالموحدة",
-            "بطاقةموحدة",
-            "الوطنيةالموحدة",
-            "الهويه",
-            "unifiednational",
-            "nationalid",
-        ],
-    ),
-]
-
-
-def _normalize_doc_name(value: str) -> str:
-    import re as _re
-
-    out = value.lower()
-    out = _re.sub(r"[\u064B-\u065F\u0670]", "", out)
-    out = out.replace("ة", "ه").replace("ى", "ي")
-    out = _re.sub(r"[\s_\-.]+", "", out)
-    return out
-
-
 def suggest_document_type_py(
     name: str, width: int, height: int, full_frame: bool = False
 ) -> Tuple[str, float]:
-    """Mirrors `suggestDocumentType` in `lib/domain/document_kind.dart`."""
-    norm = _normalize_doc_name(name)
-    for kind, tokens in _NAME_TOKENS:
-        if any(_normalize_doc_name(t) in norm for t in tokens):
-            return kind, 0.98
-    if width <= 0 or height <= 0:
-        return "unknown", 0.0
-    ratio = max(width, height) / min(width, height)
-    if full_frame and any(abs(ratio / f - 1.0) < 0.01 for f in (4.0 / 3.0, 3.0 / 2.0, 16.0 / 9.0)):
-        return "unknown", 0.0
-    best_kind: Optional[str] = None
-    best_err = float("inf")
-    second_err = float("inf")
-    for kind in ("unifiedNationalId", "residenceCard", "passport", "rationCard"):
-        err = abs(ratio / _CATALOG_NATURAL_ASPECTS[kind] - 1.0)
-        if err < best_err:
-            second_err = best_err
-            best_err = err
-            best_kind = kind
-        elif err < second_err:
-            second_err = err
-    if best_kind is None or best_err > 0.04:
-        return "unknown", 0.0
-    closeness = 1.0 - best_err / 0.04
-    separation = (
-        max(0.0, min(1.0, (second_err - best_err) / 0.04))
-        if math.isfinite(second_err)
-        else 1.0
-    )
-    return best_kind, max(0.5, min(0.95, 0.5 + 0.45 * closeness * separation))
+    """Compatibility mirror: names and dimensions alone produce `unknown`."""
+    return "unknown", 0.0
 
 
 def classify_claimed_aspect_py(
@@ -2220,49 +2155,13 @@ def classify_claimed_aspect_py(
     source_width: int,
     source_height: int,
 ) -> Optional[float]:
-    """Mirrors `_analyzeDetection` classification -> `claimedNatural?.aspect` in `lib/application/recognition_pipeline.dart`."""
-    assess = (
-        assess_quad(corners, source_width, source_height)
-        if corners is not None
-        else None
-    )
-    quad_aspect = assess.aspect if (assess is not None and assess.acceptable) else None
-    boundary_detected = quad_aspect is not None
-    if quad_aspect is not None:
-        w = max(1, int(round(1000.0 * quad_aspect)))
-        h = 1000
-    elif region is not None and len(region) == 4:
-        rw = abs(region[2] - region[0]) * source_width
-        rh = abs(region[3] - region[1]) * source_height
-        asp = 1.0 if rh <= 0 else rw / rh
-        w = max(1, int(round(1000.0 * asp)))
-        h = 1000
-    else:
-        w = source_width
-        h = source_height
+    """No independent OCR/visual kind evidence exists in this mirror.
 
-    labelled_k, labelled_c = suggest_document_type_py(
-        name, w, h, full_frame=not boundary_detected
-    )
-    shape_k, shape_c = suggest_document_type_py(
-        "x", w, h, full_frame=not boundary_detected
-    )
-    votes: Dict[str, List[float]] = {}
-    if labelled_k != "unknown" and (labelled_k != shape_k or labelled_c != shape_c):
-        votes.setdefault(labelled_k, []).append(labelled_c)
-    if shape_k != "unknown":
-        votes.setdefault(shape_k, []).append(shape_c)
-
-    order = ["unifiedNationalId", "residenceCard", "passport", "rationCard", "other"]
-    winner = "unknown"
-    winner_score = 0.0
-    for k in order:
-        if k in votes:
-            best = max(votes[k])
-            if best > winner_score:
-                winner_score = best
-                winner = k
-    return _CATALOG_NATURAL_ASPECTS.get(winner)
+    The Dart pipeline therefore supplies no catalog-aspect claim to the
+    boundary gate. `name`, shape, region and detector confidence cannot create
+    one; the measured aspect is used only for orientation/size validation.
+    """
+    return None
 
 
 def detect_full_pipeline(
@@ -2271,7 +2170,7 @@ def detect_full_pipeline(
     models_dir: Optional[Path] = None,
     filename: str = "x",
 ) -> List[BoundaryDecisionPy]:
-    """Exact end-to-end mirror of `LocalImageEditor` + `RecognitionPipeline.analyze` + `verifyBoundary`."""
+    """Mirror boundary detection/arbitration; `filename` is ignored for type and crop decisions."""
     resolved_models = models_dir or (Path(__file__).resolve().parents[2] / "assets" / "models")
     preview = _resize_box(full_rgb, 2000, resample=Image.Resampling.BOX).astype(np.uint8)
     ph, pw = preview.shape[:2]

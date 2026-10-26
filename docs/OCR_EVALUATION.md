@@ -1,7 +1,13 @@
 # OCR evaluation — Scan ID
 
-**Status: no OCR engine ships in this build. This document records why, and
-what would have to be true before one can.**
+**Status (2026-10-26): no OCR engine ships in this build. This document records
+why, and what would have to be true before one can.**
+
+The current classifier does not infer document kind from filenames, paths,
+image dimensions, or boundary aspect. With `UnavailableOcrEngine`, it receives
+no independent kind evidence and returns `unknown`; boundary analysis remains
+independent. The historical classification policy described in older reports
+is superseded by the explicit-evidence implementation.
 
 The abstraction in `lib/application/ocr_engine.dart` is deliberately honest:
 the production pipeline runs against `UnavailableOcrEngine`, whose version
@@ -39,22 +45,25 @@ first).
 
 Disqualified on the first two counts — it cannot serve the product at all.
 
-### 2. Tesseract 5 (LSTM) — **viable but not chosen**
+### 2. Tesseract 5 (LSTM) — **Android candidate; shared Android/Windows integration not adopted**
 
 | | |
 |---|---|
-| Arabic | Yes, `ara.traineddata` ships in the standard tessdata sets |
-| Licence | Apache-2.0 ([tesseract][tess-license]) |
-| Offline | Yes, fully CPU |
-| Android | C++ NDK build required; the Flutter wrappers on pub.dev are unmaintained |
-| Windows | Official community builds exist (UB Mannheim) |
-| Accuracy | Vendor/secondary reporting puts Arabic at roughly 90–96 % on clean 300 DPI print, below its Latin figures; right-to-left scripts "occasionally come out reordered" ([tesseractocr.org][tess-bench], [engine comparison][tess-cmp]) |
-| Size | `ara.traineddata` is a single-digit-to-low-tens MB file depending on the `tessdata` / `tessdata_fast` / `tessdata_best` variant |
+| Arabic | Yes; official `ara.traineddata` is available |
+| Licence | Apache-2.0 ([Tesseract][tess-license]; `tessdata_fast` is separately Apache-2.0) |
+| Offline | Yes, CPU inference; model files can be bundled |
+| Android | `adaptech-cz/Tesseract4Android` 4.9.0 is an actively maintained Android library (Tesseract 5.5.1, Android API 21+) ([tag source][tesseract4android]), but its published dependency is built through JitPack. It is not itself a Flutter plugin, and this repository has not built or measured it. |
+| Windows | No shared Windows Flutter package was verified. The community Flutter package [`flusseract` 0.1.3][flusseract] declares Windows, but its CMake non-Android path searches `/usr/local/lib` for pre-installed Tesseract/Leptonica, and its Android Gradle module sets `minSdkVersion 31`; it is not a drop-in solution for this app's Android support range or a verified Windows build. |
+| Model size | The official [`tessdata_fast`][tessdata-fast] Arabic model is 1,432,056 bytes and English is 4,113,088 bytes. No model was added to the app. |
+| Project accuracy/latency | **Not measured.** There is no adjudicated Arabic/Latin OCR reference set and neither target engine was run. General OCR percentages from unrelated datasets are not transferable and are deliberately not used as evidence. |
 
-Apache-2.0 and genuinely offline, so it is not disqualified. It is not chosen
-because the Flutter/Android integration is unmaintained, the two-platform
-packaging work is unverified here, and its reported Arabic accuracy is the
-weakest of the viable options.
+Tesseract remains a credible Android-only research candidate, not a selected
+product engine. Pairing it with `Windows.Media.Ocr` would create two different
+recognizers and accuracy profiles; parity and confidence calibration have not
+been measured. The available Flutter bridges either omit Windows or have
+unverified build/minimum-SDK constraints. We therefore keep
+`UnavailableOcrEngine` rather than claim cross-platform OCR or add an unbuilt
+native dependency. Source review is not a build test.
 
 ### 3. PaddleOCR PP-OCRv5 Arabic — **a research candidate only; not selected or shippable**
 
@@ -110,8 +119,9 @@ here, because:
    none of which can be verified from this environment.
 3. **Bundling an unverified native runtime is exactly the failure mode
    ADR-005 and ADR-006 exist to prevent.** ADR-007 makes OCR evidence *optional*:
-   classification already continues from geometry, aspect, structure and
-   filename evidence, and an unavailable engine is a non-fatal state.
+   boundary and geometry analysis continue, but absent independent kind evidence
+   the classifier returns `unknown`. Filename, aspect, and pixel dimensions do
+   not substitute for OCR or a validated visual classifier.
 
 The abstraction stays honest: `UnavailableOcrEngine` is explicit, versioned and
 recorded in provenance (`modelVersions['ocr']`), so a later engine drop changes
@@ -128,7 +138,28 @@ method and limits are documented in
 [`scan-id-local-evaluation-2026-10-25.md`](reports/scan-id-local-evaluation-2026-10-25.md).
 The still-image directory is excluded from all GitHub Actions checkouts using
 sparse partial checkout; CI also checks that exclusion rule. No image, text,
-per-image outcome, OCR model, or OCR output was added to CI or this report.
+per-image outcome, OCR model, or OCR output was added to CI or this report. As of 2026-10-26 the 21 files under `Mostmskat/` remain on the authorized local disk but are removed from the current index and ignored. Their prior Git history (including the base branch) is not erased by the tip deletion; no history rewrite or public purge was attempted.
+
+A second local screen on 2026-10-26 processed the same 19 still images for
+boundary behavior only: zero decode/inference errors, no OCR engine call, and no
+text read or saved. It is not an OCR evaluation; the aggregate boundary results
+and limits are in [`MODEL_EVALUATION.md`](reports/MODEL_EVALUATION.md).
+
+The existing OCR-evidence unit tests use synthetic fixed strings only to test
+normalization and keyword-rule behavior. They are not image-derived transcripts,
+reference text, or an OCR accuracy dataset; they do not support CER/WER.
+
+## Local reference audit (2026-10-26)
+
+The local `.scanid` container was inspected through its header and manifest only;
+image payloads and personal text were not extracted or printed. Its project
+metadata has no reference/transcript/OCR fields. No authorized Arabic/Latin
+transcription set was found in the repository paths inventoried. Therefore no
+CER/WER was computed. The local annotation studio can hold a manually verified full transcript in a
+private JSON export; no such transcripts have been created or reviewed yet. The
+protocol for double transcription, adjudication, privacy, normalization and
+acceptance criteria is in [`LOCAL_EVALUATION_PROTOCOL.md`](LOCAL_EVALUATION_PROTOCOL.md).
+This tooling does not provide an OCR engine or evidence that labels exist.
 
 ## What must happen before an engine is adopted
 
@@ -155,8 +186,9 @@ screen above is not an OCR run and cannot produce CER/WER.
 [mlkit-langs]: https://developers.google.com/ml-kit/vision/text-recognition/v2/languages
 [mlkit-arabic]: https://www.b4x.com/android/forum/threads/textrecognition-based-on-mlkit-will-it-support-arabic.161926/
 [tess-license]: https://github.com/tesseract-ocr/tesseract
-[tess-bench]: https://tesseractocr.org/
-[tess-cmp]: https://ghtrends.dev/tesseract-ocr/tesseract/
+[tessdata-fast]: https://github.com/tesseract-ocr/tessdata_fast
+[tesseract4android]: https://github.com/adaptech-cz/Tesseract4Android/tree/4.9.0
+[flusseract]: https://github.com/letterassist-ai/flusseract/tree/10cf98c63063c9e70a17dc370edc58023d3083b8
 [paddle-license]: https://github.com/PaddlePaddle/PaddleOCR
 [onnx-hf]: https://huggingface.co/vladadu/pp-ocrv5-arabic-mobile-onnx
 [oar-models]: https://github.com/GreatV/oar-ocr/blob/main/docs/models.md

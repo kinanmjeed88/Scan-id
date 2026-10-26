@@ -1297,9 +1297,7 @@ class SmartIntake {
         outputWidth: asset.crop?.outputWidth,
         outputHeight: asset.crop?.outputHeight,
       ),
-      suggestedPolygon: asset.crop == null
-          ? detection.suggestedCorners
-          : null,
+      suggestedPolygon: asset.crop == null ? detection.suggestedCorners : null,
       producer: _producerLabelFor(
         detection,
         fallback: 'suggestDocumentCorners',

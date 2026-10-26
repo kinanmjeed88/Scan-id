@@ -682,8 +682,19 @@ class LocalAnnotationValidatorV2Test(unittest.TestCase):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as resp:
                 self.assertEqual(resp.status, 200)
+                self.assertEqual(resp.headers.get("Content-Security-Policy", "").count("connect-src 'none'"), 1)
                 body = resp.read().decode("utf-8")
                 self.assertIn("scan-id-local-annotations-v2", body)
+                self.assertIn('id="imageFiles" type="file"', body)
+                self.assertIn('multiple>', body)
+                self.assertIn("imageOrientation: 'from-image'", body)
+                self.assertIn("adb reverse tcp:8080 tcp:8080", body)
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/", data=b"private", method="POST")
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(req, timeout=5)
+            self.assertEqual(ctx.exception.code, 405)
+            self.assertEqual(ctx.exception.headers.get("Allow"), "GET, HEAD")
+            ctx.exception.close()
             for blocked in ("/Mostmskat/test.jpg", "/local-data/secret.json", "/README.md"):
                 with self.assertRaises(urllib.error.HTTPError) as ctx:
                     urllib.request.urlopen(f"http://127.0.0.1:{port}{blocked}", timeout=5)
@@ -783,6 +794,16 @@ class LocalAnnotationValidatorV2Test(unittest.TestCase):
         buf = io.BytesIO()
         im.save(buf, format="JPEG", exif=exif.tobytes())
         jpeg_hex = buf.getvalue().hex()
+        js_roundtrip_sample = sample_fixture(93, annotator="R1", status="second_review")
+        js_roundtrip_sample["ai_suggestions"] = [{
+            "suggestion_id": "fixture-ai-01",
+            "proposal_source": "frozen_ai_hybrid",
+            "corners": copy.deepcopy(FULL_QUAD),
+            "region_bbox": [0.1, 0.12, 0.88, 0.86],
+            "confidence": 0.73,
+            "gate_verdict": "needsReview",
+        }]
+        js_roundtrip_json = json.dumps(js_roundtrip_sample, separators=(",", ":"))
 
         harness = f"""
 const noop = () => ({{
@@ -812,6 +833,13 @@ const crossedCheck = api.inspectDocumentGeometry(
   {{ boundary_status: "complete", visible_polygon: [[0.1,0.1],[0.9,0.9],[0.9,0.1],[0.1,0.9]] }},
   {{ width_px: 1000, height_px: 800 }}
 );
+const coords = api.clientPointToNormalized(620, 460, {{left:100,top:50}}, 20, 10, 2, 1000, 500);
+const shaEmpty = api.sha256HexFallback(new ArrayBuffer(0));
+const shaAbc = api.sha256HexFallback(Buffer.from("abc"));
+api.appState.samples = [{js_roundtrip_json}];
+const exported = api.buildExportPayload("R1");
+api.restoreFromPayloadObject(exported);
+const reexported = api.buildExportPayload("R1");
 const upgraded = api.upgradeLegacyV1InBrowser({{
   schema: "scan-id-local-annotations-v1",
   reviewer_id: "R1",
@@ -834,7 +862,7 @@ const upgraded = api.upgradeLegacyV1InBrowser({{
     }}]
   }}]
 }});
-console.log(JSON.stringify({{ exifMeta, canon, okCheck, crossedCheck, upgraded, ham: api.dhashHamming("0000000000000000", "0000000000000003") }}));
+console.log(JSON.stringify({{ exifMeta, canon, okCheck, crossedCheck, upgraded, coords, shaEmpty, shaAbc, exported, reexported, ham: api.dhashHamming("0000000000000000", "0000000000000003") }}));
 """
         proc = subprocess.run(["node", "-e", harness], check=True, capture_output=True, text=True)
         out = json.loads(proc.stdout.strip())
@@ -843,6 +871,16 @@ console.log(JSON.stringify({{ exifMeta, canon, okCheck, crossedCheck, upgraded, 
         self.assertEqual(out["okCheck"]["level"], "ok")
         self.assertEqual(out["crossedCheck"]["level"], "err")
         self.assertEqual(out["ham"], 2)
+        self.assertEqual(out["coords"], {"vx": 520, "vy": 410, "nx": 0.25, "ny": 0.4})
+        self.assertEqual(out["shaEmpty"], hashlib.sha256(b"").hexdigest())
+        self.assertEqual(out["shaAbc"], hashlib.sha256(b"abc").hexdigest())
+        self.assertEqual(out["exported"]["schema_version"], "2.0.0")
+        self.assertEqual(out["exported"]["samples"], out["reexported"]["samples"])
+        self.assertEqual(out["exported"]["samples"][0]["ai_suggestions"][0]["region_bbox"], [0.1, 0.12, 0.88, 0.86])
+        self.assertNotIn("fixture-ai-01", json.dumps(out["exported"]["samples"][0]["documents"]))
+        _, roundtrip_summary = validate_payload(out["exported"], require_complete=False)
+        self.assertEqual(roundtrip_summary["human_completed_images"], 1)
+        self.assertEqual(roundtrip_summary["ai_suggestions"], 1)
         _, upgraded_summary = validate_payload(out["upgraded"], require_complete=False)
         self.assertEqual(upgraded_summary["human_completed_images"], 1)
 

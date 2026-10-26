@@ -40,7 +40,7 @@
     .viewer-top{display:flex;justify-content:space-between;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:.55rem}
     .toolbar{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;padding:.45rem .55rem;background:#0a1525;border:1px solid var(--line);border-radius:10px;margin-bottom:.55rem}
     .toolbar .sep{width:1px;height:1.3rem;background:var(--line);margin:0 .2rem}
-    .viewport{position:relative;background:repeating-conic-gradient(#0b1524 0 25%,#070e19 0 50%) 50%/22px 22px;border:1px solid var(--line);border-radius:12px;height:66vh;min-height:360px;overflow:hidden;user-select:none;touch-action:none}
+    .viewport{position:relative;background:repeating-conic-gradient(#0b1524 0 25%,#070e19 0 50%) 50%/22px 22px;border:1px solid var(--line);border-radius:12px;height:66vh;min-height:360px;overflow:hidden;user-select:none;touch-action:none;overscroll-behavior:contain}
     .viewport canvas{position:absolute;top:0;left:0;transform-origin:0 0;cursor:crosshair;image-rendering:auto}
     .viewport.panning canvas{cursor:grab}.viewport.dragging-pan canvas{cursor:grabbing}
     .hud{position:absolute;bottom:.55rem;left:.65rem;right:.65rem;display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;pointer-events:none;font-size:.74rem;direction:ltr}
@@ -79,6 +79,11 @@
     .hidden{display:none!important}
     .footer{color:#7387a3;font-size:.75rem;text-align:center;padding:1.2rem}
     @media(max-width:1024px){#workspace{grid-template-columns:1fr}.viewer{position:static}.setup-grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:640px){
+      :root{font-size:15px}header{position:relative;align-items:flex-start;padding:.7rem .8rem}.brand{align-items:flex-start;gap:.55rem}.logo{flex:none;width:1.9rem;height:1.9rem}h1{font-size:1rem;line-height:1.35}.badges{justify-content:flex-end}.badge{font-size:.65rem;padding:.2rem .42rem}
+      main{padding:.65rem}.card{padding:.72rem;border-radius:11px}.privacy{font-size:.8rem;padding:.7rem}.setup-grid{gap:.35rem}.row{gap:.4rem}button{min-height:44px;padding:.55rem .7rem;font-size:.86rem}button.small{min-height:42px;padding:.45rem .58rem;font-size:.8rem}input[type=text],select{min-height:44px;font-size:16px}input[type=file]{min-height:48px;font-size:.9rem}
+      #workspace{gap:.65rem;margin-top:.65rem}.viewer{padding:.6rem}.viewer-top{align-items:flex-start}.viewer-top>.row{width:100%;justify-content:space-between}.toolbar{gap:.35rem;padding:.4rem}.toolbar button{flex:1 1 auto}.toolbar .sep{display:none}.viewport{height:48vh;height:48svh;min-height:280px;max-height:560px;border-radius:9px}.hud{font-size:.65rem;left:.35rem;right:.35rem;bottom:.35rem}.hud span{padding:.18rem .35rem}.viewer .row[style*="space-between"]{align-items:stretch}.viewer .row[style*="space-between"]>.row{width:100%;justify-content:space-between}.viewer .row[style*="space-between"] button{flex:1}.viewer .hint{line-height:1.45}.stats{grid-template-columns:repeat(3,1fr)}.two-col{grid-template-columns:1fr;gap:.1rem}.checks-grid{gap:.55rem}.small-check{min-height:32px;align-items:center}.sample-strip{padding:.5rem 0}.side{gap:.65rem}
+    }
   </style>
 </head>
 <body>
@@ -122,9 +127,20 @@
       <div class="field">
         <label for="resumeFile">2. استئناف وسوم JSON أو تحميل بذرة جرد (اختياري)</label>
         <input id="resumeFile" type="file" accept="application/json,.json" disabled>
-        <span class="hint">يدعم ملفات v2 (أو ترقية v1) وملف البذرة غير الموسوم مع المقترحات الآلية المنفصلة.</span>
+        <span class="hint">يدعم ملفات v2 (أو ترقية v1) وملف البذرة غير الموسوم مع المقترحات الآلية المنفصلة. للاستعادة، حمّل أولاً الصور نفسها ثم اختر JSON.</span>
       </div>
     </div>
+
+    <details>
+      <summary>تشغيل آمن من هاتف Android (لا حاجة إلى بيئة تطوير على الهاتف)</summary>
+      <ul>
+        <li><strong>الخادم:</strong> يلزم تشغيل Python على الحاسوب الذي يحتفظ بالصور، أو استخدام خادم الاستوديو المقيد من مضيف موثوق؛ لا يعمل هذا المسار كخادم مستقل على الهاتف. شغّل <code>python3 tool/serve_annotation_studio.py --host 0.0.0.0 --port 8080</code> من جذر المستودع.</li>
+        <li><strong>الواجهة:</strong> وصّل الهاتف والحاسوب بشبكة Wi-Fi خاصة موثوقة وافتح عنوان LAN الذي يطبعه الخادم (مثل <code>http://192.168.x.x:8080/</code>). أو عبر USB فعّل USB debugging على الهاتف وثبّت <code>adb</code> على الحاسوب، ثم نفّذ <code>adb reverse tcp:8080 tcp:8080</code> وافتح <code>http://127.0.0.1:8080/</code> على الهاتف. لا تفتح عنوان المعاينة العامة أو شبكة عامة؛ HTTP على LAN غير مشفّر.</li>
+        <li><strong>الصور:</strong> اضغط «اختيار الصور» واستخدم منتقي ملفات Android لاختيار صور من الهاتف؛ يمنح المتصفح وصولاً للملفات التي اخترتها فقط. تُقرأ الصور في ذاكرة التبويب ولا يرفعها الخادم. في مسار LAN، SHA-256 يُحسب محلياً داخل المتصفح حتى إذا لم تتوفر Web Crypto على HTTP.</li>
+        <li><strong>المسودات:</strong> الحفظ التلقائي يبقى في مساحة تخزين Chrome لهذا الموقع/الأصل على الهاتف؛ لا ينتقل تلقائياً للحاسوب أو لمتصفح/أصل آخر، وقد يمسحه Android عند تنظيف بيانات المتصفح. صدّر JSON دورياً كنسخة احتياطية.</li>
+        <li><strong>التصدير والاستعادة:</strong> ينزّل زر التصدير JSON عبر المتصفح إلى مجلد التنزيلات على الهاتف. للاستعادة، اختر الصور نفسها أولاً ثم اختر JSON؛ تطابق سجلات الصور ببصمة SHA-256. استخدم تطبيق «الملفات» لنقل النسخة يدوياً إلى مكان محلي آمن عند الحاجة، ولا ترفعها إلى GitHub أو خدمة سحابية.</li>
+      </ul>
+    </details>
 
     <div class="row" style="margin-top:.55rem">
       <button id="loadImages" class="primary">تحميل الصور وفحص EXIF والتكرار</button>
@@ -546,12 +562,61 @@
     };
   }
 
-  async function sha256Hex(buffer) {
-    if (!globalThis.crypto?.subtle) {
-      throw new Error('يتطلب إنشاء معرّف SHA-256 متصفحاً حديثاً يدعم Web Crypto.');
+  function sha256HexFallback(buffer) {
+    // Small synchronous SHA-256 fallback for private-LAN HTTP origins on Android,
+    // where Web Crypto is intentionally unavailable because the origin is not secure.
+    const bytes = new Uint8Array(buffer);
+    const bitLength = bytes.length * 8;
+    const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
+    const data = new Uint8Array(paddedLength);
+    data.set(bytes);
+    data[bytes.length] = 0x80;
+    const view = new DataView(data.buffer);
+    view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false);
+    view.setUint32(paddedLength - 4, bitLength >>> 0, false);
+    const k = [
+      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+    ];
+    const h = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    const w = new Uint32Array(64);
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let offset = 0; offset < paddedLength; offset += 64) {
+      for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4, false);
+      for (let i = 16; i < 64; i++) {
+        const x = w[i - 15], y = w[i - 2];
+        const s0 = rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3);
+        const s1 = rotr(y, 17) ^ rotr(y, 19) ^ (y >>> 10);
+        w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+      }
+      let [a,b,c,d,e,f,g,hh] = h;
+      for (let i = 0; i < 64; i++) {
+        const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const ch = (e & f) ^ (~e & g);
+        const t1 = (hh + s1 + ch + k[i] + w[i]) >>> 0;
+        const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const maj = (a & b) ^ (a & c) ^ (b & c);
+        const t2 = (s0 + maj) >>> 0;
+        hh=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b; b=a; a=(t1+t2)>>>0;
+      }
+      h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+c)>>>0; h[3]=(h[3]+d)>>>0;
+      h[4]=(h[4]+e)>>>0; h[5]=(h[5]+f)>>>0; h[6]=(h[6]+g)>>>0; h[7]=(h[7]+hh)>>>0;
     }
-    const digest = await crypto.subtle.digest('SHA-256', buffer);
-    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+    return h.map((x) => x.toString(16).padStart(8, '0')).join('');
+  }
+
+  async function sha256Hex(buffer) {
+    if (globalThis.crypto?.subtle) {
+      const digest = await crypto.subtle.digest('SHA-256', buffer);
+      return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return sha256HexFallback(buffer);
   }
 
   function parseJpegExifAndRawSize(bytes) {
@@ -1138,18 +1203,28 @@
     $('hudZoom').textContent = `Zoom: ${effectiveRatio}%`;
   }
 
-  function viewportEventToNorm(event) {
-    const rect = viewport.getBoundingClientRect();
-    const vx = event.clientX - rect.left;
-    const vy = event.clientY - rect.top;
-    const cx = (vx - state.panX) / state.zoom;
-    const cy = (vy - state.panY) / state.zoom;
+  function clientPointToNormalized(clientX, clientY, rect, panX, panY, zoom, canvasWidth, canvasHeight) {
+    const vx = clientX - rect.left;
+    const vy = clientY - rect.top;
     return {
       vx,
       vy,
-      nx: round6(clamp01(cx / Math.max(1, canvas.width))),
-      ny: round6(clamp01(cy / Math.max(1, canvas.height)))
+      nx: round6(clamp01(((vx - panX) / zoom) / Math.max(1, canvasWidth))),
+      ny: round6(clamp01(((vy - panY) / zoom) / Math.max(1, canvasHeight)))
     };
+  }
+
+  function viewportEventToNorm(event) {
+    return clientPointToNormalized(
+      event.clientX,
+      event.clientY,
+      viewport.getBoundingClientRect(),
+      state.panX,
+      state.panY,
+      state.zoom,
+      canvas.width,
+      canvas.height
+    );
   }
 
   function drawArrowHead(x1, y1, x2, y2, size) {
@@ -1269,7 +1344,8 @@
   function findHitVertex(nx, ny) {
     const d = currentDocument();
     if (!d || !Array.isArray(d.visible_polygon)) return -1;
-    const hitRadiusPx = 13 / Math.max(0.25, state.zoom);
+    // A generous CSS-pixel hit target is essential for accurate finger editing on phones.
+    const hitRadiusPx = 22 / Math.max(0.25, state.zoom);
     let best = -1, bestDist = Infinity;
     d.visible_polygon.forEach(([vx, vy], idx) => {
       const dist = Math.hypot((vx - nx) * canvas.width, (vy - ny) * canvas.height);
@@ -1560,6 +1636,7 @@
             suggestion_id: a.suggestion_id,
             proposal_source: a.proposal_source,
             corners: Array.isArray(a.corners) ? roundPoints(a.corners) : null,
+            region_bbox: Array.isArray(a.region_bbox) ? a.region_bbox.map((v) => round6(clamp01(Number(v)))) : [0, 0, 0, 0],
             confidence: Number(a.confidence || 0),
             gate_verdict: a.gate_verdict || 'unknown'
           }))
@@ -1973,7 +2050,12 @@
       canonicalizeQuadClockwiseTL,
       inspectDocumentGeometry,
       upgradeLegacyV1InBrowser,
-      dhashHamming
+      dhashHamming,
+      sha256HexFallback,
+      clientPointToNormalized,
+      appState: state,
+      buildExportPayload,
+      restoreFromPayloadObject
     };
   }
 })();

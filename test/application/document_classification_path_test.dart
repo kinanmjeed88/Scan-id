@@ -461,10 +461,13 @@ void main() {
           final b = renamed.project.documents[index];
           expect(b.recognition!.documentKind, a.recognition!.documentKind);
           expect(b.recognition!.evidence, a.recognition!.evidence);
-          expect(
-            b.sides.single.detection!.polygon,
-            a.sides.single.detection!.polygon,
-          );
+          final polygonA = a.sides.single.detection!.polygon!;
+          final polygonB = b.sides.single.detection!.polygon!;
+          expect(polygonB, hasLength(polygonA.length));
+          for (var i = 0; i < polygonA.length; i++) {
+            expect(polygonB[i].x, polygonA[i].x);
+            expect(polygonB[i].y, polygonA[i].y);
+          }
         }
       },
     );

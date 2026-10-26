@@ -1216,7 +1216,7 @@ class SmartIntake {
     }
 
     // Single-document path: byte-compatible with the legacy intake, plus a
-    // recognition record carrying the measured evidence.
+    // recognition record that preserves both measurements and their absence.
     final detection = analysis.detections.first;
     final kind = detection.classification.kind;
     final automaticRecipe = _authorizedWarpRecipe(
@@ -1276,38 +1276,36 @@ class SmartIntake {
       );
     }
     final itemId = newId();
-    final hasEvidence =
-        detection.classification.evidence.isNotEmpty ||
-        detection.hasUsableQuad ||
-        detection.suggestedCorners != null;
-    final record = hasEvidence
-        ? _buildRecord(
-            current,
-            itemId: itemId,
-            asset: asset,
-            sourceAssetId: asset.id,
-            detection: detection,
-            processed: ProcessedAssetRef(
-              workingPath: asset.workingPath,
-              thumbnailPath: asset.thumbnailPath,
-              width: asset.width,
-              height: asset.height,
-              orientation: asset.adjustments.quarterTurns,
-              processingVersion: recognitionPipelineVersion,
-              corners: asset.crop?.corners,
-              outputWidth: asset.crop?.outputWidth,
-              outputHeight: asset.crop?.outputHeight,
-            ),
-            suggestedPolygon: asset.crop == null
-                ? detection.suggestedCorners
-                : null,
-            producer: _producerLabelFor(
-              detection,
-              fallback: 'suggestDocumentCorners',
-            ),
-          )
-        : null;
-    if (record != null) newDocuments.add(record);
+    // Preserve even a no-evidence analysis as an explicit unknown record. The
+    // review queue is where a person can dismiss a blank/non-document source or
+    // manually recover its crop; absence of a classifier result must not make
+    // the whole image disappear from review.
+    final record = _buildRecord(
+      current,
+      itemId: itemId,
+      asset: asset,
+      sourceAssetId: asset.id,
+      detection: detection,
+      processed: ProcessedAssetRef(
+        workingPath: asset.workingPath,
+        thumbnailPath: asset.thumbnailPath,
+        width: asset.width,
+        height: asset.height,
+        orientation: asset.adjustments.quarterTurns,
+        processingVersion: recognitionPipelineVersion,
+        corners: asset.crop?.corners,
+        outputWidth: asset.crop?.outputWidth,
+        outputHeight: asset.crop?.outputHeight,
+      ),
+      suggestedPolygon: asset.crop == null
+          ? detection.suggestedCorners
+          : null,
+      producer: _producerLabelFor(
+        detection,
+        fallback: 'suggestDocumentCorners',
+      ),
+    );
+    newDocuments.add(record);
     newItems.add(
       DocumentItem(
         id: itemId,
@@ -1322,18 +1320,16 @@ class SmartIntake {
         recognitionConfidence:
             detection.classification.confidences.finalConfidence?.value ?? 0,
         sizeConfirmed: catalogSize != null,
-        documentId: record?.id,
-        sideId: record?.sides.single.id,
-        presetSnapshot: record == null
-            ? null
-            : PresetSnapshot(
-                variantId: current.catalog.natural(kind) != null
-                    ? builtinVariantId(kind)
-                    : null,
-                widthMm: size.width,
-                heightMm: size.height,
-                status: presetStatusFor(kind),
-              ),
+        documentId: record.id,
+        sideId: record.sides.single.id,
+        presetSnapshot: PresetSnapshot(
+          variantId: current.catalog.natural(kind) != null
+              ? builtinVariantId(kind)
+              : null,
+          widthMm: size.width,
+          heightMm: size.height,
+          status: presetStatusFor(kind),
+        ),
       ),
     );
     return current;

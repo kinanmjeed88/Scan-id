@@ -88,7 +88,11 @@ void main() {
       );
       final arranged = arrangeDocuments(manuallySelected).result;
       final project = await projects.save(arranged);
-      expect(project.toJson(), arranged.toJson());
+      expect(
+        (await projects.get(project.id)).toJson(),
+        project.toJson(),
+        reason: 'the committed project round-trips through local persistence',
+      );
       final asset = project.assets.single;
       expect(asset.crop, isNotNull);
       expect(asset.width, lessThan(640));
@@ -130,25 +134,29 @@ void main() {
     timeout: const Timeout(Duration(minutes: 2)),
   );
 
-  test('a refused boundary cannot become a confirmed printable crop', () async {
-    final bytes = _cardPhoto();
-    final report = await importAndArrange('capture.png', bytes);
-    expect(report.cropped, 0);
-    expect(report.notDetected, 1);
-    final project = await projects.get(report.project.id);
-    expect(project.assets.single.crop, isNull);
-    expect(project.items.single.sizeConfirmed, isFalse);
-    expect(
-      () => ExportPlan(project, ExportProfile()),
-      throwsA(isA<ValidationException>()),
-    );
-    final exports = Directory('${root.path}/$exportDirectoryName');
-    expect(await exports.exists(), isFalse);
-    expect(
-      await (await assets.resolve(
-        project.assets.single.originalPath,
-      )).readAsBytes(),
-      bytes,
-    );
-  });
+  test(
+    'accepted geometry cannot infer type or confirm a printable catalog size',
+    () async {
+      final bytes = _cardPhoto();
+      final report = await importAndArrange('capture.png', bytes);
+      expect(report.cropped, 1);
+      expect(report.notDetected, 0);
+      final project = await projects.get(report.project.id);
+      expect(project.assets.single.crop, isNotNull);
+      expect(project.items.single.documentKind, DocumentKind.unknown);
+      expect(project.items.single.sizeConfirmed, isFalse);
+      expect(
+        () => ExportPlan(project, ExportProfile()),
+        throwsA(isA<ValidationException>()),
+      );
+      final exports = Directory('${root.path}/$exportDirectoryName');
+      expect(await exports.exists(), isFalse);
+      expect(
+        await (await assets.resolve(
+          project.assets.single.originalPath,
+        )).readAsBytes(),
+        bytes,
+      );
+    },
+  );
 }

@@ -614,14 +614,14 @@ void main() {
       );
     }
 
-    test('a substantially changed recognized size does not resize or move a '
-        'placed item', () async {
+    test('a changed provisional size does not resize or move a user-positioned '
+        'item or confirm a catalog size', () async {
       final arranged = await importAndArrange(
         _photo(),
         segmenter: _bothResolved,
       );
-      // Give one placed document a size that differs from the catalog size
-      // the next recognition will report, plus a deliberate position.
+      // Give one unknown item a user-edited provisional footprint and position.
+      // Aspect-only analysis must not confirm a catalog size on reprocess.
       final target = arranged.items.first;
       final resized = await projects.save(
         arranged.copyWith(
@@ -647,13 +647,11 @@ void main() {
       expect(after.y, 20);
       expect(after.width, 120, reason: 'printed footprint is the user layout');
       expect(after.height, 80);
-      expect(after.sizeConfirmed, isTrue);
-      // …and the conflict is reported instead of applied.
-      expect(
-        report.warnings.join('\n'),
-        contains('بقي المستند بموضعه وحجمه الحالي'),
-      );
-      // Recognition still refreshed the derived image and the kind.
+      expect(after.documentKind, DocumentKind.unknown);
+      expect(after.sizeConfirmed, isFalse);
+      // No catalog size is inferred from the synthetic region's aspect ratio.
+      // Recognition still refreshed the derived image while keeping the kind
+      // unknown.
       final record = report.project.documents.firstWhere(
         (d) => d.id == target.documentId,
       );
@@ -671,28 +669,38 @@ void main() {
       );
     });
 
-    test('a new document is placed; existing ones are not moved', () async {
-      final arranged = await importAndArrange(
-        _photo(),
-        segmenter: _bothResolved,
-      );
-      final first = await withNontrivialLayout(arranged);
-      final beforeIds = first.items.map((i) => i.id).toList();
+    test(
+      'a new unknown document awaits explicit sizing; existing ones are not moved',
+      () async {
+        final arranged = await importAndArrange(
+          _photo(),
+          segmenter: _bothResolved,
+        );
+        final first = await withNontrivialLayout(arranged);
+        final beforeIds = first.items.map((i) => i.id).toList();
 
-      final result = (await service(
-        segmenter: _threeResolved,
-      ).reprocessImages(first, uiAssetIds(first)))!.project;
+        final result = (await service(
+          segmenter: _threeResolved,
+        ).reprocessImages(first, uiAssetIds(first)))!.project;
 
-      expect(result.items, hasLength(3));
-      for (final before in first.items) {
-        final after = result.items.firstWhere((i) => i.id == before.id);
-        expectOnlyRecognitionFieldsDiffer(before, after);
-      }
-      // The newly discovered document is the only one that gets a placement.
-      final added = result.items.firstWhere((i) => !beforeIds.contains(i.id));
-      expect(added.pageIndex, isNotNull, reason: 'new documents are placed');
-      expect(added.documentId, isNotNull);
-      expect(result.pageCount, first.pageCount);
-    });
+        expect(result.items, hasLength(3));
+        for (final before in first.items) {
+          final after = result.items.firstWhere((i) => i.id == before.id);
+          expectOnlyRecognitionFieldsDiffer(before, after);
+        }
+        // It is kept as an unknown review item, but no catalog size or placement
+        // is asserted until a person chooses a document kind.
+        final added = result.items.firstWhere((i) => !beforeIds.contains(i.id));
+        expect(
+          added.pageIndex,
+          isNull,
+          reason: 'unknown size is not printable yet',
+        );
+        expect(added.documentId, isNotNull);
+        expect(added.documentKind, DocumentKind.unknown);
+        expect(added.sizeConfirmed, isFalse);
+        expect(result.pageCount, first.pageCount);
+      },
+    );
   });
 }

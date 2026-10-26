@@ -6,54 +6,41 @@ import 'package:scan_id/domain/recognition_classifier.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 
 void main() {
-  test('filename label plus matching shape recognises the card', () {
-    final outcome = classifyDocument(
-      const ClassificationInput(
-        name: 'البطاقة الوطنية الموحدة.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
-        geometryConfidence: .95,
-        detectionConfidence: .8,
-      ),
-    );
-    expect(outcome.kind, DocumentKind.unifiedNationalId);
-    expect(outcome.status, RecognitionStatus.recognized);
-    expect(
-      outcome.evidence.map((e) => e.kind),
-      containsAll(['filename-label', 'aspect-match']),
-    );
-    expect(outcome.confidences.classification, isNotNull);
-    expect(outcome.confidences.finalConfidence, isNotNull);
-    expect(outcome.candidates, contains(DocumentKind.unifiedNationalId));
-  });
+  test(
+    'no independent class evidence stays unknown despite geometry scores',
+    () {
+      final outcome = classifyDocument(
+        const ClassificationInput(
+          geometryConfidence: .95,
+          detectionConfidence: .8,
+        ),
+      );
+      expect(outcome.kind, DocumentKind.unknown);
+      expect(outcome.status, RecognitionStatus.unknown);
+      expect(outcome.evidence, isEmpty);
+      expect(outcome.confidences.classification, isNull);
+      expect(outcome.candidates, isEmpty);
+    },
+  );
 
-  test('shape alone classifies without a label', () {
+  test('OCR keywords can suggest a kind but cannot auto-accept it alone', () {
     final outcome = classifyDocument(
-      const ClassificationInput(
-        name: 'IMG_2041.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
-        geometryConfidence: .9,
+      ClassificationInput(
+        ocrKeywords: [
+          OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+        ],
+        ocrConfidence: .8,
       ),
     );
     expect(outcome.kind, DocumentKind.unifiedNationalId);
-    expect(
-      outcome.evidence.map((e) => e.kind),
-      isNot(contains('filename-label')),
-    );
+    expect(outcome.evidence.map((e) => e.kind), ['ocr-keyword']);
+    expect(outcome.confidences.ocr?.value, .8);
+    expect(outcome.confidences.classification?.value, .8);
+    expect(outcome.routing.band, isNot(RecognitionBand.autoCandidate));
   });
 
   test('no evidence at all stays unknown with empty evidence', () {
-    final outcome = classifyDocument(
-      const ClassificationInput(
-        name: 'photo.png',
-        width: 400,
-        height: 400,
-        boundaryDetected: false,
-      ),
-    );
+    final outcome = classifyDocument(const ClassificationInput());
     expect(outcome.kind, DocumentKind.unknown);
     expect(outcome.status, RecognitionStatus.unknown);
     expect(outcome.evidence, isEmpty);
@@ -64,10 +51,6 @@ void main() {
   test('evidence never contains OCR text, only kind/score/reason', () {
     final outcome = classifyDocument(
       ClassificationInput(
-        name: 'x.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
         ocrKeywords: [
           OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
         ],
@@ -75,40 +58,33 @@ void main() {
       ),
     );
     for (final evidence in outcome.evidence) {
-      expect(evidence.reason, isNot(contains('البطاقه')));
-      expect(
-        evidence.kind,
-        isIn(['filename-label', 'aspect-match', 'ocr-keyword']),
-      );
+      expect(evidence.reason, 'unifiedNationalId');
+      expect(evidence.kind, 'ocr-keyword');
     }
     expect(outcome.confidences.ocr?.value, .8);
   });
 
-  test('conflicting label and shape caps routing and marks uncertainty', () {
-    // Passport label over an ID-1-shaped crop: two kinds with close scores.
+  test('conflicting OCR keyword classes cap routing and mark uncertainty', () {
     final outcome = classifyDocument(
-      const ClassificationInput(
-        name: 'جواز السفر.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
-        geometryConfidence: .95,
-        detectionConfidence: .9,
+      ClassificationInput(
+        ocrKeywords: [
+          OcrKeywordEvidence(kind: DocumentKind.passport, score: .82),
+          OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+        ],
+        ocrConfidence: .81,
       ),
     );
-    expect(outcome.candidates.length, greaterThan(1));
+    expect(outcome.candidates, hasLength(2));
+    expect(outcome.status, RecognitionStatus.uncertain);
     expect(outcome.routing.band, isNot(RecognitionBand.autoCandidate));
   });
 
   test('candidates list every voted kind in stable enum order', () {
     final outcome = classifyDocument(
       ClassificationInput(
-        name: 'جواز السفر.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
         ocrKeywords: [
           OcrKeywordEvidence(kind: DocumentKind.rationCard, score: .4),
+          OcrKeywordEvidence(kind: DocumentKind.passport, score: .7),
         ],
       ),
     );
@@ -117,25 +93,14 @@ void main() {
     expect(outcome.candidates, sorted);
   });
 
-  test('full-frame camera shapes carry no aspect vote', () {
-    final outcome = classifyDocument(
-      const ClassificationInput(
-        name: 'IMG_1.png',
-        width: 4000,
-        height: 3000,
-        boundaryDetected: false,
-      ),
-    );
-    expect(outcome.kind, DocumentKind.unknown);
-  });
-
-  test('deterministic: identical inputs give identical outcomes', () {
-    const input = ClassificationInput(
-      name: 'بطاقة السكن.png',
-      width: 1471,
-      height: 1000,
-      boundaryDetected: true,
+  test('deterministic for identical explicit evidence', () {
+    final input = ClassificationInput(
+      detectionConfidence: .8,
       geometryConfidence: .9,
+      ocrKeywords: [
+        OcrKeywordEvidence(kind: DocumentKind.residenceCard, score: .78),
+      ],
+      ocrConfidence: .81,
     );
     final a = classifyDocument(input);
     final b = classifyDocument(input);
@@ -147,32 +112,28 @@ void main() {
     expect(a.routing.band, b.routing.band);
   });
 
-  test('final confidence fuses detection, geometry and classification', () {
-    final with_ = classifyDocument(
-      const ClassificationInput(
-        name: 'البطاقة الوطنية الموحدة.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
+  test('final confidence fuses only available independent components', () {
+    final evidence = [
+      OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+    ];
+    final withUpstream = classifyDocument(
+      ClassificationInput(
+        ocrKeywords: evidence,
+        ocrConfidence: .8,
         geometryConfidence: .95,
         detectionConfidence: .9,
       ),
     );
-    final without = classifyDocument(
-      const ClassificationInput(
-        name: 'البطاقة الوطنية الموحدة.png',
-        width: 1586,
-        height: 1000,
-        boundaryDetected: true,
-      ),
+    final ocrOnly = classifyDocument(
+      ClassificationInput(ocrKeywords: evidence, ocrConfidence: .8),
     );
-    expect(with_.confidences.detection, isNotNull);
-    expect(with_.confidences.geometry, isNotNull);
-    expect(without.confidences.detection, isNull);
-    expect(without.confidences.geometry, isNull);
+    expect(withUpstream.confidences.detection, isNotNull);
+    expect(withUpstream.confidences.geometry, isNotNull);
+    expect(ocrOnly.confidences.detection, isNull);
+    expect(ocrOnly.confidences.geometry, isNull);
     expect(
-      with_.confidences.finalConfidence!.value,
-      isNot(without.confidences.finalConfidence!.value),
+      withUpstream.confidences.finalConfidence!.value,
+      isNot(ocrOnly.confidences.finalConfidence!.value),
     );
   });
 }

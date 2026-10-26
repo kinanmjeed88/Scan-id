@@ -16,9 +16,11 @@ on:
         default: "24"
         type: string
 
+# Workflow defaults are read-only. Only the explicitly dispatched cleanup job
+# receives deletion capabilities.
 permissions:
-  actions: write
-  contents: write
+  actions: read
+  contents: read
   pull-requests: read
 
 concurrency:
@@ -28,12 +30,23 @@ concurrency:
 jobs:
   cleanup:
     name: Cleanup runs and branches
+    # Both scheduled and manual cleanup are confined to the repository default
+    # branch; PR and feature refs can never receive the deletion token.
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout with full history
         uses: actions/checkout@v5
         with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -70,7 +83,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          DELETE_BRANCHES: ${{ inputs.dry_run == true && 'false' || 'true' }}
+          # Fail closed; the guarded script below enables deletion only for an explicit manual dry_run=false dispatch.
+          DELETE_BRANCHES: 'false'
         shell: bash
         run: |
           set -euo pipefail

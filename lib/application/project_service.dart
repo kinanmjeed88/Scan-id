@@ -444,6 +444,8 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
+    // This intake route has no independent visual/OCR kind classifier, so its
+    // recognized-category count remains zero until such evidence is added.
     var recognized = 0;
     var needsReview = 0;
     var multiDocumentImages = 0;
@@ -625,8 +627,9 @@ class ProjectService {
     );
   }
 
-  /// The pre-existing single-document path. Kept separate from multi-region
-  /// dispatch so singleton images retain their old crop/classification behavior.
+  /// The pre-existing single-document import path. Kept separate from
+  /// multi-region dispatch; boundary analysis continues, while category stays
+  /// `unknown` without independent OCR/visual evidence.
   Future<AutomaticLayoutReport> _arrangeLegacyImportedImages(
     Project project,
     Iterable<String> assetIds, {
@@ -638,6 +641,7 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
+    // The legacy route currently has no independent kind classifier.
     var recognized = 0;
     final warnings = <String>[];
     final newItems = <DocumentItem>[];
@@ -662,9 +666,6 @@ class ProjectService {
         continue;
       }
       var asset = current.assets[assetIndex];
-      DocumentTypeSuggestion? suggestion;
-      var refusedProposedBoundary = false;
-      var catalogShapeUnconfirmed = false;
 
       final editor = imageEditor;
       if (editor == null) {
@@ -685,44 +686,16 @@ class ProjectService {
               '${asset.name}: لم تُكتشف حدود واضحة؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
             );
           } else {
-            final estimate = CropDraft(
-              corners: corners,
-              adjustments: asset.adjustments,
-            ).toRecipe(source.width, source.height);
-            final outputWidth = estimate.geometry.outputWidth;
-            final outputHeight = estimate.geometry.outputHeight;
-            suggestion = suggestDocumentType(
-              name: asset.name,
-              width: outputWidth,
-              height: outputHeight,
-              catalog: current.catalog,
-            );
-            final size = current.catalog.sizeFor(
-              suggestion.kind,
-              landscape: outputWidth >= outputHeight,
-            );
-            // Boundary gate (boundary audits D1/D3/D10): a detector proposal
-            // is a claim, not a crop permission. It becomes a saved crop only
-            // when verifyBoundary accepts it. Acceptance corrects perspective
-            // at the measured aspect; it does not impose the catalog ratio.
-            // Any other outcome keeps the whole frame for manual cropping,
-            // with the measured reason told to the user instead of a silently
-            // stretched or mis-sized crop. Note this
-            // gate is what guards cropping here; the Smart Recognition
-            // automationMode (reviewAll) never did — it only keeps records
-            // listed in that pipeline's review queue.
+            // Boundary authorization is independent of the file name,
+            // document-kind classifier, OCR and catalog dimensions. A valid
+            // measured quad is judged by geometry and detector review rules;
+            // the accepted crop preserves its measured aspect.
             final decision = verifyBoundary(
               BoundaryProposal(
                 producer:
                     rawProposal?.producer ??
                     BoundaryProducer.wholeFrameDetector,
                 corners: corners,
-                imposedAspect: size == null
-                    ? null
-                    : (size.width >= size.height
-                          ? size.width / size.height
-                          : size.height / size.width),
-                imposedKindLabel: suggestion.kind.label,
                 modelConfidence: rawProposal?.modelConfidence,
                 minAutoAcceptConfidence: rawProposal?.minAutoAcceptConfidence,
                 touchesFrameEdge: rawProposal?.touchesFrameEdge ?? false,
@@ -743,7 +716,7 @@ class ProjectService {
                   sourceWidth: source.width,
                   sourceHeight: source.height,
                   verdict: decision.kind.name,
-                  documentKind: suggestion.kind,
+                  documentKind: DocumentKind.unknown,
                   reasons: [
                     for (final r in decision.verification.reasons) r.name,
                   ],
@@ -752,8 +725,6 @@ class ProjectService {
             }
             if (authorization == null) {
               notDetected++;
-              refusedProposedBoundary = true;
-              suggestion = null;
               if (rawProposal?.producer == BoundaryProducer.learnedModel &&
                   decision.verification.hasUsableGeometry) {
                 asset = asset.withSuggestedCrop(corners);
@@ -770,12 +741,6 @@ class ProjectService {
                 );
               }
             } else {
-              if (size != null && !decision.catalogShapeMatches) {
-                catalogShapeUnconfirmed = true;
-                warnings.add(
-                  '${asset.name}: ${catalogShapeUnconfirmedMessage()}',
-                );
-              }
               current = await applyAuthorizedCrop(
                 current,
                 asset,
@@ -783,6 +748,9 @@ class ProjectService {
                 sourceWidth: source.width,
                 sourceHeight: source.height,
               );
+              // The accepted crop creates a new revision with its measured
+              // output dimensions. Use that aspect for the provisional size;
+              // the pre-crop camera frame is a different image region.
               asset = current.assets.firstWhere((entry) => entry.id == id);
               cropped++;
             }
@@ -797,37 +765,15 @@ class ProjectService {
         }
       }
 
-      suggestion ??= suggestDocumentType(
-        name: asset.name,
-        width: asset.width,
-        height: asset.height,
-        catalog: current.catalog,
-        fullFrame: true,
+      // The legacy import path has no independent OCR/visual type model. Keep
+      // the measured image editable with a provisional size; never infer a
+      // catalog kind from its name or aspect ratio.
+      const kind = DocumentKind.unknown;
+      const recognitionConfidence = 0.0;
+      final size = provisionalSize(width: asset.width, height: asset.height);
+      warnings.add(
+        '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
       );
-      final kind = suggestion.kind;
-      // A boundary that was proposed and refused must not keep the catalog
-      // size of the filename or of the rejected estimate. No proposal at all
-      // keeps the existing filename confirmation for an already-cut scan.
-      // A refused proposal, or an accepted quadrilateral whose shape does not
-      // match the catalog within shapeTolerance, must not be placed at the
-      // catalog size. Export contains the image, so a wrong slot would be a
-      // false size confirmation and a margin, not a stretch.
-      final catalogSize = refusedProposedBoundary || catalogShapeUnconfirmed
-          ? null
-          : current.catalog.sizeFor(
-              kind,
-              landscape: asset.width >= asset.height,
-            );
-      final size =
-          catalogSize ??
-          provisionalSize(width: asset.width, height: asset.height);
-      if (catalogSize != null) {
-        recognized++;
-      } else if (kind == DocumentKind.unknown) {
-        warnings.add(
-          '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
-        );
-      }
       final nextZ = current.items.fold<int>(
         0,
         (value, item) => math.max(value, item.zIndex),
@@ -844,8 +790,8 @@ class ProjectService {
           pageIndex: null,
           zIndex: nextZ + newItems.length + 1,
           documentKind: kind,
-          recognitionConfidence: suggestion.confidence,
-          sizeConfirmed: catalogSize != null,
+          recognitionConfidence: recognitionConfidence,
+          sizeConfirmed: false,
         ),
       );
       if (IntakeDiagnostics.isActive) {
@@ -856,9 +802,9 @@ class ProjectService {
             itemId: createdItemId,
             sourceWidth: asset.width,
             sourceHeight: asset.height,
-            verdict: catalogSize != null ? 'size_confirmed' : 'awaiting_size',
+            verdict: 'awaiting_size',
             documentKind: kind,
-            sizeConfirmed: catalogSize != null,
+            sizeConfirmed: false,
             widthMm: size.width,
             heightMm: size.height,
           ),

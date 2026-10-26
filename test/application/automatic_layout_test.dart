@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/arrangement.dart';
+import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
@@ -33,10 +35,10 @@ void main() {
   });
 
   test(
-    'labelled imports get catalog sizes and are arranged in category order',
+    'legacy imports stay unknown when names and aspects resemble catalog kinds',
     () async {
       final bytes = img.encodePng(img.Image(width: 860, height: 540));
-      final created = await service.create('معاملة');
+      final created = await service.create('synthetic import');
       final orderedProject = await projects.save(
         created.copyWith(
           layout: created.layout.copyWith(
@@ -45,7 +47,7 @@ void main() {
         ),
       );
       final imported = await service.importImages(orderedProject, [
-        ImportSource('جواز السفر.png', () => Stream.value(bytes)),
+        ImportSource('Passport-scan.png', () => Stream.value(bytes)),
         ImportSource('بطاقة السكن.png', () => Stream.value(bytes)),
         ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
       ]);
@@ -57,33 +59,30 @@ void main() {
       expect(result.project.paper.width, 210);
       expect(result.project.paper.height, 297);
       expect(result.project.items, hasLength(3));
-      expect(
-        result.project.documents,
-        isEmpty,
-        reason: 'the default-off Phase 1B flag keeps legacy imports unlinked',
-      );
+      expect(result.project.documents, isEmpty);
       expect(
         result.project.items.every((item) => item.documentId == null),
         isTrue,
       );
-      expect(result.recognized, 3);
-      expect(result.unplaced, 0);
+      expect(result.recognized, 0);
+      expect(result.unplaced, 3);
       expect(result.notDetected, 3, reason: 'flat images have no boundary');
       expect(result.cropped, 0);
-      expect(result.project.items.every((item) => item.sizeConfirmed), isTrue);
-      expect(result.project.items.every((item) => item.pageIndex == 0), isTrue);
-      expect(inspectLayout(result.project), isEmpty);
-      DocumentItem kind(DocumentKind kind) =>
-          result.project.items.singleWhere((item) => item.documentKind == kind);
-      final national = kind(DocumentKind.unifiedNationalId);
-      final residence = kind(DocumentKind.residenceCard);
-      final passport = kind(DocumentKind.passport);
-      expect([national.width, national.height], [85.6, 53.98]);
-      expect([residence.width, residence.height], [92.4, 62.8]);
-      expect([passport.width, passport.height], [125, 88]);
-      expect(national.y, 5, reason: 'the unified card opens the page');
-      expect(residence.y, greaterThan(national.y));
-      expect(passport.y, greaterThan(residence.y));
+      expect(result.project.items.every((item) => !item.sizeConfirmed), isTrue);
+      expect(
+        result.project.items.every((item) => item.pageIndex == null),
+        isTrue,
+      );
+      expect(
+        result.project.items.every(
+          (item) => item.documentKind == DocumentKind.unknown,
+        ),
+        isTrue,
+      );
+      expect(
+        result.project.items.map((item) => item.assetId),
+        imported.project.assets.map((asset) => asset.id),
+      );
       expect(
         (await projects.get(created.id)).toJson(),
         result.project.toJson(),
@@ -124,41 +123,50 @@ void main() {
         existing.toJson(),
       );
       expect(second.project.items, hasLength(2));
-      expect(second.project.items.last.pageIndex, 0);
+      expect(second.project.items.last.pageIndex, isNull);
+      expect(second.project.items.last.documentKind, DocumentKind.unknown);
+      expect(second.project.items.last.sizeConfirmed, isFalse);
       expect(inspectLayout(second.project), isEmpty);
     },
   );
 
-  test(
-    'an oversized document is retained and the report names the reason',
-    () async {
-      final bytes = img.encodePng(img.Image(width: 300, height: 400));
-      var project = await service.create('مقاس أكبر من الورقة');
-      project = await projects.save(
-        project.copyWith(paper: PaperSettings(margins: Margins.all(20))),
-      );
-      project = (await service.importImages(project, [
-        ImportSource('بطاقة التموينية.png', () => Stream.value(bytes)),
-      ])).project;
+  test('manual size confirmation preserves printable overflow', () async {
+    final bytes = img.encodePng(img.Image(width: 300, height: 400));
+    var project = await service.create('synthetic manual size');
+    project = await projects.save(
+      project.copyWith(paper: PaperSettings(margins: Margins.all(20))),
+    );
+    project = (await service.importImages(project, [
+      ImportSource('IMG_2041.png', () => Stream.value(bytes)),
+    ])).project;
 
-      final report = await service.arrangeImportedImages(project, [
-        project.assets.single.id,
-      ]);
+    final report = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final unclassified = report.project.items.single;
+    expect(unclassified.documentKind, DocumentKind.unknown);
+    expect(unclassified.sizeConfirmed, isFalse);
 
-      expect(report.project.items.single.pageIndex, isNull);
-      expect(
-        [report.project.items.single.width, report.project.items.single.height],
-        [52, 287],
-      );
-      expect(
-        report.warnings.join('\n'),
-        allOf(
-          contains('لا يلائم المساحة القابلة للطباعة'),
-          contains('بلا تصغير أو قص'),
-        ),
-      );
-    },
-  );
+    final manuallySized = DocumentEdits.resize(
+      report.project,
+      unclassified.id,
+      width: 180,
+    );
+    final arrangement = arrangeDocuments(manuallySized);
+    final item = arrangement.result.items.single;
+    expect(item.documentKind, DocumentKind.other);
+    expect(item.sizeConfirmed, isTrue);
+    expect([item.width, item.height], [180, 240]);
+    expect(item.pageIndex, isNull);
+    expect(arrangement.unplaced, contains(item.id));
+    expect(
+      unplacedDocumentMessage(arrangement.result, item),
+      allOf(
+        contains('لا يلائم المساحة القابلة للطباعة'),
+        contains('بلا تصغير أو قص'),
+      ),
+    );
+  });
 
   test('Phase 1B reprocessing is disabled unless explicitly enabled', () async {
     final bytes = img.encodePng(img.Image(width: 120, height: 90));
@@ -180,7 +188,7 @@ void main() {
   });
 
   test(
-    'the boundary shape alone recognises a card and rectifies it exactly',
+    'a valid boundary is cropped while its kind and print size stay unknown',
     () async {
       final source = img.Image(width: 240, height: 170);
       img.fill(source, color: img.ColorRgb8(60, 45, 30));
@@ -193,7 +201,7 @@ void main() {
         color: img.ColorRgb8(235, 235, 230),
       );
       final bytes = img.encodePng(source);
-      var project = await service.create('شكل');
+      var project = await service.create('synthetic boundary');
       project = (await service.importImages(project, [
         ImportSource('IMG_2041.png', () => Stream.value(bytes)),
       ])).project;
@@ -203,10 +211,15 @@ void main() {
       final asset = report.project.assets.single;
       final item = report.project.items.single;
       expect(report.cropped, 1);
-      expect(item.documentKind, DocumentKind.unifiedNationalId);
-      expect(asset.width / asset.height, closeTo(85.6 / 53.98, .02));
-      expect(item.pageIndex, 0);
-      expect(item.sizeConfirmed, isTrue);
+      expect(asset.crop, isNotNull);
+      expect(item.documentKind, DocumentKind.unknown);
+      expect(item.sizeConfirmed, isFalse);
+      expect(item.pageIndex, isNull);
+      expect(
+        item.width / item.height,
+        closeTo(asset.width / asset.height, 1e-3),
+      );
+      expect(report.recognized, 0);
     },
   );
 
@@ -261,23 +274,16 @@ void main() {
         isNot(project.assets.single.workingPath),
       );
       expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
-      expect(
-        report.project.items.single.documentKind,
-        DocumentKind.unifiedNationalId,
-      );
-      // The drawn rectangle is 150×100 (1.50). The filename claims ID-1
-      // (1.586). That is inside the 2.5 outer refusal and outside
-      // shapeTolerance, so the warp must keep the measured aspect and must
-      // not be placed as a confirmed catalog card.
-      expect(report.project.items.single.pageIndex, isNull);
-      expect(report.project.items.single.sizeConfirmed, isFalse);
+      final item = report.project.items.single;
+      expect(item.documentKind, DocumentKind.unknown);
+      expect(item.pageIndex, isNull);
+      expect(item.sizeConfirmed, isFalse);
       final asset = report.project.assets.single;
+      expect(asset.width / asset.height, closeTo(1.5, .05));
       expect(
-        asset.width / asset.height,
-        isNot(closeTo(85.6 / 53.98, .02)),
-        reason: 'catalog aspect must not hide the measured disagreement',
+        report.warnings.join(' '),
+        contains('لم يُتعرّف على نوع المستمسك'),
       );
-      expect(report.warnings.join(' '), contains('دون مطّ'));
     },
   );
 }

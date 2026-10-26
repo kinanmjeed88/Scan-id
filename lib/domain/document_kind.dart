@@ -2,12 +2,12 @@ import 'dart:math' as math;
 
 import 'validation.dart';
 
-/// Category of a scanned Iraqi document. The category decides the printed
-/// physical size (through [DocumentSizeCatalog]) and the order on the sheet.
+/// Document category used for catalog sizing and sheet ordering.
 ///
-/// Recognition is offline: an explicit filename label first, then the shape of
-/// the detected document boundary. The user can always change the category
-/// from the ribbon; the change applies the catalog size immediately.
+/// The automated classifier needs independent evidence; filenames, image
+/// dimensions, and boundary proportions never create a category. Until such
+/// evidence is available, recognition remains [unknown]. The user can choose a
+/// category explicitly, which applies its catalog size immediately.
 enum DocumentKind {
   unknown,
   unifiedNationalId,
@@ -363,130 +363,31 @@ class DocumentTypeSuggestion {
   final String reason;
 }
 
-/// Relative aspect tolerance for recognising a category from the boundary
-/// shape: `(measured / catalog - 1).abs()`. Perspective-corrected crops are
-/// typically within 2 %; the nearest candidates (residence 1.471 and passport
-/// 1.420) are 3.6 % apart, so shape alone cannot separate them.
-///
-/// The boundary decision uses this same constant, and no other, before
-/// `sizeConfirmed` may be set and the catalog millimetre slot may be used.
-/// It does not let an automatic warp adopt the catalog aspect. See
-/// `BoundaryDecision.catalogShapeMatches`.
+/// Relative aspect tolerance used only when a caller already has a known
+/// catalog kind and asks the boundary gate to check that explicit size claim.
+/// It is not a document classifier and cannot create a [DocumentKind].
+/// See `BoundaryDecision.catalogShapeMatches`.
 const shapeTolerance = .04;
 
-/// Frame shapes of common cameras (4:3, 3:2, 16:9). An uncropped photo with
-/// one of these shapes says nothing about the document inside it.
-const _cameraFrames = [4 / 3, 3 / 2, 16 / 9];
+/// A safe result when no independent document-kind evidence is available.
+const unknownDocumentTypeSuggestion = DocumentTypeSuggestion(
+  kind: DocumentKind.unknown,
+  confidence: 0,
+  reason: 'لا يتوفر دليل مستقل موثوق لتحديد نوع المستند',
+);
 
-/// Offline document category recognition.
-///
-/// An explicit Arabic or English filename label wins. Otherwise the aspect
-/// ratio of the document boundary is matched against the catalog sizes.
-/// [fullFrame] marks an image in which no boundary was detected: it may be an
-/// already-cut scan (its shape is the document's) or a whole camera frame, so
-/// camera frame shapes are rejected instead of guessed.
+/// Compatibility shim for old callers. Filename labels and image proportions
+/// are not classification evidence, so every call returns
+/// [unknownDocumentTypeSuggestion]. Production uses explicit evidence in
+/// `recognition_classifier.dart`. This function deliberately ignores each
+/// argument, including [name], [width], [height], [catalog] and [fullFrame].
 DocumentTypeSuggestion suggestDocumentType({
   required String name,
   required int width,
   required int height,
   DocumentSizeCatalog catalog = const DocumentSizeCatalog(),
   bool fullFrame = false,
-}) {
-  final normalized = _normalizeName(name);
-  for (final entry in _nameTokens.entries) {
-    if (_containsAny(normalized, entry.value)) {
-      return DocumentTypeSuggestion(
-        kind: entry.key,
-        confidence: .98,
-        reason: 'اسم الملف يشير إلى ${entry.key.label}',
-      );
-    }
-  }
-  if (width <= 0 || height <= 0) {
-    return const DocumentTypeSuggestion(
-      kind: DocumentKind.unknown,
-      confidence: 0,
-      reason: 'أبعاد الصورة غير صالحة للتصنيف',
-    );
-  }
-  final ratio = math.max(width, height) / math.min(width, height);
-  if (fullFrame &&
-      _cameraFrames.any((frame) => (ratio / frame - 1).abs() < .01)) {
-    return const DocumentTypeSuggestion(
-      kind: DocumentKind.unknown,
-      confidence: 0,
-      reason: 'لم تُكتشف حدود المستمسك؛ اختر النوع أو صحّح القص يدوياً',
-    );
-  }
-  DocumentKind? best;
-  var bestError = double.infinity;
-  var secondError = double.infinity;
-  for (final kind in const [
-    DocumentKind.unifiedNationalId,
-    DocumentKind.residenceCard,
-    DocumentKind.passport,
-    DocumentKind.rationCard,
-  ]) {
-    final error = (ratio / catalog.natural(kind)!.aspect - 1).abs();
-    if (error < bestError) {
-      secondError = bestError;
-      bestError = error;
-      best = kind;
-    } else if (error < secondError) {
-      secondError = error;
-    }
-  }
-  if (best == null || bestError > shapeTolerance) {
-    return const DocumentTypeSuggestion(
-      kind: DocumentKind.unknown,
-      confidence: 0,
-      reason: 'شكل الحدود لا يطابق أي مقاس معروف',
-    );
-  }
-  // Confidence falls with distance from the reference shape and with
-  // ambiguity against the runner-up category.
-  final closeness = 1 - bestError / shapeTolerance;
-  final separation = secondError.isFinite
-      ? ((secondError - bestError) / shapeTolerance).clamp(0.0, 1.0)
-      : 1.0;
-  return DocumentTypeSuggestion(
-    kind: best,
-    confidence: (.5 + .45 * closeness * separation).clamp(.5, .95).toDouble(),
-    reason: 'شكل الحدود يطابق مقاس ${best.label}',
-  );
-}
-
-const _nameTokens = {
-  DocumentKind.rationCard: ['تموين', 'تموينيه', 'التموينيه', 'ration'],
-  DocumentKind.residenceCard: [
-    'بطاقةالسكن',
-    'السكن',
-    'سكن',
-    'residence',
-    'housing',
-  ],
-  DocumentKind.passport: ['جواز', 'passport'],
-  DocumentKind.unifiedNationalId: [
-    'البطاقةالوطنية',
-    'بطاقةوطنية',
-    'البطاقةالموحدة',
-    'بطاقةموحدة',
-    'الوطنيةالموحدة',
-    'الهويه',
-    'unifiednational',
-    'nationalid',
-  ],
-};
-
-String _normalizeName(String value) => value
-    .toLowerCase()
-    .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
-    .replaceAll('ة', 'ه')
-    .replaceAll('ى', 'ي')
-    .replaceAll(RegExp(r'[\s_\-.]+'), '');
-
-bool _containsAny(String value, List<String> tokens) =>
-    tokens.map(_normalizeName).any(value.contains);
+}) => unknownDocumentTypeSuggestion;
 
 /// Starting size for a document whose category is not known yet. It keeps the
 /// image's proportions and is never described as a real measurement; such
@@ -497,9 +398,9 @@ bool _containsAny(String value, List<String> tokens) =>
 /// that [validDocumentSize] rejects, and `DocumentEdits.resize` validates
 /// through that same function, so the item would be one the editor cannot
 /// resize at all. Lifting only the short edge keeps the long edge at
-/// [longEdge], so the result is always an editable size for ANY proportion;
-/// the floor binds only above an 8:1 proportion, which is beyond every
-/// catalogued document shape, so a plausible document keeps its proportions.
+/// [longEdge], so the result is always an editable provisional size for ANY
+/// proportion. The floor binds only beyond an 8:1 aspect; this is an editability
+/// safeguard, not a document-kind or validity threshold.
 PhysicalSizeMm provisionalSize({required int width, required int height}) {
   final aspect = width / height;
   const longEdge = 80.0;

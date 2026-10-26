@@ -52,6 +52,7 @@ class SegmentCandidate {
     this.producer = BoundaryProducer.segmenter,
     this.minAutoAcceptConfidence,
     this.touchesFrameEdge = false,
+    this.requiresReview = false,
   });
 
   /// Normalized region [left, top, right, bottom] in the source image.
@@ -68,6 +69,10 @@ class SegmentCandidate {
   final BoundaryProducer producer;
   final double? minAutoAcceptConfidence;
   final bool touchesFrameEdge;
+
+  /// A separate arbitration rule requires human confirmation even when the
+  /// geometry is valid. It never modifies or fabricates model confidence.
+  final bool requiresReview;
 }
 
 /// Why a MEASURED foreground region was not accepted as a document candidate.

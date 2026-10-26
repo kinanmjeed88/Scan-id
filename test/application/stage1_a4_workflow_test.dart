@@ -69,16 +69,16 @@ Future<Project> _importAndArrange(
   )).project;
 }
 
-/// Builds a synthetic dark-desk scene with 0, 1, or 2 structured cards (no PII).
+/// Builds a synthetic dark-desk scene with 0, 1, or 2 structured regions (no PII).
 Uint8List _syntheticScenePng({
   required int width,
   required int height,
-  required List<({int left, int top, int right, int bottom})> cards,
+  required List<({int left, int top, int right, int bottom})> regions,
 }) {
   final canvas = img.Image(width: width, height: height);
   img.fill(canvas, color: img.ColorRgb8(58, 62, 68));
-  for (var idx = 0; idx < cards.length; idx++) {
-    final c = cards[idx];
+  for (var idx = 0; idx < regions.length; idx++) {
+    final c = regions[idx];
     img.fillRect(
       canvas,
       x1: c.left,
@@ -657,7 +657,7 @@ void main() {
       final structuredBytes = _syntheticScenePng(
         width: 400,
         height: 260,
-        cards: const [(left: 10, top: 10, right: 390, bottom: 250)],
+        regions: const [(left: 10, top: 10, right: 390, bottom: 250)],
       );
       final structuredImg = img.decodePng(structuredBytes)!;
       expect(
@@ -674,7 +674,7 @@ void main() {
   );
 
   test(
-    'Path A + shared-asset PDF deduplication: auto-accepted boundary enters A4, exports structured PNG & stream-verified PDF, and supports shared assetId placements',
+    'Path A: auto boundary crop remains unclassified until generic user confirmation, then exports shared asset placements',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('stage1_path_a_');
       addTearDown(() async {
@@ -692,14 +692,28 @@ void main() {
         segmenter: editor.segment,
       );
 
-      final goldenCard = File(
+      final fixtureBytes = File(
         'test/fixtures/ai_golden_card.png',
       ).readAsBytesSync();
 
-      var project = await service.create('المسار A تلقائي');
+      var project = await service.create('Path A synthetic boundary');
       project = await _importAndArrange(service, project, [
-        ImportSource('card.png', () => Stream.value(goldenCard)),
+        ImportSource('capture.png', () => Stream.value(fixtureBytes)),
       ]);
+      expect(project.items.single.documentKind, DocumentKind.unknown);
+      expect(project.items.single.sizeConfirmed, isFalse);
+      expect(project.items.single.pageIndex, isNull);
+      // Simulate a generic user confirmation; no type or print size is inferred.
+      project = await projects.save(
+        arrangeDocuments(
+          DocumentEdits.setKind(
+            project,
+            project.items.single.id,
+            DocumentKind.other,
+          ),
+        ).result,
+      );
+      expect(project.items.single.documentKind, DocumentKind.other);
       expect(project.items.single.sizeConfirmed, isTrue);
       expect(project.items.single.pageIndex, 0);
 
@@ -733,13 +747,14 @@ void main() {
         expectedPlannedItems: 2,
       );
 
-      // Case A2: Card with non-catalog aspect (1.80:1 -> unknown shape) -> user
-      // confirms category once -> immediately placed on A4 with exact catalog mm size.
+      // Case A2: a synthetic rectangle remains unknown. The following call
+      // simulates an explicit generic user confirmation; it is not a human
+      // label or evidence about the fixture.
       var project2 = await service.create('المسار A تأكيد المقاس');
       final nonCatalogScene = _syntheticScenePng(
         width: 500,
         height: 400,
-        cards: const [(left: 70, top: 100, right: 430, bottom: 300)],
+        regions: const [(left: 70, top: 100, right: 430, bottom: 300)],
       );
       project2 = await _importAndArrange(service, project2, [
         ImportSource('IMG_20261022.png', () => Stream.value(nonCatalogScene)),
@@ -748,18 +763,18 @@ void main() {
       if (!itemBefore.sizeConfirmed) {
         project2 = await projects.save(
           arrangeDocuments(
-            DocumentEdits.setKind(
-              project2,
-              itemBefore.id,
-              DocumentKind.residenceCard,
-            ),
+            DocumentEdits.setKind(project2, itemBefore.id, DocumentKind.other),
           ).result,
         );
       }
       final itemAfter = project2.items.single;
+      expect(itemAfter.documentKind, DocumentKind.other);
       expect(itemAfter.sizeConfirmed, isTrue);
       expect(itemAfter.pageIndex, 0);
-      expect([itemAfter.width, itemAfter.height], [92.4, 62.8]);
+      expect(
+        [itemAfter.width, itemAfter.height],
+        [itemBefore.width, itemBefore.height],
+      );
 
       final exportDir2 = await Directory(
         '${tempDir.path}/exp_a2',
@@ -802,13 +817,13 @@ void main() {
       final emptyDeskBytes = _syntheticScenePng(
         width: 480,
         height: 360,
-        cards: const [],
+        regions: const [],
       );
 
-      var project = await service.create('المسار B يدوي');
+      var project = await service.create('Path B synthetic manual boundary');
       project = await _importAndArrange(service, project, [
-        ImportSource('IMG_trunc.png', () => Stream.value(truncatedBytes)),
-        ImportSource('IMG_empty.png', () => Stream.value(emptyDeskBytes)),
+        ImportSource('truncated.png', () => Stream.value(truncatedBytes)),
+        ImportSource('empty-scene.png', () => Stream.value(emptyDeskBytes)),
       ]);
 
       expect(project.items, hasLength(2));
@@ -834,11 +849,14 @@ void main() {
         ],
       ).toRecipe(sourceInfo.width, sourceInfo.height);
 
+      // The generic user choice and dimensions below are synthetic test input,
+      // not ground-truth annotations for the fixture image.
       project = await service.confirmManualBoundary(
         project,
         truncAsset,
         manualRecipe,
-        documentKind: DocumentKind.unifiedNationalId,
+        documentKind: DocumentKind.other,
+        customSizeMm: const PhysicalSizeMm(80, 50),
         targetItemId: truncItem.id,
         sourceWidth: sourceInfo.width,
         sourceHeight: sourceInfo.height,
@@ -949,7 +967,7 @@ void main() {
       final sceneBytes = _syntheticScenePng(
         width: 600,
         height: 450,
-        cards: const [(left: 60, top: 60, right: 540, bottom: 390)],
+        regions: const [(left: 60, top: 60, right: 540, bottom: 390)],
       );
       var project = await service.create('فحص إعادة المعالجة');
       project = (await service.importImages(project, [
@@ -1011,12 +1029,12 @@ void main() {
       final frontBytes = _syntheticScenePng(
         width: 600,
         height: 420,
-        cards: const [(left: 60, top: 60, right: 540, bottom: 360)],
+        regions: const [(left: 60, top: 60, right: 540, bottom: 360)],
       );
       final backBytes = _syntheticScenePng(
         width: 560,
         height: 400,
-        cards: const [(left: 50, top: 55, right: 510, bottom: 345)],
+        regions: const [(left: 50, top: 55, right: 510, bottom: 345)],
       );
 
       var project = await service.create('مستند مزدوج الوجهين');
@@ -1067,9 +1085,9 @@ void main() {
         sides: [frontSide, backSide],
         pairing: PairingState.paired,
         recognition: RecognitionResult(
-          documentKind: DocumentKind.unifiedNationalId,
-          status: RecognitionStatus.uncertain,
-          confidences: ConfidenceSet(finalConfidence: Confidence(value: 0.48)),
+          documentKind: DocumentKind.unknown,
+          status: RecognitionStatus.unknown,
+          confidences: ConfidenceSet(),
           preset: const PresetSelection.awaiting(),
         ),
         provenance: Provenance(
@@ -1126,7 +1144,8 @@ void main() {
         project,
         frontAsset,
         frontRecipe,
-        documentKind: DocumentKind.unifiedNationalId,
+        documentKind: DocumentKind.other,
+        customSizeMm: const PhysicalSizeMm(80, 55),
         targetItemId: 'item-f',
       );
 
@@ -1161,7 +1180,7 @@ void main() {
       final basePng = _syntheticScenePng(
         width: 1000,
         height: 800,
-        cards: const [(left: 100, top: 100, right: 860, bottom: 640)],
+        regions: const [(left: 100, top: 100, right: 860, bottom: 640)],
       );
       final exif6Jpeg = _jpegWithStoredExifOrientation(
         img.decodePng(basePng)!,
@@ -1210,8 +1229,9 @@ void main() {
       );
       expect(project.assets.single.userAuthoredCrop, isTrue);
 
-      // Third crop via confirmManualBoundary WITHOUT sourceWidth/sourceHeight:
-      final cardRecipe = CropDraft(
+      // Third synthetic region crop via confirmManualBoundary, without explicit
+      // sourceWidth/sourceHeight; the generic size is test-only user input.
+      final regionRecipe = CropDraft(
         corners: [
           Point2(0.10, 0.125),
           Point2(0.86, 0.125),
@@ -1222,8 +1242,9 @@ void main() {
       project = await service.confirmManualBoundary(
         project,
         project.assets.single,
-        cardRecipe,
-        documentKind: DocumentKind.unifiedNationalId,
+        regionRecipe,
+        documentKind: DocumentKind.other,
+        customSizeMm: const PhysicalSizeMm(80, 50),
       );
       expect(project.items.single.pageIndex, 0);
       expect(project.items.single.sizeConfirmed, isTrue);
@@ -1231,7 +1252,7 @@ void main() {
   );
 
   test(
-    'Path C: multi-document photo with adjacent cards and total auto-detection failure -> manual extraction creates 2 independent non-overlapping A4 items',
+    'Path C: synthetic adjacent regions with detection disabled -> manual extraction creates 2 independent A4 items',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('stage1_path_c_');
       addTearDown(() async {
@@ -1252,18 +1273,18 @@ void main() {
         ),
       );
 
-      final twoAdjacentBytes = _syntheticScenePng(
+      final twoRegionBytes = _syntheticScenePng(
         width: 900,
         height: 600,
-        cards: const [
+        regions: const [
           (left: 40, top: 90, right: 442, bottom: 350),
           (left: 448, top: 90, right: 860, bottom: 374),
         ],
       );
 
-      var project = await service.create('المسار C متعدد');
+      var project = await service.create('Path C synthetic regions');
       project = await _importAndArrange(service, project, [
-        ImportSource('two_cards.png', () => Stream.value(twoAdjacentBytes)),
+        ImportSource('scene.png', () => Stream.value(twoRegionBytes)),
       ]);
 
       expect(project.items, hasLength(1));
@@ -1282,7 +1303,8 @@ void main() {
         project,
         sourcePhoto,
         recipe1,
-        documentKind: DocumentKind.unifiedNationalId,
+        documentKind: DocumentKind.other,
+        customSizeMm: const PhysicalSizeMm(105, 72),
         sourceWidth: 900,
         sourceHeight: 600,
       );
@@ -1308,7 +1330,7 @@ void main() {
       expect(project.assets, hasLength(3));
       expect(
         await (await assets.resolve(sourcePhoto.originalPath)).readAsBytes(),
-        twoAdjacentBytes,
+        twoRegionBytes,
       );
       expect(
         project.assets.where((a) => a.derivedFrom == sourcePhoto.id),
@@ -1345,7 +1367,7 @@ void main() {
       final basePng = _syntheticScenePng(
         width: 600,
         height: 440,
-        cards: const [(left: 90, top: 80, right: 510, bottom: 350)],
+        regions: const [(left: 90, top: 80, right: 510, bottom: 350)],
       );
       final upright = img.decodePng(basePng)!;
 
@@ -1377,11 +1399,13 @@ void main() {
           project,
           asset,
           recipe,
-          documentKind: DocumentKind.unifiedNationalId,
+          documentKind: DocumentKind.other,
+          customSizeMm: const PhysicalSizeMm(80, 50),
         );
         final item = project.items.single;
+        expect(item.documentKind, DocumentKind.other);
         expect(item.pageIndex, 0);
-        expect([item.width, item.height], [85.6, 53.98]);
+        expect([item.width, item.height], [80, 50]);
 
         final exportDir = await Directory(
           '${tempDir.path}/exp_exif_$exifMode',
@@ -1416,7 +1440,7 @@ void main() {
       final scene = _syntheticScenePng(
         width: 400,
         height: 300,
-        cards: const [(left: 40, top: 40, right: 360, bottom: 260)],
+        regions: const [(left: 40, top: 40, right: 360, bottom: 260)],
       );
 
       // 1. Disabled by default.
@@ -1425,10 +1449,7 @@ void main() {
       expect(IntakeDiagnostics.isActive, isFalse);
       var project = await service.create('تشخيص آمن');
       project = await _importAndArrange(service, project, [
-        ImportSource(
-          'sensitive_person_name_12345.png',
-          () => Stream.value(scene),
-        ),
+        ImportSource('private-fixture-marker.png', () => Stream.value(scene)),
       ]);
       expect(IntakeDiagnostics.entries, isEmpty);
 
@@ -1449,7 +1470,8 @@ void main() {
         project,
         asset,
         recipe,
-        documentKind: DocumentKind.unifiedNationalId,
+        documentKind: DocumentKind.other,
+        customSizeMm: const PhysicalSizeMm(80, 50),
         targetItemId: project.items.single.id,
         sourceWidth: 400,
         sourceHeight: 300,

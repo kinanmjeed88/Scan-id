@@ -79,9 +79,9 @@
       "role": "Frozen Python port of classical detector baseline"
     },
     "lib/domain/boundary_decision.dart": {
-      "sha256": "f10f48cfadadffa11cb167d480bb06eadaeb9f200487214b91110d553f6562ef",
-      "size_bytes": 17927,
-      "role": "Frozen automatic boundary acceptance gate (verifyBoundary)"
+      "sha256": "2cdbdb3df20073b55992284736ebdd15412f9c962018f60fd0fc1411d4fb8358",
+      "size_bytes": 18850,
+      "role": "Frozen automatic boundary gate; explicit set-level review constraint added 2026-10-25 without changing numeric thresholds"
     },
     "lib/domain/quad_assessment.dart": {
       "sha256": "a12aeaf66e523639c4a945260046b2262fe925516e07a005d5aa58590d88503b",
@@ -89,9 +89,9 @@
       "role": "Frozen automatic quad geometry thresholds (assessQuad)"
     },
     "lib/domain/document_kind.dart": {
-      "sha256": "d5dbc975bef7cb8c661cfcf446732b6db706e41fa0074311c77320730cee3e9b",
-      "size_bytes": 18501,
-      "role": "Frozen catalog dimensions and shapeTolerance = 0.04"
+      "sha256": "d15fb137a8f46ab26cb5a4c23a40c9da3b13b48ae01fcb0191de6a84721c25b0",
+      "size_bytes": 15226,
+      "role": "Frozen catalog dimensions and shapeTolerance = 0.04; filename/aspect kind inference removed 2026-10-26"
     },
     "lib/imaging/ai_document_detector.dart": {
       "sha256": "3b6d7f08a8af33022a38057cf3e6252a5455bf7f7b1e9a5296a2e070c8e06d48",

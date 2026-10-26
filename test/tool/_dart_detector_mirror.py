@@ -224,6 +224,7 @@ class BoundaryProposalPy:
     model_confidence: Optional[float] = None
     min_auto_accept_confidence: Optional[float] = None
     touches_frame_edge: bool = False
+    force_review: bool = False
 
 
 @dataclass
@@ -240,8 +241,11 @@ def verify_boundary(
 ) -> BoundaryDecisionPy:
     """Mirrors `verifyBoundary` in `lib/domain/boundary_decision.dart`."""
     if proposal.corners is None:
+        reasons = ["noBoundary"]
+        if proposal.force_review:
+            reasons.append("multiSceneNotCorroborated")
         return BoundaryDecisionPy(
-            kind="needsReview", proposal=proposal, reasons=["noBoundary"]
+            kind="needsReview", proposal=proposal, reasons=reasons
         )
     if len(proposal.corners) != 4:
         return BoundaryDecisionPy(
@@ -249,13 +253,18 @@ def verify_boundary(
         )
     assess = assess_quad(proposal.corners, source_width, source_height)
     if not assess.acceptable:
+        reasons = ["geometryRejected"]
+        if proposal.force_review:
+            reasons.append("multiSceneNotCorroborated")
         return BoundaryDecisionPy(
             kind="needsReview",
             proposal=proposal,
-            reasons=["geometryRejected"],
+            reasons=reasons,
             has_usable_geometry=False,
         )
     reasons: List[str] = []
+    if proposal.force_review:
+        reasons.append("multiSceneNotCorroborated")
     measured = assess.aspect or 1.0
     if proposal.imposed_aspect is not None and proposal.imposed_aspect > 0:
         ratio = (
@@ -1307,6 +1316,7 @@ class SegmentCandidatePy:
     producer: str = "segmenter"
     min_auto_accept_confidence: Optional[float] = None
     touches_frame_edge: bool = False
+    requires_review: bool = False
 
 
 @dataclass
@@ -1828,7 +1838,11 @@ def arbitrate_scene_boundaries(
         valid_cnt = 0
         strongest_sub = 0.0
         for c in ai_scene.candidates:
-            if c.corners is None or (c.detection_confidence or 0.0) < 0.35:
+            if (
+                c.corners is None
+                or len(c.corners) != 4
+                or (c.detection_confidence or 0.0) < 0.35
+            ):
                 continue
             if not assess_quad(c.corners, w, h).acceptable:
                 continue
@@ -1837,49 +1851,79 @@ def arbitrate_scene_boundaries(
                 strongest_sub = float(m["min_all_step"])
             if m["min_all_step"] >= 20.0:
                 valid_cnt += 1
-        if valid_cnt < 2:
-            return SegmentationResultPy(multi=False, candidates=[])
         if cl_single is not None and single_m is not None:
             all_inside = all(
-                c.corners is not None and intersection_over_first(c.corners, cl_single.corners) >= 0.85
+                c.corners is not None
+                and len(c.corners) == 4
+                and (c.detection_confidence or 0.0) >= 0.35
+                and assess_quad(c.corners, w, h).acceptable
+                and intersection_over_first(c.corners, cl_single.corners) >= 0.85
                 for c in ai_scene.candidates
             )
             if all_inside and single_m["min_all_step"] > 2.2 * strongest_sub:
-                return SegmentationResultPy(multi=False, candidates=[])
+                return SegmentationResultPy(
+                    multi=False, candidates=[], rejected=ai_scene.rejected
+                )
+        if valid_cnt < 2:
+            retained = [
+                SegmentCandidatePy(
+                    region=c.region,
+                    reason=c.reason,
+                    corners=c.corners,
+                    detection_confidence=c.detection_confidence,
+                    producer=c.producer,
+                    min_auto_accept_confidence=c.min_auto_accept_confidence,
+                    touches_frame_edge=c.touches_frame_edge,
+                    requires_review=True,
+                )
+                for c in ai_scene.candidates
+            ]
+            return SegmentationResultPy(
+                multi=len(retained) >= 2,
+                candidates=retained,
+                rejected=ai_scene.rejected,
+            )
         return ai_scene
 
     cl_multi = segment_decoded(rgb)
-    if cl_multi.multi and len(cl_multi.candidates) >= 2:
-        valid_multi: List[SegmentCandidatePy] = []
+    if cl_multi.candidates:
+        retained: List[SegmentCandidatePy] = []
         for c in cl_multi.candidates:
-            if c.corners is None:
-                continue
-            if not assess_quad(c.corners, w, h).acceptable:
-                continue
-            if ai_scene is not None:
-                m = measure_quad_physics(rgb, c.corners)
-                valid_multi.append(
+            metrics = None
+            if c.corners is not None and len(c.corners) == 4:
+                assess = assess_quad(c.corners, w, h)
+                if assess.acceptable:
+                    metrics = measure_quad_physics(rgb, c.corners)
+            if ai_scene is None:
+                # Keep the pure-classical measured region, including unresolved
+                # or rejected corners; the downstream boundary gate owns safety.
+                retained.append(c)
+            else:
+                # Preserve detector evidence/provenance and express the missing
+                # model corroboration as an explicit review constraint.
+                retained.append(
                     SegmentCandidatePy(
                         region=c.region,
                         corners=c.corners,
-                        detection_confidence=0.0,
+                        detection_confidence=c.detection_confidence,
                         producer="segmenter",
-                        min_auto_accept_confidence=0.55,
+                        min_auto_accept_confidence=c.min_auto_accept_confidence,
                         touches_frame_edge=bool(
-                            c.touches_frame_edge or m["out_of_frame_sides"] > 0
+                            c.touches_frame_edge
+                            or (metrics is not None and metrics["out_of_frame_sides"] > 0)
                         ),
+                        requires_review=True,
                         reason=c.reason,
                     )
                 )
-            else:
-                valid_multi.append(c)
-        if len(valid_multi) >= 2:
-            return SegmentationResultPy(
-                multi=True,
-                candidates=valid_multi,
-                rejected=cl_multi.rejected,
-            )
-    return SegmentationResultPy(multi=False, candidates=[])
+        return SegmentationResultPy(
+            multi=len(retained) >= 2,
+            candidates=retained,
+            rejected=cl_multi.rejected,
+        )
+    return SegmentationResultPy(
+        multi=False, candidates=[], rejected=cl_multi.rejected
+    )
 
 
 def arbitrate_single_boundary(
@@ -2012,6 +2056,27 @@ def arbitrate_single_boundary(
 _CACHED_ONNX_DETECTOR = None
 
 
+def _dart_ai_gate_confidence(raw_confidence: float, accepted: bool) -> float:
+    """Mirror `AiQuadProposal.asNeedsReview` and its `gateConfidence` field."""
+    return float(raw_confidence) if accepted else min(float(raw_confidence), 0.50)
+
+
+def _dart_ai_region(corners: Sequence[Tuple[float, float]]) -> List[float]:
+    """Mirror the 2.5% corner-bounds padding in `AiSceneDetection` proposals."""
+    xs = [point[0] for point in corners]
+    ys = [point[1] for point in corners]
+    left, right = min(xs), max(xs)
+    top, bottom = min(ys), max(ys)
+    pad_x = (right - left) * 0.025
+    pad_y = (bottom - top) * 0.025
+    return [
+        min(1.0, max(0.0, left - pad_x)),
+        min(1.0, max(0.0, top - pad_y)),
+        min(1.0, max(0.0, right + pad_x)),
+        min(1.0, max(0.0, bottom + pad_y)),
+    ]
+
+
 def run_onnx_ai_scene(
     preview_rgb: np.ndarray,
     models_dir: Path,
@@ -2039,9 +2104,11 @@ def run_onnx_ai_scene(
     seg_cands: List[SegmentCandidatePy] = []
     for c in scene.candidates:
         pts = [(float(p[0]), float(p[1])) for p in c.corners]
-        reg = [float(v) for v in c.region]
+        reg = _dart_ai_region(pts)
         verdict_val = c.verdict.value if hasattr(c.verdict, "value") else str(c.verdict)
-        gate_conf = float(c.geom_confidence) if verdict_val == "accepted" else 0.0
+        gate_conf = _dart_ai_gate_confidence(
+            float(c.confidence), verdict_val == "accepted"
+        )
         edge_touch = int(c.frame_touch_count) > 0
         proposals.append(
             BoundaryProposalPy(
@@ -2074,76 +2141,11 @@ def run_onnx_ai_scene(
     return ai_seg, proposals
 
 
-_CATALOG_NATURAL_ASPECTS: Dict[str, float] = {
-    "unifiedNationalId": 85.6 / 53.98,
-    "residenceCard": 92.4 / 62.8,
-    "passport": 125.0 / 88.0,
-    "rationCard": 287.0 / 52.0,
-}
-
-_NAME_TOKENS: List[Tuple[str, List[str]]] = [
-    ("rationCard", ["تموين", "تموينيه", "التموينيه", "ration"]),
-    ("residenceCard", ["بطاقةالسكن", "السكن", "سكن", "residence", "housing"]),
-    ("passport", ["جواز", "passport"]),
-    (
-        "unifiedNationalId",
-        [
-            "البطاقةالوطنية",
-            "بطاقةوطنية",
-            "البطاقةالموحدة",
-            "بطاقةموحدة",
-            "الوطنيةالموحدة",
-            "الهويه",
-            "unifiednational",
-            "nationalid",
-        ],
-    ),
-]
-
-
-def _normalize_doc_name(value: str) -> str:
-    import re as _re
-
-    out = value.lower()
-    out = _re.sub(r"[\u064B-\u065F\u0670]", "", out)
-    out = out.replace("ة", "ه").replace("ى", "ي")
-    out = _re.sub(r"[\s_\-.]+", "", out)
-    return out
-
-
 def suggest_document_type_py(
     name: str, width: int, height: int, full_frame: bool = False
 ) -> Tuple[str, float]:
-    """Mirrors `suggestDocumentType` in `lib/domain/document_kind.dart`."""
-    norm = _normalize_doc_name(name)
-    for kind, tokens in _NAME_TOKENS:
-        if any(_normalize_doc_name(t) in norm for t in tokens):
-            return kind, 0.98
-    if width <= 0 or height <= 0:
-        return "unknown", 0.0
-    ratio = max(width, height) / min(width, height)
-    if full_frame and any(abs(ratio / f - 1.0) < 0.01 for f in (4.0 / 3.0, 3.0 / 2.0, 16.0 / 9.0)):
-        return "unknown", 0.0
-    best_kind: Optional[str] = None
-    best_err = float("inf")
-    second_err = float("inf")
-    for kind in ("unifiedNationalId", "residenceCard", "passport", "rationCard"):
-        err = abs(ratio / _CATALOG_NATURAL_ASPECTS[kind] - 1.0)
-        if err < best_err:
-            second_err = best_err
-            best_err = err
-            best_kind = kind
-        elif err < second_err:
-            second_err = err
-    if best_kind is None or best_err > 0.04:
-        return "unknown", 0.0
-    closeness = 1.0 - best_err / 0.04
-    separation = (
-        max(0.0, min(1.0, (second_err - best_err) / 0.04))
-        if math.isfinite(second_err)
-        else 1.0
-    )
-    return best_kind, max(0.5, min(0.95, 0.5 + 0.45 * closeness * separation))
+    """Compatibility mirror: names and dimensions alone produce `unknown`."""
+    return "unknown", 0.0
 
 
 def classify_claimed_aspect_py(
@@ -2153,49 +2155,13 @@ def classify_claimed_aspect_py(
     source_width: int,
     source_height: int,
 ) -> Optional[float]:
-    """Mirrors `_analyzeDetection` classification -> `claimedNatural?.aspect` in `lib/application/recognition_pipeline.dart`."""
-    assess = (
-        assess_quad(corners, source_width, source_height)
-        if corners is not None
-        else None
-    )
-    quad_aspect = assess.aspect if (assess is not None and assess.acceptable) else None
-    boundary_detected = quad_aspect is not None
-    if quad_aspect is not None:
-        w = max(1, int(round(1000.0 * quad_aspect)))
-        h = 1000
-    elif region is not None and len(region) == 4:
-        rw = abs(region[2] - region[0]) * source_width
-        rh = abs(region[3] - region[1]) * source_height
-        asp = 1.0 if rh <= 0 else rw / rh
-        w = max(1, int(round(1000.0 * asp)))
-        h = 1000
-    else:
-        w = source_width
-        h = source_height
+    """No independent OCR/visual kind evidence exists in this mirror.
 
-    labelled_k, labelled_c = suggest_document_type_py(
-        name, w, h, full_frame=not boundary_detected
-    )
-    shape_k, shape_c = suggest_document_type_py(
-        "x", w, h, full_frame=not boundary_detected
-    )
-    votes: Dict[str, List[float]] = {}
-    if labelled_k != "unknown" and (labelled_k != shape_k or labelled_c != shape_c):
-        votes.setdefault(labelled_k, []).append(labelled_c)
-    if shape_k != "unknown":
-        votes.setdefault(shape_k, []).append(shape_c)
-
-    order = ["unifiedNationalId", "residenceCard", "passport", "rationCard", "other"]
-    winner = "unknown"
-    winner_score = 0.0
-    for k in order:
-        if k in votes:
-            best = max(votes[k])
-            if best > winner_score:
-                winner_score = best
-                winner = k
-    return _CATALOG_NATURAL_ASPECTS.get(winner)
+    The Dart pipeline therefore supplies no catalog-aspect claim to the
+    boundary gate. `name`, shape, region and detector confidence cannot create
+    one; the measured aspect is used only for orientation/size validation.
+    """
+    return None
 
 
 def detect_full_pipeline(
@@ -2204,7 +2170,7 @@ def detect_full_pipeline(
     models_dir: Optional[Path] = None,
     filename: str = "x",
 ) -> List[BoundaryDecisionPy]:
-    """Exact end-to-end mirror of `LocalImageEditor` + `RecognitionPipeline.analyze` + `verifyBoundary`."""
+    """Mirror boundary detection/arbitration; `filename` is ignored for type and crop decisions."""
     resolved_models = models_dir or (Path(__file__).resolve().parents[2] / "assets" / "models")
     preview = _resize_box(full_rgb, 2000, resample=Image.Resampling.BOX).astype(np.uint8)
     ph, pw = preview.shape[:2]
@@ -2234,6 +2200,7 @@ def detect_full_pipeline(
                 ),
                 min_auto_accept_confidence=c.min_auto_accept_confidence,
                 touches_frame_edge=c.touches_frame_edge,
+                force_review=c.requires_review,
             )
             decisions.append(verify_boundary(prop, pw, ph))
         return decisions

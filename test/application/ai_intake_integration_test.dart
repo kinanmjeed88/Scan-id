@@ -8,13 +8,16 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/smart_recognition.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/imaging/ai_document_detector.dart';
@@ -131,8 +134,8 @@ class _InvalidPreviewEditor extends FakeImageEditor {
       Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 
-Uint8List _exifRotatedCardJpeg(Uint8List goldenCardPng) {
-  final upright = img.decodePng(goldenCardPng)!;
+Uint8List _exifRotatedImageJpeg(Uint8List fixturePng) {
+  final upright = img.decodePng(fixturePng)!;
   // Rotate pixels 270 deg CW so EXIF Orientation 6 (90 deg CW display) restores upright
   final stored = img.copyRotate(upright, angle: 270);
   stored.exif.imageIfd.orientation = 6;
@@ -153,7 +156,7 @@ void main() {
   );
 
   test(
-    'production single-card lifecycle: import + EXIF orientation + AI crop + original preservation + A4 PDF/PNG/JPEG export + full-frame revert',
+    'synthetic single-image lifecycle: import + EXIF orientation + AI crop + original preservation + manual generic confirmation + A4 exports + full-frame revert',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('scanid_ai_sgl_');
       addTearDown(() async {
@@ -179,12 +182,12 @@ void main() {
       final goldenBytes = File(
         'test/fixtures/ai_golden_card.png',
       ).readAsBytesSync();
-      final exifJpegBytes = _exifRotatedCardJpeg(goldenBytes);
+      final exifJpegBytes = _exifRotatedImageJpeg(goldenBytes);
 
-      var project = await service.create('فحص دورة بطاقة مفردة');
+      var project = await service.create('synthetic single-image lifecycle');
       final imported = await service.importImages(project, [
-        ImportSource('card.png', () => Stream.value(goldenBytes)),
-        ImportSource('card_exif6.jpg', () => Stream.value(exifJpegBytes)),
+        ImportSource('capture.png', () => Stream.value(goldenBytes)),
+        ImportSource('capture-exif6.jpg', () => Stream.value(exifJpegBytes)),
       ]);
       project = imported.project;
       expect(project.assets, hasLength(2));
@@ -201,7 +204,7 @@ void main() {
         expect(
           asset.width,
           greaterThan(asset.height),
-          reason: 'landscape card',
+          reason: 'synthetic fixture crop orientation',
         );
       }
 
@@ -211,14 +214,40 @@ void main() {
       )).readAsBytes();
       expect(origPngOnDisk, goldenBytes);
 
-      // Both cards must be placed on A4 page 0
-      final placed = project.items.where((i) => i.pageIndex != null).toList();
-      expect(placed, hasLength(2));
-      for (final item in placed) {
-        expect(item.pageIndex, 0);
-      }
+      // Boundary geometry alone leaves both items unknown and off-sheet.
+      expect(project.items, hasLength(2));
+      expect(
+        project.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.unknown &&
+              !item.sizeConfirmed &&
+              item.pageIndex == null,
+        ),
+        isTrue,
+      );
 
-      // Export A4 to PDF, PNG, and JPEG and verify real outputs
+      // Simulate the user's explicit generic choice; this is not a fixture
+      // label or a model prediction. Export follows only after confirmation.
+      var confirmedProject = project;
+      for (final item in project.items) {
+        confirmedProject = DocumentEdits.setKind(
+          confirmedProject,
+          item.id,
+          DocumentKind.other,
+        );
+      }
+      project = await projects.save(arrangeDocuments(confirmedProject).result);
+      expect(
+        project.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.other &&
+              item.sizeConfirmed &&
+              item.pageIndex == 0,
+        ),
+        isTrue,
+      );
+
+      // Export A4 to PDF, PNG, and JPEG and verify outputs
       final exportDir = await Directory.systemTemp.createTemp('scanid_ai_exp_');
       addTearDown(() async {
         if (await exportDir.exists()) {
@@ -271,7 +300,7 @@ void main() {
   );
 
   test(
-    'production multi-card lifecycle: two tilted cards in one frame -> 2 independent crops -> A4 layout -> PDF/PNG/JPEG export',
+    'synthetic multi-region lifecycle: 2 geometric crops -> explicit generic confirmation -> A4 PDF export',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('scanid_ai_mul_');
       addTearDown(() async {
@@ -293,13 +322,13 @@ void main() {
         segmenter: editor.segment,
       );
 
-      final twoCardBytes = File(
+      final sceneBytes = File(
         'test/fixtures/ai_golden_two_cards.png',
       ).readAsBytesSync();
 
-      var project = await service.create('فحص بطاقتين في صورة واحدة');
+      var project = await service.create('synthetic multi-region scene');
       project = (await service.importImages(project, [
-        ImportSource('بطاقة وطنية.png', () => Stream.value(twoCardBytes)),
+        ImportSource('scene.png', () => Stream.value(sceneBytes)),
       ])).project;
       final sourceId = project.assets.single.id;
 
@@ -308,28 +337,59 @@ void main() {
       expect(arranged.multiDocumentImages, 1);
       project = arranged.project;
 
-      // Source image must be preserved untouched while 2 independent derived card assets are created (ADR-003)
+      // Source image must be preserved untouched while 2 independent derived crops are created (ADR-003)
       final sourceAsset = project.assets.firstWhere((a) => a.id == sourceId);
       expect(
         await (await assets.resolve(sourceAsset.originalPath)).readAsBytes(),
-        twoCardBytes,
+        sceneBytes,
       );
       final derived = project.assets
           .where((a) => a.derivedFrom == sourceId)
           .toList();
       expect(derived, hasLength(2));
-      for (final cardAsset in derived) {
-        expect(cardAsset.width, lessThan(480));
-        expect(cardAsset.height, lessThan(360));
-        expect(cardAsset.width, greaterThan(cardAsset.height));
+      for (final derivedAsset in derived) {
+        expect(derivedAsset.width, lessThan(480));
+        expect(derivedAsset.height, lessThan(360));
+        expect(derivedAsset.width, greaterThan(derivedAsset.height));
       }
       expect(project.documents, hasLength(2));
       for (final rec in project.documents) {
         expect(rec.sides.single.detection?.polygon, hasLength(4));
         expect(rec.sides.single.processedAsset.corners, hasLength(4));
+        expect(rec.recognition!.documentKind, DocumentKind.unknown);
       }
+      expect(
+        project.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.unknown &&
+              !item.sizeConfirmed &&
+              item.pageIndex == null,
+        ),
+        isTrue,
+      );
 
-      // Both segmented cards must be automatically arranged on A4 page 0 without overlapping
+      // Only an explicit generic user choice allows these synthetic regions
+      // to be arranged and exported; geometry does not infer a document type.
+      var genericChoice = project;
+      for (final item in project.items) {
+        genericChoice = setKindWithOverride(
+          genericChoice,
+          item.id,
+          DocumentKind.other,
+        );
+      }
+      project = await projects.save(arrangeDocuments(genericChoice).result);
+      expect(
+        project.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.other &&
+              item.sizeConfirmed &&
+              item.pageIndex == 0,
+        ),
+        isTrue,
+      );
+
+      // The user-confirmed placements must not overlap on A4.
       final placed = project.items.where((i) => i.pageIndex == 0).toList();
       expect(placed, hasLength(2));
       final a = placed[0];
@@ -414,6 +474,8 @@ void main() {
       final savedItem = reloaded.items.single;
 
       expect(savedAsset.crop, isNull, reason: 'must never silently crop');
+      expect(savedItem.documentKind, DocumentKind.unknown);
+      expect(savedItem.pageIndex, isNull);
       expect(
         savedItem.sizeConfirmed,
         isFalse,
@@ -1072,13 +1134,17 @@ void main() {
         Point2(0.13, 0.77),
       ];
       final rawAsset = assetFixture(id: 'asset1');
+      final provisional = provisionalSize(
+        width: rawAsset.width,
+        height: rawAsset.height,
+      );
       final doc = DocumentRecord(
         id: 'rec-uncertain',
         sourceImageId: rawAsset.id,
         sides: [
           DocumentSide(
             id: 'side-0',
-            side: SideKind.front,
+            side: SideKind.unknown,
             detection: DetectionRef(
               detectionId: 'det-0',
               producer: 'scanid_docnet_v1',
@@ -1097,9 +1163,9 @@ void main() {
           ),
         ],
         recognition: RecognitionResult(
-          documentKind: DocumentKind.unifiedNationalId,
-          status: RecognitionStatus.uncertain,
-          confidences: ConfidenceSet(finalConfidence: Confidence(value: 0.44)),
+          documentKind: DocumentKind.unknown,
+          status: RecognitionStatus.unknown,
+          confidences: ConfidenceSet(),
           preset: const PresetSelection.awaiting(),
         ),
         pairing: PairingState.single,
@@ -1117,8 +1183,8 @@ void main() {
             assetId: rawAsset.id,
             x: 10,
             y: 10,
-            width: 85.6,
-            height: 53.98,
+            width: provisional.width,
+            height: provisional.height,
             sizeConfirmed: false,
             documentId: doc.id,
             sideId: 'side-0',

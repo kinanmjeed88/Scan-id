@@ -24,27 +24,27 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 
-/// Two ID-1-shaped quads inside a 1000×1000 source: width 0.8, height
-/// 0.8 / 1.586 ≈ 0.5045 — so each warped crop classifies by shape alone.
-List<Point2> _topQuad() => [
+/// Two synthetic quads inside a 1000×1000 source. Their proportions define
+/// fixture geometry only; neither crop has a human type label.
+List<Point2> _upperQuad() => [
   Point2(.1, .1),
   Point2(.9, .1),
   Point2(.9, .6045),
   Point2(.1, .6045),
 ];
 
-Future<SegmentationResult> _twoCards(Uint8List bytes) async =>
+Future<SegmentationResult> _twoRegions(Uint8List bytes) async =>
     SegmentationResult(
       multi: true,
       candidates: [
         SegmentCandidate(
           region: const [.1, .1, .9, .6],
-          corners: _topQuad(),
+          corners: _upperQuad(),
           detectionConfidence: .8,
           reason: 'component-support',
         ),
         SegmentCandidate(
-          // Width .6, height .6 / 1.586 ≈ .3783 — the ID-1 shape again.
+          // Width .6 and height .3783; synthetic geometry only.
           region: const [.2, .62, .8, 1],
           corners: [
             Point2(.2, .62),
@@ -63,13 +63,13 @@ Future<SegmentationResult> _twoCards(Uint8List bytes) async =>
 ///
 /// The bottom region carries its measured bounds and no corners: the intake
 /// must preserve it, never drop it and never guess a rectangle for it.
-Future<SegmentationResult> _cardPlusUnresolved(Uint8List bytes) async =>
+Future<SegmentationResult> _regionPlusUnresolved(Uint8List bytes) async =>
     SegmentationResult(
       multi: true,
       candidates: [
         SegmentCandidate(
           region: const [.1, .1, .9, .6],
-          corners: _topQuad(),
+          corners: _upperQuad(),
           detectionConfidence: .8,
           reason: 'component-support',
         ),
@@ -112,13 +112,13 @@ Future<SegmentationResult> _oneRejectedQuad(Uint8List bytes) async =>
       ],
     );
 
-Future<SegmentationResult> _oneValidCard(Uint8List bytes) async =>
+Future<SegmentationResult> _oneRegion(Uint8List bytes) async =>
     SegmentationResult(
       multi: false,
       candidates: [
         SegmentCandidate(
           region: const [.1, .1, .9, .6045],
-          corners: _topQuad(),
+          corners: _upperQuad(),
           detectionConfidence: .8,
           reason: 'component-support',
         ),
@@ -377,14 +377,14 @@ void main() {
   );
 
   test(
-    'one photo of two cards takes the independent multi-only path',
+    'two synthetic regions use the multi-only path without inferred kinds',
     () async {
-      final s = service(segmenter: _twoCards, smartRecognitionEnabled: false);
+      final s = service(segmenter: _twoRegions, smartRecognitionEnabled: false);
       expect(s.smartRecognitionEnabled, isFalse);
-      var project = await s.create('مستندان');
+      var project = await s.create('synthetic regions');
       final bytes = _photo();
       project = (await s.importImages(project, [
-        ImportSource('بطاقتان.png', () => Stream.value(bytes)),
+        ImportSource('scene.png', () => Stream.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
       final originalPath = project.assets.single.originalPath;
@@ -396,40 +396,32 @@ void main() {
       expect(report.cropped, 2);
       expect(report.needsReview, 2);
       expect(recordsNeedingReview(report.project), hasLength(2));
-      expect(result.assets, hasLength(3), reason: 'original + two derived');
+      expect(result.assets, hasLength(3), reason: 'source + two derived');
       expect(result.items, hasLength(2));
       expect(result.documents, hasLength(2));
-      // The original image bytes are untouched (ADR-003).
       expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
-      // No item points at the source photo; each item has its derived asset.
-      expect(result.items.every((i) => i.assetId != sourceId), isTrue);
+      expect(result.items.every((item) => item.assetId != sourceId), isTrue);
       for (final item in result.items) {
-        expect(item.documentKind, DocumentKind.unifiedNationalId);
-        expect(item.sizeConfirmed, isTrue);
-        expect(item.pageIndex, 0);
-        expect([item.width, item.height], [85.6, 53.98]);
+        expect(item.documentKind, DocumentKind.unknown);
+        expect(item.sizeConfirmed, isFalse);
+        expect(item.pageIndex, isNull);
       }
-      // Derived assets carry readable Arabic names and rectified shapes.
-      final derived = result.assets.where((a) => a.id != sourceId).toList();
+      final derived = result.assets
+          .where((asset) => asset.id != sourceId)
+          .toList();
       expect(derived[0].name, contains('مستند 1'));
       expect(derived[1].name, contains('مستند 2'));
       for (final asset in derived) {
-        expect(asset.width / asset.height, closeTo(85.6 / 53.98, .02));
+        expect(asset.width / asset.height, closeTo(.8 / .5045, .03));
       }
-      // Records: recognition truth, provenance back to the source photo.
       for (final record in result.documents) {
         expect(record.provenance.sourceImageId, sourceId);
         expect(record.sides.single.detection!.producer, 'document-segmenter');
-        expect(
-          record.recognition!.documentKind,
-          DocumentKind.unifiedNationalId,
-        );
-        // Two cards on ONE photo are never two sides of one card.
+        expect(record.recognition!.documentKind, DocumentKind.unknown);
         expect(record.pairing, PairingState.single);
         expect(record.pairedDocumentId, isNull);
       }
       expect(result.layoutGroups, isEmpty);
-      // The result equals what was saved.
       expect((await projects.get(result.id)).toJson(), result.toJson());
     },
   );
@@ -437,7 +429,7 @@ void main() {
   test(
     'a multi-source import batch arranges every new region together',
     () async {
-      final s = service(segmenter: _twoCards, smartRecognitionEnabled: false);
+      final s = service(segmenter: _twoRegions, smartRecognitionEnabled: false);
       var project = await s.create('أربع مناطق');
       final bytes = _photo();
       project = (await s.importImages(project, [
@@ -453,18 +445,26 @@ void main() {
       expect(report.multiDocumentImages, 2);
       expect(report.cropped, 4);
       expect(report.project.items, hasLength(4));
-      expect(report.project.items.every((item) => item.pageIndex == 0), isTrue);
+      expect(
+        report.project.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.unknown &&
+              !item.sizeConfirmed &&
+              item.pageIndex == null,
+        ),
+        isTrue,
+      );
       expect(inspectLayout(report.project), isEmpty);
       expect(recordsNeedingReview(report.project), hasLength(4));
     },
   );
 
-  test('one candidate stays on the legacy single-document path', () async {
-    final s = service(segmenter: _oneValidCard, smartRecognitionEnabled: false);
-    var project = await s.create('مستند واحد');
+  test('one synthetic region stays on the legacy single-image path', () async {
+    final s = service(segmenter: _oneRegion, smartRecognitionEnabled: false);
+    var project = await s.create('one synthetic region');
     final bytes = _photo();
     project = (await s.importImages(project, [
-      ImportSource('بطاقة.png', () => Stream.value(bytes)),
+      ImportSource('scene.png', () => Stream.value(bytes)),
     ])).project;
     final sourceId = project.assets.single.id;
 
@@ -474,6 +474,9 @@ void main() {
     expect(report.project.documents, isEmpty);
     expect(report.project.items, hasLength(1));
     expect(report.project.items.single.assetId, sourceId);
+    expect(report.project.items.single.documentKind, DocumentKind.unknown);
+    expect(report.project.items.single.sizeConfirmed, isFalse);
+    expect(report.project.items.single.pageIndex, isNull);
     expect(report.project.assets, hasLength(1));
   });
 
@@ -509,14 +512,14 @@ void main() {
       final s = service(
         segmenter: (bytes) async {
           segmented = true;
-          return _twoCards(bytes);
+          return _twoRegions(bytes);
         },
         smartRecognitionEnabled: false,
         multiDocumentSegmentationEnabled: false,
       );
       var project = await s.create('سياسة التقسيم متوقفة');
       project = (await s.importImages(project, [
-        ImportSource('two-cards.png', () => Stream.value(_photo())),
+        ImportSource('scene.png', () => Stream.value(_photo())),
       ])).project;
 
       final report = await s.arrangeImportedImages(project, [
@@ -530,16 +533,16 @@ void main() {
   );
 
   test(
-    'multi-only import keeps an unresolved region for manual review',
+    'multi-only import preserves an unresolved region for manual review',
     () async {
       final s = service(
-        segmenter: _cardPlusUnresolved,
+        segmenter: _regionPlusUnresolved,
         smartRecognitionEnabled: false,
       );
-      var project = await s.create('مستندان أحدهما بلا حدود');
+      var project = await s.create('synthetic region pair');
       final bytes = _photo();
       project = (await s.importImages(project, [
-        ImportSource('صورة.png', () => Stream.value(bytes)),
+        ImportSource('scene.png', () => Stream.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
       final originalPath = project.assets.single.originalPath;
@@ -547,10 +550,19 @@ void main() {
       final report = await s.arrangeImportedImages(project, [sourceId]);
       final result = report.project;
 
-      // No document is lost: both measured regions became documents.
+      // Both measured regions remain in the project as unclassified items.
       expect(result.items, hasLength(2));
       expect(result.documents, hasLength(2));
-      expect(result.assets, hasLength(3), reason: 'original + two derived');
+      expect(result.assets, hasLength(3), reason: 'source + two derived');
+      expect(
+        result.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.unknown &&
+              !item.sizeConfirmed &&
+              item.pageIndex == null,
+        ),
+        isTrue,
+      );
 
       // The original source image is untouched (ADR-003) and — critically —
       // was NOT cropped to the one quad that was found, which would have made
@@ -578,18 +590,20 @@ void main() {
       );
       expect(unresolvedAsset.width, closeTo(600, 2));
       expect(unresolvedAsset.height, closeTo(380, 2));
-      // An unrectified crop never claims a confirmed catalog size.
+      expect(unresolvedItem.documentKind, DocumentKind.unknown);
       expect(unresolvedItem.sizeConfirmed, isFalse);
 
-      // The resolved region is still a properly rectified document.
+      // The other region has a trustworthy quadrilateral, but its geometry
+      // alone still does not establish a category or physical size.
       final resolvedRecord = result.documents.firstWhere(
         (d) => d.sides.single.detection!.polygon != null,
       );
       final resolvedItem = result.items.firstWhere(
         (i) => i.documentId == resolvedRecord.id,
       );
-      expect(resolvedItem.documentKind, DocumentKind.unifiedNationalId);
-      expect(resolvedItem.sizeConfirmed, isTrue);
+      expect(resolvedItem.documentKind, DocumentKind.unknown);
+      expect(resolvedItem.sizeConfirmed, isFalse);
+      expect(resolvedItem.pageIndex, isNull);
 
       // The user is told what happened and how to finish the job.
       expect(
@@ -605,13 +619,13 @@ void main() {
   );
 
   test(
-    'a multi-region photo with no trustworthy quad still keeps every region',
+    'multiple regions without trustworthy quads are preserved for review',
     () async {
       final s = service(segmenter: _twoUnresolved);
       var project = await s.create('بلا حدود');
       final bytes = _photo();
       project = (await s.importImages(project, [
-        ImportSource('صورة.png', () => Stream.value(bytes)),
+        ImportSource('scene.png', () => Stream.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
       final originalPath = project.assets.single.originalPath;
@@ -621,6 +635,15 @@ void main() {
 
       expect(result.items, hasLength(2));
       expect(result.documents, hasLength(2));
+      expect(
+        result.items.every(
+          (item) =>
+              item.documentKind == DocumentKind.unknown &&
+              !item.sizeConfirmed &&
+              item.pageIndex == null,
+        ),
+        isTrue,
+      );
       expect(
         result.documents.every(
           (d) => d.sides.single.detection!.polygon == null,
@@ -668,7 +691,9 @@ void main() {
       expect(record.sourceImageId, sourceId);
       expect(record.sides.single.detection!.polygon, isNull);
       expect(record.sides.single.processedAsset.corners, isNull);
+      expect(item.documentKind, DocumentKind.unknown);
       expect(item.sizeConfirmed, isFalse);
+      expect(item.pageIndex, isNull);
       expect(await (await assets.resolve(sourcePath)).readAsBytes(), bytes);
 
       // The user can replace the rejected detector geometry with a manual crop.
@@ -765,13 +790,13 @@ void main() {
   );
 
   test(
-    'automatic recognition replaces the crop and clears stale user authorship',
+    'automatic boundary processing replaces the crop and clears stale user authorship',
     () async {
-      final s = service(segmenter: _oneValidCard);
+      final s = service(segmenter: _oneRegion);
       final bytes = _photo();
       var project = await s.create('قص تلقائي بعد تعديل يدوي');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.png', () => Stream.value(bytes)),
+        ImportSource('capture.png', () => Stream.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
       final sourcePath = project.assets.single.originalPath;
@@ -812,14 +837,14 @@ void main() {
       final original = _jpegSofOnly(5000, 5000);
       final scaler = _FakeLargeJpegScaler(_photo());
       assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-      final s = service(segmenter: _twoCards);
+      final s = service(segmenter: _twoRegions);
       var project = await s.create('مصدر JPEG كبير');
       final imported = await s.importImages(project, [
-        ImportSource('بطاقتان كبيرة.jpg', () => Stream.value(original)),
+        ImportSource('large-source.jpg', () => Stream.value(original)),
       ]);
       project = imported.project;
       expect(imported.notices, hasLength(1));
-      expect(imported.notices.single.name, 'بطاقتان كبيرة.jpg');
+      expect(imported.notices.single.name, 'large-source.jpg');
       expect(imported.notices.single.message, contains('حُفظ الأصل كما هو'));
       final source = project.assets.single;
       expect(scaler.lastPlan, isNotNull);
@@ -944,12 +969,12 @@ void main() {
       final cropper = _FakeFullResolutionJpegCropper(fullDensityCrop);
       assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
       final s = service(
-        segmenter: _oneValidCard,
+        segmenter: _oneRegion,
         fullResolutionJpegCropper: cropper,
       );
       var project = await s.create('إعادة تعيين زوايا المصدر الكبير');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+        ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
 
       final report = await s.arrangeImportedImages(project, [
@@ -972,7 +997,7 @@ void main() {
       );
       // Full crop-local corners occupy the 1600 by 1000 native output; without
       // remapping they would rectify only the old .8 by .5045 sub-rectangle
-      // (about 1280 by 505). Catalog aspect must not shrink 1600 to 1586.
+      // (about 1280 by 505). Preserve the native crop geometry as returned.
       expect(derived.width, 1600);
       expect(derived.height, 1000);
     },
@@ -991,12 +1016,12 @@ void main() {
         failure: const ValidationException('المنطقة أكبر من حد المعالجة.'),
       );
       final s = service(
-        segmenter: _oneValidCard,
+        segmenter: _oneRegion,
         fullResolutionJpegCropper: cropper,
       );
       var project = await s.create('رفض قص كبير');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+        ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
       final source = project.assets.single;
       final revision = project.revision;
@@ -1030,12 +1055,12 @@ void main() {
       );
       final cropper = _GatedFullResolutionJpegCropper();
       final s = service(
-        segmenter: _oneValidCard,
+        segmenter: _oneRegion,
         fullResolutionJpegCropper: cropper,
       );
       var project = await s.create('إلغاء أثناء القص كامل الدقة');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+        ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
       final source = project.assets.single;
       final token = CancellationToken();
@@ -1073,12 +1098,12 @@ void main() {
       );
       final cropper = _GatedFullResolutionJpegCropper();
       final s = service(
-        segmenter: _oneValidCard,
+        segmenter: _oneRegion,
         fullResolutionJpegCropper: cropper,
       );
       var project = await s.create('إلغاء إعادة المعالجة أثناء القص');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+        ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
       final source = project.assets.single;
       final token = CancellationToken();
@@ -1114,12 +1139,12 @@ void main() {
     );
     final cropper = _GatedFullResolutionJpegCropper();
     final s = service(
-      segmenter: _oneValidCard,
+      segmenter: _oneRegion,
       fullResolutionJpegCropper: cropper,
     );
     var project = await s.create('تعارض نتيجة القص المتأخرة');
     project = (await s.importImages(project, [
-      ImportSource('بطاقة.jpg', () => Stream.value(original)),
+      ImportSource('source.jpg', () => Stream.value(original)),
     ])).project;
     final source = project.assets.single;
 
@@ -1146,10 +1171,10 @@ void main() {
       final original = _jpegSofOnly(5000, 5000);
       final scaler = _FakeLargeJpegScaler(_photo());
       assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-      final s = service(segmenter: _oneValidCard);
+      final s = service(segmenter: _oneRegion);
       var project = await s.create('إعادة معالجة مصدر كبير');
       project = (await s.importImages(project, [
-        ImportSource('بطاقة.jpg', () => Stream.value(original)),
+        ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
       final source = project.assets.single;
       final baseRaster = source.processingInputPath;
@@ -1420,11 +1445,11 @@ void main() {
   test(
     'a dismissed region stays excluded and identifiable on reprocessing',
     () async {
-      final s = service(segmenter: _twoCards);
+      final s = service(segmenter: _twoRegions);
       var project = await s.create('استبعاد وإعادة معالجة');
       final bytes = _photo();
       project = (await s.importImages(project, [
-        ImportSource('بطاقتان.png', () => Stream.value(bytes)),
+        ImportSource('scene.png', () => Stream.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
       final originalPath = project.assets.single.originalPath;
@@ -1467,76 +1492,68 @@ void main() {
     },
   );
 
-  test('recognized records enter the review queue until confirmed', () async {
-    final s = service();
-    var project = await s.create('مراجعة');
-    final bytes = img.encodePng(img.Image(width: 860, height: 540));
-    project = (await s.importImages(project, [
-      ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
-    ])).project;
-    final report = await s.arrangeImportedImages(project, [
-      project.assets.single.id,
-    ]);
-    expect(report.project.documents, hasLength(1));
-    expect(report.needsReview, 1, reason: 'reviewAll mode queues everything');
-    final queue = recordsNeedingReview(report.project);
-    expect(queue, hasLength(1));
-
-    final confirmed = confirmRecognition(report.project, queue.single.id);
-    expect(recordsNeedingReview(confirmed), isEmpty);
-    final saved = await projects.save(confirmed);
-    expect(recordsNeedingReview(await projects.get(saved.id)), isEmpty);
-  });
-
-  test('two photos of the same kind propose an ambiguous pair', () async {
-    final s = service();
-    var project = await s.create('وجهان');
-    final bytes = img.encodePng(img.Image(width: 860, height: 540));
-    project = (await s.importImages(project, [
-      ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
-      ImportSource('البطاقة الوطنية الموحدة 2.png', () => Stream.value(bytes)),
-    ])).project;
-    final report = await s.arrangeImportedImages(
-      project,
-      project.assets.map((a) => a.id),
-    );
-    final docs = report.project.documents;
-    expect(docs, hasLength(2));
-    for (final record in docs) {
+  test(
+    'unclassified records enter the review queue until acknowledged',
+    () async {
+      final s = service();
+      var project = await s.create('synthetic review');
+      final bytes = img.encodePng(img.Image(width: 860, height: 540));
+      project = (await s.importImages(project, [
+        ImportSource('capture.png', () => Stream.value(bytes)),
+      ])).project;
+      final report = await s.arrangeImportedImages(project, [
+        project.assets.single.id,
+      ]);
+      expect(report.project.documents, hasLength(1));
       expect(
-        record.pairing,
-        PairingState.ambiguous,
-        reason: 'no identifier evidence → never auto-paired',
+        report.project.documents.single.recognition!.documentKind,
+        DocumentKind.unknown,
       );
-      expect(record.pairingConfidence, isNotNull);
-      expect(record.pairingConfidence, lessThan(.9));
-    }
-    expect(docs[0].pairedDocumentId, docs[1].id);
-    expect(docs[1].pairedDocumentId, docs[0].id);
-    expect(
-      report.project.layoutGroups,
-      isEmpty,
-      reason: 'grouping only after the user accepts the pair',
-    );
+      expect(report.project.items.single.sizeConfirmed, isFalse);
+      expect(report.needsReview, 1, reason: 'reviewAll mode queues everything');
+      final queue = recordsNeedingReview(report.project);
+      expect(queue, hasLength(1));
 
-    // Accepting the proposal pairs and groups; rejecting dissolves it.
-    final accepted = acceptPair(report.project, docs[0].id, docs[1].id);
-    expect(accepted.layoutGroups, hasLength(1));
-    final saved = await projects.save(accepted);
-    final rejected = rejectPair(saved, docs[0].id);
-    expect(rejected.layoutGroups, isEmpty);
-    expect(
-      rejected.documents.every((d) => d.pairing == PairingState.single),
-      isTrue,
-    );
-  });
+      final confirmed = confirmRecognition(report.project, queue.single.id);
+      expect(recordsNeedingReview(confirmed), isEmpty);
+      final saved = await projects.save(confirmed);
+      expect(recordsNeedingReview(await projects.get(saved.id)), isEmpty);
+    },
+  );
+
+  test(
+    'unclassified source images remain unpaired without independent evidence',
+    () async {
+      final s = service();
+      var project = await s.create('synthetic unpaired sources');
+      final bytes = img.encodePng(img.Image(width: 860, height: 540));
+      project = (await s.importImages(project, [
+        ImportSource('capture-a.png', () => Stream.value(bytes)),
+        ImportSource('capture-b.png', () => Stream.value(bytes)),
+      ])).project;
+      final report = await s.arrangeImportedImages(
+        project,
+        project.assets.map((asset) => asset.id),
+      );
+      final records = report.project.documents;
+      expect(records, hasLength(2));
+      expect(recordsNeedingReview(report.project), hasLength(2));
+      for (final record in records) {
+        expect(record.recognition!.documentKind, DocumentKind.unknown);
+        expect(record.pairing, PairingState.single);
+        expect(record.pairingConfidence, isNull);
+        expect(record.pairedDocumentId, isNull);
+      }
+      expect(report.project.layoutGroups, isEmpty);
+    },
+  );
 
   test('cancellation before the batch keeps the project unchanged', () async {
     final s = service();
     var project = await s.create('إلغاء');
     final bytes = img.encodePng(img.Image(width: 860, height: 540));
     project = (await s.importImages(project, [
-      ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
+      ImportSource('capture-a.png', () => Stream.value(bytes)),
     ])).project;
     final token = CancellationToken()..cancel();
     final report = await s.arrangeImportedImages(project, [
@@ -1577,7 +1594,7 @@ void main() {
     var project = await s.create('ثبات');
     final bytes = img.encodePng(img.Image(width: 860, height: 540));
     project = (await s.importImages(project, [
-      ImportSource('البطاقة الوطنية الموحدة.png', () => Stream.value(bytes)),
+      ImportSource('capture-a.png', () => Stream.value(bytes)),
     ])).project;
     final first = await s.arrangeImportedImages(project, [
       project.assets.single.id,

@@ -8,9 +8,8 @@ env:
   PYTHONIOENCODING: utf-8
   PYTHONUTF8: 1
 permissions:
-  # Write access exists only so a commit marked [format] can receive the real
-  # `dart format` output on its own branch; nothing else pushes.
-  contents: write
+  # Verification is read-only. It must never commit or push from CI.
+  contents: read
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
@@ -20,13 +19,33 @@ jobs:
   # by the protected, signed-release workflow.
   android:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 50
     steps:
+      # Mostmskat/ contains private, local-only evaluation data. Sparse partial
+      # checkout keeps those blobs out of every GitHub Actions runner.
       - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+          sparse-checkout-cone-mode: false
+      - name: Assert local-only evaluation data is excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e Mostmskat
+          python tool/check_private_ci_checkout.py
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tool/ai/requirements-test.txt
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'
@@ -84,12 +103,31 @@ jobs:
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: Source integrity audit
         run: python tool/ci_gate.py source-audit python tool/check_source.py
-      - name: Report formatter differences
-        env:
-          SCAN_ID_FORMAT_COMMIT: ${{ contains(github.event.head_commit.message, '[format]') && '1' || '0' }}
-        run: python tool/format_report.py
+      - name: Audit workflow permissions and write paths
+        run: python tool/check_workflow_permissions.py
+      - name: Synthetic model and boundary tests
+        run: |
+          python -m pip install --requirement tool/ai/requirements-test.txt
+          python -m unittest tool.ai.test_ai_pipeline --verbose
+          python test/tool/test_document_boundary_pipeline.py
+          python tool/verify_frozen_artifacts.py
+      - name: Local policy and annotation-tool tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest test.tool.branch_cleanup_test test.tool.test_local_annotation_validator test.tool.test_format_report --verbose
+          script=$(mktemp --suffix=.js)
+          python - "$script" <<'PY'
+          import pathlib
+          import sys
+          source = pathlib.Path('tool/local_annotation_studio.html').read_text(encoding='utf-8')
+          script = source.split('<script>', 1)[1].split('</script>', 1)[0]
+          pathlib.Path(sys.argv[1]).write_text(script, encoding='utf-8')
+          PY
+          node --check "$script"
+          rm -f "$script"
       - name: Dart format gate
-        run: python tool/ci_gate.py format dart format --output=none --set-exit-if-changed .
+        run: python tool/ci_gate.py format python tool/format_report.py
       - name: Flutter analyze
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests

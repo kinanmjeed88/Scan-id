@@ -113,6 +113,10 @@ enum BoundaryReviewReason {
   /// One or more corners touch the outer camera frame edge, indicating
   /// potential physical card clipping that requires manual review.
   touchesFrameEdge,
+
+  /// This region came from a multi-document scene whose set-level physical
+  /// corroboration was insufficient. Keep it, but do not auto-crop it.
+  multiSceneNotCorroborated,
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -126,6 +130,7 @@ class BoundaryProposal {
     this.modelConfidence,
     this.minAutoAcceptConfidence,
     this.touchesFrameEdge = false,
+    this.forceReview = false,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -155,6 +160,10 @@ class BoundaryProposal {
 
   /// True when the proposed quadrilateral touches the outer camera frame edge.
   final bool touchesFrameEdge;
+
+  /// A measured arbitration rule may require review independently of confidence.
+  /// This is a decision constraint, not a fabricated score or boundary claim.
+  final bool forceReview;
 }
 
 /// What verification measured about a proposal. Every field is a measured
@@ -259,9 +268,13 @@ BoundaryDecision verifyBoundary(
     return BoundaryDecision(
       kind: BoundaryDecisionKind.needsReview,
       proposal: proposal,
-      verification: const BoundaryVerification(
+      verification: BoundaryVerification(
         assessment: null,
-        reasons: [BoundaryReviewReason.noBoundary],
+        reasons: [
+          BoundaryReviewReason.noBoundary,
+          if (proposal.forceReview)
+            BoundaryReviewReason.multiSceneNotCorroborated,
+        ],
       ),
     );
   }
@@ -286,12 +299,18 @@ BoundaryDecision verifyBoundary(
       proposal: proposal,
       verification: BoundaryVerification(
         assessment: assessment,
-        reasons: const [BoundaryReviewReason.geometryRejected],
+        reasons: [
+          BoundaryReviewReason.geometryRejected,
+          if (proposal.forceReview)
+            BoundaryReviewReason.multiSceneNotCorroborated,
+        ],
       ),
     );
   }
   final measuredAspect = assessment.aspect!;
-  final reasons = <BoundaryReviewReason>[];
+  final reasons = <BoundaryReviewReason>[
+    if (proposal.forceReview) BoundaryReviewReason.multiSceneNotCorroborated,
+  ];
 
   // Outer claim refusal only. Above [maxAspectClaimRatio] the imposed size
   // is a different document, so the claim is not accepted and no automatic
@@ -415,6 +434,8 @@ String boundaryReviewReasonMessage(
     'ثقة كشف الذكاء الاصطناعي دون حد القبول التلقائي؛ حُفظت الزوايا المقترحة للمراجعة والتعديل اليدوي دون قصّ صامت.',
   BoundaryReviewReason.touchesFrameEdge =>
     'تلامس حدود البطاقة حافة الإطار وقد يكون جزء منها مقطوعاً؛ راجع الزوايا يدوياً قبل اعتماد القصّ.',
+  BoundaryReviewReason.multiSceneNotCorroborated =>
+    'لم تتأكد الأدلة الفيزيائية من تعدد حدود المشهد؛ بقيت المنطقة للمراجعة ولم تُقصّ تلقائياً.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its

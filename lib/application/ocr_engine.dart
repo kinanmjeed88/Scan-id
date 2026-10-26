@@ -8,17 +8,18 @@
 /// Arabic, ONNX Runtime, Windows.Media.Ocr — with licences, model sizes and
 /// what must be measured before any engine is adopted, is recorded in
 /// `docs/OCR_EVALUATION.md` (summary in `docs/RECOGNITION.md` §6). The
-/// leading candidate, PaddleOCR PP-OCRv5 Arabic mobile
-/// (`arabic_PP-OCRv5_mobile_rec`), needs a native inference runtime per
-/// platform (Android ABIs + Windows x64), ~12 MiB of bundled ONNX weights and
-/// an on-device benchmark that does not exist yet: no Arabic accuracy figure
-/// is published for it, and there is no representative Iraqi document set in
-/// this repository to measure one against.
+/// leading research candidate, PaddleOCR PP-OCRv5 Arabic mobile
+/// (`arabic_PP-OCRv5_mobile_rec`), has not been proven as a shippable local
+/// model/runtime pair here. A small unlabelled local-only sample exists under
+/// `Mostmskat/`, but it has no reviewed OCR transcriptions or independent split
+/// and cannot support an Arabic accuracy claim. The sample is excluded from
+/// CI checkouts and is not used to train or validate OCR.
 ///
 /// Rather than compromise the Windows target or bundle an unverified native
 /// dependency, the production pipeline runs against this abstraction with
 /// [UnavailableOcrEngine]: OCR unavailability is an explicit, non-fatal state
-/// and classification continues from the remaining evidence sources.
+/// and boundary analysis continues. Without independent type evidence, the
+/// classifier returns `unknown`.
 library;
 
 import 'dart:typed_data';

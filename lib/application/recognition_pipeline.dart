@@ -1,6 +1,6 @@
 /// Per-image Smart Recognition analysis (AUDIT.md §G): segmentation →
-/// geometry refinement → orientation → OCR (evidence-only) → hybrid
-/// classification → fusion/routing. Produces typed, deterministic results;
+/// geometry refinement → orientation → OCR (evidence-only) → explicit-evidence
+/// classification → fusion/routing. Produces structured, deterministic results;
 /// every stage failure is an explicit issue and the pipeline degrades to the
 /// safest remaining path instead of aborting (AUDIT.md §I).
 ///
@@ -25,13 +25,12 @@ import 'ocr_engine.dart';
 import 'recognition_worker.dart';
 
 /// Version of the analysis pipeline, recorded in provenance.
-const recognitionPipelineVersion = 'smart-1';
+const recognitionPipelineVersion = 'smart-2';
 
 /// Everything the pipeline needs about one imported image.
 class PipelineImageInput {
   const PipelineImageInput({
     required this.assetId,
-    required this.name,
     required this.previewBytes,
     required this.sourceWidth,
     required this.sourceHeight,
@@ -39,7 +38,6 @@ class PipelineImageInput {
     this.captureId,
   });
   final String assetId;
-  final String name;
 
   /// Bounded (≤1200 px) preview copy; the original is never decoded here.
   final Uint8List previewBytes;
@@ -106,8 +104,8 @@ class DetectionAnalysis {
 
   /// The shared Proposal → Verification → Decision result for this region.
   /// Automatic crops may proceed only when it grants [cropAuthorization].
-  /// A consistency gate over geometry and the imposed catalog claim — not
-  /// an independent measurement of the physical edge.
+  /// It checks measured geometry, region consistency and detector review rules;
+  /// it does not classify the document or measure its physical edge.
   final BoundaryDecision? boundaryDecision;
 
   /// Measured segmenter support; absent for the single-document detector
@@ -117,18 +115,17 @@ class DetectionAnalysis {
   final ClassificationOutcome classification;
   final OrientationEstimate orientation;
 
-  /// True only when the shared boundary decision accepted this claim.
-  ///
-  /// Geometry that merely passed [assessQuad] is not enough: a filename can
-  /// still impose a catalog size the measured shape cannot claim, and a quad
-  /// can fail to describe its measured region. Those are review outcomes.
+  /// True only when the shared boundary decision accepted the measured
+  /// proposal. Passing [assessQuad] alone is not enough: the decision also
+  /// checks measured-region agreement, detector confidence and frame contact.
+  /// Catalog-size confirmation is separate and never authorizes a warp.
   /// Callers that warp must also use [cropAuthorization]; this getter is the
   /// same fact, so a path cannot treat "corners present" as permission.
   bool get hasUsableQuad => cropAuthorization != null;
 
   /// Present only for an accepted decision. Automatic warps take their
-  /// corners and their catalog-aspect permission from this, not from a
-  /// separately rebuilt recipe.
+  /// measured corners from this authorization, not from a separately rebuilt
+  /// classification- or catalog-dependent recipe.
   AutomaticCropAuthorization? get cropAuthorization =>
       boundaryDecision?.cropAuthorization;
 
@@ -298,6 +295,10 @@ class RecognitionPipeline {
               detectionId: regionDetectionId(input.assetId, regionIndex),
               corners: null,
               detectionConfidence: candidate.detectionConfidence,
+              producer: candidate.producer,
+              minAutoAcceptConfidence: candidate.minAutoAcceptConfidence,
+              touchesFrameEdge: candidate.touchesFrameEdge,
+              forceReview: candidate.requiresReview,
               region: candidate.region,
               regionIndex: regionIndex,
               issues: issues,
@@ -315,6 +316,7 @@ class RecognitionPipeline {
             producer: candidate.producer,
             minAutoAcceptConfidence: candidate.minAutoAcceptConfidence,
             touchesFrameEdge: candidate.touchesFrameEdge,
+            forceReview: candidate.requiresReview,
             region: candidate.region,
             regionIndex: regionIndex,
             issues: issues,
@@ -394,6 +396,7 @@ class RecognitionPipeline {
     BoundaryProducer? producer,
     double? minAutoAcceptConfidence,
     bool touchesFrameEdge = false,
+    bool forceReview = false,
     List<double>? region,
     int regionIndex = 0,
   }) async {
@@ -436,45 +439,28 @@ class RecognitionPipeline {
       issues.add(
         const BatchItemFailure(
           category: RecognitionErrorCategory.ocrFailure,
-          message: 'فشل OCR؛ استمر التصنيف بالأدلة المتبقية.',
+          message: 'فشل OCR؛ استمر تحليل الحدود وبقي النوع غير محدد.',
         ),
       );
     }
 
     final quadAspect = usableCorners == null ? null : assessment?.aspect;
-    final boundaryDetected = quadAspect != null;
-    final int width;
-    final int height;
-    // Which way the document is HELD, orientation preserved. [_shapeSide]
-    // normalizes the pair below to long/short — right for the catalog shape
-    // comparison, wrong for [estimateOrientation], which would otherwise be
-    // told every crop is landscape. See `cropHeldAspect`.
+    // Keep the crop's measured orientation for the separate orientation stage.
+    // Aspect is not a document-kind vote or a catalog-size claim.
     final double heldAspect;
     if (quadAspect != null) {
-      final aspect = quadAspect;
-      // Only the proportion matters for shape classification; the quad is in
-      // pixel space so its aspect is the crop's proportion.
-      width = _shapeSide(aspect, long: true);
-      height = _shapeSide(aspect, long: false);
       heldAspect = cropHeldAspect(
         usableCorners!,
         sourceWidth: input.sourceWidth,
         sourceHeight: input.sourceHeight,
       );
     } else if (region != null) {
-      // No trustworthy quadrilateral, but the segmenter DID measure this
-      // region. Classify from the measured region proportion — using the whole
-      // frame here would describe a different document.
+      // An unresolved region keeps its measured orientation; the whole-frame
+      // dimensions describe a different object and are not substituted.
       final regionWidth = (region[2] - region[0]).abs() * input.sourceWidth;
       final regionHeight = (region[3] - region[1]).abs() * input.sourceHeight;
-      final aspect = regionHeight <= 0 ? 1.0 : regionWidth / regionHeight;
-      width = _shapeSide(aspect, long: true);
-      height = _shapeSide(aspect, long: false);
-      // A measured region keeps its own orientation; nothing normalized it.
-      heldAspect = aspect;
+      heldAspect = regionHeight <= 0 ? 1.0 : regionWidth / regionHeight;
     } else {
-      width = input.sourceWidth;
-      height = input.sourceHeight;
       heldAspect = input.sourceHeight <= 0
           ? 1.0
           : input.sourceWidth / input.sourceHeight;
@@ -482,11 +468,6 @@ class RecognitionPipeline {
 
     final classification = classifyDocument(
       ClassificationInput(
-        name: input.name,
-        width: width,
-        height: height,
-        boundaryDetected: boundaryDetected,
-        catalog: catalog,
         detectionConfidence: detectionConfidence,
         geometryConfidence: assessment?.geometryConfidence,
         ocrKeywords: ocrKeywordEvidence(ocrResult),
@@ -495,12 +476,9 @@ class RecognitionPipeline {
       ),
     );
 
-    // Shared boundary contract. The duplicated claim-ratio check used to live
-    // here and could drift from the legacy path. verifyBoundary is a
-    // consistency gate (shape, region agreement, imposed catalog claim) —
-    // not an independent edge measurement. A non-accepted claim cannot keep
-    // corners that an intake path might warp.
-    final claimedNatural = catalog.natural(classification.kind);
+    // Boundary authorization is independent of document kind, OCR and catalog
+    // dimensions. It verifies measured geometry/region and the detector's own
+    // review constraints; classification cannot veto or authorize a crop.
     final effectiveProducer =
         producer ??
         (region == null
@@ -511,13 +489,12 @@ class RecognitionPipeline {
         producer: effectiveProducer,
         corners: corners,
         region: region,
-        imposedAspect: claimedNatural?.aspect,
-        imposedKindLabel: classification.kind.label,
         modelConfidence: minAutoAcceptConfidence == null
             ? null
             : detectionConfidence,
         minAutoAcceptConfidence: minAutoAcceptConfidence,
         touchesFrameEdge: touchesFrameEdge,
+        forceReview: forceReview,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,
@@ -566,19 +543,6 @@ class RecognitionPipeline {
       boundaryDecision: decision,
     );
   }
-}
-
-/// One side of the synthetic 1000-px-long-edge shape used for classification.
-///
-/// Reproduces the historical aspect→pixels mapping exactly, but clamps a
-/// degenerate measurement so a zero-area or hostile region can never produce
-/// a zero, negative or overflowing dimension.
-int _shapeSide(double aspect, {required bool long}) {
-  final safe = aspect.isFinite && aspect > 0 ? aspect : 1.0;
-  if (safe >= 1) {
-    return long ? (safe * 1000).round().clamp(1, 100000).toInt() : 1000;
-  }
-  return long ? 1000 : (1000 / safe).round().clamp(1, 100000).toInt();
 }
 
 /// Arabic label of one rejection reason, for the single aggregated diagnostic.

@@ -419,12 +419,9 @@ def delete_branch_remote(repo: str, branch: str, dry_run: bool = True) -> bool:
         print(f"Deleted branch {branch}")
         return True
     else:
-        # Fallback via git push
-        proc2 = run(["git", "push", "origin", "--delete", branch])
-        if proc2.returncode == 0:
-            print(f"Deleted branch {branch} via git push")
-            return True
-        print(f"::warning::Failed to delete {branch}: {proc.stderr} | {proc2.stderr}", file=sys.stderr)
+        # Never fall back to a Git push for deletion. A failed API request is
+        # inconclusive; keep the branch and require a fresh, explicit review.
+        print(f"::warning::Failed to delete {branch} through the scoped API: {proc.stderr}", file=sys.stderr)
         return False
 
 

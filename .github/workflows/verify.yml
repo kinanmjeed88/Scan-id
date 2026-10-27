@@ -30,12 +30,14 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
       - name: Assert local-only evaluation data is excluded
         shell: bash
         run: |
           set -euo pipefail
           test ! -e Mostmskat
+          test ! -e local-data
           python tool/check_private_ci_checkout.py
       - uses: actions/setup-java@v5
         with:
@@ -159,7 +161,7 @@ jobs:
           for attempt in 1 2; do
             log="diagnostics/signing-guard-attempt-$attempt.log"
             rc=0
-            flutter build apk --release > "$log" 2>&1 || rc=$?
+            flutter build apk --flavor scanid --release > "$log" 2>&1 || rc=$?
             cat "$log"
             if (( rc == 0 )); then
               annotate signing-guard-unexpected-success 1200
@@ -185,7 +187,23 @@ jobs:
       - name: Independently validate exported documents
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
-        run: python tool/ci_gate.py android-build flutter build apk --debug
+        run: python tool/ci_gate.py android-build flutter build apk --flavor scanid --debug
+      - name: Build independent offline annotation flavor
+        run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
+      - name: Audit merged annotation-flavor permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(find build/app/intermediates/merged_manifest -type f -path '*annotatorDebug*' -name AndroidManifest.xml -print -quit)
+          test -n "$manifest"
+          python tool/check_annotator_manifest.py "$manifest"
+      - name: Upload offline annotator debug APK (CI smoke artifact)
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-reference-annotator-debug-apk
+          path: build/app/outputs/flutter-apk/app-annotator-debug.apk
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Check Android Emulator acceleration
         id: emulator-acceleration
@@ -219,8 +237,8 @@ jobs:
           name: scan-id-android-crop-instrumentation
           path: |
             diagnostics/android-instrumentation/
-            build/app/reports/androidTests/connected/debug/
-            build/app/outputs/androidTest-results/connected/debug/
+            build/app/reports/androidTests/connected/scanidDebug/
+            build/app/outputs/androidTest-results/connected/scanidDebug/
           if-no-files-found: warn
           retention-days: 7
 
@@ -239,7 +257,7 @@ jobs:
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -n "$apksigner"
           "$apksigner" version || true
-          apk=build/app/outputs/flutter-apk/app-debug.apk
+          apk=build/app/outputs/flutter-apk/app-scanid-debug.apk
           "$apksigner" verify --verbose --print-certs "$apk" > /tmp/diag-out.txt 2> /tmp/diag-err.txt || true
           out_lines="$(wc -l < /tmp/diag-out.txt | tr -d ' ')"
           err_lines="$(wc -l < /tmp/diag-err.txt | tr -d ' ')"
@@ -283,7 +301,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: build/app/outputs/flutter-apk/app-scanid-debug.apk
           if-no-files-found: error
           # CI smoke artifact only; short retention prevents artifact-storage
           # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).

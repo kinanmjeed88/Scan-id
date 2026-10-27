@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Guard the local-only Mostmskat corpus from every GitHub Actions checkout.
+"""Guard local-only document corpora from every GitHub Actions checkout.
 
 `actions/checkout@v5` uses a partial blob filter when sparse-checkout is set.
-These checks ensure the repository's workflows also exclude the private corpus
-from the runner worktree, including reusable and manually-dispatched workflows.
+These checks ensure workflows exclude both the private Mostmskat corpus and
+local-data from runner worktrees, including reusable and manual workflows.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ REQUIRED = (
     "sparse-checkout: |",
     "/*",
     "!/Mostmskat/",
+    "!/local-data/",
     "sparse-checkout-cone-mode: false",
 )
 
@@ -28,22 +29,25 @@ def verify() -> list[str]:
 
     # Sparse checkout is defense in depth, not permission to keep local document
     # data in the public Git tree. Check the index so the guard also works before
-    # a local commit (the worktree corpus itself may remain available offline).
-    tracked = subprocess.run(
-        ["git", "ls-files", "--cached", "-z", "--", "Mostmskat"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout
-    if tracked:
-        failures.append(
-            f"Mostmskat/ contains {sum(bool(path) for path in tracked.split(bytes([0])))} tracked index path(s); "
-            "keep the authorized local corpus out of Git."
-        )
+    # a local commit (the worktree corpora may remain available offline).
+    for directory in ("Mostmskat", "local-data"):
+        tracked = subprocess.run(
+            ["git", "ls-files", "--cached", "-z", "--", directory],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        if tracked:
+            failures.append(
+                f"{directory}/ contains {sum(bool(path) for path in tracked.split(bytes([0])))} "
+                "tracked index path(s); keep local corpora out of Git."
+            )
     ignore_file = ROOT / ".gitignore"
     ignore_lines = ignore_file.read_text(encoding="utf-8").splitlines()
     if "/Mostmskat/" not in ignore_lines:
         failures.append(".gitignore must explicitly ignore /Mostmskat/.")
+    if "local-data/" not in ignore_lines:
+        failures.append(".gitignore must explicitly ignore local-data/.")
     for workflow in sorted(WORKFLOWS.glob("*.yml")):
         lines = workflow.read_text(encoding="utf-8").splitlines()
         for index, line in enumerate(lines):
@@ -73,7 +77,7 @@ def verify() -> list[str]:
     if not failures:
         print(
             f"PASS: all {checkout_count} GitHub Actions checkout(s) exclude "
-            "Mostmskat/ with sparse partial checkout."
+            "Mostmskat/ and local-data/ with sparse partial checkout."
         )
     return failures
 

@@ -225,6 +225,19 @@ android {
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", expectedCertSha256Literal)
     }
 
+    flavorDimensions += "edition"
+    productFlavors {
+        create("scanid") {
+            dimension = "edition"
+            // Inherits the existing production applicationId.
+        }
+        create("annotator") {
+            dimension = "edition"
+            applicationId = "iq.scanid.referenceannotator"
+            versionNameSuffix = "-reference"
+        }
+    }
+
     if (releaseKeyStoreFile != null) {
         // Capture the script-level values under distinct names BEFORE entering
         // the SigningConfig receiver scope. Inside `create("release") { ... }`

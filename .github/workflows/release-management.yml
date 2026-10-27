@@ -71,6 +71,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true
@@ -297,6 +298,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           persist-credentials: false
@@ -387,6 +389,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           persist-credentials: false
@@ -454,7 +457,7 @@ jobs:
         run: python tool/ci_gate.py test flutter test --reporter expanded
 
       - name: Build Android debug smoke
-        run: python tool/ci_gate.py android-build flutter build apk --debug
+        run: python tool/ci_gate.py android-build flutter build apk --flavor scanid --debug
 
       - name: Build Android release
         if: inputs.targets == 'android' || inputs.targets == 'both'
@@ -476,14 +479,14 @@ jobs:
             echo "::error::Missing signing secrets: ${missing[*]}"
             exit 1
           fi
-          python tool/ci_gate.py android-release flutter build apk --release
+          python tool/ci_gate.py android-release flutter build apk --flavor scanid --release
 
       - name: Verify APK signature
         if: inputs.targets == 'android' || inputs.targets == 'both'
         shell: bash
         run: |
           set -euo pipefail
-          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apk='build/app/outputs/flutter-apk/app-scanid-release.apk'
           test -s "$apk" || {
             echo "::error title=signing-verify::Release APK missing or empty."
             exit 1
@@ -548,7 +551,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-signed-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-scanid-release.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -577,6 +580,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           persist-credentials: false
@@ -709,6 +713,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           ref: searchidf
           fetch-depth: 0
@@ -774,7 +779,7 @@ jobs:
           }
           mkdir -p release-ready
           if [[ "$TARGETS" == "both" || "$TARGETS" == "android" ]]; then
-            apk="release-assets/android/app-release.apk"
+            apk="release-assets/android/app-scanid-release.apk"
             test -s "$apk" || {
               echo "::error::APK missing."
               exit 1

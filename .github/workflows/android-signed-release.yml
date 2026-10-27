@@ -57,6 +57,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
       - uses: actions/setup-java@v5
         with:
@@ -380,8 +381,8 @@ jobs:
           rc=1
           for attempt in 1 2; do
             log="diagnostics/release-build-attempt-$attempt.log"
-            echo "::notice title=release-build::attempt $attempt of 2: flutter build apk --release"
-            python tool/ci_gate.py "release-build-attempt-$attempt" flutter build apk --release 2>&1 \
+            echo "::notice title=release-build::attempt $attempt of 2: flutter build apk --flavor scanid --release"
+            python tool/ci_gate.py "release-build-attempt-$attempt" flutter build apk --flavor scanid --release 2>&1 \
               | stamp_and_tee "diagnostics/release-build-timed-$attempt.log"
             rc="${PIPESTATUS[0]}"
             if (( rc == 0 )); then
@@ -426,7 +427,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apk='build/app/outputs/flutter-apk/app-release.apk'
+          apk='build/app/outputs/flutter-apk/app-scanid-release.apk'
           test -s "$apk" || { echo "::error title=signing-verify::Release APK missing or empty: $apk" >&2; exit 1; }
           sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:?Android SDK is not configured}}"
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
@@ -509,7 +510,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-signed-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-scanid-release.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -555,6 +556,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true
@@ -635,7 +637,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apk="release-assets/android/app-release.apk"
+          apk="release-assets/android/app-scanid-release.apk"
           win_zip="release-assets/windows/scan-id-windows.zip"
           echo "Verifying assets..."
           if [[ ! -s "$apk" ]]; then
@@ -666,7 +668,7 @@ jobs:
           tag="${{ steps.version.outputs.tag }}"
           core="${{ steps.version.outputs.version_core }}"
           mkdir -p release-ready
-          apk_src="release-assets/android/app-release.apk"
+          apk_src="release-assets/android/app-scanid-release.apk"
           win_src="release-assets/windows/scan-id-windows.zip"
           # OTA expects .apk for Android, .zip for Windows — names include tag for traceability
           cp "$apk_src" "release-ready/scan-id-android-${core}.apk"

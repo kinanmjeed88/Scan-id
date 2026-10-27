@@ -95,19 +95,21 @@ flutter build windows --release
 ```bash
 bash tool/bootstrap.sh
 bash tool/verify.sh
-flutter run -d <android-device-id>
-flutter build apk --release
+flutter run -d <android-device-id> --flavor scanid
+flutter build apk --flavor scanid --release
 ```
 
-الناتج: `build/app/outputs/flutter-apk/app-release.apk`. محليًا، يقرأ Gradle إعدادات التوقيع من `android/key.properties` (ملف مستبعد من Git) ويقرأ ملف JKS الذي يشير إليه `storeFile`. إذا لم توجد إعدادات محلية أو متغيرات بيئة، يفشل بناء الإصدار ولا يرجع إلى توقيع debug؛ لا تضف keystore أو كلمات مرور إلى Git.
+الناتج: `build/app/outputs/flutter-apk/app-scanid-release.apk`. محليًا، يقرأ Gradle إعدادات التوقيع من `android/key.properties` (ملف مستبعد من Git) ويقرأ ملف JKS الذي يشير إليه `storeFile`. إذا لم توجد إعدادات محلية أو متغيرات بيئة، يفشل بناء الإصدار ولا يرجع إلى توقيع debug؛ لا تضف keystore أو كلمات مرور إلى Git.
 
 لبناء APK موقّع من GitHub Actions، أنشئ بيئة GitHub باسم `android-signing`، وقيّد فروع النشر وفعّل موافقة مراجِع قبل إتاحة أسرارها. أضف إليها الأسرار الأربعة بالأسماء الدقيقة `KEYSTORE_BASE64` و`KEYSTORE_STORE_PASSWORD` و`KEYSTORE_KEY_ALIAS` و`KEYSTORE_KEY_PASSWORD`. بعد إدراج سير العمل في الفرع الافتراضي، شغّل **Android signed release and Windows** يدويًا. يبني هذا التشغيل APK الموقّع ونسخة Windows Release بالتوازي من نفس مراجعة المصدر، ويرفع **scan-id-android-signed-apk** و**scan-id-windows** ضمن Artifacts في صفحة التشغيل نفسها. خطوات Windows مشتركة عبر `.github/workflows/windows-release.yml` وتشمل اختبارات معالجة الصور الأصلية؛ ولا تُمرّر أسرار توقيع Android إلى Windows. يقبل Gradle keystore بصيغة JKS أو PKCS12، ويتحقق من Base64 وكلمة مرور المخزن والاسم المستعار وكلمة مرور المفتاح، ويكتب نسخة مؤقتة تحت مجلد `build/` فقط. سير عمل التحقق العام لا يستلم هذه الأسرار؛ والبناء الموقّع يفشل بدلاً من الرجوع إلى debug إذا كانت القيم ناقصة أو غير صالحة. لا تضع Base64 أو كلمات المرور في الشيفرة أو السجلات أو المحادثات.
+
+**أداة التوسيم المرجعي دون اتصال** لها flavor مستقل وحزمة منفصلة عن ماسح المستندات. تعليمات الاستخدام والتخزين والاستعادة: [`docs/ANDROID_REFERENCE_ANNOTATOR.md`](docs/ANDROID_REFERENCE_ANNOTATOR.md). ابنها بـ `flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart`؛ لا تحتاج هذه الطبعة إلى إذن Android للإنترنت، وتظل صورها ومسوداتها داخل مساحة التطبيق الخاصة. لم يُجر اختبار على هاتف فعلي.
 
 ### التحقق الآلي (CI)
 
 `.github/workflows/verify.yml` فيه وظيفتان فقط:
 
-- **android** (Ubuntu): `dart format` و`flutter analyze --fatal-infos` و`flutter test` وفحص مستقل لملفات التصدير، ثم اختبار رفض الإصدار دون أسرار التوقيع و`flutter build apk --debug` ورفع **scan-id-android-debug-apk**.
+- **android** (Ubuntu): `dart format` و`flutter analyze --fatal-infos` و`flutter test` وفحص مستقل لملفات التصدير، ثم اختبار رفض الإصدار دون أسرار التوقيع، وبناء flavor `scanid` وflavor `annotator` المستقل مع فحص صلاحياته، ورفع **scan-id-android-debug-apk** و**scan-id-reference-annotator-debug-apk**.
 - **windows**: `flutter build windows --release` ورفع **scan-id-windows**.
 
 قبل أي أمر Gradle، يثبّت السير عمل سكربت init من `tool/gradle/plugin-repositories.init.gradle` في `~/.gradle/init.d` عبر `tool/install_gradle_init.sh`. السبب: أمر `flutter build apk` يشغّل بناءين Gradle — جذر المشروع في `android/` وبناء Flutter tools الذي يضيفه `pluginManagement { includeBuild(...) }` — والثاني لا يعلن أي مصدر إضافات خاص به، فيحل ملفات Kotlin DSL من المصدر الافتراضي الوحيد `plugins.gradle.org/m2`؛ وعندما تعذّر على هذا الوسيط تقديم ملفات Kotlin 2.0.21 فشل الإصدار الموقّع في تشغيل 38815652328 بعد 30 ثانية. السكربت يبقي Portal أولًا (فهو وحده ينشر `gradle-kotlin-dsl-plugins`) ويضيف `Maven Central` و`Google Maven` بعده عند غيابهما فقط: لا يُحذف مصدر ولا يتغيّر ترتيب مصدر معلن. وتُخزَّن مخرجات Gradle (`~/.gradle/caches/modules-2` و`~/.gradle/wrapper/dists`) بين التشغيلات، ويعيد بناء الإصدار الموقّع المحاولة مرة واحدة عندما يقع الفشل داخل حل الإضافات أو الاعتماديات فقط. ويتحقق `tool/report_gradle_plugin_repositories.sh` من التقرير الذي يكتبه السكربت ويعلن في annotations أي بناء استلم المصادر الاحتياطية — تحذيرًا لا بوابة.

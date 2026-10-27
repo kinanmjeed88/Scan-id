@@ -10,7 +10,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../application/project_service.dart';
-import '../domain/image_limits.dart';
 import '../imaging/image_header.dart';
 import '../imaging/prepare_image.dart';
 

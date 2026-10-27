@@ -30,8 +30,25 @@ def main() -> int:
         for node in root
         if node.tag in permission_tags
     )
-    if permissions:
-        message = "offline annotator declares Android permissions: " + ", ".join(permissions)
+    private_permission_suffix = ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    private_permissions = [
+        name for name in permissions if name.endswith(private_permission_suffix)
+    ]
+    unexpected_permissions = [
+        name for name in permissions if name not in private_permissions
+    ]
+    if unexpected_permissions or len(private_permissions) != 1:
+        message = "offline annotator declares unexpected Android permissions: " + ", ".join(permissions)
+        print(f"::error title=Offline annotator permission audit::{message}", file=sys.stderr)
+        print(f"FAIL: {message}", file=sys.stderr)
+        return 1
+    private_permission = private_permissions[0]
+    declarations = [
+        node for node in root
+        if node.tag == "permission" and node.get(ANDROID + "name") == private_permission
+    ]
+    if len(declarations) != 1 or declarations[0].get(ANDROID + "protectionLevel") != "signature":
+        message = "AndroidX dynamic receiver permission must be declared exactly once with signature protection"
         print(f"::error title=Offline annotator permission audit::{message}", file=sys.stderr)
         print(f"FAIL: {message}", file=sys.stderr)
         return 1
@@ -42,7 +59,11 @@ def main() -> int:
         print(f"::error title=Offline annotator label audit::{message}", file=sys.stderr)
         print(f"FAIL: {message}.", file=sys.stderr)
         return 1
-    print("PASS: annotator APK declares no Android permissions and has its independent label.")
+    print(
+        "PASS: annotator APK has no network, storage, camera, or user-granted permissions; "
+        "its only permission is AndroidX's app-private signature-protected dynamic-receiver guard, "
+        "and it has its independent label."
+    )
     return 0
 
 

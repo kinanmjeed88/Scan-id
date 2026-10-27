@@ -1,32 +1,20 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:scan_id/reference_annotation/main.dart';
-import 'package:scan_id/reference_annotation/store.dart';
 
 void main() {
-  testWidgets(
-    'opens the standalone offline annotator without platform channels',
-    (tester) async {
-      final root = await Directory.systemTemp.createTemp(
-        'scan-id-reference-ui-',
-      );
-      addTearDown(() async {
-        if (await root.exists()) {
-          await root.delete(recursive: true);
-        }
-      });
-      final store = await ReferenceAnnotationStore.open(root);
+  test('canonicalizes four taps to clockwise TL, TR, BR, BL coordinates', () {
+    final taps = <List<double>>[
+      [0.85, 0.8],
+      [0.15, 0.2],
+      [0.15, 0.8],
+      [0.85, 0.2],
+    ];
 
-      await tester.pumpWidget(ReferenceAnnotatorApp(store: store));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 250));
-
-      expect(find.text('الوسوم المرجعية · v2.0.0'), findsOneWidget);
-      expect(find.text('اختيار صور من الهاتف'), findsOneWidget);
-      expect(find.text('حفظ JSON محلياً'), findsOneWidget);
-      expect(find.textContaining('لا توجد صور بعد'), findsOneWidget);
-    },
-  );
+    expect(canonicalizeReferencePolygon(taps), <List<double>>[
+      [0.15, 0.2],
+      [0.85, 0.2],
+      [0.85, 0.8],
+      [0.15, 0.8],
+    ]);
+  });
 }

@@ -194,10 +194,20 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
       if (file == null) return;
       final bytes = await file.readAsBytes();
       final decoded = jsonDecode(utf8.decode(bytes));
-      if (decoded is! Map || decoded['schema'] != referenceSchema) {
+      if (decoded is! Map<String, dynamic> ||
+          decoded['schema'] != referenceSchema) {
         throw const FormatException('ملف JSON غير مدعوم.');
       }
-      final incoming = (decoded['samples'] as List).cast<Map>();
+      final rawSamples = decoded['samples'];
+      if (rawSamples is! List) {
+        throw const FormatException('ملف JSON لا يحتوي سجلات صور صالحة.');
+      }
+      final incoming = rawSamples.map((raw) {
+        if (raw is! Map<String, dynamic>) {
+          throw const FormatException('سجل الصورة في JSON غير صالح.');
+        }
+        return Map<String, Object?>.from(raw);
+      }).toList();
       final existingIds = store.samples.map((s) => s['image_id']).toSet();
       final incomingIds = incoming
           .map((s) => s['image_id'])
@@ -282,8 +292,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
       _message('فشل تصدير JSON أو التحقق منه؛ بقيت المسودة المحلية دون تغيير.');
     } finally {
       try {
-        if (temporary != null && await temporary.exists())
+        if (temporary != null && await temporary.exists()) {
           await temporary.delete();
+        }
       } catch (_) {}
       if (mounted) setState(() => _busy = false);
     }
@@ -370,8 +381,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
         .toList();
     final changedDocument = documents[_activeDocument];
     changedDocument[key] = value;
-    if (boundaryStatus != null)
+    if (boundaryStatus != null) {
       changedDocument['boundary_status'] = boundaryStatus;
+    }
     if (key == 'boundary_status' && value == 'undeterminable') {
       changedDocument['visible_polygon'] = <Object?>[];
       changedDocument['corners'] = null;
@@ -544,8 +556,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
     if (_panMode ||
         _dragVertex < 0 ||
         points == null ||
-        _dragVertex >= points.length)
+        _dragVertex >= points.length) {
       return;
+    }
     points[_dragVertex] = [
       (point.dx / size.width).clamp(0.0, 1.0).toDouble(),
       (point.dy / size.height).clamp(0.0, 1.0).toDouble(),
@@ -811,10 +824,10 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
               ),
               onChanged: (value) => _reviewer = value.trim(),
             ),
-            if (store.samples.isNotEmpty) ...[
+            if (store.samples.isNotEmpty && sample != null) ...[
               const SizedBox(height: 8),
               DropdownButtonFormField<int>(
-                key: ValueKey('image-${_selected}-${store.samples.length}'),
+                key: ValueKey('image-$_selected-${store.samples.length}'),
                 initialValue: _selected
                     .clamp(0, store.samples.length - 1)
                     .toInt(),
@@ -1048,8 +1061,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
               value: status,
               options: referenceAnnotationStatuses,
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeSample('annotation_status', value));
+                }
               },
             ),
             _enumField(
@@ -1057,8 +1071,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
               value: sample['suitability_status']! as String,
               options: referenceSuitabilityStatuses,
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeSample('suitability_status', value));
+                }
               },
             ),
             if (status == 'excluded')
@@ -1078,8 +1093,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
                   'unresolved_annotator_dispute',
                 ],
                 onChanged: (value) {
-                  if (value != null)
+                  if (value != null) {
                     unawaited(_changeSample('exclusion_reason', value));
+                  }
                 },
               ),
             _enumField(
@@ -1087,8 +1103,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
               value: sample['image_source']! as String,
               options: referenceImageSources,
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeSample('image_source', value));
+                }
               },
             ),
             _enumField(
@@ -1102,8 +1119,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
                 'unusable',
               ],
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeSample('image_quality_level', value));
+                }
               },
             ),
             TextFormField(
@@ -1206,8 +1224,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
               value: doc['document_kind']! as String,
               options: referenceDocumentKinds,
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeDocument('document_kind', value));
+                }
               },
             ),
             _enumField(
@@ -1231,8 +1250,9 @@ class _ReferenceAnnotationStudioState extends State<ReferenceAnnotationStudio> {
                 'not_applicable',
               ],
               onChanged: (value) {
-                if (value != null)
+                if (value != null) {
                   unawaited(_changeDocument('crop_quality', value));
+                }
               },
             ),
             _flags(
@@ -1491,12 +1511,12 @@ int _nextDocumentOrdinal(String imageId, List<Map<String, Object?>> documents) {
 }
 
 Map<String, Object?> _copyMap(Map<String, Object?> value) =>
-    (jsonDecode(jsonEncode(value)) as Map).map(
-      (key, item) => MapEntry(key.toString(), item),
+    Map<String, Object?>.from(
+      jsonDecode(jsonEncode(value)) as Map<String, dynamic>,
     );
 
-List<Object?> _copyList(List value) =>
-    (jsonDecode(jsonEncode(value)) as List).cast<Object?>();
+List<Object?> _copyList(List<Object?> value) =>
+    (jsonDecode(jsonEncode(value)) as List<dynamic>).cast<Object?>();
 
 List<List<double>> _clockwisePolygon(List<List<double>> points) {
   if (points.length < 3) return points;

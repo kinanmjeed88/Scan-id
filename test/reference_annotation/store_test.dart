@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import '../../lib/application/project_service.dart';
-import '../../lib/reference_annotation/store.dart';
+import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/reference_annotation/store.dart';
 
 void main() {
   late Directory temporaryRoot;
@@ -32,8 +32,9 @@ void main() {
   });
 
   tearDown(() async {
-    if (await temporaryRoot.exists())
+    if (await temporaryRoot.exists()) {
       await temporaryRoot.delete(recursive: true);
+    }
   });
 
   ImportSource source([Uint8List? bytes]) => ImportSource(
@@ -101,8 +102,9 @@ void main() {
 
       final restoredRoot = Directory('${temporaryRoot.path}-restore');
       addTearDown(() async {
-        if (await restoredRoot.exists())
+        if (await restoredRoot.exists()) {
           await restoredRoot.delete(recursive: true);
+        }
       });
       final restored = await ReferenceAnnotationStore.open(restoredRoot);
       await restored.importPayloadBytes(exported, replaceMatching: false);

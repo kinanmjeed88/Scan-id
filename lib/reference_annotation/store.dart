@@ -176,9 +176,7 @@ class ReferenceAnnotationStore {
           referenceImageLimitBytes,
         );
         final header = inspectImageHeader(bytes);
-        final prepared = await Isolate.run(() => _renderPreviewAndHash(bytes));
-        final preview = prepared['preview']! as Uint8List;
-        final dhash = prepared['dhash']! as String;
+        final dhash = await Isolate.run(() => _validateAndHash(bytes));
         final sha = sha256.convert(bytes).toString();
         final existing = samples.indexWhere(
           (sample) => sample['image_id'] == sha,
@@ -352,8 +350,9 @@ class ReferenceAnnotationStore {
   }
 
   Future<void> updateSample(int index, Map<String, Object?> sample) async {
-    if (index < 0 || index >= samples.length)
+    if (index < 0 || index >= samples.length) {
       throw RangeError.index(index, samples);
+    }
     final previous = samples[index];
     samples[index] = sample;
     try {
@@ -527,7 +526,9 @@ Map<String, Object?> newReferenceDocument(String imageId, int ordinal) => {
 };
 
 Map<String, Object?> _safeObjectMap(Object? value) {
-  if (value is! Map) throw const FormatException('عنصر JSON ليس كائناً.');
+  if (value is! Map) {
+    throw const FormatException('عنصر JSON ليس كائناً.');
+  }
   return value.map((key, item) => MapEntry(key.toString(), item));
 }
 
@@ -594,8 +595,9 @@ void _validateSecondReview(
   required String annotationStatus,
   required String primaryAnnotator,
 }) {
-  if (value is! Map)
+  if (value is! Map) {
     throw const FormatException('بيانات المراجعة الثانية غير مكتملة.');
+  }
   final review = _safeObjectMap(value);
   _onlyKeys(review, {
     'status',
@@ -724,8 +726,9 @@ bool _validPolygon(List<dynamic> points, int width, int height) {
         xy[(i + 1) % xy.length],
         xy[j],
         xy[(j + 1) % xy.length],
-      ))
+      )) {
         return false;
+      }
     }
   }
   return true;
@@ -767,21 +770,9 @@ Future<Uint8List> _readBounded(Stream<List<int>> stream, int limit) async {
   return builder.takeBytes();
 }
 
-Map<String, Object> _renderPreviewAndHash(Uint8List bytes) {
+String _validateAndHash(Uint8List bytes) {
   final image = decodeForProcessing(bytes);
-  final longEdge = maxRecognitionPreviewLongEdge;
-  final reduced = img.copyResize(
-    image,
-    width: image.width >= image.height ? math.min(longEdge, image.width) : null,
-    height: image.height > image.width
-        ? math.min(longEdge, image.height)
-        : null,
-    interpolation: img.Interpolation.average,
-  );
-  return {
-    'preview': Uint8List.fromList(img.encodePng(reduced)),
-    'dhash': _dhash64(image),
-  };
+  return _dhash64(image);
 }
 
 String _dhash64(img.Image image) {
@@ -1077,8 +1068,9 @@ void validateReferenceSamples(
     }
     final suggestions = sample['ai_suggestions'];
     if (suggestions != null) {
-      if (suggestions is! List)
+      if (suggestions is! List) {
         throw const FormatException('مقترحات الذكاء الاصطناعي غير صالحة.');
+      }
       for (final rawSuggestion in suggestions) {
         final suggestion = _safeObjectMap(rawSuggestion);
         _onlyKeys(suggestion, {

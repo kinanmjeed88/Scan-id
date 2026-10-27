@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../lib/reference_annotation/main.dart';
-import '../../lib/reference_annotation/store.dart';
+import 'package:scan_id/reference_annotation/main.dart';
+import 'package:scan_id/reference_annotation/store.dart';
 
 void main() {
   testWidgets(
@@ -13,7 +13,9 @@ void main() {
         'scan-id-reference-ui-',
       );
       addTearDown(() async {
-        if (await root.exists()) await root.delete(recursive: true);
+        if (await root.exists()) {
+          await root.delete(recursive: true);
+        }
       });
       final store = await ReferenceAnnotationStore.open(root);
 

@@ -31,15 +31,16 @@ def main() -> int:
         if node.tag in permission_tags
     )
     if permissions:
-        print(
-            "FAIL: offline annotator declares Android permissions: "
-            + ", ".join(permissions),
-            file=sys.stderr,
-        )
+        message = "offline annotator declares Android permissions: " + ", ".join(permissions)
+        print(f"::error title=Offline annotator permission audit::{message}", file=sys.stderr)
+        print(f"FAIL: {message}", file=sys.stderr)
         return 1
     application = root.find("application")
-    if application is None or application.get(ANDROID + "label") != EXPECTED_LABEL:
-        print("FAIL: merged annotator application label is missing or incorrect.", file=sys.stderr)
+    actual_label = None if application is None else application.get(ANDROID + "label")
+    if actual_label != EXPECTED_LABEL:
+        message = f"merged annotator application label is {actual_label!r}, expected {EXPECTED_LABEL!r}"
+        print(f"::error title=Offline annotator label audit::{message}", file=sys.stderr)
+        print(f"FAIL: {message}.", file=sys.stderr)
         return 1
     print("PASS: annotator APK declares no Android permissions and has its independent label.")
     return 0

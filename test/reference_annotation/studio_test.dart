@@ -20,7 +20,8 @@ void main() {
       final store = await ReferenceAnnotationStore.open(root);
 
       await tester.pumpWidget(ReferenceAnnotatorApp(store: store));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.text('الوسوم المرجعية · v2.0.0'), findsOneWidget);
       expect(find.text('اختيار صور من الهاتف'), findsOneWidget);

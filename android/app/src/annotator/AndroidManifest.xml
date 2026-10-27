@@ -4,5 +4,7 @@
          Its merged APK must not carry network or sideload permissions. -->
     <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
-    <application android:label="استوديو الوسوم المرجعية" />
+    <application
+        android:label="استوديو الوسوم المرجعية"
+        tools:replace="android:label" />
 </manifest>

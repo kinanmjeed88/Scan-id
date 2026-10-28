@@ -149,18 +149,16 @@ void main() {
       expect(project.items, hasLength(1));
       expect(project.items.single.documentKind, DocumentKind.unknown);
       expect(project.items.single.pageIndex, isNull);
-      expect(
-        report.warnings.join(' '),
-        contains('لا يتوفر كشف تلقائي للحدود'),
-      );
+      expect(report.warnings.join(' '), contains('لا يتوفر كشف تلقائي للحدود'));
       expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNull);
       expect(
         (await defaultSegment(Uint8List.fromList(sourceBytes))).candidates,
         isEmpty,
       );
       expect(
-        await (await assets.resolve(project.assets.single.originalPath))
-            .readAsBytes(),
+        await (await assets.resolve(
+          project.assets.single.originalPath,
+        )).readAsBytes(),
         sourceBytes,
       );
     },

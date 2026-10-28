@@ -220,15 +220,6 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
   }
 }
 
-img.Image? _tryDecodePreview(Uint8List bytes) {
-  if (bytes.isEmpty) return null;
-  try {
-    return decodeForProcessing(bytes);
-  } catch (_) {
-    return null;
-  }
-}
-
 Future<ImageAsset> _saveRevision(
   String root,
   ImageAsset asset,

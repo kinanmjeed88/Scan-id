@@ -36,6 +36,98 @@ import 'package:scan_id/persistence/safe_files.dart';
 /// uniform gray or dark background crops are rejected.
 const double kMinPlannedItemNonWhiteRatio = 0.08;
 
+Future<Project> _importAndArrange(
+  ProjectService service,
+  Project project,
+  List<ImportSource> sources,
+) async {
+  final beforeIds = project.assets.map((a) => a.id).toSet();
+  final imported = await service.importImages(project, sources);
+  final addedIds = [
+    for (final asset in imported.project.assets)
+      if (!beforeIds.contains(asset.id)) asset.id,
+  ];
+  return (await service.arrangeImportedImages(
+    imported.project,
+    addedIds,
+  )).project;
+}
+
+/// Builds a synthetic dark-desk scene with 0, 1, or 2 structured regions (no PII).
+Uint8List _syntheticScenePng({
+  required int width,
+  required int height,
+  required List<({int left, int top, int right, int bottom})> regions,
+}) {
+  final canvas = img.Image(width: width, height: height);
+  img.fill(canvas, color: img.ColorRgb8(58, 62, 68));
+  for (var idx = 0; idx < regions.length; idx++) {
+    final c = regions[idx];
+    img.fillRect(
+      canvas,
+      x1: c.left,
+      y1: c.top,
+      x2: c.right,
+      y2: c.bottom,
+      color: img.ColorRgb8(244, 246, 248),
+    );
+    img.drawRect(
+      canvas,
+      x1: c.left + 2,
+      y1: c.top + 2,
+      x2: c.right - 2,
+      y2: c.bottom - 2,
+      color: img.ColorRgb8(18, 86, 78),
+      thickness: 3,
+    );
+    final bandBottom = math.min(
+      c.bottom - 6,
+      c.top + ((c.bottom - c.top) * 0.24).round(),
+    );
+    img.fillRect(
+      canvas,
+      x1: c.left + 8,
+      y1: c.top + 8,
+      x2: c.right - 8,
+      y2: bandBottom,
+      color: idx.isEven
+          ? img.ColorRgb8(22, 98, 128)
+          : img.ColorRgb8(116, 58, 34),
+    );
+    for (var row = 0; row < 4; row++) {
+      final y1 = bandBottom + 10 + row * 14;
+      if (y1 + 6 >= c.bottom - 8) break;
+      img.fillRect(
+        canvas,
+        x1: c.left + 14,
+        y1: y1,
+        x2: c.right - 24 - (row * 10),
+        y2: y1 + 6,
+        color: img.ColorRgb8(36, 40, 46),
+      );
+    }
+  }
+  return Uint8List.fromList(img.encodePng(canvas));
+}
+
+/// Encodes [upright] stored in raw sensor pixels such that applying EXIF
+/// [orientation] (`1..8`) restores the upright visual orientation.
+Uint8List _jpegWithStoredExifOrientation(img.Image upright, int orientation) {
+  final img.Image raw = switch (orientation) {
+    1 => upright.clone(),
+    2 => img.flipHorizontal(upright),
+    3 => img.copyRotate(upright, angle: 180),
+    4 => img.flipVertical(upright),
+    5 => img.copyRotate(img.flipHorizontal(upright), angle: 270),
+    6 => img.copyRotate(upright, angle: 270),
+    7 => img.copyRotate(img.flipHorizontal(upright), angle: 90),
+    8 => img.copyRotate(upright, angle: 90),
+    _ => throw ArgumentError.value(orientation, 'orientation'),
+  };
+  raw.exif.imageIfd.orientation = orientation;
+  return Uint8List.fromList(img.encodeJpg(raw, quality: 95));
+}
+
 class _FailingDetectorEditor implements ImageEditor, CropBytesImageEditor {
   _FailingDetectorEditor(this._inner);
   final LocalImageEditor _inner;

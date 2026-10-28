@@ -89,10 +89,10 @@ void main() {
       final opened = await service.imageEditor!.open(source);
       final manualRecipe = CropDraft(
         corners: [
-          const Point2(.14, .21),
-          const Point2(.86, .21),
-          const Point2(.86, .81),
-          const Point2(.14, .81),
+          Point2(.14, .21),
+          Point2(.86, .21),
+          Point2(.86, .81),
+          Point2(.14, .81),
         ],
       ).toRecipe(opened.width, opened.height);
       final manuallyCropped = await service.applyManualCrop(

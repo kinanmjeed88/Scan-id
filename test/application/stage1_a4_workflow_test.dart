@@ -577,11 +577,7 @@ void main() {
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
       final editor = LocalImageEditor(files);
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-      );
+      final service = ProjectService(projects, assets, imageEditor: editor);
 
       final fixtureBytes = File(
         'test/fixtures/synthetic_card.png',

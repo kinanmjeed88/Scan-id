@@ -1,0 +1,4 @@
+# Pinned minimal runtime dependencies for local dataset annotation utilities/tests.
+# Deliberately excludes ONNX Runtime, OpenCV, and the retired detector toolchain.
+numpy==2.2.6
+Pillow==11.3.0

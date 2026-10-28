@@ -194,8 +194,8 @@ class ProjectService {
   final ProjectRepository projects;
   final AssetRepository assets;
 
-  /// Test seam for the multi-document segmentation stage; null means the
-  /// real classical segmenter (off the UI isolate).
+  /// Optional seam for a separately qualified region detector. Null uses the
+  /// safe empty default; it never invokes the legacy classical segmenter.
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
 
   /// Extracts a measured region from a sampled JPEG's immutable original at
@@ -683,7 +683,7 @@ class ProjectService {
           if (corners == null) {
             notDetected++;
             warnings.add(
-              '${asset.name}: لم تُكتشف حدود واضحة؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
+              '${asset.name}: لا يتوفر كشف تلقائي للحدود في هذا الإصدار؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
             );
           } else {
             // Boundary authorization is independent of the file name,
@@ -710,8 +710,8 @@ class ProjectService {
                   stage: 'boundary_decision',
                   assetId: asset.id,
                   modelId: editor is BoundaryProposalImageEditor
-                      ? editor.boundaryModelId
-                      : 'classical',
+                      ? (editor.boundaryModelId ?? 'external-boundary-proposal')
+                      : 'custom-image-editor',
                   candidateCount: 1,
                   sourceWidth: source.width,
                   sourceHeight: source.height,

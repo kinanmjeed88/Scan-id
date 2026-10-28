@@ -78,7 +78,7 @@ DocumentRecord _unresolvedRecord(String docId, String assetId) =>
           ),
           detection: DetectionRef(
             detectionId: 'det-$docId',
-            producer: 'scanid-docnet-v1',
+            producer: 'historical-boundary-proposer',
             version: '1.0',
             polygon: null,
           ),
@@ -503,7 +503,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'd-front',
-          producer: 'scanid-docnet-v1',
+          producer: 'historical-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),
@@ -519,7 +519,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'd-back',
-          producer: 'scanid-docnet-v1',
+          producer: 'historical-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),

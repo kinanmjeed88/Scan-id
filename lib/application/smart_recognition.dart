@@ -1300,7 +1300,7 @@ class SmartIntake {
       suggestedPolygon: asset.crop == null ? detection.suggestedCorners : null,
       producer: _producerLabelFor(
         detection,
-        fallback: 'suggestDocumentCorners',
+        fallback: 'manual-only-no-boundary-proposal',
       ),
     );
     newDocuments.add(record);
@@ -1818,7 +1818,7 @@ class SmartIntake {
       final boundaryId = editor is BoundaryProposalImageEditor
           ? (editor as BoundaryProposalImageEditor).boundaryModelId
           : null;
-      return boundaryId ?? 'scanid-docnet-v1';
+      return boundaryId ?? 'unidentified-boundary-proposal-source';
     }
     return fallback;
   }

@@ -9,7 +9,6 @@
 /// intake coordinator's job.
 library;
 
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import '../domain/boundary_decision.dart';
@@ -202,10 +201,14 @@ class ImageAnalysis {
       );
 }
 
-/// Default segmentation seam: the real classical segmenter off the UI
-/// isolate. Injectable so tests and widget fakes stay deterministic.
-Future<SegmentationResult> defaultSegment(Uint8List previewBytes) =>
-    Isolate.run(() => segmentDocumentBytes(previewBytes));
+/// Safe default when no qualified automatic region detector is installed.
+///
+/// Deliberately returns no candidates rather than falling back to the legacy
+/// classical segmenter. Keep [segmentDocumentBytes] available only for its
+/// isolated algorithm tests/research; production intake must use manual review
+/// until a detector is qualified and explicitly wired in.
+Future<SegmentationResult> defaultSegment(Uint8List _) async =>
+    const SegmentationResult(candidates: [], multi: false);
 
 /// The stable identity of one measured region of [assetId].
 ///

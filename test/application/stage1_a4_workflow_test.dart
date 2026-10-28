@@ -20,7 +20,6 @@ import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/export/document_exporter.dart';
-import 'package:scan_id/imaging/ai_document_detector.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -36,113 +35,6 @@ import 'package:scan_id/persistence/safe_files.dart';
 /// luminance variance, dynamic range, and spatial edge-transition checks so
 /// uniform gray or dark background crops are rejected.
 const double kMinPlannedItemNonWhiteRatio = 0.08;
-
-AiModelBundle _loadBundleFromRepo() {
-  final manifestJson = File(
-    'assets/models/MODEL_MANIFEST.json',
-  ).readAsStringSync();
-  final s1 = File('assets/models/scanid_stage1_det_v1.onnx').readAsBytesSync();
-  final s2 = File(
-    'assets/models/scanid_stage2_corners_v1.onnx',
-  ).readAsBytesSync();
-  return AiModelBundle.verified(
-    manifestJson: manifestJson,
-    stage1Bytes: s1,
-    stage2Bytes: s2,
-  );
-}
-
-Future<Project> _importAndArrange(
-  ProjectService service,
-  Project project,
-  List<ImportSource> sources,
-) async {
-  final beforeIds = project.assets.map((a) => a.id).toSet();
-  final imported = await service.importImages(project, sources);
-  final addedIds = [
-    for (final asset in imported.project.assets)
-      if (!beforeIds.contains(asset.id)) asset.id,
-  ];
-  return (await service.arrangeImportedImages(
-    imported.project,
-    addedIds,
-  )).project;
-}
-
-/// Builds a synthetic dark-desk scene with 0, 1, or 2 structured regions (no PII).
-Uint8List _syntheticScenePng({
-  required int width,
-  required int height,
-  required List<({int left, int top, int right, int bottom})> regions,
-}) {
-  final canvas = img.Image(width: width, height: height);
-  img.fill(canvas, color: img.ColorRgb8(58, 62, 68));
-  for (var idx = 0; idx < regions.length; idx++) {
-    final c = regions[idx];
-    img.fillRect(
-      canvas,
-      x1: c.left,
-      y1: c.top,
-      x2: c.right,
-      y2: c.bottom,
-      color: img.ColorRgb8(244, 246, 248),
-    );
-    img.drawRect(
-      canvas,
-      x1: c.left + 2,
-      y1: c.top + 2,
-      x2: c.right - 2,
-      y2: c.bottom - 2,
-      color: img.ColorRgb8(18, 86, 78),
-      thickness: 3,
-    );
-    final bandBottom = math.min(
-      c.bottom - 6,
-      c.top + ((c.bottom - c.top) * 0.24).round(),
-    );
-    img.fillRect(
-      canvas,
-      x1: c.left + 8,
-      y1: c.top + 8,
-      x2: c.right - 8,
-      y2: bandBottom,
-      color: idx.isEven
-          ? img.ColorRgb8(22, 98, 128)
-          : img.ColorRgb8(116, 58, 34),
-    );
-    for (var row = 0; row < 4; row++) {
-      final y1 = bandBottom + 10 + row * 14;
-      if (y1 + 6 >= c.bottom - 8) break;
-      img.fillRect(
-        canvas,
-        x1: c.left + 14,
-        y1: y1,
-        x2: c.right - 24 - (row * 10),
-        y2: y1 + 6,
-        color: img.ColorRgb8(36, 40, 46),
-      );
-    }
-  }
-  return Uint8List.fromList(img.encodePng(canvas));
-}
-
-/// Encodes [upright] stored in raw sensor pixels such that applying EXIF
-/// [orientation] (`1..8`) restores the upright visual orientation.
-Uint8List _jpegWithStoredExifOrientation(img.Image upright, int orientation) {
-  final img.Image raw = switch (orientation) {
-    1 => upright.clone(),
-    2 => img.flipHorizontal(upright),
-    3 => img.copyRotate(upright, angle: 180),
-    4 => img.flipVertical(upright),
-    5 => img.copyRotate(img.flipHorizontal(upright), angle: 270),
-    6 => img.copyRotate(upright, angle: 270),
-    7 => img.copyRotate(img.flipHorizontal(upright), angle: 90),
-    8 => img.copyRotate(upright, angle: 90),
-    _ => throw ArgumentError.value(orientation, 'orientation'),
-  };
-  raw.exif.imageIfd.orientation = orientation;
-  return Uint8List.fromList(img.encodeJpg(raw, quality: 95));
-}
 
 class _FailingDetectorEditor implements ImageEditor, CropBytesImageEditor {
   _FailingDetectorEditor(this._inner);
@@ -674,7 +566,7 @@ void main() {
   );
 
   test(
-    'Path A: auto boundary crop remains unclassified until generic user confirmation, then exports shared asset placements',
+    'Path A: imported source stays whole until explicit user confirmation, then exports placements',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('stage1_path_a_');
       addTearDown(() async {
@@ -684,16 +576,15 @@ void main() {
       final assets = LocalAssetRepository(files);
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
-      final editor = LocalImageEditor(files, aiBundle: _loadBundleFromRepo());
+      final editor = LocalImageEditor(files);
       final service = ProjectService(
         projects,
         assets,
         imageEditor: editor,
-        segmenter: editor.segment,
       );
 
       final fixtureBytes = File(
-        'test/fixtures/ai_golden_card.png',
+        'test/fixtures/synthetic_card.png',
       ).readAsBytesSync();
 
       var project = await service.create('Path A synthetic boundary');
@@ -799,7 +690,7 @@ void main() {
       final assets = LocalAssetRepository(files);
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
-      final editor = LocalImageEditor(files, aiBundle: _loadBundleFromRepo());
+      final editor = LocalImageEditor(files);
       final service = ProjectService(
         projects,
         assets,
@@ -812,7 +703,7 @@ void main() {
       );
 
       final truncatedBytes = File(
-        'test/fixtures/ai_golden_truncated.png',
+        'test/fixtures/synthetic_truncated_card.png',
       ).readAsBytesSync();
       final emptyDeskBytes = _syntheticScenePng(
         width: 480,
@@ -1056,7 +947,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'det-f',
-          producer: 'scanid-docnet-v1',
+          producer: 'synthetic-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),
@@ -1072,7 +963,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'det-b',
-          producer: 'scanid-docnet-v1',
+          producer: 'synthetic-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),

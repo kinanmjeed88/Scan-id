@@ -4,25 +4,17 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/smart_recognition.dart';
-import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
-import 'package:scan_id/domain/crop_draft.dart';
-import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
-import 'package:scan_id/domain/export_plan.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
-import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
-import 'package:scan_id/export/document_exporter.dart';
-import 'package:scan_id/imaging/ai_document_detector.dart';
+import 'package:scan_id/application/recognition_pipeline.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
-import 'package:scan_id/main.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
@@ -32,29 +24,14 @@ import 'package:scan_id/presentation/crop_screen.dart';
 import '../fixtures.dart';
 import '../presentation/editor_harness.dart';
 
-AiModelBundle _loadBundleFromRepo() {
-  final manifestJson = File(
-    'assets/models/MODEL_MANIFEST.json',
-  ).readAsStringSync();
-  final s1 = File('assets/models/scanid_stage1_det_v1.onnx').readAsBytesSync();
-  final s2 = File(
-    'assets/models/scanid_stage2_corners_v1.onnx',
-  ).readAsBytesSync();
-  return AiModelBundle.verified(
-    manifestJson: manifestJson,
-    stage1Bytes: s1,
-    stage2Bytes: s2,
-  );
-}
-
-class _UncertainAiEditor implements BoundaryProposalImageEditor {
-  _UncertainAiEditor(this._inner, this._proposal);
+class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
+  _UncertainBoundaryEditor(this._inner, this._proposal);
 
   final LocalImageEditor _inner;
   final BoundaryProposal _proposal;
 
   @override
-  String? get boundaryModelId => 'scanid-docnet-v1';
+  String? get boundaryModelId => 'synthetic-boundary-review-test';
 
   @override
   Future<EditorSource> open(ImageAsset asset) => _inner.open(asset);
@@ -134,292 +111,63 @@ class _InvalidPreviewEditor extends FakeImageEditor {
       Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 
-Uint8List _exifRotatedImageJpeg(Uint8List fixturePng) {
-  final upright = img.decodePng(fixturePng)!;
-  // Rotate pixels 270 deg CW so EXIF Orientation 6 (90 deg CW display) restores upright
-  final stored = img.copyRotate(upright, angle: 270);
-  stored.exif.imageIfd.orientation = 6;
-  return Uint8List.fromList(img.encodeJpg(stored, quality: 96));
-}
-
 void main() {
   test(
-    'loadVerifiedAiBundle loads real ONNX assets from Flutter rootBundle and verifies SHA-256',
+    'production import leaves a multi-region image intact for manual review',
     () async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      final bundle = await loadVerifiedAiBundle();
-      expect(bundle, isNotNull);
-      expect(bundle!.bundleId, 'scanid-docnet-v1');
-      expect(bundle.stage1Bytes.length, 498075);
-      expect(bundle.stage2Bytes.length, 608568);
-    },
-  );
-
-  test(
-    'synthetic single-image lifecycle: import + EXIF orientation + AI crop + original preservation + manual generic confirmation + A4 exports + full-frame revert',
-    () async {
-      final tempDir = await Directory.systemTemp.createTemp('scanid_ai_sgl_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'scanid_manual_only_',
+      );
       addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
       final files = SafeFiles(tempDir);
       final assets = LocalAssetRepository(files);
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
-      final bundle = _loadBundleFromRepo();
-      final editor = LocalImageEditor(files, aiBundle: bundle);
-      // Production defaults: smartRecognitionEnabled = false, multiDocumentSegmentationEnabled = true
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-        segmenter: editor.segment,
-      );
-
-      final goldenBytes = File(
-        'test/fixtures/ai_golden_card.png',
-      ).readAsBytesSync();
-      final exifJpegBytes = _exifRotatedImageJpeg(goldenBytes);
-
-      var project = await service.create('synthetic single-image lifecycle');
-      final imported = await service.importImages(project, [
-        ImportSource('capture.png', () => Stream.value(goldenBytes)),
-        ImportSource('capture-exif6.jpg', () => Stream.value(exifJpegBytes)),
-      ]);
-      project = imported.project;
-      expect(project.assets, hasLength(2));
-
-      final arranged = await service.arrangeImportedImages(project, [
-        for (final a in project.assets) a.id,
-      ]);
-      project = arranged.project;
-
-      // Both upright PNG and EXIF-6 rotated JPEG must be auto-cropped cleanly
-      for (final asset in project.assets) {
-        expect(asset.crop, isNotNull, reason: '${asset.name} auto-cropped');
-        expect(asset.workingPath, isNot(asset.originalPath));
-        expect(
-          asset.width,
-          greaterThan(asset.height),
-          reason: 'synthetic fixture crop orientation',
-        );
-      }
-
-      // Original PNG bytes on disk must remain 100% bit-for-bit identical
-      final origPngOnDisk = await (await assets.resolve(
-        project.assets.first.originalPath,
-      )).readAsBytes();
-      expect(origPngOnDisk, goldenBytes);
-
-      // Boundary geometry alone leaves both items unknown and off-sheet.
-      expect(project.items, hasLength(2));
-      expect(
-        project.items.every(
-          (item) =>
-              item.documentKind == DocumentKind.unknown &&
-              !item.sizeConfirmed &&
-              item.pageIndex == null,
-        ),
-        isTrue,
-      );
-
-      // Simulate the user's explicit generic choice; this is not a fixture
-      // label or a model prediction. Export follows only after confirmation.
-      var confirmedProject = project;
-      for (final item in project.items) {
-        confirmedProject = DocumentEdits.setKind(
-          confirmedProject,
-          item.id,
-          DocumentKind.other,
-        );
-      }
-      project = await projects.save(arrangeDocuments(confirmedProject).result);
-      expect(
-        project.items.every(
-          (item) =>
-              item.documentKind == DocumentKind.other &&
-              item.sizeConfirmed &&
-              item.pageIndex == 0,
-        ),
-        isTrue,
-      );
-
-      // Export A4 to PDF, PNG, and JPEG and verify outputs
-      final exportDir = await Directory.systemTemp.createTemp('scanid_ai_exp_');
-      addTearDown(() async {
-        if (await exportDir.exists()) {
-          await exportDir.delete(recursive: true);
-        }
-      });
-      final exporter = DocumentExporter(assets);
-
-      final pdfOut = await exporter.generate(
-        ExportPlan(project, ExportProfile(format: ExportFormat.pdf)),
-        exportDir,
-      );
-      final pdfBytes = await File(pdfOut.files.single).readAsBytes();
-      expect(String.fromCharCodes(pdfBytes.take(5)), '%PDF-');
-
-      final pngOut = await exporter.generate(
-        ExportPlan(project, ExportProfile(format: ExportFormat.png)),
-        exportDir,
-      );
-      final pngImg = img.decodePng(
-        await File(pngOut.files.single).readAsBytes(),
-      )!;
-      expect([pngImg.width, pngImg.height], [2480, 3508]);
-
-      final jpgOut = await exporter.generate(
-        ExportPlan(project, ExportProfile(format: ExportFormat.jpg)),
-        exportDir,
-      );
-      final jpgImg = img.decodeJpg(
-        await File(jpgOut.files.single).readAsBytes(),
-      )!;
-      expect([jpgImg.width, jpgImg.height], [2480, 3508]);
-
-      // Revert crop back to full image via applyManualCrop and verify original stays untouched
-      final firstAsset = project.assets.first;
-      project = await service.applyManualCrop(
-        project,
-        firstAsset,
-        CropDraft.fullImage().toRecipe(320, 240),
-      );
-      final revertedAsset = project.assets.firstWhere(
-        (a) => a.id == firstAsset.id,
-      );
-      expect([revertedAsset.width, revertedAsset.height], [320, 240]);
-      final origAfterRevert = await (await assets.resolve(
-        revertedAsset.originalPath,
-      )).readAsBytes();
-      expect(origAfterRevert, goldenBytes);
-    },
-  );
-
-  test(
-    'synthetic multi-region lifecycle: 2 geometric crops -> explicit generic confirmation -> A4 PDF export',
-    () async {
-      final tempDir = await Directory.systemTemp.createTemp('scanid_ai_mul_');
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
-
-      final files = SafeFiles(tempDir);
-      final assets = LocalAssetRepository(files);
-      final projects = await LocalProjectRepository.open(tempDir);
-      addTearDown(projects.close);
-      final bundle = _loadBundleFromRepo();
-      final editor = LocalImageEditor(files, aiBundle: bundle);
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-        segmenter: editor.segment,
-      );
-
-      final sceneBytes = File(
-        'test/fixtures/ai_golden_two_cards.png',
+      final editor = LocalImageEditor(files);
+      final service = ProjectService(projects, assets, imageEditor: editor);
+      final sourceBytes = File(
+        'test/fixtures/synthetic_two_cards.png',
       ).readAsBytesSync();
 
-      var project = await service.create('synthetic multi-region scene');
+      var project = await service.create('manual-only boundary intake');
       project = (await service.importImages(project, [
-        ImportSource('scene.png', () => Stream.value(sceneBytes)),
+        ImportSource('two_regions.png', () => Stream.value(sourceBytes)),
       ])).project;
       final sourceId = project.assets.single.id;
+      final report = await service.arrangeImportedImages(project, [sourceId]);
+      project = report.project;
 
-      final arranged = await service.arrangeImportedImages(project, [sourceId]);
-      expect(arranged.cropped, 2);
-      expect(arranged.multiDocumentImages, 1);
-      project = arranged.project;
-
-      // Source image must be preserved untouched while 2 independent derived crops are created (ADR-003)
-      final sourceAsset = project.assets.firstWhere((a) => a.id == sourceId);
+      expect(service.smartRecognitionEnabled, isFalse);
+      expect(service.multiDocumentSegmentationEnabled, isFalse);
+      expect(project.assets, hasLength(1));
+      expect(project.assets.single.crop, isNull);
+      expect(project.assets.single.suggestedCrop, isNull);
+      expect(project.assets.single.derivedFrom, isNull);
+      expect(project.items, hasLength(1));
+      expect(project.items.single.documentKind, DocumentKind.unknown);
+      expect(project.items.single.pageIndex, isNull);
       expect(
-        await (await assets.resolve(sourceAsset.originalPath)).readAsBytes(),
-        sceneBytes,
+        report.warnings.join(' '),
+        contains('لا يتوفر كشف تلقائي للحدود'),
       );
-      final derived = project.assets
-          .where((a) => a.derivedFrom == sourceId)
-          .toList();
-      expect(derived, hasLength(2));
-      for (final derivedAsset in derived) {
-        expect(derivedAsset.width, lessThan(480));
-        expect(derivedAsset.height, lessThan(360));
-        expect(derivedAsset.width, greaterThan(derivedAsset.height));
-      }
-      expect(project.documents, hasLength(2));
-      for (final rec in project.documents) {
-        expect(rec.sides.single.detection?.polygon, hasLength(4));
-        expect(rec.sides.single.processedAsset.corners, hasLength(4));
-        expect(rec.recognition!.documentKind, DocumentKind.unknown);
-      }
+      expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNull);
       expect(
-        project.items.every(
-          (item) =>
-              item.documentKind == DocumentKind.unknown &&
-              !item.sizeConfirmed &&
-              item.pageIndex == null,
-        ),
-        isTrue,
+        (await defaultSegment(Uint8List.fromList(sourceBytes))).candidates,
+        isEmpty,
       );
-
-      // Only an explicit generic user choice allows these synthetic regions
-      // to be arranged and exported; geometry does not infer a document type.
-      var genericChoice = project;
-      for (final item in project.items) {
-        genericChoice = setKindWithOverride(
-          genericChoice,
-          item.id,
-          DocumentKind.other,
-        );
-      }
-      project = await projects.save(arrangeDocuments(genericChoice).result);
       expect(
-        project.items.every(
-          (item) =>
-              item.documentKind == DocumentKind.other &&
-              item.sizeConfirmed &&
-              item.pageIndex == 0,
-        ),
-        isTrue,
+        await (await assets.resolve(project.assets.single.originalPath))
+            .readAsBytes(),
+        sourceBytes,
       );
-
-      // The user-confirmed placements must not overlap on A4.
-      final placed = project.items.where((i) => i.pageIndex == 0).toList();
-      expect(placed, hasLength(2));
-      final a = placed[0];
-      final b = placed[1];
-      final separated =
-          a.x + a.width <= b.x + 1e-6 ||
-          b.x + b.width <= a.x + 1e-6 ||
-          a.y + a.height <= b.y + 1e-6 ||
-          b.y + b.height <= a.y + 1e-6;
-      expect(separated, isTrue, reason: 'A4 placed items must not overlap');
-
-      final exportDir = await Directory.systemTemp.createTemp(
-        'scanid_ai_mexp_',
-      );
-      addTearDown(() async {
-        if (await exportDir.exists()) {
-          await exportDir.delete(recursive: true);
-        }
-      });
-      final exporter = DocumentExporter(assets);
-      final pdfOut = await exporter.generate(
-        ExportPlan(project, ExportProfile(format: ExportFormat.pdf)),
-        exportDir,
-      );
-      expect(await File(pdfOut.files.single).length(), greaterThan(1000));
     },
   );
 
   test(
-    'production safety: uncertain learned-model proposal never auto-crops, never confirms size, and persists suggestedCrop on ImageAsset',
+    'injected boundary proposal remains review-only and persists suggestedCrop on ImageAsset',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('scanid_ai_safe_');
       addTearDown(() async {
@@ -441,7 +189,7 @@ void main() {
         Point2(0.85, 0.83),
         Point2(0.07, 0.85),
       ];
-      final uncertainEditor = _UncertainAiEditor(
+      final uncertainEditor = _UncertainBoundaryEditor(
         innerEditor,
         BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
@@ -459,7 +207,7 @@ void main() {
       );
 
       final goldenBytes = File(
-        'test/fixtures/ai_golden_card.png',
+        'test/fixtures/synthetic_card.png',
       ).readAsBytesSync();
       var project = await service.create('حدود غير مؤكدة في المسار الافتراضي');
       project = (await service.importImages(project, [

@@ -325,21 +325,14 @@ void main() {
     },
   );
 
-  test('the isolate seam carries region rejections through', () async {
-    // defaultSegment runs the segmenter off the UI isolate; the rejections
-    // must survive that boundary so the report is not isolate-dependent.
-    final direct = await defaultSegment(_png(_twoRectangles()));
-    expect(direct.rejected, isEmpty);
-    expect(direct.candidates, hasLength(2));
+  test('legacy classical segmentation is not the production default', () async {
+    final legacy = segmentDecoded(_twoRectangles());
+    expect(legacy.rejected, isEmpty);
+    expect(legacy.candidates, hasLength(2));
 
-    final photo = _twoRectangles();
-    _rect(photo, 40, 700, 96, 1420, _dark);
-    final isolated = await defaultSegment(_png(photo));
-    expect(isolated.rejected, hasLength(1));
-    expect(
-      isolated.rejected.single.rejection,
-      RegionRejection.implausibleAspect,
-    );
-    expect(isolated.candidates, hasLength(2));
+    final defaultResult = await defaultSegment(_png(_twoRectangles()));
+    expect(defaultResult.rejected, isEmpty);
+    expect(defaultResult.candidates, isEmpty);
+    expect(defaultResult.multi, isFalse);
   });
 }

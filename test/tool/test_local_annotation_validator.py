@@ -486,7 +486,7 @@ class LocalAnnotationValidatorV2Test(unittest.TestCase):
         s_seed["ai_suggestions"] = [
             {
                 "suggestion_id": "seed-ai-01",
-                "proposal_source": "frozen_ai_hybrid",
+                "proposal_source": "external_detector",
                 "corners": copy.deepcopy(FULL_QUAD),
                 "confidence": 0.72,
                 "gate_verdict": "needsReview",
@@ -652,7 +652,14 @@ class LocalAnnotationValidatorV2Test(unittest.TestCase):
                 SCANID_MAGIC + struct.pack(">I", len(manifest_bytes)) + manifest_bytes
             )
 
-            private_inv, seed_v2, redacted = build_inventory(corpus, include_ai_suggestions=False)
+            private_inv, seed_v2, redacted = build_inventory(corpus)
+            self.assertTrue(
+                all(not sample["ai_suggestions"] for sample in seed_v2["samples"])
+            )
+            self.assertEqual(
+                redacted["human_annotation_progress"]["ai_suggestions_generated_separately"],
+                0,
+            )
             self.assertEqual(redacted["total_files_inspected"], 3)
             self.assertEqual(redacted["decodable_still_images"], 2)
             self.assertEqual(redacted["perceptual_near_duplicate_clusters"], 1)
@@ -797,7 +804,7 @@ class LocalAnnotationValidatorV2Test(unittest.TestCase):
         js_roundtrip_sample = sample_fixture(93, annotator="R1", status="second_review")
         js_roundtrip_sample["ai_suggestions"] = [{
             "suggestion_id": "fixture-ai-01",
-            "proposal_source": "frozen_ai_hybrid",
+            "proposal_source": "external_detector",
             "corners": copy.deepcopy(FULL_QUAD),
             "region_bbox": [0.1, 0.12, 0.88, 0.86],
             "confidence": 0.73,

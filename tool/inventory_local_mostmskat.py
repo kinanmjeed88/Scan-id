@@ -7,9 +7,9 @@ Privacy guarantees:
   64-bit perceptual dHashes) is restricted to ignored `local-data/`.
 - Redacted summary and stdout contain aggregate counts and non-identifying
   distributions only — never filenames, paths, content hashes, or personal text.
-- Never treats `.scanid` backup crops/suggestions or model outputs as human
-  ground truth, and never treats video frames or near-duplicates as independent
-  samples.
+- Never treats `.scanid` backup crops/suggestions or legacy detector proposals
+  as human ground truth, and never treats video frames or near-duplicates as
+  independent samples.
 """
 
 from __future__ import annotations
@@ -34,8 +34,6 @@ if str(ROOT) not in sys.path:
 from tool.validate_local_annotations import (  # noqa: E402
     COORDINATE_SYSTEM,
     SCHEMA,
-    ValidationError,
-    canonicalize_quad_clockwise_tl,
     compute_dhash64_hex,
     dhash64_hamming,
     expected_oriented_dimensions,
@@ -225,66 +223,7 @@ def _inspect_video(
     return info
 
 
-def _compute_ai_suggestions_for_image(
-    pil_img: Image.Image,
-    short_prefix: str,
-) -> list[dict[str, Any]]:
-    """Run local frozen detector mirror to generate strictly-separated visual hints."""
-    sys.path.insert(0, str(ROOT / "test" / "tool"))
-    import _dart_detector_mirror as mirror  # noqa: E402
-
-    oriented = ImageOps.exif_transpose(pil_img).convert("RGB")
-    w, h = oriented.size
-    longest = max(w, h)
-    if longest > 1200:
-        scale = 1200.0 / float(longest)
-        oriented = oriented.resize(
-            (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
-            Image.Resampling.BOX,
-        )
-    rgb = np.asarray(oriented, dtype=np.uint8)
-    decisions = mirror.detect_full_pipeline(
-        rgb,
-        use_learned_model=True,
-        models_dir=ROOT / "assets" / "models",
-    )
-    suggestions: list[dict[str, Any]] = []
-    for idx, dec in enumerate(decisions, start=1):
-        corners_list: list[list[float]] | None = None
-        raw_corners = getattr(dec.proposal, "corners", None)
-        if raw_corners is not None and len(raw_corners) == 4:
-            try:
-                pts = [
-                    (
-                        min(1.0, max(0.0, float(pt[0]))),
-                        min(1.0, max(0.0, float(pt[1]))),
-                    )
-                    for pt in raw_corners
-                ]
-                ordered = canonicalize_quad_clockwise_tl(pts)
-                corners_list = [[round(x, 6), round(y, 6)] for x, y in ordered]
-            except ValidationError:
-                corners_list = None
-        verdict = dec.kind if dec.kind in {"accepted", "needsReview", "rejected"} else "unknown"
-        conf = float(getattr(dec.proposal, "confidence", 0.0) or 0.0)
-        conf = min(1.0, max(0.0, round(conf, 6)))
-        suggestions.append(
-            {
-                "suggestion_id": f"{short_prefix}-ai-{idx:02d}",
-                "proposal_source": "frozen_ai_hybrid",
-                "corners": corners_list,
-                "confidence": conf,
-                "gate_verdict": verdict,
-            }
-        )
-    return suggestions
-
-
-def build_inventory(
-    input_dir: Path,
-    *,
-    include_ai_suggestions: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def build_inventory(input_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Return (private_inventory, unannotated_v2_seed, redacted_public_summary)."""
     if not input_dir.is_dir():
         raise FileNotFoundError("input directory does not exist.")
@@ -318,7 +257,6 @@ def build_inventory(
     still_entries: list[dict[str, Any]] = []
     still_dhashes: dict[str, str] = {}
     still_thumbs: dict[str, np.ndarray] = {}
-    pil_cache_paths: dict[str, Path] = {}
     sha_to_internal: dict[str, str] = {}
 
     for idx, sha in enumerate(unique_shas, start=1):
@@ -361,7 +299,6 @@ def build_inventory(
                 dhash_hex = compute_dhash64_hex(im)
                 still_dhashes[code] = dhash_hex
                 still_thumbs[code] = _thumb_rgb(im)
-                pil_cache_paths[code] = rep_path
         except Exception:
             decode_status = "failed"
             integrity_ok = False
@@ -481,11 +418,6 @@ def build_inventory(
     for entry in still_entries:
         code = entry["internal_code"]
         decode_ok = entry["decode_status"] == "ok"
-        ai_suggestions: list[dict[str, Any]] = []
-        if include_ai_suggestions and decode_ok and code in pil_cache_paths:
-            with Image.open(pil_cache_paths[code]) as pil_im:
-                ai_suggestions = _compute_ai_suggestions_for_image(pil_im, entry["image_id"][:12])
-
         seed_samples.append(
             {
                 "image_id": entry["image_id"],
@@ -524,7 +456,7 @@ def build_inventory(
                 "no_document": False,
                 "document_count": 0,
                 "documents": [],
-                "ai_suggestions": ai_suggestions,
+                "ai_suggestions": [],
             }
         )
 
@@ -601,7 +533,7 @@ def build_inventory(
             "human_completed_images": 0,
             "second_reviewed_images": 0,
             "human_verified_documents": 0,
-            "ai_suggestions_generated_separately": sum(len(s["ai_suggestions"]) for s in seed_samples),
+            "ai_suggestions_generated_separately": 0,
         },
         "independent_split_feasible_from_metadata": False,
         "independent_split_blockers": [
@@ -630,11 +562,6 @@ def main() -> int:
     parser.add_argument("--inventory-out", type=Path, default=DEFAULT_INVENTORY_OUT)
     parser.add_argument("--seed-out", type=Path, default=DEFAULT_SEED_OUT)
     parser.add_argument("--redacted-summary-out", type=Path, default=DEFAULT_REDACTED_OUT)
-    parser.add_argument(
-        "--include-ai-suggestions",
-        action="store_true",
-        help="populate optional sample.ai_suggestions from the frozen local detector (kept strictly separate from human documents)",
-    )
     args = parser.parse_args()
 
     try:
@@ -643,8 +570,7 @@ def main() -> int:
         red_out = _ensure_under_local_data(args.redacted_summary_out)
 
         private_inventory, seed_v2, redacted_summary = build_inventory(
-            args.input_dir.resolve(),
-            include_ai_suggestions=args.include_ai_suggestions,
+            args.input_dir.resolve()
         )
 
         inv_out.parent.mkdir(parents=True, exist_ok=True)

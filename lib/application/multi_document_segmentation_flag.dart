@@ -1,9 +1,8 @@
-/// Multi-document splitting is an independent import policy, not Smart
-/// Recognition. It only routes a source through the existing review pipeline
-/// when the local segmenter finds more than one usable region; single-document
-/// imports keep the legacy path.
+/// Automatic region segmentation is disabled because this build has no
+/// qualified document-region detector. In particular, the legacy classical
+/// segmenter must not silently stand in for a removed/unsupported model.
 ///
-/// Kept separate from `smartRecognitionEnabled` deliberately: enabling this
-/// must never enable OCR, classification, or full Smart Recognition for every
-/// imported image.
-const bool multiDocumentSegmentationEnabled = true;
+/// This remains a separate policy from Smart Recognition so a future,
+/// independently qualified detector can be opted in deliberately without
+/// enabling OCR or classification. Manual crop and review stay available.
+const bool multiDocumentSegmentationEnabled = false;

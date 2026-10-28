@@ -143,7 +143,8 @@ void main() {
           projects,
           LocalAssetRepository(projects.files),
           imageEditor: LocalImageEditor(projects.files),
-          segmenter: (_) async => SegmentationResult(
+          multiDocumentSegmentationEnabled: true,
+        segmenter: (_) async => SegmentationResult(
             multi: true,
             candidates: [
               SegmentCandidate(
@@ -223,6 +224,7 @@ void main() {
         projects,
         LocalAssetRepository(projects.files),
         imageEditor: _FixedSuggest(inner, _wideQuadOnSquare()),
+        multiDocumentSegmentationEnabled: true,
         segmenter: (_) async =>
             const SegmentationResult(multi: false, candidates: []),
       );
@@ -258,7 +260,8 @@ void main() {
           projects,
           LocalAssetRepository(projects.files),
           imageEditor: LocalImageEditor(projects.files),
-          segmenter: (_) async => SegmentationResult(
+          multiDocumentSegmentationEnabled: true,
+        segmenter: (_) async => SegmentationResult(
             multi: true,
             candidates: [
               SegmentCandidate(
@@ -315,7 +318,8 @@ void main() {
           projects,
           LocalAssetRepository(projects.files),
           imageEditor: _FixedSuggest(inner, _wideQuad()),
-          segmenter: (_) async =>
+          multiDocumentSegmentationEnabled: true,
+        segmenter: (_) async =>
               const SegmentationResult(multi: false, candidates: []),
         );
         var project = await gated.create('synthetic geometry');
@@ -364,7 +368,8 @@ void main() {
           projects,
           LocalAssetRepository(projects.files),
           imageEditor: LocalImageEditor(projects.files),
-          segmenter: (_) async => SegmentationResult(
+          multiDocumentSegmentationEnabled: true,
+        segmenter: (_) async => SegmentationResult(
             multi: true,
             candidates: [
               for (final quad in quads)

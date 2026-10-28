@@ -141,10 +141,11 @@ abstract interface class ImageEditor {
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
 }
 
-/// Optional capability implemented by editors backed by a calibrated learned
-/// model (`AiDocumentDetector`) so automatic intake receives full
-/// [BoundaryProposal] metadata (`BoundaryProducer.learnedModel`, calibrated
-/// confidence, and frame-touch flags) for `verifyBoundary`.
+/// Optional metadata capability for a future, separately qualified boundary
+/// proposer. The current production editor does not implement this interface;
+/// automatic detection is disabled and imports remain available for manual
+/// crop/review. Keeping the contract allows proposal provenance to remain
+/// explicit without making any detector a fallback.
 abstract interface class BoundaryProposalImageEditor implements ImageEditor {
   Future<BoundaryProposal?> suggestProposal(Uint8List preview);
   String? get boundaryModelId;

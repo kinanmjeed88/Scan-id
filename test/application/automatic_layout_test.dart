@@ -187,45 +187,39 @@ void main() {
     );
   });
 
-  test(
-    'a document-shaped scene stays intact for manual review',
-    () async {
-      final source = img.Image(width: 240, height: 170);
-      img.fill(source, color: img.ColorRgb8(60, 45, 30));
-      img.fillRect(
-        source,
-        x1: 40,
-        y1: 35,
-        x2: 199,
-        y2: 135,
-        color: img.ColorRgb8(235, 235, 230),
-      );
-      final bytes = img.encodePng(source);
-      var project = await service.create('synthetic boundary');
-      project = (await service.importImages(project, [
-        ImportSource('IMG_2041.png', () => Stream.value(bytes)),
-      ])).project;
-      final originalPath = project.assets.single.originalPath;
-      final report = await service.arrangeImportedImages(project, [
-        project.assets.single.id,
-      ]);
-      final asset = report.project.assets.single;
-      final item = report.project.items.single;
-      expect(report.cropped, 0);
-      expect(report.notDetected, 1);
-      expect(asset.crop, isNull);
-      expect(asset.suggestedCrop, isNull);
-      expect(item.documentKind, DocumentKind.unknown);
-      expect(item.sizeConfirmed, isFalse);
-      expect(item.pageIndex, isNull);
-      expect([asset.width, asset.height], [240, 170]);
-      expect(
-        await (await assets.resolve(originalPath)).readAsBytes(),
-        bytes,
-      );
-      expect(report.recognized, 0);
-    },
-  );
+  test('a document-shaped scene stays intact for manual review', () async {
+    final source = img.Image(width: 240, height: 170);
+    img.fill(source, color: img.ColorRgb8(60, 45, 30));
+    img.fillRect(
+      source,
+      x1: 40,
+      y1: 35,
+      x2: 199,
+      y2: 135,
+      color: img.ColorRgb8(235, 235, 230),
+    );
+    final bytes = img.encodePng(source);
+    var project = await service.create('synthetic boundary');
+    project = (await service.importImages(project, [
+      ImportSource('IMG_2041.png', () => Stream.value(bytes)),
+    ])).project;
+    final originalPath = project.assets.single.originalPath;
+    final report = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final asset = report.project.assets.single;
+    final item = report.project.items.single;
+    expect(report.cropped, 0);
+    expect(report.notDetected, 1);
+    expect(asset.crop, isNull);
+    expect(asset.suggestedCrop, isNull);
+    expect(item.documentKind, DocumentKind.unknown);
+    expect(item.sizeConfirmed, isFalse);
+    expect(item.pageIndex, isNull);
+    expect([asset.width, asset.height], [240, 170]);
+    expect(await (await assets.resolve(originalPath)).readAsBytes(), bytes);
+    expect(report.recognized, 0);
+  });
 
   test('an unrecognised document waits off the sheet', () async {
     final bytes = img.encodePng(img.Image(width: 400, height: 400));

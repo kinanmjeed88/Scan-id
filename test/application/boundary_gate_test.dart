@@ -104,38 +104,35 @@ void main() {
       return service.arrangeImportedImages(project, [project.assets.single.id]);
     }
 
-    test(
-      'filenames do not produce automatic boundary suggestions',
-      () async {
-        final first = await importNamed('capture-a.png');
-        final second = await importNamed('different-name.jpg');
-        expect(first.cropped, 0);
-        expect(second.cropped, 0);
-        expect(first.notDetected, 1);
-        expect(second.notDetected, 1);
-        expect(first.project.items, hasLength(1));
-        expect(second.project.items, hasLength(1));
+    test('filenames do not produce automatic boundary suggestions', () async {
+      final first = await importNamed('capture-a.png');
+      final second = await importNamed('different-name.jpg');
+      expect(first.cropped, 0);
+      expect(second.cropped, 0);
+      expect(first.notDetected, 1);
+      expect(second.notDetected, 1);
+      expect(first.project.items, hasLength(1));
+      expect(second.project.items, hasLength(1));
 
-        final firstAsset = first.project.assets.single;
-        final secondAsset = second.project.assets.single;
-        expect(firstAsset.crop, isNull);
-        expect(secondAsset.crop, isNull);
-        expect(firstAsset.suggestedCrop, isNull);
-        expect(secondAsset.suggestedCrop, isNull);
-        expect(
-          [firstAsset.width, firstAsset.height],
-          [secondAsset.width, secondAsset.height],
-        );
-        for (final item in [
-          first.project.items.single,
-          second.project.items.single,
-        ]) {
-          expect(item.documentKind, DocumentKind.unknown);
-          expect(item.sizeConfirmed, isFalse);
-          expect(item.pageIndex, isNull);
-        }
-      },
-    );
+      final firstAsset = first.project.assets.single;
+      final secondAsset = second.project.assets.single;
+      expect(firstAsset.crop, isNull);
+      expect(secondAsset.crop, isNull);
+      expect(firstAsset.suggestedCrop, isNull);
+      expect(secondAsset.suggestedCrop, isNull);
+      expect(
+        [firstAsset.width, firstAsset.height],
+        [secondAsset.width, secondAsset.height],
+      );
+      for (final item in [
+        first.project.items.single,
+        second.project.items.single,
+      ]) {
+        expect(item.documentKind, DocumentKind.unknown);
+        expect(item.sizeConfirmed, isFalse);
+        expect(item.pageIndex, isNull);
+      }
+    });
 
     test(
       'multi-region crops preserve measured geometry without classifying',

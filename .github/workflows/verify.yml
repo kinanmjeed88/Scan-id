@@ -128,26 +128,6 @@ jobs:
           rm -f "$script"
       - name: Dart format gate
         run: python tool/ci_gate.py format python tool/format_report.py
-      - name: Temporary formatter diff diagnostic
-        if: always()
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import difflib
-          import pathlib
-          import subprocess
-          for name in ('test/application/automatic_layout_test.dart', 'test/application/boundary_gate_test.dart'):
-              path = pathlib.Path(name)
-              original = path.read_text(encoding='utf-8').splitlines(keepends=True)
-              result = subprocess.run(
-                  ['dart', 'format', '--output=show', str(path)],
-                  check=True, capture_output=True, text=True, encoding='utf-8')
-              formatted = result.stdout.splitlines(keepends=True)
-              diff = ''.join(difflib.unified_diff(
-                  original, formatted, fromfile=name, tofile='dart-format output'))
-              encoded = diff.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print(f'::error title=temporary-format-diff::{encoded or "no diff"}')
-          PY
       - name: Flutter analyze
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests

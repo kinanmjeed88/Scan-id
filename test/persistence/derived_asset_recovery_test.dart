@@ -93,6 +93,7 @@ void main() {
       assets,
       imageEditor: editor,
       smartRecognitionEnabled: false,
+      multiDocumentSegmentationEnabled: true,
       segmenter: _twoCards,
     );
     var project = await service.create('مستندات مشتقة');

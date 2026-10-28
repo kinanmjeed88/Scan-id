@@ -363,12 +363,16 @@ void main() {
   ProjectService service({
     Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
     FullResolutionJpegCropper? fullResolutionJpegCropper,
+    FullResolutionRegionReader? readFullResolutionRegion,
     bool smartRecognitionEnabled = true,
     bool multiDocumentSegmentationEnabled = true,
   }) => ProjectService(
     projects,
     assets,
-    imageEditor: LocalImageEditor(projects.files),
+    imageEditor: LocalImageEditor(
+      projects.files,
+      readFullResolutionRegion: readFullResolutionRegion,
+    ),
     smartRecognitionEnabled: smartRecognitionEnabled,
     multiDocumentSegmentationEnabled: multiDocumentSegmentationEnabled,
     segmenter: segmenter,
@@ -1264,6 +1268,7 @@ void main() {
         smartRecognitionEnabled: false,
         multiDocumentSegmentationEnabled: false,
         fullResolutionJpegCropper: cropper,
+        readFullResolutionRegion: cropper.cropJpegRegion,
       );
       var project = await s.create('مستند بعيد في صورة كبيرة');
       project = (await s.importImages(project, [

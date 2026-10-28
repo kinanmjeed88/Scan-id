@@ -648,7 +648,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('لم يظهر اقتراح جديد'), findsOneWidget);
+      expect(
+        find.textContaining('لا يتوفر اقتراح تلقائي في هذا الإصدار'),
+        findsOneWidget,
+      );
       expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
       expect(
         tester

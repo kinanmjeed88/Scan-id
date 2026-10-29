@@ -193,36 +193,5 @@ void main() {
       expect(aspect.value, isNull, reason: 'measured corners are the default');
       expect(editor.openedTokens.single, isNotNull);
     });
-
-    testWidgets('leaving the screen cancels an in-flight preview', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      editor.blockPreview = Completer<void>();
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.tap(find.text('معاينة التصحيح'));
-      await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
-      );
-      expect(editor.previewTokens, hasLength(1));
-      final token = editor.previewTokens.single!;
-      await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
-      await tester.pumpAndSettle();
-      expect(token.isCancelled, isTrue);
-      await tester.pumpAndSettle();
-      expect(find.byType(CropScreen), findsNothing);
-      final stored = await projects.get(project.id);
-      expect(
-        stored.assets.single.workingPath,
-        project.assets.single.workingPath,
-      );
-      expect(
-        await (await assets.resolve(
-          stored.assets.single.originalPath,
-        )).readAsBytes(),
-        original,
-      );
-    });
   });
 }

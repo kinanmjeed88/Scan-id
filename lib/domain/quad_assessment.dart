@@ -78,8 +78,7 @@ QuadAssessment assessQuad(
 }) {
   if (sourceWidth < 2 ||
       sourceHeight < 2 ||
-      sourceWidth > maxImportPixels ||
-      sourceHeight > maxImportPixels) {
+      !withinImageBudget(sourceWidth, sourceHeight)) {
     return const QuadAssessment.rejected(QuadRejection.invalidSourceDimensions);
   }
   final issue = normalizedQuadIssue(corners);

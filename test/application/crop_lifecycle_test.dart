@@ -179,6 +179,10 @@ void main() {
       await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
       await tester.pumpAndSettle();
       expect(token.isCancelled, isTrue);
+      await tester.pumpAndSettle();
+      expect(find.text('إلغاء تعديلات القص؟'), findsOneWidget);
+      await tester.tap(find.text('إلغاء التعديلات'));
+      await tester.pumpAndSettle();
       expect(find.byType(CropScreen), findsNothing);
       final stored = await projects.get(project.id);
       expect(

@@ -148,7 +148,7 @@ void main() {
                         asset: project.assets.single,
                         service: service,
                         documentKind: DocumentKind.unifiedNationalId,
-                        targetItemId: project.items.single.id,
+                        targetItemId: null,
                       ),
                     ),
                   ),

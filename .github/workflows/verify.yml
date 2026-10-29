@@ -235,8 +235,8 @@ jobs:
           name: scan-id-android-crop-instrumentation
           path: |
             diagnostics/android-instrumentation/
-            build/app/reports/androidTests/connected/scanidDebug/
-            build/app/outputs/androidTest-results/connected/scanidDebug/
+            build/app/reports/androidTests/connected/
+            build/app/outputs/androidTest-results/connected/
           if-no-files-found: warn
           retention-days: 7
 

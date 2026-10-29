@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -267,7 +268,7 @@ class FakeImageEditor implements ImageEditor {
   int revisions = 0;
 
   @override
-  Future<EditorSource> open(ImageAsset asset) async =>
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) async =>
       EditorSource(bytes, 64, 40);
 
   @override
@@ -279,7 +280,7 @@ class FakeImageEditor implements ImageEditor {
   ];
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async =>
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async =>
       bytes;
 
   @override

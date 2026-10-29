@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../application/cancellation.dart';
 import '../application/contracts.dart';
 import '../application/project_service.dart';
 import '../domain/crop_draft.dart';
@@ -40,8 +41,8 @@ class CropScreen extends StatefulWidget {
   final ImageAsset asset;
   final ProjectService service;
 
-  /// Category of the document being cut; its catalog shape is the default
-  /// aspect ratio so the rectified image matches the printed size exactly.
+  /// Category/print size of the document. It does not impose an aspect on a
+  /// new crop; only an explicit user shape choice or saved recipe does.
   final DocumentKind documentKind;
 
   /// Optional editable 4-corner proposal from a `needsReview` boundary check.
@@ -164,34 +165,17 @@ bool _usableSuggestedCorners(
   ).acceptable;
 }
 
-typedef _PreviewValidationRequest = (TransferableTypedData, SendPort);
-
-void _validatePreviewInIsolate(_PreviewValidationRequest request) {
+Future<bool> _hasDecodablePreview(
+  Uint8List bytes, {
+  CancellationToken? cancellation,
+}) => runCancellableIsolate(() {
   try {
-    final bytes = request.$1.materialize().asUint8List();
     final decoded = decodeForProcessing(bytes);
-    request.$2.send(decoded.width > 0 && decoded.height > 0);
+    return decoded.width > 0 && decoded.height > 0;
   } catch (_) {
-    request.$2.send(false);
+    return false;
   }
-}
-
-Future<bool> _hasDecodablePreview(Uint8List bytes) async {
-  final resultPort = ReceivePort();
-  Isolate? worker;
-  try {
-    worker = await Isolate.spawn<_PreviewValidationRequest>(
-      _validatePreviewInIsolate,
-      (TransferableTypedData.fromList([bytes]), resultPort.sendPort),
-      debugName: 'crop-preview-validation',
-    );
-    final result = await resultPort.first;
-    return result is bool && result;
-  } finally {
-    resultPort.close();
-    worker?.kill(priority: Isolate.immediate);
-  }
-}
+}, cancellation: cancellation, debugName: 'crop-preview-validation');
 
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();
@@ -211,6 +195,7 @@ class _CropScreenState extends State<CropScreen> {
   bool _busy = true;
   bool _busyCancelable = true;
   int _operationGeneration = 0;
+  CancellationToken? _operationCancellation;
   bool _showResult = false;
   bool _dirty = false;
   CropDraft? _initialReviewDraft;
@@ -333,6 +318,8 @@ class _CropScreenState extends State<CropScreen> {
   void didUpdateWidget(covariant CropScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (_sameCropTarget(oldWidget, widget)) return;
+    _operationCancellation?.cancel();
+    _operationCancellation = null;
     ++_operationGeneration;
     _source = null;
     _history = null;
@@ -352,6 +339,9 @@ class _CropScreenState extends State<CropScreen> {
 
   @override
   void dispose() {
+    ++_operationGeneration;
+    _operationCancellation?.cancel();
+    _operationCancellation = null;
     _customWidthController.dispose();
     _customHeightController.dispose();
     _view.dispose();
@@ -360,6 +350,7 @@ class _CropScreenState extends State<CropScreen> {
 
   Future<void> _load() async {
     final operation = ++_operationGeneration;
+    final cancellation = _operationCancellation = CancellationToken();
     _busyCancelable = true;
     final asset = widget.asset;
     final project = widget.project;
@@ -370,14 +361,13 @@ class _CropScreenState extends State<CropScreen> {
     final initialHeightText = _initialHeightText;
     try {
       final editor = service.imageEditor!;
-      final source = await editor.open(asset);
+      final source = await editor.open(asset, cancellation: cancellation);
       if (!_isCurrentOperation(operation)) return;
       final crop = extractDerived ? null : asset.crop;
-      final shape = project.catalog.sizeFor(
-        initialKind,
-        landscape: source.width >= source.height,
-      );
-      final initialAspect = shape == null ? null : shape.width / shape.height;
+      // A category/print size is not permission to reshape pixels. Only an
+      // explicit shape choice in this session (or a preserved saved recipe)
+      // imposes an aspect; a new draft keeps the measured quadrilateral.
+      final initialAspect = null;
       final startingAdjustments = extractDerived
           ? ImageAdjustments(sharpness: initialManualCropSharpness)
           : crop == null && asset.adjustments.sharpness == 0
@@ -472,6 +462,8 @@ class _CropScreenState extends State<CropScreen> {
       mounted && operation == _operationGeneration;
 
   int _beginOperation({required bool canCancel}) {
+    _operationCancellation?.cancel();
+    _operationCancellation = CancellationToken();
     final operation = ++_operationGeneration;
     setState(() {
       _busy = true;
@@ -483,6 +475,7 @@ class _CropScreenState extends State<CropScreen> {
 
   void _finishOperation(int operation) {
     if (!_isCurrentOperation(operation)) return;
+    _operationCancellation = null;
     setState(() {
       _busy = false;
       _busyCancelable = false;
@@ -499,6 +492,8 @@ class _CropScreenState extends State<CropScreen> {
 
   bool _cancelCancelableOperation() {
     if (!_busy || !_busyCancelable) return false;
+    _operationCancellation?.cancel();
+    _operationCancellation = null;
     ++_operationGeneration;
     setState(() {
       _busy = false;
@@ -791,6 +786,7 @@ class _CropScreenState extends State<CropScreen> {
         asset,
         recipe.geometry,
         quarterTurns: draft.adjustments.quarterTurns,
+        cancellation: _operationCancellation,
       );
       if (!mounted || operation != _operationGeneration) return;
       _change(draft.withAdjustments(value));
@@ -875,7 +871,11 @@ class _CropScreenState extends State<CropScreen> {
     final draftRevision = _draftRevision;
     try {
       final recipe = _recipe();
-      final bytes = await _editor.preview(asset, recipe);
+      final bytes = await _editor.preview(
+        asset,
+        recipe,
+        cancellation: _operationCancellation,
+      );
       if (!mounted ||
           operation != _operationGeneration ||
           draftRevision != _draftRevision) {
@@ -883,7 +883,11 @@ class _CropScreenState extends State<CropScreen> {
       }
       final previewBytes = Uint8List.fromList(bytes);
       final validPreview =
-          previewBytes.isNotEmpty && await _hasDecodablePreview(previewBytes);
+          previewBytes.isNotEmpty &&
+          await _hasDecodablePreview(
+            previewBytes,
+            cancellation: _operationCancellation,
+          );
       if (!mounted ||
           operation != _operationGeneration ||
           draftRevision != _draftRevision) {

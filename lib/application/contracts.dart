@@ -5,6 +5,7 @@ import '../domain/boundary_decision.dart';
 import '../domain/project.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
+import 'cancellation.dart';
 
 abstract interface class ProjectRepository {
   Future<List<Project>> list();
@@ -135,9 +136,13 @@ class EditorSource {
 }
 
 abstract interface class ImageEditor {
-  Future<EditorSource> open(ImageAsset asset);
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation});
   Future<List<Point2>?> suggest(Uint8List preview);
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  });
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
 }
 

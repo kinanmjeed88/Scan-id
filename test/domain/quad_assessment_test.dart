@@ -63,6 +63,23 @@ void main() {
       );
       expect(result.rejection, QuadRejection.implausibleAspect);
     });
+
+    test('invalid source dimensions and singular homographies are refused', () {
+      for (final size in [(0, 100), (1, 100), (100, 0), (-1, 100)]) {
+        final result = assessQuad(_rect(), sourceWidth: size.$1, sourceHeight: size.$2);
+        expect(result.acceptable, isFalse);
+        expect(result.rejection, QuadRejection.invalidSourceDimensions);
+        expect(result.geometryConfidence, isNull);
+      }
+      // A bow-tie is rejected by the shared renderer contract before scoring.
+      final crossed = assessQuad(
+        [Point2(.1, .1), Point2(.9, .9), Point2(.9, .1), Point2(.1, .9)],
+        sourceWidth: 800,
+        sourceHeight: 600,
+      );
+      expect(crossed.acceptable, isFalse);
+      expect(crossed.geometryConfidence, isNull);
+    });
   });
 
   group('accepted geometry', () {

@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -35,7 +36,7 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   String? get boundaryModelId => 'synthetic-boundary-review-test';
 
   @override
-  Future<EditorSource> open(ImageAsset asset) => _inner.open(asset);
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) => _inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => _proposal.corners;
@@ -48,8 +49,8 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
       const SegmentationResult(multi: false, candidates: <SegmentCandidate>[]);
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
-      _inner.preview(asset, recipe);
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) =>
+      _inner.preview(asset, recipe, cancellation: cancellation);
 
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
@@ -61,7 +62,7 @@ class _TrackingFakeEditor extends FakeImageEditor {
   String? lastPreviewAssetId;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async {
     lastPreviewAssetId = asset.id;
     lastPreviewRecipe = recipe;
     return super.preview(asset, recipe);
@@ -108,7 +109,7 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
 
 class _InvalidPreviewEditor extends FakeImageEditor {
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async =>
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async =>
       Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 

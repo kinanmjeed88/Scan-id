@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import '../application/cancellation.dart';
 import '../application/contracts.dart';
 import '../application/ids.dart';
 import '../application/image_reader.dart';
@@ -48,9 +49,11 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
   );
 
   @override
-  Future<EditorSource> open(ImageAsset asset) async {
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) async {
+    cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
-    return Isolate.run(() {
+    cancellation?.throwIfCancelled();
+    return runCancellableIsolate(() {
       final image = decodeForProcessing(bytes);
       final reduced = img.copyResize(
         image,
@@ -62,7 +65,7 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
             : null,
       );
       return EditorSource(img.encodePng(reduced), image.width, image.height);
-    });
+    }, cancellation: cancellation, debugName: 'crop-source');
   }
 
   /// No automatic boundary or region detector is installed in this build.
@@ -71,10 +74,14 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
   Future<List<Point2>?> suggest(Uint8List _) async => null;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async {
+    cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
-    return Isolate.run(
+    cancellation?.throwIfCancelled();
+    return runCancellableIsolate(
       () => renderPerspective(bytes, recipe, previewLongEdge: 1200),
+      cancellation: cancellation,
+      debugName: 'crop-preview',
     );
   }
 
@@ -167,6 +174,10 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
     final localCorners = remapCornersIntoRegion(
       recipe.geometry.corners,
       bounds,
+      orientedWidth: oriented.$1,
+      orientedHeight: oriented.$2,
+      regionWidth: extractedHeader.width,
+      regionHeight: extractedHeader.height,
     );
     final measured = CropDraft(
       corners: localCorners,

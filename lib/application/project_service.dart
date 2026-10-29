@@ -905,7 +905,9 @@ class ProjectService {
     ImageAsset asset,
     CropGeometry geometry, {
     required int quarterTurns,
+    CancellationToken? cancellation,
   }) async {
+    cancellation?.throwIfCancelled();
     final editor = imageEditor;
     require(editor != null, 'خدمة معالجة الصور غير متاحة.');
     _requireCurrentImage(project, asset);
@@ -914,10 +916,19 @@ class ProjectService {
       geometry,
       ImageAdjustments(quarterTurns: quarterTurns),
     );
-    final cropPreview = await editor!.preview(asset, neutralRecipe);
-    return _suggestAdjustmentsForPreview(
-      cropPreview,
-      quarterTurns: quarterTurns,
+    final cropPreview = await editor!.preview(
+      asset,
+      neutralRecipe,
+      cancellation: cancellation,
+    );
+    cancellation?.throwIfCancelled();
+    return runCancellableIsolate(
+      () => imaging.suggestAutoAdjustments(
+        cropPreview,
+        quarterTurns: quarterTurns,
+      ),
+      cancellation: cancellation,
+      debugName: 'crop-auto-adjust',
     );
   }
 

@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -475,13 +476,13 @@ class _FixedSuggest implements ImageEditor {
   final List<Point2> corners;
 
   @override
-  Future<EditorSource> open(ImageAsset asset) => inner.open(asset);
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) => inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => corners;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) =>
       inner.preview(asset, recipe);
 
   @override

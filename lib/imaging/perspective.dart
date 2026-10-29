@@ -11,43 +11,15 @@ import 'prepare_image.dart';
 /// Projective unit-square -> source quadrilateral mapping. Not a bilinear
 /// corner blend: straight source lines remain straight after correction.
 class PerspectiveMap {
-  PerspectiveMap(CropGeometry geometry) {
-    final p = geometry.corners;
-    final dx1 = p[1].x - p[2].x;
-    final dx2 = p[3].x - p[2].x;
-    final dx3 = p[0].x - p[1].x + p[2].x - p[3].x;
-    final dy1 = p[1].y - p[2].y;
-    final dy2 = p[3].y - p[2].y;
-    final dy3 = p[0].y - p[1].y + p[2].y - p[3].y;
-    if (dx3.abs() + dy3.abs() < 1e-12) {
-      g = 0;
-      h = 0;
-    } else {
-      final determinant = dx1 * dy2 - dx2 * dy1;
-      require(determinant.abs() > 1e-12, 'تعذر تصحيح المنظور لهذه الزوايا.');
-      g = (dx3 * dy2 - dx2 * dy3) / determinant;
-      h = (dx1 * dy3 - dx3 * dy1) / determinant;
-    }
-    a = p[1].x - p[0].x + g * p[1].x;
-    b = p[3].x - p[0].x + h * p[3].x;
-    c = p[0].x;
-    d = p[1].y - p[0].y + g * p[1].y;
-    e = p[3].y - p[0].y + h * p[3].y;
-    f = p[0].y;
+  PerspectiveMap(CropGeometry geometry)
+    : coefficients = PerspectiveCoefficients.tryFrom(geometry.corners)! {
     require(
-      [a, b, c, d, e, f, g, h].every((v) => v.isFinite) &&
-          [1.0, 1 + g, 1 + h, 1 + g + h].every((v) => v > 1e-9),
-      'تحويل المنظور غير مستقر؛ عدّل الزوايا.',
+      normalizedQuadIssue(geometry.corners) == null,
+      'زوايا القص غير صالحة لتحويل المنظور.',
     );
   }
-  late final double a, b, c, d, e, f, g, h;
-  Point2 at(double u, double v) {
-    final denominator = g * u + h * v + 1;
-    return Point2(
-      (a * u + b * v + c) / denominator,
-      (d * u + e * v + f) / denominator,
-    );
-  }
+  final PerspectiveCoefficients coefficients;
+  Point2 at(double u, double v) => coefficients.at(u, v);
 }
 
 /// Source bytes never change. Both preview and accepted output use this exact

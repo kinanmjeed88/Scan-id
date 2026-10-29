@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -57,14 +58,14 @@ class _CropPreviewEditor implements ImageEditor {
   ImageEditRecipe? previewRecipe;
 
   @override
-  Future<EditorSource> open(ImageAsset asset) async =>
+  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) async =>
       EditorSource(openedPreview, 160, 100);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => null;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async {
     previewRecipe = recipe;
     return cropPreview;
   }

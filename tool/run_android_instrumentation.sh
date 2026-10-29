@@ -46,7 +46,7 @@ import xml.etree.ElementTree as ET
 
 results = {}
 paths = glob.glob(
-    "build/app/outputs/androidTest-results/connected/scanidDebug/**/*.xml",
+    "build/app/outputs/androidTest-results/connected/**/*.xml",
     recursive=True,
 )
 for path in paths:
@@ -72,6 +72,8 @@ for path in paths:
         continue
     skipped += sum(1 for case in root.iter("testcase") if any(c.tag == "skipped" for c in case))
 print(f"androidTests={len(results)} failures={failed} skipped={skipped}")
+if not results:
+    print("NO_ANDROID_TEST_CASES: Gradle success is not instrumentation evidence")
 for name, details in results.items():
     for detail in details:
         print(f"{name}: {detail}")
@@ -121,4 +123,8 @@ else
   echo "::notice title=android-instrumentation-evidence::$details"
 fi
 
+if (( gradle_status == 0 )) && ! grep -q 'androidTests=[1-9][0-9]* failures=0 ' <<< "$test_report"; then
+  echo "::error title=android-instrumentation::No successful Android test cases were reported; refusing to count logcat metrics as tests."
+  exit 1
+fi
 exit "$gradle_status"

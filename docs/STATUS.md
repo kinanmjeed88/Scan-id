@@ -16,7 +16,7 @@
 - محلياً: حارس تقاعد الكاشف وتدقيق privacy checkout والمصدر وصلاحيات workflows نجحت؛ Python **42/42**؛ `compileall` و`node --check` لملف JavaScript المضمن و`git diff --check` نجحت. `dart` و`flutter` غير مثبتين محلياً، لذا تشغيل Dart/Flutter والبناء تم عبر CI لا على المضيف المحلي.
 - لم تُستخدم صور المستخدم أو صور محلية خاصة. اختبار التحسين الاصطناعي يثبت توجيه الحساب إلى معاينة القص فقط، ولا يقيس دقة كشف أو جودة واقعية. لا توجد مجموعة holdout مرخصة ذات حدود مرجعية لهذا المشروع.
 
-تحديث 2026-10-29 اللاحق: PR #36 مدموج في `searchidf` عند `1523a69`. الفرع المصرح الحالي `arena/d339e72e-scan-id` يضيف إصلاحات عقد الهندسة، إحداثيات JPEG الكبير، EXIF، إلغاء المعاينة، ونسبة القص اليدوي؛ التفاصيل ونتائج التحقق في [`CROP_RELIABILITY_EXECUTION_2026-10-29.md`](reports/CROP_RELIABILITY_EXECUTION_2026-10-29.md). workflow النهائي على SHA `4dbda98` اجتاز Android وWindows: 829 اختبار Flutter، 4 Android instrumentation tests، native Windows scaler 1/1. لم يُدمج هذا الفرع ضمن هذا العمل.
+تحديث 2026-10-29 اللاحق: PR #36 مدموج في `searchidf` عند `1523a69`. الفرع المصرح الحالي `arena/d339e72e-scan-id` يضيف إصلاحات عقد الهندسة، إحداثيات JPEG الكبير، EXIF، إلغاء المعاينة، ونسبة القص اليدوي؛ التفاصيل ونتائج التحقق في [`CROP_RELIABILITY_EXECUTION_2026-10-29.md`](reports/CROP_RELIABILITY_EXECUTION_2026-10-29.md). workflow النهائي على SHA `0c91175` اجتاز Android وWindows: 829 اختبار Flutter، 4 Android instrumentation tests، native Windows scaler 1/1. لم يُدمج هذا الفرع ضمن هذا العمل.
 
 ## السجل التاريخي
 

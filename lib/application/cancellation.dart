@@ -1,12 +1,12 @@
-import 'dart:async';
-import 'dart:isolate';
-
-import '../domain/validation.dart';
-
 /// Cooperative cancellation (ADR-009). Batch/persistence work checks tokens
 /// at safe boundaries; read-only CPU isolates may be killed immediately via
 /// [runCancellableIsolate]. File/database writes are never killed mid-commit.
 library;
+
+import 'dart:async';
+import 'dart:isolate';
+
+import '../domain/validation.dart';
 
 /// Thrown by [CancellationToken.throwIfCancelled]. Not an error: callers
 /// treat it as a clean early stop and report partial results.

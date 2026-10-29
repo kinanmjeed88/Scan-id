@@ -936,13 +936,9 @@ class ProjectService {
   Future<ImageAdjustments> _suggestAdjustmentsForPreview(
     Uint8List preview, {
     required int quarterTurns,
-  }) =>
-      Isolate.run(
-        () => imaging.suggestAutoAdjustments(
-          preview,
-          quarterTurns: quarterTurns,
-        ),
-      );
+  }) => Isolate.run(
+    () => imaging.suggestAutoAdjustments(preview, quarterTurns: quarterTurns),
+  );
 
   Future<ImageAsset> createImageRevision(
     Project project,

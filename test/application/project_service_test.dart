@@ -70,10 +70,7 @@ class _CropPreviewEditor implements ImageEditor {
   }
 
   @override
-  Future<ImageAsset> createRevision(
-    ImageAsset asset,
-    ImageEditRecipe recipe,
-  ) =>
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
       Future.error(StateError('No revision expected in this test'));
 }
 
@@ -213,7 +210,8 @@ void main() {
       expect(
         adjustments.contrast,
         greaterThan(1.0),
-        reason: 'The crop-only low-range preview, not the high-range full image, is analysed.',
+        reason:
+            'The crop-only low-range preview, not the high-range full image, is analysed.',
       );
     },
   );

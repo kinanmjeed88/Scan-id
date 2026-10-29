@@ -228,7 +228,8 @@ void main() {
       expect(
         tester.widget<Slider>(find.byKey(const Key('crop-sharpness'))).value,
         initialManualCropSharpness,
-        reason: 'A new, reviewable manual crop starts at half the sharpness range.',
+        reason:
+            'A new, reviewable manual crop starts at half the sharpness range.',
       );
       for (var i = 0; i < 4; i++) {
         final corner = find.byKey(Key('crop-corner-$i'));

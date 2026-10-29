@@ -381,9 +381,7 @@ class _CropScreenState extends State<CropScreen> {
       final startingAdjustments = extractDerived
           ? ImageAdjustments(sharpness: initialManualCropSharpness)
           : crop == null && asset.adjustments.sharpness == 0
-          ? asset.adjustments.copyWith(
-              sharpness: initialManualCropSharpness,
-            )
+          ? asset.adjustments.copyWith(sharpness: initialManualCropSharpness)
           : asset.adjustments;
       final baseFull = CropDraft(
         corners: CropDraft.fullImage().corners,

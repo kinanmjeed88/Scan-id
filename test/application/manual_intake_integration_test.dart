@@ -167,13 +167,13 @@ void main() {
       expect(service.multiDocumentSegmentationEnabled, isFalse);
       expect(project.assets, hasLength(1));
       expect(project.assets.single.crop, isNull);
-      expect(project.assets.single.suggestedCrop, isNull);
+      expect(project.assets.single.suggestedCrop, hasLength(4));
       expect(project.assets.single.derivedFrom, isNull);
       expect(project.items, hasLength(1));
       expect(project.items.single.documentKind, DocumentKind.unknown);
       expect(project.items.single.pageIndex, isNull);
-      expect(report.warnings.join(' '), contains('لا يتوفر كشف تلقائي للحدود'));
-      expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNull);
+      expect(report.warnings.join(' '), contains('اقتراح حدود هندسي محلي'));
+      expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNotNull);
       expect(
         (await defaultSegment(Uint8List.fromList(sourceBytes))).candidates,
         isEmpty,

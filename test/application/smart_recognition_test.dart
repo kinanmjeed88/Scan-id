@@ -1287,7 +1287,7 @@ void main() {
       expect(result.items, hasLength(1));
       expect(result.assets, hasLength(1));
       expect(result.assets.single.crop, isNull);
-      expect(result.assets.single.suggestedCrop, isNull);
+      expect(result.assets.single.suggestedCrop, hasLength(4));
       expect(
         await (await assets.resolve(source.originalPath)).readAsBytes(),
         original,

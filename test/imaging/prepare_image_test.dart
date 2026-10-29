@@ -48,6 +48,7 @@ void main() {
         raw.setPixelRgb(x, y, 20 + x * 20, 40 + y * 20, 90);
       }
     }
+    final baseline = img.decodeJpg(img.encodeJpg(raw, quality: 100))!;
     List<List<(int, int)>> expected(int orientation) {
       final rows = <List<(int, int)>>[];
       for (var y = 0; y < (orientation >= 5 ? 3 : 2); y++) {
@@ -82,16 +83,9 @@ void main() {
         for (var x = 0; x < decoded.width; x++) {
           final source = grid[y][x];
           final pixel = decoded.getPixel(x, y);
-          expect(
-            pixel.r,
-            closeTo(20 + source.$1 * 20, 2),
-            reason: 'EXIF $orientation at $x,$y',
-          );
-          expect(
-            pixel.g,
-            closeTo(40 + source.$2 * 20, 2),
-            reason: 'EXIF $orientation at $x,$y',
-          );
+          final oracle = baseline.getPixel(source.$1, source.$2);
+          expect(pixel.r, oracle.r, reason: 'EXIF $orientation at $x,$y');
+          expect(pixel.g, oracle.g, reason: 'EXIF $orientation at $x,$y');
         }
       }
       expect(bytes, before);

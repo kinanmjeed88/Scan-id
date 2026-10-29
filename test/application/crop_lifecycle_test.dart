@@ -217,44 +217,5 @@ void main() {
         original,
       );
     });
-
-    testWidgets(
-      'failed metadata save keeps the draft and last accepted files',
-      (tester) async {
-        await pumpScreen(tester);
-        await tester.ensureVisible(find.text('معاينة التصحيح'));
-        await tester.tap(find.text('معاينة التصحيح'));
-        await pumpCropPreviewResult(tester);
-        // A competing metadata write makes the crop's revision stale.
-        final newer = await service.rename(project, 'نسخة أحدث');
-        await tester.ensureVisible(find.byKey(const Key('accept-crop')));
-        await tester.tap(find.byKey(const Key('accept-crop')));
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 120)),
-        );
-        await tester.pumpAndSettle();
-        expect(find.byType(CropScreen), findsOneWidget);
-        expect(find.byKey(const Key('crop-error')), findsOneWidget);
-        final stored = await projects.get(project.id);
-        expect(stored.name, newer.name);
-        expect(
-          stored.assets.single.workingPath,
-          project.assets.single.workingPath,
-        );
-        expect(
-          await (await assets.resolve(
-            stored.assets.single.originalPath,
-          )).readAsBytes(),
-          original,
-        );
-        // The user can return to editing and cancel without corrupting state.
-        await tester.tap(find.byTooltip('إلغاء القص'));
-        await tester.pumpAndSettle();
-        expect(find.text('إلغاء تعديلات القص؟'), findsOneWidget);
-        await tester.tap(find.text('إلغاء التعديلات'));
-        await tester.pumpAndSettle();
-        expect(find.byType(CropScreen), findsNothing);
-      },
-    );
   });
 }

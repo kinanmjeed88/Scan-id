@@ -137,15 +137,30 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         AppShell(
-          home: CropScreen(
-            project: project,
-            asset: project.assets.single,
-            service: service,
-            documentKind: DocumentKind.unifiedNationalId,
-            targetItemId: project.items.single.id,
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<Project?>(
+                      builder: (_) => CropScreen(
+                        project: project,
+                        asset: project.assets.single,
+                        service: service,
+                        documentKind: DocumentKind.unifiedNationalId,
+                        targetItemId: project.items.single.id,
+                      ),
+                    ),
+                  ),
+                  child: const Text('open crop'),
+                ),
+              ),
+            ),
           ),
         ),
       );
+      await tester.tap(find.text('open crop'));
+      await tester.pump();
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 80)),
       );

@@ -113,8 +113,10 @@ List<Point2> remapCornersIntoRegion(
   required int regionHeight,
 }) {
   require(
-    orientedWidth > 1 && orientedHeight > 1 &&
-        regionWidth > 1 && regionHeight > 1,
+    orientedWidth > 1 &&
+        orientedHeight > 1 &&
+        regionWidth > 1 &&
+        regionHeight > 1,
     'منطقة القص غير صالحة.',
   );
   // Native decoders clip on pixel EDGES (floor/ceil), while normalized crop
@@ -138,9 +140,13 @@ List<Point2> remapCornersIntoRegion(
       ),
   ];
   require(
-    local.every((corner) =>
-        corner.x >= -1e-9 && corner.x <= 1 + 1e-9 &&
-        corner.y >= -1e-9 && corner.y <= 1 + 1e-9),
+    local.every(
+      (corner) =>
+          corner.x >= -1e-9 &&
+          corner.x <= 1 + 1e-9 &&
+          corner.y >= -1e-9 &&
+          corner.y <= 1 + 1e-9,
+    ),
     'زوايا القص خارج المنطقة المستخرجة.',
   );
   return [

@@ -268,8 +268,10 @@ class FakeImageEditor implements ImageEditor {
   int revisions = 0;
 
   @override
-  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) async =>
-      EditorSource(bytes, 64, 40);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) async => EditorSource(bytes, 64, 40);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => [
@@ -280,8 +282,11 @@ class FakeImageEditor implements ImageEditor {
   ];
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async =>
-      bytes;
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async => bytes;
 
   @override
   Future<ImageAsset> createRevision(

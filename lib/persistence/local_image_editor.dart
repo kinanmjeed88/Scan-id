@@ -49,23 +49,30 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
   );
 
   @override
-  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) async {
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) async {
     cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
     cancellation?.throwIfCancelled();
-    return runCancellableIsolate(() {
-      final image = decodeForProcessing(bytes);
-      final reduced = img.copyResize(
-        image,
-        width: image.width >= image.height
-            ? math.min(maxRecognitionPreviewLongEdge, image.width)
-            : null,
-        height: image.height > image.width
-            ? math.min(maxRecognitionPreviewLongEdge, image.height)
-            : null,
-      );
-      return EditorSource(img.encodePng(reduced), image.width, image.height);
-    }, cancellation: cancellation, debugName: 'crop-source');
+    return runCancellableIsolate(
+      () {
+        final image = decodeForProcessing(bytes);
+        final reduced = img.copyResize(
+          image,
+          width: image.width >= image.height
+              ? math.min(maxRecognitionPreviewLongEdge, image.width)
+              : null,
+          height: image.height > image.width
+              ? math.min(maxRecognitionPreviewLongEdge, image.height)
+              : null,
+        );
+        return EditorSource(img.encodePng(reduced), image.width, image.height);
+      },
+      cancellation: cancellation,
+      debugName: 'crop-source',
+    );
   }
 
   /// No automatic boundary or region detector is installed in this build.
@@ -74,7 +81,11 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
   Future<List<Point2>?> suggest(Uint8List _) async => null;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) async {
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async {
     cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
     cancellation?.throwIfCancelled();

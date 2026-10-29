@@ -159,7 +159,14 @@ enum QuadGeometryIssue {
 /// It does not infer a document, a physical size, or an output aspect ratio.
 class PerspectiveCoefficients {
   const PerspectiveCoefficients._(
-    this.a, this.b, this.c, this.d, this.e, this.f, this.g, this.h,
+    this.a,
+    this.b,
+    this.c,
+    this.d,
+    this.e,
+    this.f,
+    this.g,
+    this.h,
   );
 
   static PerspectiveCoefficients? tryFrom(List<Point2> p) {
@@ -190,8 +197,16 @@ class PerspectiveCoefficients {
       g,
       h,
     );
-    final values = [result.a, result.b, result.c, result.d, result.e,
-                    result.f, result.g, result.h];
+    final values = [
+      result.a,
+      result.b,
+      result.c,
+      result.d,
+      result.e,
+      result.f,
+      result.g,
+      result.h,
+    ];
     final denominators = [1.0, 1 + g, 1 + h, 1 + g + h];
     if (!values.every((v) => v.isFinite) ||
         !denominators.every((v) => v.isFinite && v > 1e-9)) {

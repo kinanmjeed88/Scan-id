@@ -1135,5 +1135,4 @@ bool _segmentsIntersect(Point2 p1, Point2 p2, Point2 p3, Point2 p4) {
   return false;
 }
 
-bool _hasStableHomography(List<Point2> p) =>
-    normalizedQuadIssue(p) == null;
+bool _hasStableHomography(List<Point2> p) => normalizedQuadIssue(p) == null;

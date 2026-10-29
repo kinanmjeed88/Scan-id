@@ -136,7 +136,10 @@ class EditorSource {
 }
 
 abstract interface class ImageEditor {
-  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation});
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  });
   Future<List<Point2>?> suggest(Uint8List preview);
   Future<Uint8List> preview(
     ImageAsset asset,

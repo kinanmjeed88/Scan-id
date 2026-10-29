@@ -85,9 +85,9 @@ Future<T> runCancellableIsolate<T>(
   cancellation?.addListener(cancel);
   final exitSubscription = exits.listen((_) {
     if (!done && !resultReceived && !completer.isCompleted) {
-      completer.completeError(const ValidationException(
-        'توقفت معالجة الصورة قبل إكمال المعاينة.',
-      ));
+      completer.completeError(
+        const ValidationException('توقفت معالجة الصورة قبل إكمال المعاينة.'),
+      );
     }
     finish();
   });

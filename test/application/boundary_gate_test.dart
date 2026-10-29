@@ -476,14 +476,20 @@ class _FixedSuggest implements ImageEditor {
   final List<Point2> corners;
 
   @override
-  Future<EditorSource> open(ImageAsset asset, {CancellationToken? cancellation}) => inner.open(asset, cancellation: cancellation);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) => inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => corners;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe, {CancellationToken? cancellation}) =>
-      inner.preview(asset, recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) => inner.preview(asset, recipe);
 
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>

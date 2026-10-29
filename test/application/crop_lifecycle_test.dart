@@ -52,30 +52,33 @@ class _DelayedEditor implements ImageEditor {
   }
 
   @override
-  Future<ImageAsset> createRevision(
-    ImageAsset asset,
-    ImageEditRecipe recipe,
-  ) => _inner.createRevision(asset, recipe);
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
+      _inner.createRevision(asset, recipe);
 }
 
 void main() {
-  test('read-only isolate cancellation completes and rejects late work', () async {
-    final token = CancellationToken();
-    final started = Completer<void>();
-    final future = runCancellableIsolate<int>(() {
-      // The parent cancels while this isolate is alive. Killing it must not
-      // leave the caller awaiting a result port forever.
-      while (true) {}
-    }, cancellation: token);
-    // Isolate.spawn is asynchronous; give it one event-loop turn to start.
-    unawaited(Future<void>.delayed(const Duration(milliseconds: 20), () {
-      started.complete();
-      token.cancel();
-    }));
-    await expectLater(future, throwsA(isA<OperationCancelled>()));
-    expect(token.isCancelled, isTrue);
-    token.cancel(); // idempotent
-  });
+  test(
+    'read-only isolate cancellation completes and rejects late work',
+    () async {
+      final token = CancellationToken();
+      final started = Completer<void>();
+      final future = runCancellableIsolate<int>(() {
+        // The parent cancels while this isolate is alive. Killing it must not
+        // leave the caller awaiting a result port forever.
+        while (true) {}
+      }, cancellation: token);
+      // Isolate.spawn is asynchronous; give it one event-loop turn to start.
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 20), () {
+          started.complete();
+          token.cancel();
+        }),
+      );
+      await expectLater(future, throwsA(isA<OperationCancelled>()));
+      expect(token.isCancelled, isTrue);
+      token.cancel(); // idempotent
+    },
+  );
 
   test('pre-cancelled editor work never opens the source', () async {
     final root = await Directory.systemTemp.createTemp('scan-cancel-');
@@ -132,20 +135,26 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(AppShell(
-        home: CropScreen(
-          project: project,
-          asset: project.assets.single,
-          service: service,
-          documentKind: DocumentKind.unifiedNationalId,
-          targetItemId: project.items.single.id,
+      await tester.pumpWidget(
+        AppShell(
+          home: CropScreen(
+            project: project,
+            asset: project.assets.single,
+            service: service,
+            documentKind: DocumentKind.unifiedNationalId,
+            targetItemId: project.items.single.id,
+          ),
         ),
-      ));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)),
+      );
       await tester.pumpAndSettle();
     }
 
-    testWidgets('known category does not silently reshape a new manual draft', (tester) async {
+    testWidgets('known category does not silently reshape a new manual draft', (
+      tester,
+    ) async {
       await pumpScreen(tester);
       final aspect = tester.widget<DropdownButton<double?>>(
         find.byKey(const Key('crop-aspect')),
@@ -154,13 +163,17 @@ void main() {
       expect(editor.openedTokens.single, isNotNull);
     });
 
-    testWidgets('leaving the screen cancels an in-flight preview', (tester) async {
+    testWidgets('leaving the screen cancels an in-flight preview', (
+      tester,
+    ) async {
       await pumpScreen(tester);
       editor.blockPreview = Completer<void>();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.tap(find.text('معاينة التصحيح'));
       await tester.pump();
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
       expect(editor.previewTokens, hasLength(1));
       final token = editor.previewTokens.single!;
       await tester.pageBack();
@@ -171,34 +184,55 @@ void main() {
       expect(token.isCancelled, isTrue);
       expect(find.byType(CropScreen), findsNothing);
       final stored = await projects.get(project.id);
-      expect(stored.assets.single.workingPath, project.assets.single.workingPath);
-      expect(await (await assets.resolve(stored.assets.single.originalPath)).readAsBytes(), original);
+      expect(
+        stored.assets.single.workingPath,
+        project.assets.single.workingPath,
+      );
+      expect(
+        await (await assets.resolve(
+          stored.assets.single.originalPath,
+        )).readAsBytes(),
+        original,
+      );
     });
 
-    testWidgets('failed metadata save keeps the draft and last accepted files', (tester) async {
-      await pumpScreen(tester);
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      // A competing metadata write makes the crop's revision stale.
-      final newer = await service.rename(project, 'نسخة أحدث');
-      await tester.ensureVisible(find.byKey(const Key('accept-crop')));
-      await tester.tap(find.byKey(const Key('accept-crop')));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 120)));
-      await tester.pumpAndSettle();
-      expect(find.byType(CropScreen), findsOneWidget);
-      expect(find.byKey(const Key('crop-error')), findsOneWidget);
-      final stored = await projects.get(project.id);
-      expect(stored.name, newer.name);
-      expect(stored.assets.single.workingPath, project.assets.single.workingPath);
-      expect(await (await assets.resolve(stored.assets.single.originalPath)).readAsBytes(), original);
-      // The user can return to editing and cancel without corrupting state.
-      await tester.tap(find.byTooltip('إلغاء القص'));
-      await tester.pumpAndSettle();
-      expect(find.text('إلغاء تعديلات القص؟'), findsOneWidget);
-      await tester.tap(find.text('إلغاء التعديلات'));
-      await tester.pumpAndSettle();
-      expect(find.byType(CropScreen), findsNothing);
-    });
+    testWidgets(
+      'failed metadata save keeps the draft and last accepted files',
+      (tester) async {
+        await pumpScreen(tester);
+        await tester.ensureVisible(find.text('معاينة التصحيح'));
+        await tester.tap(find.text('معاينة التصحيح'));
+        await pumpCropPreviewResult(tester);
+        // A competing metadata write makes the crop's revision stale.
+        final newer = await service.rename(project, 'نسخة أحدث');
+        await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+        await tester.tap(find.byKey(const Key('accept-crop')));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 120)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(CropScreen), findsOneWidget);
+        expect(find.byKey(const Key('crop-error')), findsOneWidget);
+        final stored = await projects.get(project.id);
+        expect(stored.name, newer.name);
+        expect(
+          stored.assets.single.workingPath,
+          project.assets.single.workingPath,
+        );
+        expect(
+          await (await assets.resolve(
+            stored.assets.single.originalPath,
+          )).readAsBytes(),
+          original,
+        );
+        // The user can return to editing and cancel without corrupting state.
+        await tester.tap(find.byTooltip('إلغاء القص'));
+        await tester.pumpAndSettle();
+        expect(find.text('إلغاء تعديلات القص؟'), findsOneWidget);
+        await tester.tap(find.text('إلغاء التعديلات'));
+        await tester.pumpAndSettle();
+        expect(find.byType(CropScreen), findsNothing);
+      },
+    );
   });
 }

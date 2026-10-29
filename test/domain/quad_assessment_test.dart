@@ -66,7 +66,11 @@ void main() {
 
     test('invalid source dimensions and singular homographies are refused', () {
       for (final size in [(0, 100), (1, 100), (100, 0), (-1, 100)]) {
-        final result = assessQuad(_rect(), sourceWidth: size.$1, sourceHeight: size.$2);
+        final result = assessQuad(
+          _rect(),
+          sourceWidth: size.$1,
+          sourceHeight: size.$2,
+        );
         expect(result.acceptable, isFalse);
         expect(result.rejection, QuadRejection.invalidSourceDimensions);
         expect(result.geometryConfidence, isNull);

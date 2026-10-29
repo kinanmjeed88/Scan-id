@@ -168,14 +168,18 @@ bool _usableSuggestedCorners(
 Future<bool> _hasDecodablePreview(
   Uint8List bytes, {
   CancellationToken? cancellation,
-}) => runCancellableIsolate(() {
-  try {
-    final decoded = decodeForProcessing(bytes);
-    return decoded.width > 0 && decoded.height > 0;
-  } catch (_) {
-    return false;
-  }
-}, cancellation: cancellation, debugName: 'crop-preview-validation');
+}) => runCancellableIsolate(
+  () {
+    try {
+      final decoded = decodeForProcessing(bytes);
+      return decoded.width > 0 && decoded.height > 0;
+    } catch (_) {
+      return false;
+    }
+  },
+  cancellation: cancellation,
+  debugName: 'crop-preview-validation',
+);
 
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();

@@ -68,6 +68,7 @@ void main() {
       }
       return rows;
     }
+
     for (var orientation = 1; orientation <= 8; orientation++) {
       final tagged = img.Image.from(raw);
       tagged.exif.imageIfd.orientation = orientation;
@@ -81,8 +82,16 @@ void main() {
         for (var x = 0; x < decoded.width; x++) {
           final source = grid[y][x];
           final pixel = decoded.getPixel(x, y);
-          expect(pixel.r, 20 + source.$1 * 20, reason: 'EXIF $orientation at $x,$y');
-          expect(pixel.g, 40 + source.$2 * 20, reason: 'EXIF $orientation at $x,$y');
+          expect(
+            pixel.r,
+            20 + source.$1 * 20,
+            reason: 'EXIF $orientation at $x,$y',
+          );
+          expect(
+            pixel.g,
+            40 + source.$2 * 20,
+            reason: 'EXIF $orientation at $x,$y',
+          );
         }
       }
       expect(bytes, before);

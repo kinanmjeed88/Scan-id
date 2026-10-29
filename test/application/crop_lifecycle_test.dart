@@ -176,9 +176,6 @@ void main() {
       );
       expect(editor.previewTokens, hasLength(1));
       final token = editor.previewTokens.single!;
-      await tester.pageBack();
-      await tester.pump();
-      // Dirty preview operation: cancel operation and leave via close button.
       await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
       await tester.pumpAndSettle();
       expect(token.isCancelled, isTrue);

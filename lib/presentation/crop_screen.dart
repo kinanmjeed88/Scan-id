@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -371,7 +370,7 @@ class _CropScreenState extends State<CropScreen> {
       // A category/print size is not permission to reshape pixels. Only an
       // explicit shape choice in this session (or a preserved saved recipe)
       // imposes an aspect; a new draft keeps the measured quadrilateral.
-      final initialAspect = null;
+      const double? initialAspect = null;
       final startingAdjustments = extractDerived
           ? ImageAdjustments(sharpness: initialManualCropSharpness)
           : crop == null && asset.adjustments.sharpness == 0

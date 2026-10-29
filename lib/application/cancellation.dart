@@ -36,7 +36,7 @@ class CancellationToken {
 
   /// Requests cancellation. Idempotent; checkpoint-only callers still observe
   /// it at their next safe boundary.
-  void cancel() {
+  cancel = () {
     if (_cancelled) return;
     _cancelled = true;
     for (final listener in List.of(_listeners)) {
@@ -66,6 +66,7 @@ Future<T> runCancellableIsolate<T>(
   var done = false;
   var resultReceived = false;
 
+  late final void Function() cancel;
   void finish() {
     if (done) return;
     done = true;
@@ -75,12 +76,12 @@ Future<T> runCancellableIsolate<T>(
     exits.close();
   }
 
-  void cancel() {
+  cancel = () {
     if (!completer.isCompleted) {
       completer.completeError(const OperationCancelled());
     }
     finish();
-  }
+  };
 
   cancellation?.addListener(cancel);
   final exitSubscription = exits.listen((_) {
@@ -110,7 +111,7 @@ Future<T> runCancellableIsolate<T>(
       onExit: exits.sendPort,
       errorsAreFatal: true,
     );
-    if (done) worker!.kill(priority: Isolate.immediate);
+    if (done) worker?.kill(priority: Isolate.immediate);
     return await completer.future;
   } catch (_) {
     finish();

@@ -363,12 +363,16 @@ void main() {
   ProjectService service({
     Future<SegmentationResult> Function(Uint8List bytes)? segmenter,
     FullResolutionJpegCropper? fullResolutionJpegCropper,
+    FullResolutionRegionReader? readFullResolutionRegion,
     bool smartRecognitionEnabled = true,
     bool multiDocumentSegmentationEnabled = true,
   }) => ProjectService(
     projects,
     assets,
-    imageEditor: LocalImageEditor(projects.files),
+    imageEditor: LocalImageEditor(
+      projects.files,
+      readFullResolutionRegion: readFullResolutionRegion,
+    ),
     smartRecognitionEnabled: smartRecognitionEnabled,
     multiDocumentSegmentationEnabled: multiDocumentSegmentationEnabled,
     segmenter: segmenter,
@@ -1253,17 +1257,19 @@ void main() {
   );
 
   test(
-    'synthetic small distant candidate survives the large-JPEG working-raster path',
+    'large-JPEG import remains available for manual review without auto segmentation',
     () async {
       final original = _jpegSofOnly(4800, 6400);
       final workingPng = _smallDistantScene();
       final scaler = _FakeLargeJpegScaler(workingPng);
       assets = LocalAssetRepository(projects.files, largeJpegScaler: scaler);
-      final segment = segmentDocumentBytes(workingPng);
-      expect(segment.candidates, hasLength(2));
-      expect(segment.rejected, isEmpty);
-
-      final s = service(); // Production segmenter, not an injected result.
+      final cropper = _FakeFullResolutionJpegCropper(_photo());
+      final s = service(
+        smartRecognitionEnabled: false,
+        multiDocumentSegmentationEnabled: false,
+        fullResolutionJpegCropper: cropper,
+        readFullResolutionRegion: cropper.cropJpegRegion,
+      );
       var project = await s.create('مستند بعيد في صورة كبيرة');
       project = (await s.importImages(project, [
         ImportSource('مشهد صناعي.jpg', () => Stream.value(original)),
@@ -1274,17 +1280,14 @@ void main() {
 
       final report = await s.arrangeImportedImages(project, [source.id]);
       final result = report.project;
-      final derived = result.assets
-          .where((asset) => asset.id != source.id)
-          .toList();
-      expect(report.multiDocumentImages, 1);
-      expect(result.documents, hasLength(2));
-      expect(result.items, hasLength(2));
-      expect(derived, hasLength(2));
-      final areas = derived.map((asset) => asset.width * asset.height).toList()
-        ..sort();
-      expect(areas.first, greaterThan(0));
-      expect(areas.last, greaterThan(areas.first));
+      expect(report.multiDocumentImages, 0);
+      expect(report.cropped, 0);
+      expect(report.notDetected, 1);
+      expect(result.documents, isEmpty);
+      expect(result.items, hasLength(1));
+      expect(result.assets, hasLength(1));
+      expect(result.assets.single.crop, isNull);
+      expect(result.assets.single.suggestedCrop, isNull);
       expect(
         await (await assets.resolve(source.originalPath)).readAsBytes(),
         original,
@@ -1292,6 +1295,39 @@ void main() {
       expect(
         await (await assets.resolve(source.processingInputPath)).readAsBytes(),
         workingPng,
+      );
+
+      final manuallyCropped = await s.applyManualCrop(
+        result,
+        source,
+        CropDraft(
+          corners: [
+            Point2(.1, .1),
+            Point2(.7, .1),
+            Point2(.7, .7),
+            Point2(.1, .7),
+          ],
+        ).toRecipe(source.width, source.height),
+      );
+      final croppedSource = manuallyCropped.assets.single;
+      expect(croppedSource.userAuthoredCrop, isTrue);
+      expect(croppedSource.crop, isNotNull);
+      expect(croppedSource.suggestedCrop, isNull);
+      expect(cropper.calls, hasLength(1));
+      expect(cropper.calls.single.source, original);
+      expect(
+        [
+          cropper.calls.single.left,
+          cropper.calls.single.top,
+          cropper.calls.single.right,
+          cropper.calls.single.bottom,
+        ],
+        [.1, .1, .7, .7],
+      );
+      expect(
+        await (await assets.resolve(source.originalPath)).readAsBytes(),
+        original,
+        reason: 'manual cropping must preserve the immutable source JPEG',
       );
     },
   );

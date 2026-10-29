@@ -1,25 +1,19 @@
-import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:image/image.dart' as img;
 
 import '../application/contracts.dart';
 import '../application/ids.dart';
 import '../application/image_reader.dart';
-import '../domain/boundary_decision.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
-import '../imaging/ai_document_detector.dart';
-import '../imaging/document_segmenter.dart';
 import '../imaging/full_resolution_manual_crop.dart';
-import '../imaging/hybrid_boundary_arbitrator.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
 import '../imaging/prepare_image.dart';
@@ -41,26 +35,13 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
-class LocalImageEditor
-    implements BoundaryProposalImageEditor, CropBytesImageEditor {
-  const LocalImageEditor(
-    this.files, {
-    this.readFullResolutionRegion,
-    this.aiBundle,
-  });
+class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
+  const LocalImageEditor(this.files, {this.readFullResolutionRegion});
   final SafeFiles files;
 
   /// Null in tests that never crop a large JPEG. A production editor must set
   /// it. A missing reader is an explicit failure, not a silent sample.
   final FullResolutionRegionReader? readFullResolutionRegion;
-
-  /// Verified offline ONNX model bundle (`ScanIdDocNet-v1`). When null (e.g.,
-  /// existing classical unit tests), falls back to the deterministic classical
-  /// `suggestDocumentCorners` detector.
-  final AiModelBundle? aiBundle;
-
-  @override
-  String? get boundaryModelId => aiBundle?.bundleId;
 
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
@@ -84,78 +65,10 @@ class LocalImageEditor
     });
   }
 
-  static final LinkedHashMap<String, AiSceneDetection> _aiSceneCache =
-      LinkedHashMap<String, AiSceneDetection>();
-
-  Future<AiSceneDetection> _detectAiSceneCached(
-    Uint8List preview,
-    AiModelBundle bundle,
-  ) async {
-    final key = '${bundle.bundleId}:${sha256.convert(preview)}';
-    final cached = _aiSceneCache.remove(key);
-    if (cached != null) {
-      _aiSceneCache[key] = cached;
-      return cached;
-    }
-    final computed = await Isolate.run(
-      () => detectSceneWithAiBundle(preview, bundle),
-    );
-    if (_aiSceneCache.length >= 8) {
-      _aiSceneCache.remove(_aiSceneCache.keys.first);
-    }
-    _aiSceneCache[key] = computed;
-    return computed;
-  }
-
-  /// Runs multi-document segmentation using [aiBundle] when verified, sharing
-  /// the bounded preview cache with [suggestProposal] and cross-checking
-  /// scene boundaries with physical step-edge arbitration.
-  Future<SegmentationResult> segment(Uint8List preview) async {
-    final bundle = aiBundle;
-    if (bundle != null) {
-      final scene = await _detectAiSceneCached(preview, bundle);
-      final aiResult = scene.toSegmentationResult();
-      return Isolate.run(() {
-        final decoded = _tryDecodePreview(preview);
-        if (decoded == null) {
-          return const SegmentationResult(candidates: [], multi: false);
-        }
-        return arbitrateSceneBoundaries(decoded, aiResult);
-      });
-    }
-    return Isolate.run(() => segmentDocumentBytes(preview));
-  }
-
+  /// No automatic boundary or region detector is installed in this build.
+  /// Keep the imported source intact for the user's manual crop/review.
   @override
-  Future<List<Point2>?> suggest(Uint8List preview) async =>
-      (await suggestProposal(preview))?.corners;
-
-  @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
-    final bundle = aiBundle;
-    BoundaryProposal? primaryAi;
-    var extraAi = const <BoundaryProposal>[];
-    if (bundle != null) {
-      final scene = await _detectAiSceneCached(preview, bundle);
-      if (scene.candidates.isNotEmpty) {
-        final proposals = [
-          for (final c in scene.candidates) c.toBoundaryProposal(),
-        ];
-        primaryAi = proposals.first;
-        extraAi = proposals.skip(1).toList();
-      }
-    }
-    return Isolate.run(() {
-      final decoded = _tryDecodePreview(preview);
-      if (decoded == null) return null;
-      return arbitrateSingleBoundary(
-        decoded,
-        primaryAi,
-        extraAiProposals: extraAi,
-        hasLearnedModel: bundle != null,
-      );
-    });
-  }
+  Future<List<Point2>?> suggest(Uint8List _) async => null;
 
   @override
   Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
@@ -304,15 +217,6 @@ class LocalImageEditor
         ],
       ),
     );
-  }
-}
-
-img.Image? _tryDecodePreview(Uint8List bytes) {
-  if (bytes.isEmpty) return null;
-  try {
-    return decodeForProcessing(bytes);
-  } catch (_) {
-    return null;
   }
 }
 

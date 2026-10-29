@@ -8,6 +8,7 @@ import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
+import '../domain/geometry.dart';
 import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
@@ -194,8 +195,8 @@ class ProjectService {
   final ProjectRepository projects;
   final AssetRepository assets;
 
-  /// Test seam for the multi-document segmentation stage; null means the
-  /// real classical segmenter (off the UI isolate).
+  /// Optional seam for a separately qualified region detector. Null uses the
+  /// safe empty default; it never invokes the legacy classical segmenter.
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
 
   /// Extracts a measured region from a sampled JPEG's immutable original at
@@ -683,7 +684,7 @@ class ProjectService {
           if (corners == null) {
             notDetected++;
             warnings.add(
-              '${asset.name}: لم تُكتشف حدود واضحة؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
+              '${asset.name}: لا يتوفر كشف تلقائي للحدود في هذا الإصدار؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
             );
           } else {
             // Boundary authorization is independent of the file name,
@@ -710,8 +711,8 @@ class ProjectService {
                   stage: 'boundary_decision',
                   assetId: asset.id,
                   modelId: editor is BoundaryProposalImageEditor
-                      ? editor.boundaryModelId
-                      : 'classical',
+                      ? (editor.boundaryModelId ?? 'external-boundary-proposal')
+                      : 'custom-image-editor',
                   candidateCount: 1,
                   sourceWidth: source.width,
                   sourceHeight: source.height,
@@ -876,14 +877,51 @@ class ProjectService {
     );
   }
 
-  /// Suggests a non-destructive, local auto-enhancement preset for manual
-  /// review. The returned values can still be changed independently by sliders.
+  /// Suggests a non-destructive, local auto-enhancement preset for [asset].
+  /// The existing workspace ribbon uses this on the complete image.
+  /// CropScreen uses [suggestCropAutoAdjustments] so the statistics describe
+  /// the reviewed document, not the surrounding tabletop or background.
   Future<ImageAdjustments> suggestAutoAdjustments(
     Project project,
     ImageAsset asset,
   ) async {
     final editor = imageEditor;
     require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    _requireCurrentImage(project, asset);
+    final source = await editor!.open(asset);
+    return _suggestAdjustmentsForPreview(
+      source.preview,
+      quarterTurns: asset.adjustments.quarterTurns,
+    );
+  }
+
+  /// Analyses a bounded, rectified preview of the current crop draft.
+  ///
+  /// Geometry is applied once with neutral tone/sharpness settings before the
+  /// histogram and edge statistics are measured. The returned settings remain
+  /// editable and are not saved until the user reviews and accepts the crop.
+  Future<ImageAdjustments> suggestCropAutoAdjustments(
+    Project project,
+    ImageAsset asset,
+    CropGeometry geometry, {
+    required int quarterTurns,
+  }) async {
+    final editor = imageEditor;
+    require(editor != null, 'خدمة معالجة الصور غير متاحة.');
+    _requireCurrentImage(project, asset);
+    require(quarterTurns >= 0 && quarterTurns <= 3, 'زاوية التدوير غير صالحة.');
+    final neutralRecipe = ImageEditRecipe(
+      geometry,
+      ImageAdjustments(quarterTurns: quarterTurns),
+    );
+    final cropPreview = await editor!.preview(asset, neutralRecipe);
+    return _suggestAdjustmentsForPreview(
+      cropPreview,
+      quarterTurns: quarterTurns,
+    );
+  }
+
+  void _requireCurrentImage(Project project, ImageAsset asset) {
     require(
       project.assets.any(
         (entry) =>
@@ -893,14 +931,14 @@ class ProjectService {
       ),
       'الصورة لا تطابق حالة المشروع الحالية.',
     );
-    final source = await editor!.open(asset);
-    return Isolate.run(
-      () => imaging.suggestAutoAdjustments(
-        source.preview,
-        quarterTurns: asset.adjustments.quarterTurns,
-      ),
-    );
   }
+
+  Future<ImageAdjustments> _suggestAdjustmentsForPreview(
+    Uint8List preview, {
+    required int quarterTurns,
+  }) => Isolate.run(
+    () => imaging.suggestAutoAdjustments(preview, quarterTurns: quarterTurns),
+  );
 
   Future<ImageAsset> createImageRevision(
     Project project,

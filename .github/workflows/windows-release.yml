@@ -18,10 +18,13 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
       - name: Assert local-only evaluation data is excluded
         shell: pwsh
-        run: if (Test-Path 'Mostmskat') { throw 'Private Mostmskat data must stay out of CI.' }
+        run: |
+          if (Test-Path 'Mostmskat') { throw 'Private Mostmskat data must stay out of CI.' }
+          if (Test-Path 'local-data') { throw 'Private local-data must stay out of CI.' }
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.35.7'

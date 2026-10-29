@@ -5,9 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/arrangement.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/export_plan.dart';
+import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/export/document_exporter.dart';
@@ -69,21 +71,41 @@ void main() {
   }
 
   test(
-    'synthetic intake, manual size choice, persistence and A4 export stay connected',
+    'synthetic intake, manual crop/size choice, persistence and A4 export stay connected',
     () async {
       final bytes = _cardPhoto();
       final report = await importAndArrange('scan.png', bytes);
       expect(service.smartRecognitionEnabled, isFalse);
-      expect(service.multiDocumentSegmentationEnabled, isTrue);
-      expect(report.cropped, 1);
-      expect(report.notDetected, 0);
+      expect(service.multiDocumentSegmentationEnabled, isFalse);
+      expect(report.cropped, 0);
+      expect(report.notDetected, 1);
+      expect(report.project.assets.single.crop, isNull);
       expect(report.project.items.single.documentKind, DocumentKind.unknown);
       expect(report.project.items.single.sizeConfirmed, isFalse);
       expect(report.project.items.single.pageIndex, isNull);
 
-      final manuallySelected = DocumentEdits.setKind(
+      // This is an explicit human crop, not an automated boundary result.
+      final source = report.project.assets.single;
+      final opened = await service.imageEditor!.open(source);
+      final manualRecipe = CropDraft(
+        corners: [
+          Point2(.14, .21),
+          Point2(.86, .21),
+          Point2(.86, .81),
+          Point2(.14, .81),
+        ],
+      ).toRecipe(opened.width, opened.height);
+      final manuallyCropped = await service.applyManualCrop(
         report.project,
-        report.project.items.single.id,
+        source,
+        manualRecipe,
+      );
+      expect(manuallyCropped.assets.single.userAuthoredCrop, isTrue);
+      expect(manuallyCropped.assets.single.crop, isNotNull);
+
+      final manuallySelected = DocumentEdits.setKind(
+        manuallyCropped,
+        manuallyCropped.items.single.id,
         DocumentKind.other,
       );
       final arranged = arrangeDocuments(manuallySelected).result;
@@ -135,14 +157,31 @@ void main() {
   );
 
   test(
-    'accepted geometry cannot infer type or confirm a printable catalog size',
+    'a human crop does not infer type or confirm a printable catalog size',
     () async {
       final bytes = _cardPhoto();
       final report = await importAndArrange('capture.png', bytes);
-      expect(report.cropped, 1);
-      expect(report.notDetected, 0);
-      final project = await projects.get(report.project.id);
+      expect(report.cropped, 0);
+      expect(report.notDetected, 1);
+      expect(report.project.assets.single.crop, isNull);
+      final source = report.project.assets.single;
+      final opened = await service.imageEditor!.open(source);
+      final recipe = CropDraft(
+        corners: [
+          Point2(.14, .21),
+          Point2(.86, .21),
+          Point2(.86, .81),
+          Point2(.14, .81),
+        ],
+      ).toRecipe(opened.width, opened.height);
+      final cropped = await service.applyManualCrop(
+        report.project,
+        source,
+        recipe,
+      );
+      final project = await projects.get(cropped.id);
       expect(project.assets.single.crop, isNotNull);
+      expect(project.assets.single.userAuthoredCrop, isTrue);
       expect(project.items.single.documentKind, DocumentKind.unknown);
       expect(project.items.single.sizeConfirmed, isFalse);
       expect(

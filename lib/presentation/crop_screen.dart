@@ -20,6 +20,10 @@ import '../imaging/prepare_image.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
+/// New manual crop drafts start at the midpoint of the existing 0–1 sharpness
+/// control. It is preview-only: the original stays unchanged until acceptance.
+const initialManualCropSharpness = .5;
+
 class CropScreen extends StatefulWidget {
   const CropScreen({
     required this.project,
@@ -374,11 +378,14 @@ class _CropScreenState extends State<CropScreen> {
         landscape: source.width >= source.height,
       );
       final initialAspect = shape == null ? null : shape.width / shape.height;
+      final startingAdjustments = extractDerived
+          ? ImageAdjustments(sharpness: initialManualCropSharpness)
+          : crop == null && asset.adjustments.sharpness == 0
+          ? asset.adjustments.copyWith(sharpness: initialManualCropSharpness)
+          : asset.adjustments;
       final baseFull = CropDraft(
         corners: CropDraft.fullImage().corners,
-        adjustments: extractDerived
-            ? CropDraft.fullImage().adjustments
-            : asset.adjustments,
+        adjustments: startingAdjustments,
         aspectRatio: initialAspect,
       );
       final resolution = crop == null && !extractDerived
@@ -423,7 +430,7 @@ class _CropScreenState extends State<CropScreen> {
             baseState.copyWith(
               draft: CropDraft(
                 corners: previous,
-                adjustments: asset.adjustments,
+                adjustments: baseFull.adjustments,
                 aspectRatio: initialAspect,
               ),
             ),
@@ -432,7 +439,7 @@ class _CropScreenState extends State<CropScreen> {
         if (proposed != null) {
           final proposedDraft = CropDraft(
             corners: proposed,
-            adjustments: asset.adjustments,
+            adjustments: baseFull.adjustments,
             aspectRatio: initialAspect,
           );
           activeState = baseState.copyWith(draft: proposedDraft);
@@ -778,7 +785,13 @@ class _CropScreenState extends State<CropScreen> {
     final draft = _draft!;
     final operation = _beginOperation(canCancel: true);
     try {
-      final value = await service.suggestAutoAdjustments(project, asset);
+      final recipe = _recipe();
+      final value = await service.suggestCropAutoAdjustments(
+        project,
+        asset,
+        recipe.geometry,
+        quarterTurns: draft.adjustments.quarterTurns,
+      );
       if (!mounted || operation != _operationGeneration) return;
       _change(draft.withAdjustments(value));
       showMessage(
@@ -810,11 +823,11 @@ class _CropScreenState extends State<CropScreen> {
       if (points == null) {
         setState(() {
           _proposalNotice =
-              'لم يظهر اقتراح جديد؛ بقي الإطار الحالي كما هو. حرّك الزوايا يدوياً عند الحاجة.';
+              'لا يتوفر اقتراح تلقائي في هذا الإصدار؛ بقي الإطار الحالي كما هو. حرّك الزوايا يدوياً عند الحاجة.';
         });
         showMessage(
           context,
-          'لم يعثر الكشف على حدود جديدة؛ لم يتغير الإطار الحالي.',
+          'لا يتوفر كشف تلقائي في هذا الإصدار؛ لم يتغير الإطار الحالي.',
         );
       } else if (!_usableSuggestedCorners(
         points,

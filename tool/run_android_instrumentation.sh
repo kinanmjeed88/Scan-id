@@ -16,7 +16,7 @@ if [[ ! -f android/gradle/wrapper/gradle-wrapper.jar ]]; then
 fi
 
 set +e
-(cd android && ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace --console=plain) \
+(cd android && ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
   2>&1 | tee diagnostics/android-instrumentation/connected-debug-android-test.log
 gradle_status=${PIPESTATUS[0]}
 set -e
@@ -46,7 +46,7 @@ import xml.etree.ElementTree as ET
 
 results = {}
 paths = glob.glob(
-    "build/app/outputs/androidTest-results/connected/debug/**/*.xml",
+    "build/app/outputs/androidTest-results/connected/scanidDebug/**/*.xml",
     recursive=True,
 )
 for path in paths:

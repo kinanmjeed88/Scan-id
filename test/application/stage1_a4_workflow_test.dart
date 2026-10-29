@@ -20,7 +20,6 @@ import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/export/document_exporter.dart';
-import 'package:scan_id/imaging/ai_document_detector.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -36,21 +35,6 @@ import 'package:scan_id/persistence/safe_files.dart';
 /// luminance variance, dynamic range, and spatial edge-transition checks so
 /// uniform gray or dark background crops are rejected.
 const double kMinPlannedItemNonWhiteRatio = 0.08;
-
-AiModelBundle _loadBundleFromRepo() {
-  final manifestJson = File(
-    'assets/models/MODEL_MANIFEST.json',
-  ).readAsStringSync();
-  final s1 = File('assets/models/scanid_stage1_det_v1.onnx').readAsBytesSync();
-  final s2 = File(
-    'assets/models/scanid_stage2_corners_v1.onnx',
-  ).readAsBytesSync();
-  return AiModelBundle.verified(
-    manifestJson: manifestJson,
-    stage1Bytes: s1,
-    stage2Bytes: s2,
-  );
-}
 
 Future<Project> _importAndArrange(
   ProjectService service,
@@ -674,7 +658,7 @@ void main() {
   );
 
   test(
-    'Path A: auto boundary crop remains unclassified until generic user confirmation, then exports shared asset placements',
+    'Path A: imported source stays whole until explicit user confirmation, then exports placements',
     () async {
       final tempDir = await Directory.systemTemp.createTemp('stage1_path_a_');
       addTearDown(() async {
@@ -684,16 +668,11 @@ void main() {
       final assets = LocalAssetRepository(files);
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
-      final editor = LocalImageEditor(files, aiBundle: _loadBundleFromRepo());
-      final service = ProjectService(
-        projects,
-        assets,
-        imageEditor: editor,
-        segmenter: editor.segment,
-      );
+      final editor = LocalImageEditor(files);
+      final service = ProjectService(projects, assets, imageEditor: editor);
 
       final fixtureBytes = File(
-        'test/fixtures/ai_golden_card.png',
+        'test/fixtures/synthetic_card.png',
       ).readAsBytesSync();
 
       var project = await service.create('Path A synthetic boundary');
@@ -799,7 +778,7 @@ void main() {
       final assets = LocalAssetRepository(files);
       final projects = await LocalProjectRepository.open(tempDir);
       addTearDown(projects.close);
-      final editor = LocalImageEditor(files, aiBundle: _loadBundleFromRepo());
+      final editor = LocalImageEditor(files);
       final service = ProjectService(
         projects,
         assets,
@@ -812,7 +791,7 @@ void main() {
       );
 
       final truncatedBytes = File(
-        'test/fixtures/ai_golden_truncated.png',
+        'test/fixtures/synthetic_truncated_card.png',
       ).readAsBytesSync();
       final emptyDeskBytes = _syntheticScenePng(
         width: 480,
@@ -1056,7 +1035,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'det-f',
-          producer: 'scanid-docnet-v1',
+          producer: 'synthetic-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),
@@ -1072,7 +1051,7 @@ void main() {
         ),
         detection: DetectionRef(
           detectionId: 'det-b',
-          producer: 'scanid-docnet-v1',
+          producer: 'synthetic-boundary-proposer',
           version: '1.0',
           polygon: null,
         ),

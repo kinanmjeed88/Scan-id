@@ -214,10 +214,10 @@ void main() {
         releaseWorkflow.indexOf('\n  windows:\n'),
       );
       expect(build, contains('EXPECTED_CERT_SHA256:'));
-      expect(build, contains('flutter build apk --release'));
+      expect(build, contains('flutter build apk --flavor scanid --release'));
       expect(
         build.indexOf('EXPECTED_CERT_SHA256:'),
-        lessThan(build.indexOf('flutter build apk --release')),
+        lessThan(build.indexOf('flutter build apk --flavor scanid --release')),
         reason: 'the pin must be job scope, not only the verify step',
       );
     });

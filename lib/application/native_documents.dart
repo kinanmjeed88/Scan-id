@@ -101,6 +101,25 @@ Future<File?> pickAndroidBackup() async {
   return File(record['path']! as String);
 }
 
+/// Imports a local JSON annotation export through Android's system document
+/// picker. The returned temporary file is app-owned and must be cleaned with
+/// [removePickedFile]; no path from the provider is persisted.
+Future<File?> pickAndroidReferenceJson() async {
+  final records =
+      await _documents.invokeListMethod<Object?>('open', {
+        'mime': 'application/json',
+        'multiple': false,
+        'maxBytes': 128 * 1024 * 1024,
+      }) ??
+      [];
+  if (records.isEmpty) return null;
+  final record = Map<String, Object?>.from(records.single! as Map);
+  if (record['error'] != null) {
+    throw StorageException(record['error']! as String);
+  }
+  return File(record['path']! as String);
+}
+
 Future<void> removePickedFile(File file) async {
   // A bridge regression must never turn cache cleanup into external deletion.
   final cache = await (await getTemporaryDirectory()).resolveSymbolicLinks();

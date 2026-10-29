@@ -225,6 +225,12 @@ void main() {
       await tester.tap(find.text('فتح القص'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
+      expect(
+        tester.widget<Slider>(find.byKey(const Key('crop-sharpness'))).value,
+        initialManualCropSharpness,
+        reason:
+            'A new, reviewable manual crop starts at half the sharpness range.',
+      );
       for (var i = 0; i < 4; i++) {
         final corner = find.byKey(Key('crop-corner-$i'));
         final before = tester.getCenter(corner);
@@ -309,6 +315,10 @@ void main() {
       expect(accepted, isNotNull);
       expect(repository.values[project.id]!.revision, 1);
       expect(accepted!.assets.single.crop, isNotNull);
+      expect(
+        accepted!.assets.single.adjustments.sharpness,
+        initialManualCropSharpness,
+      );
       expect(tester.takeException(), isNull);
     },
   );

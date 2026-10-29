@@ -14,8 +14,8 @@ void main() {
     expect(smartRecognitionAllows(true), isFalse);
   });
 
-  test('multi-document segmentation is a separate import policy', () {
-    expect(multiDocumentSegmentationEnabled, isTrue);
+  test('automatic segmentation is disabled without a qualified detector', () {
+    expect(multiDocumentSegmentationEnabled, isFalse);
     expect(smartRecognitionEnabled, isFalse);
   });
 }

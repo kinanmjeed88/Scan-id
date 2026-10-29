@@ -31,7 +31,3 @@ flutter:
   uses-material-design: true
   assets:
     - assets/legal/androidx-core-LICENSE.txt
-    - assets/legal/scanid-docnet-v1-LICENSE.txt
-    - assets/models/MODEL_MANIFEST.json
-    - assets/models/scanid_stage1_det_v1.onnx
-    - assets/models/scanid_stage2_corners_v1.onnx

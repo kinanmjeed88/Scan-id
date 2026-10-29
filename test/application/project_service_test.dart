@@ -49,6 +49,31 @@ class _FakeLargeJpegScaler implements LargeJpegScaler {
   }
 }
 
+class _CropPreviewEditor implements ImageEditor {
+  _CropPreviewEditor(this.openedPreview, this.cropPreview);
+
+  final Uint8List openedPreview;
+  final Uint8List cropPreview;
+  ImageEditRecipe? previewRecipe;
+
+  @override
+  Future<EditorSource> open(ImageAsset asset) async =>
+      EditorSource(openedPreview, 160, 100);
+
+  @override
+  Future<List<Point2>?> suggest(Uint8List preview) async => null;
+
+  @override
+  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+    previewRecipe = recipe;
+    return cropPreview;
+  }
+
+  @override
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
+      Future.error(StateError('No revision expected in this test'));
+}
+
 void main() {
   late Directory root;
   late LocalProjectRepository projects;
@@ -134,6 +159,63 @@ void main() {
       );
     },
   );
+  test(
+    'crop enhancement is measured from a neutral rectified crop preview',
+    () async {
+      final opened = img.Image(width: 160, height: 100);
+      final cropped = img.Image(width: 160, height: 100);
+      for (var y = 0; y < opened.height; y++) {
+        for (var x = 0; x < opened.width; x++) {
+          final fullValue = (x ~/ 4).isEven ? 0 : 255;
+          opened.setPixelRgb(x, y, fullValue, fullValue, fullValue);
+          final cropValue = 40 + ((x + y) % 45);
+          cropped.setPixelRgb(x, y, cropValue, cropValue, cropValue);
+        }
+      }
+      final editor = _CropPreviewEditor(
+        img.encodePng(opened),
+        img.encodePng(cropped),
+      );
+      service = ProjectService(projects, assets, imageEditor: editor);
+      final source = img.encodePng(img.Image(width: 32, height: 24));
+      var project = await service.create('تحسين قص يدوي');
+      project = (await service.importImages(project, [
+        ImportSource('crop.png', () => Stream.value(source)),
+      ])).project;
+      final geometry = CropGeometry(
+        corners: [
+          Point2(.1, .12),
+          Point2(.88, .08),
+          Point2(.91, .86),
+          Point2(.08, .9),
+        ],
+        outputWidth: 120,
+        outputHeight: 80,
+      );
+
+      final adjustments = await service.suggestCropAutoAdjustments(
+        project,
+        project.assets.single,
+        geometry,
+        quarterTurns: 2,
+      );
+
+      expect(editor.previewRecipe?.geometry, same(geometry));
+      expect(editor.previewRecipe?.adjustments.brightness, 0);
+      expect(editor.previewRecipe?.adjustments.contrast, 1);
+      expect(editor.previewRecipe?.adjustments.saturation, 1);
+      expect(editor.previewRecipe?.adjustments.sharpness, 0);
+      expect(editor.previewRecipe?.adjustments.quarterTurns, 2);
+      expect(adjustments.quarterTurns, 2);
+      expect(
+        adjustments.contrast,
+        greaterThan(1.0),
+        reason:
+            'The crop-only low-range preview, not the high-range full image, is analysed.',
+      );
+    },
+  );
+
   test(
     'mixed batch reports failures and persists successes independently',
     () async {

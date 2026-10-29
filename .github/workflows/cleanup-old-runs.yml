@@ -46,6 +46,7 @@ jobs:
           sparse-checkout: |
             /*
             !/Mostmskat/
+            !/local-data/
           sparse-checkout-cone-mode: false
           fetch-depth: 0
           fetch-tags: true

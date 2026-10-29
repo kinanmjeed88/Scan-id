@@ -281,7 +281,7 @@ void main() {
               ),
               detection: DetectionRef(
                 detectionId: 'det-1',
-                producer: 'scanid-docnet-v1',
+                producer: 'historical-boundary-proposer',
                 version: '1.0',
                 polygon: null,
               ),
@@ -488,7 +488,7 @@ void main() {
           ),
           detection: DetectionRef(
             detectionId: 'det-front',
-            producer: 'scanid-docnet-v1',
+            producer: 'historical-boundary-proposer',
             version: '1.0',
             polygon: null,
           ),
@@ -504,7 +504,7 @@ void main() {
           ),
           detection: DetectionRef(
             detectionId: 'det-back',
-            producer: 'scanid-docnet-v1',
+            producer: 'historical-boundary-proposer',
             version: '1.0',
             polygon: null,
           ),

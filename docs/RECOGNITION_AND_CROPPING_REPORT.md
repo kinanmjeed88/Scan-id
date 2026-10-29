@@ -1,10 +1,11 @@
 # تقرير: من اختيار الصورة إلى قصّ المستمسك ووضعه على الورقة
 
-> **تقرير تاريخي:** هذا النص مرتبط بفرع وبخط أنابيب أقدم، ويذكر تصنيفاً من اسم
-> الملف/الشكل ويدّعي عدم وجود نموذج حدود. لا تستخدم هذه التفاصيل لوصف الحالة
-> الحالية؛ نموذج الحدود الحالي ليس مصنف نوع، والاسم/النسبة لا يحددان النوع.
-> المرجع الحالي: [`docs/RECOGNITION.md`](RECOGNITION.md) و
-> [`docs/reports/ROOT_CAUSE_AND_IMPLEMENTATION.md`](reports/ROOT_CAUSE_AND_IMPLEMENTATION.md).
+> **تقرير مؤرشف ومتجاوز (2026-10-28):** يصف هذا النص خط أنابيب وخوارزميات
+> سابقة، وبعض ادعاءاته عن التعرّف التلقائي لم تعد صحيحة. أزيل `ScanIdDocNet-v1`
+> وأوزانه ومساراته، وعُطّل التقسيم واقتراح الحدود الآليان؛ لا يستخدم التطبيق
+> المقسّم الكلاسيكي كبديل. القص اليدوي متاح والصورة الأصلية محفوظة. راجع
+> [`docs/RECOGNITION.md`](RECOGNITION.md) و
+> [`docs/reports/DOCUMENT_DETECTION_REMOVAL_PRELIMINARY_2026-10-28.md`](reports/DOCUMENT_DETECTION_REMOVAL_PRELIMINARY_2026-10-28.md).
 
 **المشروع:** مستمسكات — Scan ID (Flutter، Windows + Android)
 **الفرع:** `arena/7f9df9fa-scan-id`

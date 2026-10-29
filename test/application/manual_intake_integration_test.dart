@@ -48,8 +48,7 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   Future<BoundaryProposal?> suggestProposal(
     Uint8List preview, {
     CancellationToken? cancellation,
-  }) async =>
-      _proposal;
+  }) async => _proposal;
 
   Future<SegmentationResult> segment(Uint8List preview) async =>
       const SegmentationResult(multi: false, candidates: <SegmentCandidate>[]);

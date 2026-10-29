@@ -825,11 +825,10 @@ class _CropScreenState extends State<CropScreen> {
     try {
       final List<Point2>? points;
       if (editor is BoundaryProposalImageEditor) {
-        points =
-            (await editor.suggestProposal(
-              source.preview,
-              cancellation: _operationCancellation,
-            ))?.corners;
+        points = (await editor.suggestProposal(
+          source.preview,
+          cancellation: _operationCancellation,
+        ))?.corners;
       } else {
         points = await editor.suggest(source.preview);
       }

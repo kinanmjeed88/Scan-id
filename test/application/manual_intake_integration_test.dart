@@ -48,8 +48,7 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   Future<BoundaryProposal?> suggestProposal(
     Uint8List preview, {
     CancellationToken? cancellation,
-  }) async =>
-      _proposal;
+  }) async => _proposal;
 
   Future<SegmentationResult> segment(Uint8List preview) async =>
       const SegmentationResult(multi: false, candidates: <SegmentCandidate>[]);
@@ -217,10 +216,9 @@ void main() {
     project = (await service.importImages(project, [
       ImportSource('synthetic.png', () => Stream.value(bytes)),
     ])).project;
-    final result = await service.arrangeImportedImages(
-      project,
-      [project.assets.single.id],
-    );
+    final result = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
     final saved = await projects.get(result.project.id);
 
     expect(saved.assets.single.crop, isNull);
@@ -230,10 +228,7 @@ void main() {
       expect(saved.assets.single.suggestedCrop![i].y, proposedQuad[i].y);
     }
     expect(result.cropped, 0);
-    expect(
-      result.warnings.join(' '),
-      contains('اقتراح حدود هندسي محلي'),
-    );
+    expect(result.warnings.join(' '), contains('اقتراح حدود هندسي محلي'));
     expect(saved.items.single.documentKind, DocumentKind.unknown);
   });
 

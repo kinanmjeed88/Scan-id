@@ -392,6 +392,7 @@ class _CropScreenState extends State<CropScreen> {
               project: project,
               asset: asset,
               service: service,
+              cancellation: cancellation,
             )
           : const _SuggestedCornersResolution();
       if (!_isCurrentOperation(operation)) return;
@@ -515,6 +516,7 @@ class _CropScreenState extends State<CropScreen> {
     required Project project,
     required ImageAsset asset,
     required ProjectService service,
+    required CancellationToken cancellation,
   }) async {
     final explicit = widget.suggestedCorners;
     final candidate = explicit ?? _savedSuggestionFor(project, asset);

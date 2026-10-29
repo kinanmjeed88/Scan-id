@@ -492,7 +492,7 @@ class ProjectService {
       // path so those coordinates can never be applied to different pixels.
       if (asset.crop == null && !asset.userAuthoredCrop) {
         try {
-          final source = await editor.open(asset);
+          final source = await editor.open(asset, cancellation: cancellation);
           final result = await (segmenter ?? defaultSegment)(source.preview);
           segments[id] = result;
         } on RevisionConflict {
@@ -674,7 +674,7 @@ class ProjectService {
         warnings.add('${asset.name}: كشف الحدود غير متاح في هذا البناء.');
       } else {
         try {
-          final source = await editor.open(asset);
+          final source = await editor.open(asset, cancellation: cancellation);
           final rawProposal = editor is BoundaryProposalImageEditor
               ? await editor.suggestProposal(
                   source.preview,
@@ -730,7 +730,7 @@ class ProjectService {
             if (authorization == null) {
               notDetected++;
               if ((rawProposal?.producer == BoundaryProducer.learnedModel ||
-                    rawProposal?.producer == BoundaryProducer.detector) &&
+                      rawProposal?.producer == BoundaryProducer.detector) &&
                   decision.verification.hasUsableGeometry) {
                 asset = asset.withSuggestedCrop(corners);
                 current = current.copyWith(

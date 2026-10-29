@@ -22,9 +22,7 @@ void main() {
     );
     final bytes = img.encodePng(image);
     final originalBytes = List<int>.of(bytes);
-    final editor = LocalImageEditor(
-      SafeFiles(Directory.systemTemp),
-    );
+    final editor = LocalImageEditor(SafeFiles(Directory.systemTemp));
 
     final proposal = await editor.suggestProposal(bytes);
 
@@ -51,8 +49,10 @@ void main() {
     final token = CancellationToken()..cancel();
     final editor = LocalImageEditor(SafeFiles(Directory.systemTemp));
     await expectLater(
-      editor.suggestProposal(img.encodePng(img.Image(width: 32, height: 32)),
-          cancellation: token),
+      editor.suggestProposal(
+        img.encodePng(img.Image(width: 32, height: 32)),
+        cancellation: token,
+      ),
       throwsA(isA<OperationCancelled>()),
     );
   });

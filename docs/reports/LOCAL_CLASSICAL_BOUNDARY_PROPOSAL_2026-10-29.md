@@ -30,8 +30,8 @@
 
 ## بوابات النسخة المنشورة
 
-- الفرع `arena/d339e72e-scan-id`؛ SHA تنفيذ الكود `b798ab0364a5206d887d48ce438874ac5443f087`، ثم تحديث توثيقي فقط إلى HEAD النهائي `01a57bc2ff889143c9d1fa7c44b5528e5f17b634`.
-- GitHub Actions [run 40943630540](https://github.com/kinanmjeed88/Scan-id/actions/runs/40943630540) يطابق HEAD النهائي: Android وWindows نجحا. تنسيق Dart، `flutter analyze --fatal-infos`، وجميع **833 اختبار Flutter** نجحت؛ Android debug وoffline annotation flavor وinstrumentation نجحت؛ Windows release وportable ZIP وnative scaler test نجحت.
+- تغييرات الكود اختُبرت أولاً على `b798ab0364a5206d887d48ce438874ac5443f087`، ثم أُجريت تحديثات توثيقية فقط على الفرع نفسه؛ لا تُغيّر تلك التحديثات سلوك التطبيق.
+- GitHub Actions [run 40943630540](https://github.com/kinanmjeed88/Scan-id/actions/runs/40943630540) نجح على SHA توثيقي لاحق؛ Android وWindows نجحا. تنسيق Dart، `flutter analyze --fatal-infos`، وجميع **833 اختبار Flutter** نجحت؛ Android debug وoffline annotation flavor وinstrumentation نجحت؛ Windows release وportable ZIP وnative scaler test نجحت. تحقق التشغيل الأحدث المطابق لرأس الفرع مدرج في ملخص التنفيذ.
 - لا تشغيل model weights فعلي لأنه لم يُقبل أي وزن. الاختبار الفعلي هنا هو تنفيذ كاشف Dart التقليدي ومسار proposal→verification→manual review، وليس اختبار دقة على صور مستندات واقعية.
 - محلياً نجحت أدوات السياسات/المصدر و42 اختبار Python بعد تثبيت الاعتماديات المحددة في `tool/requirements-annotation-test.txt`، وكذلك `git diff --check`. Flutter/Dart SDK لم يكونا مثبتين على المضيف؛ بناء المنصتين واختبارات Flutter موثقة من CI.
 - نتائج وسيطة قبل آخر بوابة: التشغيل 40938478624 كشف تنسيقاً/توقيعاً خاطئاً لـ cancellation؛ أصلح. التشغيل 40939069986 كشف أن Windows استدعى متغير cancellation غير معرف؛ أصلح. التشغيل 40940326818 نجح البناء والتنسيق والتحليل لكن أظهر خمسة اختبارات قديمة تفترض غياب أي اقتراح؛ حدثت توقعاتها لتقبل اقتراحاً review-only. التشغيل 40941959431 اجتاز اختبارات Flutter والمنصتين على SHA الكود، ثم أكد التشغيل 40943630540 على HEAD التوثيقي النهائي كل بوابات Android وWindows.

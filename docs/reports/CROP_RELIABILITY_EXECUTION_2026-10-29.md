@@ -44,4 +44,6 @@
 
 ## التحقق النهائي
 
-يُملأ برقم SHA ورابط Actions بعد اكتمال فحص الفرع الحالي. لا يُعتبر أي بناء أخضر بديلاً عن اختبار دقة واقعية.
+على SHA `f8375f64bf3453ce2d37ae05a55de0e2e47f06a0`، اجتاز workflow الكامل [run 40902971972](https://github.com/kinanmjeed88/Scan-id/actions/runs/40902971972): Android وWindows success. نجح `dart format` (204 ملفاً، صفر تغيير)، `flutter analyze --fatal-infos` بلا مشاكل، و**829 اختبار Flutter**. نجح Android debug وflavor annotation offline وفحوص source/privacy/signing. أبلغ Android instrumentation عن **4 حالات اختبار، 0 إخفاق/تخطي**؛ إضافةً إلى 41 crop metrics و32 حالة EXIF-region من logcat. هذه حالة Emulator/CI وليست جهاز هاتف حقيقياً أو استعمالاً ميدانياً. على Windows نجح release وportable ZIP و`large_jpeg_scaler_windows` **1/1**. محلياً نجحت Python **42/42** وحراس التقاعد/المصدر/الخصوصية/الصلاحيات و`git diff --check`؛ Flutter/Dart غير مثبتين على المضيف المحلي. لا يُعتبر أي بناء أخضر بديلاً عن اختبار دقة واقعية.
+
+الفرع النهائي وقت هذا التقرير: `arena/d339e72e-scan-id`، SHA `f8375f64bf3453ce2d37ae05a55de0e2e47f06a0`؛ الشجرة نظيفة. PR #36 حالته MERGED (سبق دمجه إلى `searchidf`، لا إلى هذا الفرع). لم يُنشأ أو يُدمج PR جديد لهذا الفرع.

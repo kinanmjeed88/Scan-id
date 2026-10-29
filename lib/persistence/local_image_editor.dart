@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import '../application/cancellation.dart';
 import '../application/contracts.dart';
+import '../domain/boundary_decision.dart';
 import '../application/ids.dart';
 import '../application/image_reader.dart';
 import '../domain/crop_draft.dart';
@@ -14,6 +15,7 @@ import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
+import '../imaging/document_detector.dart';
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
@@ -36,7 +38,8 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
-class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
+class LocalImageEditor
+    implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor {
   const LocalImageEditor(this.files, {this.readFullResolutionRegion});
   final SafeFiles files;
 
@@ -75,10 +78,50 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
     );
   }
 
-  /// No automatic boundary or region detector is installed in this build.
-  /// Keep the imported source intact for the user's manual crop/review.
+  /// The local classical edge/contour detector is a proposal source, not an
+  /// AI model or a calibrated confidence estimate. Every usable proposal is
+  /// routed to manual review before it can become an accepted crop.
   @override
-  Future<List<Point2>?> suggest(Uint8List _) async => null;
+  String? get boundaryModelId => null;
+
+  @override
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
+    final measured = await runCancellableIsolate(
+      () {
+        final decoded = decodeForProcessing(preview);
+        final result = detectDocumentCornersScored(decoded);
+        final corners = result?.corners;
+        if (result == null || corners == null) return null;
+        return <double>[
+          for (final point in corners) point.x,
+          for (final point in corners) point.y,
+          result.score,
+        ];
+      },
+      cancellation: cancellation,
+      debugName: 'classical-boundary-proposal',
+    );
+    if (measured == null || measured.length != 9) return null;
+    cancellation?.throwIfCancelled();
+    final corners = [
+      for (var i = 0; i < 4; i++) Point2(measured[i], measured[i + 4]),
+    ];
+    return BoundaryProposal(
+      producer: BoundaryProducer.detector,
+      corners: corners,
+      // The classical score ranks its own candidates; it is neither returned
+      // as confidence nor used for auto-acceptance. verifyBoundary routes this
+      // producer to manual review pending local calibration data.
+    );
+  }
+
+  @override
+  Future<List<Point2>?> suggest(Uint8List preview) async =>
+      (await suggestProposal(preview))?.corners;
 
   @override
   Future<Uint8List> preview(

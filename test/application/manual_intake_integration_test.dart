@@ -45,7 +45,10 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   Future<List<Point2>?> suggest(Uint8List preview) async => _proposal.corners;
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async =>
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async =>
       _proposal;
 
   Future<SegmentationResult> segment(Uint8List preview) async =>
@@ -90,7 +93,10 @@ class _RefreshingFakeEditor extends _TrackingFakeEditor
   String? get boundaryModelId => 'synthetic-review-test';
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async {
     refreshCount++;
     return _proposal;
   }
@@ -107,7 +113,10 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
   String? get boundaryModelId => 'synthetic-controlled-review-test';
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) {
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) {
     refreshCount++;
     final pending = pendingRefresh;
     if (pending != null) return pending.future;
@@ -178,6 +187,55 @@ void main() {
       );
     },
   );
+
+  test('classical local proposal flows through geometry gate and is stored '
+      'only as a suggestion', () async {
+    final tempDir = await Directory.systemTemp.createTemp('scanid_classical_');
+    addTearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+    final files = SafeFiles(tempDir);
+    final assets = LocalAssetRepository(files);
+    final projects = await LocalProjectRepository.open(tempDir);
+    addTearDown(projects.close);
+    final proposedQuad = [
+      Point2(.12, .13),
+      Point2(.88, .13),
+      Point2(.88, .87),
+      Point2(.12, .87),
+    ];
+    final editor = _UncertainBoundaryEditor(
+      LocalImageEditor(files),
+      BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: proposedQuad,
+      ),
+    );
+    final service = ProjectService(projects, assets, imageEditor: editor);
+    final bytes = File('test/fixtures/synthetic_card.png').readAsBytesSync();
+    var project = await service.create('اقتراح هندسي للمراجعة');
+    project = (await service.importImages(project, [
+      ImportSource('synthetic.png', () => Stream.value(bytes)),
+    ])).project;
+    final result = await service.arrangeImportedImages(
+      project,
+      [project.assets.single.id],
+    );
+    final saved = await projects.get(result.project.id);
+
+    expect(saved.assets.single.crop, isNull);
+    expect(saved.assets.single.suggestedCrop, hasLength(4));
+    for (var i = 0; i < 4; i++) {
+      expect(saved.assets.single.suggestedCrop![i].x, proposedQuad[i].x);
+      expect(saved.assets.single.suggestedCrop![i].y, proposedQuad[i].y);
+    }
+    expect(result.cropped, 0);
+    expect(
+      result.warnings.join(' '),
+      contains('اقتراح حدود هندسي محلي'),
+    );
+    expect(saved.items.single.documentKind, DocumentKind.unknown);
+  });
 
   test(
     'injected boundary proposal remains review-only and persists suggestedCrop on ImageAsset',

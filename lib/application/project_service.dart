@@ -676,7 +676,10 @@ class ProjectService {
         try {
           final source = await editor.open(asset);
           final rawProposal = editor is BoundaryProposalImageEditor
-              ? await editor.suggestProposal(source.preview)
+              ? await editor.suggestProposal(
+                  source.preview,
+                  cancellation: cancellation,
+                )
               : null;
           final corners = editor is BoundaryProposalImageEditor
               ? rawProposal?.corners
@@ -726,7 +729,8 @@ class ProjectService {
             }
             if (authorization == null) {
               notDetected++;
-              if (rawProposal?.producer == BoundaryProducer.learnedModel &&
+              if ((rawProposal?.producer == BoundaryProducer.learnedModel ||
+                    rawProposal?.producer == BoundaryProducer.detector) &&
                   decision.verification.hasUsableGeometry) {
                 asset = asset.withSuggestedCrop(corners);
                 current = current.copyWith(

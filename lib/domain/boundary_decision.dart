@@ -117,6 +117,11 @@ enum BoundaryReviewReason {
   /// This region came from a multi-document scene whose set-level physical
   /// corroboration was insufficient. Keep it, but do not auto-crop it.
   multiSceneNotCorroborated,
+
+  /// Classical candidate ranking is not a calibrated probability. Preserve a
+  /// valid proposal for manual review until a local labelled calibration set
+  /// establishes a defensible automatic-accept policy.
+  uncalibratedClassicalScore,
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -310,6 +315,8 @@ BoundaryDecision verifyBoundary(
   final measuredAspect = assessment.aspect!;
   final reasons = <BoundaryReviewReason>[
     if (proposal.forceReview) BoundaryReviewReason.multiSceneNotCorroborated,
+    if (proposal.producer == BoundaryProducer.detector)
+      BoundaryReviewReason.uncalibratedClassicalScore,
   ];
 
   // Outer claim refusal only. Above [maxAspectClaimRatio] the imposed size
@@ -436,6 +443,8 @@ String boundaryReviewReasonMessage(
     'تلامس حدود البطاقة حافة الإطار وقد يكون جزء منها مقطوعاً؛ راجع الزوايا يدوياً قبل اعتماد القصّ.',
   BoundaryReviewReason.multiSceneNotCorroborated =>
     'لم تتأكد الأدلة الفيزيائية من تعدد حدود المشهد؛ بقيت المنطقة للمراجعة ولم تُقصّ تلقائياً.',
+  BoundaryReviewReason.uncalibratedClassicalScore =>
+    'اقتراح حدود هندسي محلي؛ درجته ليست ثقة معايرة، لذا حُفظت الزوايا للمراجعة اليدوية دون قصّ تلقائي.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its

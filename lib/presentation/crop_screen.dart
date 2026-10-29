@@ -525,7 +525,10 @@ class _CropScreenState extends State<CropScreen> {
       final editor = service.imageEditor;
       if (editor is BoundaryProposalImageEditor) {
         try {
-          final refreshed = await editor.suggestProposal(preview);
+          final refreshed = await editor.suggestProposal(
+            preview,
+            cancellation: cancellation,
+          );
           final freshCorners = refreshed?.corners;
           if (_usableSuggestedCorners(
             freshCorners,
@@ -820,7 +823,11 @@ class _CropScreenState extends State<CropScreen> {
     try {
       final List<Point2>? points;
       if (editor is BoundaryProposalImageEditor) {
-        points = (await editor.suggestProposal(source.preview))?.corners;
+        points =
+            (await editor.suggestProposal(
+              source.preview,
+              cancellation: _operationCancellation,
+            ))?.corners;
       } else {
         points = await editor.suggest(source.preview);
       }

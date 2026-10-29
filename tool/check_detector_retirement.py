@@ -129,11 +129,22 @@ def verify() -> list[str]:
     editor = (ROOT / "lib/persistence/local_image_editor.dart").read_text(
         encoding="utf-8"
     )
-    if not re.search(
-        r"Future<List<Point2>\?>\s+suggest\(Uint8List\s+_\)\s+async\s*=>\s*null\s*;",
-        editor,
+    for token in (
+        "implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor",
+        "detectDocumentCornersScored(decoded)",
+        "producer: BoundaryProducer.detector",
+        "runCancellableIsolate(",
     ):
-        errors.append("production image editor must not return automatic corner proposals")
+        if token not in editor:
+            errors.append(f"local classical proposal path is missing required contract: {token}")
+    if "BoundaryProducer.learnedModel" in editor or "modelConfidence:" in editor:
+        errors.append("unqualified learned-model confidence must not be introduced")
+
+    decision = (ROOT / "lib/domain/boundary_decision.dart").read_text(
+        encoding="utf-8"
+    )
+    if "BoundaryReviewReason.uncalibratedClassicalScore" not in decision:
+        errors.append("classical score must be routed to manual review, not auto-accepted")
 
     return errors
 
@@ -146,8 +157,9 @@ def main() -> int:
             print(f"  - {error}", file=sys.stderr)
         return 1
     print(
-        "PASS: retired model artifacts, calls, and runtime paths are absent; "
-        "production intake is manual-only; schema v5 and annotation v2 remain."
+        "PASS: retired model artifacts/calls are absent; classical detector proposals "
+        "are cancellable and review-only; no AI model is active; schema v5 and "
+        "annotation v2 remain."
     )
     return 0
 

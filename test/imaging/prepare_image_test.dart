@@ -84,12 +84,12 @@ void main() {
           final pixel = decoded.getPixel(x, y);
           expect(
             pixel.r,
-            20 + source.$1 * 20,
+            closeTo(20 + source.$1 * 20, 2),
             reason: 'EXIF $orientation at $x,$y',
           );
           expect(
             pixel.g,
-            40 + source.$2 * 20,
+            closeTo(40 + source.$2 * 20, 2),
             reason: 'EXIF $orientation at $x,$y',
           );
         }

@@ -50,6 +50,34 @@ class CancellationToken {
   }
 }
 
+/// Stops awaiting an asynchronous stage as soon as its owner cancels. The
+/// source future remains observed (so a late error is not unhandled); concrete
+/// CPU stages should also receive the same token to stop their work.
+Future<T> awaitCancellable<T>(
+  Future<T> source, {
+  CancellationToken? cancellation,
+}) {
+  cancellation?.throwIfCancelled();
+  if (cancellation == null) return source;
+  final result = Completer<T>();
+  void cancel() {
+    if (!result.isCompleted) {
+      result.completeError(const OperationCancelled());
+    }
+  }
+
+  cancellation.addListener(cancel);
+  source.then<void>(
+    (value) {
+      if (!result.isCompleted) result.complete(value);
+    },
+    onError: (Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    },
+  );
+  return result.future.whenComplete(() => cancellation.removeListener(cancel));
+}
+
 /// Runs a read-only computation off the UI isolate and actually kills it on
 /// cancellation. Never use for file/database writes: those must finish their
 /// atomic staging/commit protocol and discard only the UI continuation.

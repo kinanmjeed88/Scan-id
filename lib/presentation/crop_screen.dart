@@ -364,7 +364,10 @@ class _CropScreenState extends State<CropScreen> {
     final initialHeightText = _initialHeightText;
     try {
       final editor = service.imageEditor!;
-      final source = await editor.open(asset, cancellation: cancellation);
+      final source = await awaitCancellable(
+        editor.open(asset, cancellation: cancellation),
+        cancellation: cancellation,
+      );
       if (!_isCurrentOperation(operation)) return;
       final crop = extractDerived ? null : asset.crop;
       // A category/print size is not permission to reshape pixels. Only an
@@ -784,11 +787,14 @@ class _CropScreenState extends State<CropScreen> {
     final operation = _beginOperation(canCancel: true);
     try {
       final recipe = _recipe();
-      final value = await service.suggestCropAutoAdjustments(
-        project,
-        asset,
-        recipe.geometry,
-        quarterTurns: draft.adjustments.quarterTurns,
+      final value = await awaitCancellable(
+        service.suggestCropAutoAdjustments(
+          project,
+          asset,
+          recipe.geometry,
+          quarterTurns: draft.adjustments.quarterTurns,
+          cancellation: _operationCancellation,
+        ),
         cancellation: _operationCancellation,
       );
       if (!mounted || operation != _operationGeneration) return;
@@ -874,9 +880,8 @@ class _CropScreenState extends State<CropScreen> {
     final draftRevision = _draftRevision;
     try {
       final recipe = _recipe();
-      final bytes = await _editor.preview(
-        asset,
-        recipe,
+      final bytes = await awaitCancellable(
+        _editor.preview(asset, recipe, cancellation: _operationCancellation),
         cancellation: _operationCancellation,
       );
       if (!mounted ||

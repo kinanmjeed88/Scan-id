@@ -78,6 +78,18 @@ void main() {
     },
   );
 
+  test(
+    'async editor wrappers stop waiting when their operation is cancelled',
+    () async {
+      final token = CancellationToken();
+      final source = Completer<int>();
+      final waiting = awaitCancellable(source.future, cancellation: token);
+      token.cancel();
+      await expectLater(waiting, throwsA(isA<OperationCancelled>()));
+      source.complete(7); // late work is observed and discarded safely
+    },
+  );
+
   test('pre-cancelled editor work never opens the source', () async {
     final root = await Directory.systemTemp.createTemp('scan-cancel-');
     addTearDown(() => root.delete(recursive: true));

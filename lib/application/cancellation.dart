@@ -113,7 +113,10 @@ Future<T> runCancellableIsolate<T>(
       onExit: exits.sendPort,
       errorsAreFatal: true,
     );
-    if (done) worker?.kill(priority: Isolate.immediate);
+    if (done) {
+      final spawned = worker;
+      if (spawned != null) spawned.kill(priority: Isolate.immediate);
+    }
     return await completer.future;
   } catch (_) {
     finish();

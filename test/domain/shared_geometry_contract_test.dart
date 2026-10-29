@@ -43,8 +43,8 @@ void main() {
     final collapsed = [
       Point2(.2, .2),
       Point2(.8, .2),
-      Point2(.8, .200001),
-      Point2(.2, .200001),
+      Point2(.8, .20001),
+      Point2(.2, .20001),
     ];
     expect(
       normalizedQuadIssue(collapsed),

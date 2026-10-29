@@ -139,13 +139,17 @@ List<Point2> remapCornersIntoRegion(
         (corner.y * (orientedHeight - 1) - top) / spanY,
       ),
   ];
+  // Pixel-edge snapping can pad the extracted region by one source pixel.
+  // Allow exactly that rounding frame, then clamp; a genuinely outside corner
+  // still fails instead of being silently rescued.
+  final tolerance = 1.0 / math.min(spanX, spanY) + 1e-9;
   require(
     local.every(
       (corner) =>
-          corner.x >= -1e-9 &&
-          corner.x <= 1 + 1e-9 &&
-          corner.y >= -1e-9 &&
-          corner.y <= 1 + 1e-9,
+          corner.x >= -tolerance &&
+          corner.x <= 1 + tolerance &&
+          corner.y >= -tolerance &&
+          corner.y <= 1 + tolerance,
     ),
     'زوايا القص خارج المنطقة المستخرجة.',
   );

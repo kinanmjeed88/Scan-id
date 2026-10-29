@@ -18,8 +18,6 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 
-import '../presentation/editor_harness.dart';
-
 class _DelayedEditor implements ImageEditor {
   _DelayedEditor(this._inner);
   final LocalImageEditor _inner;

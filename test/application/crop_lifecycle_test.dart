@@ -161,10 +161,16 @@ void main() {
       );
       await tester.tap(find.text('open crop'));
       await tester.pump();
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 80)),
-      );
-      await tester.pumpAndSettle();
+      // The busy progress indicator animates perpetually; poll the real
+      // loading state rather than pumpAndSettle on an indeterminate spinner.
+      for (var attempt = 0; attempt < 80; attempt++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find.byKey(const Key('crop-aspect')).evaluate().isNotEmpty) break;
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
+      expect(find.byKey(const Key('crop-aspect')), findsOneWidget);
     }
 
     testWidgets('known category does not silently reshape a new manual draft', (

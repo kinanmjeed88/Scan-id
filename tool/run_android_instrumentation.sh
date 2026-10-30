@@ -122,9 +122,14 @@ if (( gradle_status != 0 || docquad_status != 0 )); then
         diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
       | tail -n 20
   )"
+  resolution_details="$(
+    { grep -n -A45 -B5 -E 'Cannot find a version|No matching version|Could not resolve all files' \
+        diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
+      | head -c 7000
+  )"
   docquad_summary="$(tail -n 20 diagnostics/android-instrumentation/docquad-inference.log)"
-  details="$(printf '%s\n%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" "$docquad_summary" \
-    | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+  details="$(printf '%s\n%s\n%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" "$resolution_details" "$docquad_summary" \
+    | head -c 10500 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
   echo "::error title=android-runtime-inference-failure::Gradle exit=$gradle_status; DocQuad exit=$docquad_status; $details"
 else
   details="$(printf '%s\n%s' "$test_report" "$metrics_report" \

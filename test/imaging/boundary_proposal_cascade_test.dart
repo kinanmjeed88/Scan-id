@@ -44,6 +44,15 @@ void main() {
     minAutoAcceptConfidence: 1.01,
   );
 
+  void expectCorners(List<Point2>? actual, List<Point2> expected) {
+    expect(actual, hasLength(expected.length));
+    final corners = actual!;
+    for (var index = 0; index < expected.length; index++) {
+      expect(corners[index].x, closeTo(expected[index].x, 1e-9));
+      expect(corners[index].y, closeTo(expected[index].y, 1e-9));
+    }
+  }
+
   test('runs DocAligner when DocQuadNet returns no boundary', () async {
     final first = _FakeModel('DocQuadNet');
     final second = _FakeModel('DocAligner', learned(quad()));
@@ -53,7 +62,7 @@ void main() {
 
     expect(first.calls, 1);
     expect(second.calls, 1);
-    expect(proposal?.corners, equals(quad()));
+    expectCorners(proposal?.corners, quad());
     expect(
       verifyBoundary(proposal!, sourceWidth: 1000, sourceHeight: 700).kind,
       BoundaryDecisionKind.needsReview,
@@ -101,7 +110,7 @@ void main() {
         sourceHeight: 700,
       );
 
-      expect(proposal.corners, equals(quad()));
+      expectCorners(proposal.corners, quad());
       expect(proposal.forceReview, isTrue);
       expect(decision.kind, BoundaryDecisionKind.needsReview);
       expect(

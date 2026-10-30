@@ -26,8 +26,7 @@ void main() {
       void setBlob(int channel, int x, int y) {
         for (var dy = 0; dy < 2; dy++) {
           for (var dx = 0; dx < 2; dx++) {
-            heatmaps[channel * width * height + (y + dy) * width + x + dx] =
-                .8;
+            heatmaps[channel * width * height + (y + dy) * width + x + dx] = .8;
           }
         }
       }

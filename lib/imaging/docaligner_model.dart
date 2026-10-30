@@ -162,7 +162,10 @@ class DocAlignerFastViT implements BoundaryProposalModel {
     required int width,
     required int height,
   }) {
-    if (width <= 0 || height <= 0 || width > 512 || height > 512 ||
+    if (width <= 0 ||
+        height <= 0 ||
+        width > 512 ||
+        height > 512 ||
         values.length != 4 * width * height ||
         values.any((value) => !value.isFinite || value < 0 || value > 1)) {
       return null;

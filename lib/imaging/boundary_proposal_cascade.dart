@@ -83,10 +83,7 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
     CancellationToken? cancellation,
   ) async {
     try {
-      return await model.suggestProposal(
-        preview,
-        cancellation: cancellation,
-      );
+      return await model.suggestProposal(preview, cancellation: cancellation);
     } on OperationCancelled {
       rethrow;
     } on Object catch (error, stackTrace) {

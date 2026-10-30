@@ -47,10 +47,7 @@ void main() {
   test('runs DocAligner when DocQuadNet returns no boundary', () async {
     final first = _FakeModel('DocQuadNet');
     final second = _FakeModel('DocAligner', learned(quad()));
-    final cascade = BoundaryProposalCascade(
-      primary: first,
-      secondary: second,
-    );
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
 
     final proposal = await cascade.suggestProposal(preview);
 
@@ -67,10 +64,7 @@ void main() {
     final primaryProposal = learned(quad());
     final first = _FakeModel('DocQuadNet', primaryProposal);
     final second = _FakeModel('DocAligner', learned(quad()));
-    final cascade = BoundaryProposalCascade(
-      primary: first,
-      secondary: second,
-    );
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
 
     final proposal = await cascade.suggestProposal(preview);
 
@@ -78,8 +72,11 @@ void main() {
     expect(second.calls, 1);
     expect(proposal, same(primaryProposal));
     expect(
-      verifyBoundary(proposal!, sourceWidth: 1000, sourceHeight: 700)
-          .cropAuthorization,
+      verifyBoundary(
+        proposal!,
+        sourceWidth: 1000,
+        sourceHeight: 700,
+      ).cropAuthorization,
       isNull,
     );
   });
@@ -118,10 +115,7 @@ void main() {
   test('both AI failures reach the existing classical detector', () async {
     final first = _FakeModel('DocQuadNet')..fail = true;
     final second = _FakeModel('DocAligner')..fail = true;
-    final cascade = BoundaryProposalCascade(
-      primary: first,
-      secondary: second,
-    );
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
     final editor = LocalImageEditor(
       SafeFiles(Directory.systemTemp),
       boundaryProposer: cascade,
@@ -141,10 +135,7 @@ void main() {
   test('drops a lone primary result when DocAligner fails', () async {
     final first = _FakeModel('DocQuadNet', learned(quad()));
     final second = _FakeModel('DocAligner')..fail = true;
-    final cascade = BoundaryProposalCascade(
-      primary: first,
-      secondary: second,
-    );
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
 
     expect(await cascade.suggestProposal(preview), isNull);
     expect(first.calls, 1);
@@ -154,10 +145,7 @@ void main() {
   test('cancellation from the first model is not swallowed', () async {
     final first = _FakeModel('DocQuadNet')..cancel = true;
     final second = _FakeModel('DocAligner');
-    final cascade = BoundaryProposalCascade(
-      primary: first,
-      secondary: second,
-    );
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
 
     await expectLater(
       cascade.suggestProposal(preview),

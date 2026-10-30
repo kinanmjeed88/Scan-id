@@ -39,7 +39,7 @@ void main() {
   });
 
   test('selecting a document kind preserves unconfirmed crop geometry', () {
-    const corners = [
+    final corners = [
       Point2(.08, .12),
       Point2(.91, .14),
       Point2(.88, .78),

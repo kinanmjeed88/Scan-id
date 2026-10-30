@@ -23,7 +23,7 @@ set -e
 
 set +e
 flutter test integration_test/docquad_inference_test.dart \
-  -d "${ANDROID_SERIAL:-emulator-5554}" --reporter expanded \
+  -d "${ANDROID_SERIAL:-emulator-5554}" --flavor scanid --reporter expanded \
   2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
 docquad_status=${PIPESTATUS[0]}
 set -e

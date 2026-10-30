@@ -25,4 +25,9 @@ for name in files:
     source = result.stdout or Path(name).read_bytes()
     source = source.rsplit(b"\nFormatted ", 1)[0] + b"\n" if b"\nFormatted " in source else source
     encoded = base64.b64encode(zlib.compress(source, 9)).decode("ascii")
-    print(f"::notice title=format-preview-{Path(name).name}::zlib-base64:{encoded}")
+    chunks = [encoded[index : index + 3000] for index in range(0, len(encoded), 3000)]
+    for index, chunk in enumerate(chunks, start=1):
+        print(
+            f"::notice title=format-preview-{Path(name).name}-part-{index:02d}::"
+            f"zlib-base64:{chunk}"
+        )

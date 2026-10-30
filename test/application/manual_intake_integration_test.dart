@@ -283,6 +283,8 @@ void main() {
       final arranged = await service.arrangeImportedImages(project, [
         project.assets.single.id,
       ]);
+      expect(arranged.notDetected, 0);
+      expect(arranged.boundaryNeedsReview, 1);
       final reloaded = await projects.get(arranged.project.id);
       final savedAsset = reloaded.assets.single;
       final savedItem = reloaded.items.single;
@@ -323,6 +325,8 @@ void main() {
         ),
       );
       final report = await intake.run(smartImported, [smartAssetId]);
+      expect(report.notDetected, 0);
+      expect(report.boundaryNeedsReview, 1);
       final doc = report.project.documents.single;
       final smartAsset = report.project.assets.firstWhere(
         (a) => a.id == smartAssetId,

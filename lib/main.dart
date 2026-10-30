@@ -14,6 +14,7 @@ import 'application/camera_capture.dart';
 import 'application/native_camera.dart';
 import 'application/ota_update.dart';
 import 'application/update_setup.dart';
+import 'imaging/docquad_model.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
@@ -29,6 +30,22 @@ void main() {
     yield LicenseEntryWithLineBreaks([
       'AndroidX Core',
     ], await rootBundle.loadString('assets/legal/androidx-core-LICENSE.txt'));
+    yield LicenseEntryWithLineBreaks(
+      ['DocQuadNet-256 (upstream declared Apache-2.0)'],
+      await rootBundle.loadString(
+        'assets/legal/docquadnet-apache-2.0-LICENSE.txt',
+      ),
+    );
+    yield LicenseEntryWithLineBreaks(
+      ['flutter_onnxruntime (MASIC AI)'],
+      await rootBundle.loadString(
+        'assets/legal/flutter-onnxruntime-MIT-LICENSE.txt',
+      ),
+    );
+    yield LicenseEntryWithLineBreaks(
+      ['ONNX Runtime'],
+      await rootBundle.loadString('assets/legal/onnxruntime-LICENSE.txt'),
+    );
   });
   runApp(const _Bootstrap());
 }
@@ -63,6 +80,7 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
   final editor = LocalImageEditor(
     repository.files,
     readFullResolutionRegion: fullResolution.cropJpegRegion,
+    boundaryProposer: DocQuadNet256(),
   );
   return ProjectService(
     repository,

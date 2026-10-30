@@ -764,9 +764,11 @@ class LayoutEditorController extends ChangeNotifier {
           'وتوجد ${intakeWarnings.length - 3} حالات أخرى.',
       ].join('\n');
       _say(
-        'قُصّ ${r.cropped} · تُعرّف على ${r.recognized} · بلا حدود ${r.notDetected}'
-        '${r.needsReview > 0 ? ' · للمراجعة ${r.needsReview}' : ''}'
-        '${r.unplaced > 0 ? ' · خارج الورق ${r.unplaced}' : ''}'
+        'قُصّ ${r.cropped} · أنواع معروفة ${r.recognized} · '
+        'حدود للمراجعة ${r.boundaryNeedsReview} · '
+        'بلا رباعي صالح ${r.notDetected} · مقاس غير محدد ${r.awaitingSize} · '
+        'خارج الورق ${r.unplaced}'
+        '${r.needsReview > 0 ? ' · للتعرّف ${r.needsReview}' : ''}'
         '${failures > 0 ? ' · تعذر استيراد $failures' : ''}'
         '${refused == null ? '' : '\n$refused'}'
         '${intakeDetails.isEmpty ? '' : '\n$intakeDetails'}',
@@ -805,7 +807,8 @@ class LayoutEditorController extends ChangeNotifier {
       return;
     }
     _say(
-      'أُعيد التعرف: حدّث ${r.needsReview} · بلا حدود ${r.notDetected}'
+      'أُعيد التعرف: تصنيف قيد المراجعة ${r.needsReview} · '
+      'حدود للمراجعة ${r.boundaryNeedsReview} · بلا رباعي صالح ${r.notDetected}'
       '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}'
       '${r.rejectedSummary == null ? '' : '\n${r.rejectedSummary}'}',
     );

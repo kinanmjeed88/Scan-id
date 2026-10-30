@@ -21,6 +21,13 @@ set +e
 gradle_status=${PIPESTATUS[0]}
 set -e
 
+set +e
+flutter test integration_test/docquad_inference_test.dart \
+  -d "${ANDROID_SERIAL:-emulator-5554}" --reporter expanded \
+  2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
+docquad_status=${PIPESTATUS[0]}
+set -e
+
 metrics_file=diagnostics/android-instrumentation/native-jpeg-crop-metrics.log
 logcat_file=diagnostics/android-instrumentation/android-crop-metrics-logcat.log
 adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
@@ -79,6 +86,7 @@ for name, details in results.items():
         print(f"{name}: {detail}")
 PY
 )"
+test_report="$test_report; docquadFlutterInferenceExit=$docquad_status"
 
 if grep -q '^case=' "$metrics_file"; then
   metrics_report="$(awk -v source="$metrics_source" '
@@ -108,23 +116,27 @@ fi
   printf '%s\n%s\n' "$test_report" "$metrics_report"
 } > diagnostics/android-instrumentation/summary.txt
 
-if (( gradle_status != 0 )); then
+if (( gradle_status != 0 || docquad_status != 0 )); then
   gradle_summary="$(
     { grep -E '(^FAILURE:|^\* What went wrong:|^Execution failed for task|^> Task .*FAILED|^e: |error:|^Caused by:|^There were failing tests|^.*AssertionError)' \
         diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
       | tail -n 20
   )"
-  details="$(printf '%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" \
+  docquad_summary="$(tail -n 20 diagnostics/android-instrumentation/docquad-inference.log)"
+  details="$(printf '%s\n%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" "$docquad_summary" \
     | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
-  echo "::error title=android-gradle-failure-summary::Gradle exit=$gradle_status; $details"
+  echo "::error title=android-runtime-inference-failure::Gradle exit=$gradle_status; DocQuad exit=$docquad_status; $details"
 else
   details="$(printf '%s\n%s' "$test_report" "$metrics_report" \
     | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
   echo "::notice title=android-instrumentation-evidence::$details"
 fi
 
-if (( gradle_status == 0 )) && ! grep -q 'androidTests=[1-9][0-9]* failures=0 ' <<< "$test_report"; then
+if (( gradle_status == 0 && docquad_status == 0 )) && ! grep -q 'androidTests=[1-9][0-9]* failures=0 ' <<< "$test_report"; then
   echo "::error title=android-instrumentation::No successful Android test cases were reported; refusing to count logcat metrics as tests."
   exit 1
 fi
-exit "$gradle_status"
+if (( gradle_status != 0 )); then
+  exit "$gradle_status"
+fi
+exit "$docquad_status"

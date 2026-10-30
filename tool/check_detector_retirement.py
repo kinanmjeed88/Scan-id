@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -86,8 +87,8 @@ def verify() -> list[str]:
                 )
 
     pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
-    if re.search(r"(?m)^\s*-\s*assets/models(?:/|\s|$)", pubspec):
-        errors.append("retired model directory is still bundled as an asset")
+    if re.search(r"(?m)^\s*-\s*assets/models(?:/\*\*?|/\s*$|\s|$)", pubspec):
+        errors.append("retired model directory or wildcard is still bundled as an asset")
 
     flags = (ROOT / "lib/application/multi_document_segmentation_flag.dart").read_text(
         encoding="utf-8"
@@ -137,8 +138,42 @@ def verify() -> list[str]:
     ):
         if token not in editor:
             errors.append(f"local classical proposal path is missing required contract: {token}")
-    if "BoundaryProducer.learnedModel" in editor or "modelConfidence:" in editor:
-        errors.append("unqualified learned-model confidence must not be introduced")
+    model_path = ROOT / "assets/models/docquadnet256_trained_opset17.ort"
+    expected_model_sha256 = "f0f2f52d7d79ff02d346c8f9d0c9e903407366aeea1747cdcff160c401e3e72a"
+    if not model_path.is_file():
+        errors.append("verified DocQuadNet-256 ORT asset is missing")
+    elif hashlib.sha256(model_path.read_bytes()).hexdigest() != expected_model_sha256:
+        errors.append("DocQuadNet-256 ORT asset SHA-256 does not match the reviewed weight")
+
+    model_source_path = ROOT / "lib/imaging/docquad_model.dart"
+    if not model_source_path.is_file():
+        errors.append("DocQuadNet-256 ONNX Runtime adapter is missing")
+    else:
+        model_source = model_source_path.read_text(encoding="utf-8")
+        for token in (
+            "createSessionFromAsset(",
+            "corner_heatmaps",
+            "mask_logits",
+            "BoundaryProducer.learnedModel",
+            "minAutoAcceptConfidence: 1.01",
+            "verifyBoundary(",
+            "_minimumReviewEvidence",
+        ):
+            if token not in model_source:
+                errors.append(f"DocQuadNet runtime contract is missing: {token}")
+        if "download" in model_source.lower() or "http://" in model_source or "https://" in model_source:
+            errors.append("model inference must not download weights or call a remote service")
+
+    pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
+    for token in (
+        "flutter_onnxruntime:",
+        "assets/models/docquadnet256_trained_opset17.ort",
+        "assets/legal/docquadnet-apache-2.0-LICENSE.txt",
+        "assets/legal/flutter-onnxruntime-MIT-LICENSE.txt",
+        "assets/legal/onnxruntime-LICENSE.txt",
+    ):
+        if token not in pubspec:
+            errors.append(f"AI asset/dependency declaration is missing: {token}")
 
     decision = (ROOT / "lib/domain/boundary_decision.dart").read_text(
         encoding="utf-8"
@@ -157,9 +192,10 @@ def main() -> int:
             print(f"  - {error}", file=sys.stderr)
         return 1
     print(
-        "PASS: retired model artifacts/calls are absent; classical detector proposals "
-        "are cancellable and review-only; no AI model is active; schema v5 and "
-        "annotation v2 remain."
+        "PASS: retired models remain absent; the pinned DocQuadNet-256 weight and "
+        "offline ONNX Runtime adapter match their reviewed SHA/licences; invalid or "
+        "failed AI results fall back to the classical review-only proposer; schema "
+        "v5 and annotation v2 remain."
     )
     return 0
 

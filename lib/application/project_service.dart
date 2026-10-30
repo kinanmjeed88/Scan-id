@@ -79,6 +79,7 @@ class AutomaticLayoutReport {
     required this.notDetected,
     this.recognized = 0,
     this.needsReview = 0,
+    this.boundaryNeedsReview = 0,
     this.multiDocumentImages = 0,
     this.rejectedRegions = 0,
     Map<RegionRejection, int> rejectedByReason = const {},
@@ -96,6 +97,9 @@ class AutomaticLayoutReport {
 
   final Project project;
   final int cropped;
+
+  /// Inputs with no usable boundary quadrilateral. A proposed boundary awaiting
+  /// a human decision is counted separately in [boundaryNeedsReview].
   final int notDetected;
 
   /// Documents whose category (and therefore size) was recognised.
@@ -103,6 +107,10 @@ class AutomaticLayoutReport {
 
   /// Recognition records routed to the review queue (Smart Recognition).
   final int needsReview;
+
+  /// Images with usable boundary geometry that awaits a human crop decision.
+  /// This is deliberately separate from [notDetected] and type recognition.
+  final int boundaryNeedsReview;
 
   /// Source images that were segmented into several documents.
   final int multiDocumentImages;
@@ -138,8 +146,16 @@ class AutomaticLayoutReport {
       rejectedRegionsHeadline(rejectedRegions, rejectedByReason);
 
   final List<String> warnings;
-  int get unplaced =>
-      project.items.where((item) => item.pageIndex == null).length;
+  /// Confirmed-size documents which the layout could not place on paper.
+  /// Unknown size is reported independently and is not a paper overflow.
+  int get unplaced => project.items
+      .where((item) => item.sizeConfirmed && item.pageIndex == null)
+      .length;
+
+  /// Items waiting for a physical size before layout can be attempted.
+  int get awaitingSize => project.items
+      .where((item) => !item.sizeConfirmed && item.pageIndex == null)
+      .length;
 }
 
 /// A replaced source: the record is saved and the aspect warning is explicit.
@@ -449,6 +465,7 @@ class ProjectService {
     // recognized-category count remains zero until such evidence is added.
     var recognized = 0;
     var needsReview = 0;
+    var boundaryNeedsReview = 0;
     var multiDocumentImages = 0;
     var rejectedRegions = 0;
     final rejectedByReason = <RegionRejection, int>{};
@@ -462,6 +479,7 @@ class ProjectService {
       notDetected += report.notDetected;
       recognized += report.recognized;
       needsReview += report.needsReview;
+      boundaryNeedsReview += report.boundaryNeedsReview;
       multiDocumentImages += report.multiDocumentImages;
       rejectedRegions += report.rejectedRegions;
       for (final entry in report.rejectedByReason.entries) {
@@ -621,6 +639,7 @@ class ProjectService {
       notDetected: notDetected,
       recognized: recognized,
       needsReview: needsReview,
+      boundaryNeedsReview: boundaryNeedsReview,
       multiDocumentImages: multiDocumentImages,
       rejectedRegions: rejectedRegions,
       rejectedByReason: rejectedByReason,
@@ -642,6 +661,7 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
+    var boundaryNeedsReview = 0;
     // The legacy route currently has no independent kind classifier.
     var recognized = 0;
     final warnings = <String>[];
@@ -728,7 +748,11 @@ class ProjectService {
               );
             }
             if (authorization == null) {
-              notDetected++;
+              if (decision.verification.hasUsableGeometry) {
+                boundaryNeedsReview++;
+              } else {
+                notDetected++;
+              }
               if ((rawProposal?.producer == BoundaryProducer.learnedModel ||
                       rawProposal?.producer == BoundaryProducer.detector) &&
                   decision.verification.hasUsableGeometry) {
@@ -829,6 +853,7 @@ class ProjectService {
         cropped: cropped,
         notDetected: notDetected,
         recognized: recognized,
+        boundaryNeedsReview: boundaryNeedsReview,
         warnings: warnings,
       );
     }
@@ -858,6 +883,7 @@ class ProjectService {
       cropped: cropped,
       notDetected: notDetected,
       recognized: recognized,
+      boundaryNeedsReview: boundaryNeedsReview,
       warnings: warnings,
     );
   }

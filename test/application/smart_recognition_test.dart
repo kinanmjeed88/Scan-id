@@ -1282,7 +1282,8 @@ void main() {
       final result = report.project;
       expect(report.multiDocumentImages, 0);
       expect(report.cropped, 0);
-      expect(report.notDetected, 1);
+      expect(report.notDetected, 0);
+      expect(report.boundaryNeedsReview, 1);
       expect(result.documents, isEmpty);
       expect(result.items, hasLength(1));
       expect(result.assets, hasLength(1));

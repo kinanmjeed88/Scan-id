@@ -77,7 +77,7 @@ String unplacedDocumentMessage(Project project, DocumentItem item) {
     AutoLayoutStatus.locked =>
       '$label مثبت خارج الورقة؛ حرّره قبل وضعه تلقائياً.',
     AutoLayoutStatus.sizeUnconfirmed =>
-      '$label بقي خارج الورقة لأن القياس غير مؤكّد؛ حدّد النوع أو أدخل قياساً وثبّته.',
+      '$label لم يُحاول وضعه على الورقة لأن القياس غير مؤكّد؛ حدّد النوع أو أدخل قياساً وثبّته.',
     AutoLayoutStatus.tooLarge =>
       '$label ($size) لا يلائم المساحة القابلة للطباعة'
           '${project.layout.allowRotation ? ' حتى بعد التدوير' : ' في اتجاهه الحالي'}؛ '

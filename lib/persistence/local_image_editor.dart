@@ -15,6 +15,7 @@ import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
+import '../imaging/docquad_model.dart';
 import '../imaging/document_detector.dart';
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/image_header.dart';
@@ -40,12 +41,20 @@ typedef FullResolutionRegionReader =
 
 class LocalImageEditor
     implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor {
-  const LocalImageEditor(this.files, {this.readFullResolutionRegion});
+  const LocalImageEditor(
+    this.files, {
+    this.readFullResolutionRegion,
+    this.boundaryProposer,
+  });
   final SafeFiles files;
 
   /// Null in tests that never crop a large JPEG. A production editor must set
   /// it. A missing reader is an explicit failure, not a silent sample.
   final FullResolutionRegionReader? readFullResolutionRegion;
+
+  /// Optional offline learned proposer. Missing/failed/invalid model results
+  /// fall through to the local classical detector and remain review-only.
+  final BoundaryProposalModel? boundaryProposer;
 
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
@@ -78,11 +87,12 @@ class LocalImageEditor
     );
   }
 
-  /// The local classical edge/contour detector is a proposal source, not an
-  /// AI model or a calibrated confidence estimate. Every usable proposal is
-  /// routed to manual review before it can become an accepted crop.
+  /// Identifies the offline cascade for diagnostics; the proposal's producer
+  /// field records whether DocQuadNet or the classical fallback actually ran.
   @override
-  String? get boundaryModelId => null;
+  String? get boundaryModelId => boundaryProposer == null
+      ? null
+      : '${boundaryProposer!.modelId}+classical-fallback';
 
   @override
   Future<BoundaryProposal?> suggestProposal(
@@ -90,6 +100,22 @@ class LocalImageEditor
     CancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
+    final learned = boundaryProposer;
+    if (learned != null) {
+      try {
+        final proposal = await learned.suggestProposal(
+          preview,
+          cancellation: cancellation,
+        );
+        cancellation?.throwIfCancelled();
+        if (proposal != null) return proposal;
+      } on OperationCancelled {
+        rethrow;
+      } on Object {
+        // Model load/inference is optional. The independent local detector is
+        // the next cascade stage, not a swallowed failure or network retry.
+      }
+    }
     final measured = await runCancellableIsolate(
       () {
         final decoded = decodeForProcessing(preview);

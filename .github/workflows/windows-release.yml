@@ -35,6 +35,8 @@ jobs:
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: Build Windows release
         run: python tool/ci_gate.py windows-build flutter build windows --release
+      - name: Run bundled DocQuad ONNX Runtime inference on Windows
+        run: python tool/ci_gate.py docquad-windows flutter test integration_test/docquad_inference_test.dart -d windows --reporter expanded
       - name: Build native Windows scaler regression tests
         run: python tool/ci_gate.py windows-scaler-build cmake --build build/windows/x64 --config Release --target large_jpeg_scaler_test
       - name: Run native Windows scaler regressions

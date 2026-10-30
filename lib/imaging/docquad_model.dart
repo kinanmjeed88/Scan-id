@@ -9,8 +9,7 @@ import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import 'prepare_image.dart';
 
-const docQuadAssetPath =
-    'assets/models/docquadnet256_trained_opset17.ort';
+const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
 
 /// Small seam that allows the image editor to use a learned proposer while
 /// keeping geometric validation, persistence and manual approval in the app.
@@ -64,10 +63,12 @@ class DocQuadNet256 implements BoundaryProposalModel {
     OrtValue? inputValue;
     Map<String, OrtValue>? outputs;
     try {
-      inputValue = await OrtValue.fromList(
-        input.values,
-        [1, 3, inputHeight, inputWidth],
-      );
+      inputValue = await OrtValue.fromList(input.values, [
+        1,
+        3,
+        inputHeight,
+        inputWidth,
+      ]);
       cancellation?.throwIfCancelled();
       outputs = await session.run({'input': inputValue});
       cancellation?.throwIfCancelled();
@@ -100,7 +101,8 @@ class DocQuadNet256 implements BoundaryProposalModel {
         );
       }
       final peaks = _peaks(values);
-      final evidence = _cornerMaskIou(peaks, maskValues) *
+      final evidence =
+          _cornerMaskIou(peaks, maskValues) *
           peaks.fold<double>(
             1,
             (minimum, peak) =>
@@ -154,10 +156,14 @@ class DocQuadNet256 implements BoundaryProposalModel {
     final scale = math
         .min(inputWidth / source.width, inputHeight / source.height)
         .toDouble();
-    final scaledWidth =
-        (source.width * scale).round().clamp(1, inputWidth).toInt();
-    final scaledHeight =
-        (source.height * scale).round().clamp(1, inputHeight).toInt();
+    final scaledWidth = (source.width * scale)
+        .round()
+        .clamp(1, inputWidth)
+        .toInt();
+    final scaledHeight = (source.height * scale)
+        .round()
+        .clamp(1, inputHeight)
+        .toInt();
     final offsetX = (inputWidth - source.width * scale) / 2;
     final offsetY = (inputHeight - source.height * scale) / 2;
     final left = ((inputWidth - scaledWidth) / 2).floor();
@@ -183,8 +189,7 @@ class DocQuadNet256 implements BoundaryProposalModel {
   }
 
   static List<_Peak> _peaks(List<num> heatmaps) => [
-    for (var channel = 0; channel < 4; channel++)
-      _peak(heatmaps, channel),
+    for (var channel = 0; channel < 4; channel++) _peak(heatmaps, channel),
   ];
 
   static _Peak _peak(List<num> heatmaps, int channel) {
@@ -222,8 +227,7 @@ class DocQuadNet256 implements BoundaryProposalModel {
           final a = peaks[i];
           final b = peaks[(i + 1) % 4];
           if ((a.y > y + .5) != (b.y > y + .5) &&
-              x + .5 <
-                  a.x + (y + .5 - a.y) * (b.x - a.x) / (b.y - a.y)) {
+              x + .5 < a.x + (y + .5 - a.y) * (b.x - a.x) / (b.y - a.y)) {
             inside = !inside;
           }
         }

@@ -80,10 +80,7 @@ void main() {
     final model = DocQuadNet256();
     final token = CancellationToken()..cancel();
     await expectLater(
-      model.suggestProposal(
-        _syntheticDesk(card: true),
-        cancellation: token,
-      ),
+      model.suggestProposal(_syntheticDesk(card: true), cancellation: token),
       throwsA(isA<OperationCancelled>()),
     );
     await model.close();

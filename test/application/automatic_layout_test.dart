@@ -65,7 +65,11 @@ void main() {
         isTrue,
       );
       expect(result.recognized, 0);
-      expect(result.unplaced, 0, reason: 'unknown sizes are not paper overflow');
+      expect(
+        result.unplaced,
+        0,
+        reason: 'unknown sizes are not paper overflow',
+      );
       expect(result.awaitingSize, 3);
       expect(result.notDetected, 3, reason: 'flat images have no boundary');
       expect(result.cropped, 0);

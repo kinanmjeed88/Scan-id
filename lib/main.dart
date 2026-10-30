@@ -42,10 +42,9 @@ void main() {
         'assets/legal/flutter-onnxruntime-MIT-LICENSE.txt',
       ),
     );
-    yield LicenseEntryWithLineBreaks(
-      ['ONNX Runtime'],
-      await rootBundle.loadString('assets/legal/onnxruntime-LICENSE.txt'),
-    );
+    yield LicenseEntryWithLineBreaks([
+      'ONNX Runtime',
+    ], await rootBundle.loadString('assets/legal/onnxruntime-LICENSE.txt'));
   });
   runApp(const _Bootstrap());
 }

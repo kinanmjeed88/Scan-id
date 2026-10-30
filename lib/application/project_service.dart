@@ -146,6 +146,7 @@ class AutomaticLayoutReport {
       rejectedRegionsHeadline(rejectedRegions, rejectedByReason);
 
   final List<String> warnings;
+
   /// Confirmed-size documents which the layout could not place on paper.
   /// Unknown size is reported independently and is not a paper overflow.
   int get unplaced => project.items

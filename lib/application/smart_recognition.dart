@@ -45,9 +45,8 @@ import 'recognition_worker.dart';
 
 int _boundaryReviewCount(Iterable<DocumentRecord> records) => records
     .where(
-      (record) => record.sides.any(
-        (side) => side.detection?.suggestedPolygon != null,
-      ),
+      (record) =>
+          record.sides.any((side) => side.detection?.suggestedPolygon != null),
     )
     .length;
 

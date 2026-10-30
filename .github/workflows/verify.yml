@@ -131,6 +131,9 @@ jobs:
           rm -f "$script"
       - name: Dart format gate
         run: python tool/ci_gate.py format python tool/format_report.py
+      - name: Read-only formatter output for changed detector files
+        if: failure()
+        run: python tool/format_preview.py
       - name: Flutter analyze
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests

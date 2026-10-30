@@ -244,7 +244,14 @@ void main() {
         expect(fullCheck.isValid, isTrue);
 
         final bounds = manualCropBounds(previewCorners);
-        final localCorners = remapCornersIntoRegion(previewCorners, bounds);
+        final localCorners = remapCornersIntoRegion(
+          previewCorners,
+          bounds,
+          orientedWidth: oriented.$1,
+          orientedHeight: oriented.$2,
+          regionWidth: 810,
+          regionHeight: 1080,
+        );
         final spanW = snappedSpanPixels(bounds.left, bounds.right, oriented.$1);
         final spanH = snappedSpanPixels(bounds.top, bounds.bottom, oriented.$2);
         final localCheck = validateManualBoundary(

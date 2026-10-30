@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
@@ -35,6 +36,27 @@ void main() {
     expect([item.width, item.height], [85.6, 53.98]);
     expect(item.sizeConfirmed, isTrue);
     expect(item.documentKind, DocumentKind.unifiedNationalId);
+  });
+
+  test('selecting a document kind preserves unconfirmed crop geometry', () {
+    final corners = [
+      Point2(.08, .12),
+      Point2(.91, .14),
+      Point2(.88, .78),
+      Point2(.10, .81),
+    ];
+    final project = _project().copyWith(
+      assets: [assetFixture().withSuggestedCrop(corners)],
+    );
+    final selected = DocumentEdits.setKind(
+      project,
+      'doc',
+      DocumentKind.unifiedNationalId,
+    );
+
+    expect(selected.assets.single.crop, isNull);
+    expect(selected.assets.single.suggestedCrop, corners);
+    expect(PageLayout.item(selected, 'doc').sizeConfirmed, isTrue);
   });
 
   test('the catalog size follows the picture orientation', () {

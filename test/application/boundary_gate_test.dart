@@ -3,13 +3,16 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
+import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/imaging/docquad_model.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -104,35 +107,76 @@ void main() {
       return service.arrangeImportedImages(project, [project.assets.single.id]);
     }
 
-    test('filenames do not produce automatic boundary suggestions', () async {
-      final first = await importNamed('capture-a.png');
-      final second = await importNamed('different-name.jpg');
-      expect(first.cropped, 0);
-      expect(second.cropped, 0);
-      expect(first.notDetected, 1);
-      expect(second.notDetected, 1);
-      expect(first.project.items, hasLength(1));
-      expect(second.project.items, hasLength(1));
+    test(
+      'filenames do not affect local geometric boundary proposals',
+      () async {
+        final first = await importNamed('capture-a.png');
+        final second = await importNamed('different-name.jpg');
+        expect(first.cropped, 0);
+        expect(second.cropped, 0);
+        expect(first.notDetected, 0);
+        expect(second.notDetected, 0);
+        expect(first.boundaryNeedsReview, 1);
+        expect(second.boundaryNeedsReview, 1);
+        expect(first.project.items, hasLength(1));
+        expect(second.project.items, hasLength(1));
 
-      final firstAsset = first.project.assets.single;
-      final secondAsset = second.project.assets.single;
-      expect(firstAsset.crop, isNull);
-      expect(secondAsset.crop, isNull);
-      expect(firstAsset.suggestedCrop, isNull);
-      expect(secondAsset.suggestedCrop, isNull);
-      expect(
-        [firstAsset.width, firstAsset.height],
-        [secondAsset.width, secondAsset.height],
-      );
-      for (final item in [
-        first.project.items.single,
-        second.project.items.single,
-      ]) {
-        expect(item.documentKind, DocumentKind.unknown);
-        expect(item.sizeConfirmed, isFalse);
-        expect(item.pageIndex, isNull);
-      }
-    });
+        final firstAsset = first.project.assets.single;
+        final secondAsset = second.project.assets.single;
+        expect(firstAsset.crop, isNull);
+        expect(secondAsset.crop, isNull);
+        expect(firstAsset.suggestedCrop, hasLength(4));
+        expect(secondAsset.suggestedCrop, hasLength(4));
+        for (var i = 0; i < 4; i++) {
+          expect(
+            firstAsset.suggestedCrop![i].x,
+            closeTo(secondAsset.suggestedCrop![i].x, 1e-9),
+          );
+          expect(
+            firstAsset.suggestedCrop![i].y,
+            closeTo(secondAsset.suggestedCrop![i].y, 1e-9),
+          );
+        }
+        expect(
+          [firstAsset.width, firstAsset.height],
+          [secondAsset.width, secondAsset.height],
+        );
+        for (final item in [
+          first.project.items.single,
+          second.project.items.single,
+        ]) {
+          expect(item.documentKind, DocumentKind.unknown);
+          expect(item.sizeConfirmed, isFalse);
+          expect(item.pageIndex, isNull);
+        }
+      },
+    );
+
+    test(
+      'failed AI inference falls through to the classical proposer',
+      () async {
+        var project = await service.create('fallback');
+        project = (await service.importImages(project, [
+          ImportSource('fallback.png', () => Stream.value(_contrastScene())),
+        ])).project;
+        final editor = LocalImageEditor(
+          projects.files,
+          boundaryProposer: _FailingBoundaryModel(),
+        );
+        final source = await editor.open(project.assets.single);
+        final proposal = await editor.suggestProposal(source.preview);
+
+        expect(proposal, isNotNull);
+        expect(proposal!.producer, BoundaryProducer.detector);
+        final decision = verifyBoundary(
+          proposal,
+          sourceWidth: source.width,
+          sourceHeight: source.height,
+        );
+        expect(decision.verification.hasUsableGeometry, isTrue);
+        expect(decision.cropAuthorization, isNull);
+      },
+    );
 
     test(
       'multi-region crops preserve measured geometry without classifying',
@@ -475,16 +519,35 @@ class _FixedSuggest implements ImageEditor {
   final List<Point2> corners;
 
   @override
-  Future<EditorSource> open(ImageAsset asset) => inner.open(asset);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) => inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => corners;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
-      inner.preview(asset, recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) => inner.preview(asset, recipe);
 
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
       inner.createRevision(asset, recipe);
+}
+
+class _FailingBoundaryModel implements BoundaryProposalModel {
+  @override
+  String get modelId => 'test-failing-model';
+
+  @override
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) => Future<BoundaryProposal?>.error(
+    StateError('synthetic inference failure'),
+  );
 }

@@ -1135,31 +1135,4 @@ bool _segmentsIntersect(Point2 p1, Point2 p2, Point2 p3, Point2 p4) {
   return false;
 }
 
-bool _hasStableHomography(List<Point2> p) {
-  if (p.length != 4) return false;
-  final dx1 = p[1].x - p[2].x;
-  final dx2 = p[3].x - p[2].x;
-  final dx3 = p[0].x - p[1].x + p[2].x - p[3].x;
-  final dy1 = p[1].y - p[2].y;
-  final dy2 = p[3].y - p[2].y;
-  final dy3 = p[0].y - p[1].y + p[2].y - p[3].y;
-  double g;
-  double h;
-  if (dx3.abs() + dy3.abs() < 1e-12) {
-    g = 0;
-    h = 0;
-  } else {
-    final determinant = dx1 * dy2 - dx2 * dy1;
-    if (!determinant.isFinite || determinant.abs() <= 1e-12) return false;
-    g = (dx3 * dy2 - dx2 * dy3) / determinant;
-    h = (dx1 * dy3 - dx3 * dy1) / determinant;
-  }
-  final a = p[1].x - p[0].x + g * p[1].x;
-  final b = p[3].x - p[0].x + h * p[3].x;
-  final c = p[0].x;
-  final d = p[1].y - p[0].y + g * p[1].y;
-  final e = p[3].y - p[0].y + h * p[3].y;
-  final f = p[0].y;
-  return [a, b, c, d, e, f, g, h].every((v) => v.isFinite) &&
-      [1.0, 1.0 + g, 1.0 + h, 1.0 + g + h].every((v) => v > 1e-9);
-}
+bool _hasStableHomography(List<Point2> p) => normalizedQuadIssue(p) == null;

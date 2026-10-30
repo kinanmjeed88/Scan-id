@@ -147,7 +147,7 @@ void main() {
       final message = said.single;
       // The counts the editor always reported are still there.
       expect(message, contains('قُصّ'));
-      expect(message, contains('تُعرّف على'));
+      expect(message, contains('أنواع معروفة'));
       // And so is the refusal, with the categories the gates measured and the
       // promise that nothing was lost by it.
       expect(message, contains('استُبعدت 2 منطقة'));
@@ -224,6 +224,9 @@ void main() {
       // The counts lead, the refusal tally follows on its own line, and the
       // per-image warnings are still passed alongside it.
       expect(summary, contains('قُصّ تلقائياً: 2'));
+      expect(summary, contains('حدود بانتظار المراجعة: 0'));
+      expect(summary, contains('مقاس غير محدد: 0'));
+      expect(summary, contains('بلا رباعي صالح: 1'));
       expect(summary, contains('خارج الورق: 0'));
       expect(summary, contains('\nاستُبعدت 3 منطقة'));
       expect(

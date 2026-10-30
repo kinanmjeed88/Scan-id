@@ -146,9 +146,12 @@ class IntakeRunner {
 /// indistinguishable from a document the app never looked for.
 String intakeSummaryText(AutomaticLayoutReport report) {
   final counts =
-      'قُصّ تلقائياً: ${report.cropped} · تُعرّف على النوع والمقاس: '
-      '${report.recognized} · بلا حدود واضحة: ${report.notDetected} '
-      '· خارج الورق: ${report.unplaced}';
+      'قُصّ تلقائياً: ${report.cropped} · أنواع معروفة: '
+      '${report.recognized} · حدود بانتظار المراجعة: '
+      '${report.boundaryNeedsReview} · تصنيف قيد المراجعة: '
+      '${report.needsReview} · بلا رباعي صالح: ${report.notDetected} '
+      '· مقاس غير محدد: ${report.awaitingSize} · '
+      'خارج الورق: ${report.unplaced}';
   final refused = report.rejectedHeadline;
   return refused == null ? counts : '$counts\n$refused';
 }

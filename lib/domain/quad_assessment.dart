@@ -10,9 +10,13 @@ library;
 import 'dart:math' as math;
 
 import 'geometry.dart';
+import 'image_limits.dart';
 
 /// Why a quadrilateral was rejected, when it was.
 enum QuadRejection {
+  invalidSourceDimensions,
+  nonFiniteCoordinates,
+  singularPerspective,
   wrongPointCount,
   outOfBounds,
   notConvex,
@@ -72,13 +76,23 @@ QuadAssessment assessQuad(
   required int sourceWidth,
   required int sourceHeight,
 }) {
-  if (corners.length != 4) {
-    return const QuadAssessment.rejected(QuadRejection.wrongPointCount);
+  if (sourceWidth < 2 ||
+      sourceHeight < 2 ||
+      !withinImageBudget(sourceWidth, sourceHeight)) {
+    return const QuadAssessment.rejected(QuadRejection.invalidSourceDimensions);
   }
-  for (final p in corners) {
-    if (p.x < -0.001 || p.x > 1.001 || p.y < -0.001 || p.y > 1.001) {
-      return const QuadAssessment.rejected(QuadRejection.outOfBounds);
-    }
+  final issue = normalizedQuadIssue(corners);
+  if (issue != null) {
+    return QuadAssessment.rejected(switch (issue) {
+      QuadGeometryIssue.wrongPointCount => QuadRejection.wrongPointCount,
+      QuadGeometryIssue.nonFiniteCoordinates =>
+        QuadRejection.nonFiniteCoordinates,
+      QuadGeometryIssue.outOfBounds => QuadRejection.outOfBounds,
+      QuadGeometryIssue.notConvex => QuadRejection.notConvex,
+      QuadGeometryIssue.collapsedArea => QuadRejection.tooSmall,
+      QuadGeometryIssue.singularPerspective =>
+        QuadRejection.singularPerspective,
+    });
   }
   // Convexity and consistent winding in pixel space.
   final px = [for (final p in corners) p.x * (sourceWidth - 1)];

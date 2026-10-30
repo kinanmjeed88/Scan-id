@@ -106,22 +106,50 @@ void requireFullResolutionCropFits({
 /// corners describe the same quadrilateral; they are not a new boundary.
 List<Point2> remapCornersIntoRegion(
   List<Point2> corners,
-  ({double left, double top, double right, double bottom}) bounds,
-) {
-  final spanX = bounds.right - bounds.left;
-  final spanY = bounds.bottom - bounds.top;
-  require(spanX > 0 && spanY > 0, 'منطقة القص فارغة.');
+  ({double left, double top, double right, double bottom}) bounds, {
+  required int orientedWidth,
+  required int orientedHeight,
+  required int regionWidth,
+  required int regionHeight,
+}) {
+  require(
+    orientedWidth > 1 &&
+        orientedHeight > 1 &&
+        regionWidth > 1 &&
+        regionHeight > 1,
+    'منطقة القص غير صالحة.',
+  );
+  // Native decoders clip on pixel EDGES (floor/ceil), while normalized crop
+  // corners address pixel CENTRES (0 .. width-1). Confusing those two frames
+  // shifts a fractional crop by up to one source pixel and changes its angle.
+  final left = (bounds.left * orientedWidth).floor();
+  final top = (bounds.top * orientedHeight).floor();
+  final right = (bounds.right * orientedWidth).ceil();
+  final bottom = (bounds.bottom * orientedHeight).ceil();
+  require(right > left && bottom > top, 'منطقة القص فارغة.');
+  // The native contract returns exactly this many pixels. Test adapters may
+  // supply a uniformly reduced fixture; normalization is still defined by the
+  // requested source edges, never by the fixture's arbitrary raster size.
+  final spanX = (right - left - 1).toDouble();
+  final spanY = (bottom - top - 1).toDouble();
   final local = [
     for (final corner in corners)
-      Point2((corner.x - bounds.left) / spanX, (corner.y - bounds.top) / spanY),
+      Point2(
+        (corner.x * (orientedWidth - 1) - left) / spanX,
+        (corner.y * (orientedHeight - 1) - top) / spanY,
+      ),
   ];
+  // Pixel-edge snapping can pad the extracted region by one source pixel.
+  // Allow exactly that rounding frame, then clamp; a genuinely outside corner
+  // still fails instead of being silently rescued.
+  final tolerance = 1.0 / math.min(spanX, spanY) + 1e-9;
   require(
     local.every(
       (corner) =>
-          corner.x >= -1e-9 &&
-          corner.x <= 1 + 1e-9 &&
-          corner.y >= -1e-9 &&
-          corner.y <= 1 + 1e-9,
+          corner.x >= -tolerance &&
+          corner.x <= 1 + tolerance &&
+          corner.y >= -tolerance &&
+          corner.y <= 1 + tolerance,
     ),
     'زوايا القص خارج المنطقة المستخرجة.',
   );

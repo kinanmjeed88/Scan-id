@@ -78,7 +78,8 @@ void main() {
       expect(service.smartRecognitionEnabled, isFalse);
       expect(service.multiDocumentSegmentationEnabled, isFalse);
       expect(report.cropped, 0);
-      expect(report.notDetected, 1);
+      expect(report.notDetected, 0);
+      expect(report.boundaryNeedsReview, 1);
       expect(report.project.assets.single.crop, isNull);
       expect(report.project.items.single.documentKind, DocumentKind.unknown);
       expect(report.project.items.single.sizeConfirmed, isFalse);
@@ -102,6 +103,7 @@ void main() {
       );
       expect(manuallyCropped.assets.single.userAuthoredCrop, isTrue);
       expect(manuallyCropped.assets.single.crop, isNotNull);
+      final acceptedGeometry = manuallyCropped.assets.single.crop!;
 
       final manuallySelected = DocumentEdits.setKind(
         manuallyCropped,
@@ -117,6 +119,11 @@ void main() {
       );
       final asset = project.assets.single;
       expect(asset.crop, isNotNull);
+      expect(asset.userAuthoredCrop, isTrue);
+      for (var i = 0; i < 4; i++) {
+        expect(asset.crop!.corners[i].x, acceptedGeometry.corners[i].x);
+        expect(asset.crop!.corners[i].y, acceptedGeometry.corners[i].y);
+      }
       expect(asset.width, lessThan(640));
       expect(asset.height, lessThan(480));
       final item = project.items.single;
@@ -162,7 +169,8 @@ void main() {
       final bytes = _cardPhoto();
       final report = await importAndArrange('capture.png', bytes);
       expect(report.cropped, 0);
-      expect(report.notDetected, 1);
+      expect(report.notDetected, 0);
+      expect(report.boundaryNeedsReview, 1);
       expect(report.project.assets.single.crop, isNull);
       final source = report.project.assets.single;
       final opened = await service.imageEditor!.open(source);

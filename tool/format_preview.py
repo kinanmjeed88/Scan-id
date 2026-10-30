@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 files = [
@@ -21,13 +22,7 @@ for name in files:
     if result.returncode:
         print(f"::error title=format-preview-failed::{name}")
         sys.exit(result.returncode)
-    source = result.stdout
-    if not source:
-        source = Path(name).read_bytes()
-    encoded = base64.b64encode(source).decode("ascii")
-    chunks = [encoded[index : index + 2500] for index in range(0, len(encoded), 2500)]
-    for index, chunk in enumerate(chunks, start=1):
-        print(
-            f"::notice title=format-preview-{Path(name).name}-{index:02d}::"
-            f"{chunk}"
-        )
+    source = result.stdout or Path(name).read_bytes()
+    source = source.rsplit(b"\nFormatted ", 1)[0] + b"\n" if b"\nFormatted " in source else source
+    encoded = base64.b64encode(zlib.compress(source, 9)).decode("ascii")
+    print(f"::notice title=format-preview-{Path(name).name}::zlib-base64:{encoded}")

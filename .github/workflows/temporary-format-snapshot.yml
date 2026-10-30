@@ -1,0 +1,52 @@
+name: Temporary formatter snapshot
+on:
+  push:
+    branches: ['arena/d339e72e-scan-id']
+permissions:
+  contents: read
+  checks: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Format and publish the formatter diff for maintainers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dart format .
+          git diff -- integration_test/docquad_inference_test.dart \
+            lib/application/project_service.dart \
+            lib/application/smart_recognition.dart \
+            lib/imaging/docquad_model.dart lib/main.dart \
+            test/application/automatic_layout_test.dart \
+            > "$RUNNER_TEMP/format.patch"
+          python3 - <<'PY' > "$RUNNER_TEMP/check-output.json"
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          patch_path = Path(os.environ['RUNNER_TEMP']) / 'format.patch'
+          encoded = base64.b64encode(patch_path.read_bytes()).decode('ascii')
+          newline = chr(10)
+          summary = '### Dart formatter diff (base64)' + newline * 2 + '```text' + newline + encoded + newline + '```'
+          print(json.dumps({'output': {'title': 'Dart formatter patch', 'summary': summary}}))
+          PY
+          check_id=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+            --jq '.check_runs[] | select(.name == "format") | .id' | head -n 1)
+          test -n "$check_id"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/check-runs/$check_id" \
+            --input "$RUNNER_TEMP/check-output.json" >/dev/null

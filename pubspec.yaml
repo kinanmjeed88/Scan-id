@@ -41,3 +41,4 @@ flutter:
     - assets/legal/flutter-onnxruntime-MIT-LICENSE.txt
     - assets/legal/onnxruntime-LICENSE.txt
     - assets/models/docquadnet256_trained_opset17.ort
+    - assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx

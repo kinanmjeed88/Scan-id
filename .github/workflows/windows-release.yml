@@ -30,6 +30,8 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        run: python tool/fetch_docaligner_model.py
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh

@@ -59,6 +59,9 @@ jobs:
       # own; run 38815652328 showed what that costs when plugins.gradle.org cannot
       # serve the Kotlin artifacts it proxies from Maven Central. See
       # tool/gradle/plugin-repositories.init.gradle.
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        run: python tool/fetch_docaligner_model.py
+
       - name: Install Gradle plugin-repository fallback
         shell: bash
         run: bash tool/install_gradle_init.sh

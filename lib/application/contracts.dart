@@ -149,11 +149,10 @@ abstract interface class ImageEditor {
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
 }
 
-/// Metadata capability for a boundary proposer. Production currently uses
-/// the local classical single-document detector only; it emits an uncalibrated
-/// proposal that must pass geometry validation and remain review-only. This
-/// contract keeps proposer provenance explicit and permits a separately
-/// qualified learned model later without implying one is active.
+/// Metadata capability for the local two-model learned cascade and its
+/// review-only classical fallback. Every proposal still passes the shared
+/// geometry gate; neither uncalibrated learned output nor classical ranking
+/// authorizes a crop without user review.
 abstract interface class BoundaryProposalImageEditor implements ImageEditor {
   Future<BoundaryProposal?> suggestProposal(
     Uint8List preview, {

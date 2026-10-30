@@ -71,8 +71,16 @@ def verify() -> list[str]:
         if (ROOT / rel).exists():
             errors.append(f"retired model artifact or implementation still exists: {rel}")
 
+    allowed_docaligner = ROOT / "assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx"
     for path in (ROOT / "assets").rglob("*.onnx"):
-        errors.append(f"ONNX model remains packaged under assets: {path.relative_to(ROOT)}")
+        if path != allowed_docaligner:
+            errors.append(f"unreviewed ONNX model remains packaged under assets: {path.relative_to(ROOT)}")
+    if allowed_docaligner.exists():
+        docaligner_sha = "7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc"
+        if allowed_docaligner.stat().st_size != 83_084_930:
+            errors.append("DocAligner ONNX asset has an unexpected byte length")
+        elif hashlib.sha256(allowed_docaligner.read_bytes()).hexdigest() != docaligner_sha:
+            errors.append("DocAligner ONNX asset SHA-256 does not match the pinned upstream digest")
 
     for path in production_files():
         try:
@@ -164,10 +172,64 @@ def verify() -> list[str]:
         if "download" in model_source.lower() or "http://" in model_source or "https://" in model_source:
             errors.append("model inference must not download weights or call a remote service")
 
+    docaligner_source_path = ROOT / "lib/imaging/docaligner_model.dart"
+    if not docaligner_source_path.is_file():
+        errors.append("DocAligner 1.1.1 ONNX Runtime adapter is missing")
+    else:
+        docaligner_source = docaligner_source_path.read_text(encoding="utf-8")
+        for token in (
+            "createSessionFromAsset(",
+            "session.inputNames.single",
+            "session.outputNames.single",
+            "session.run(",
+            "_heatmapThreshold = 0.3",
+            "BoundaryProducer.learnedModel",
+            "minAutoAcceptConfidence: 1.01",
+            "verifyBoundary(",
+        ):
+            if token not in docaligner_source:
+                errors.append(f"DocAligner runtime contract is missing: {token}")
+        if "download" in docaligner_source.lower() or "http://" in docaligner_source or "https://" in docaligner_source:
+            errors.append("DocAligner inference must not download weights or call a remote service")
+
+    cascade_path = ROOT / "lib/imaging/boundary_proposal_cascade.dart"
+    if not cascade_path.is_file():
+        errors.append("two-model boundary proposal cascade is missing")
+    else:
+        cascade_source = cascade_path.read_text(encoding="utf-8")
+        for token in ("required this.primary", "required this.secondary", "_materiallyDisagrees(", "modelDisagreement"):
+            if token not in cascade_source:
+                errors.append(f"two-model cascade contract is missing: {token}")
+
+    fetcher = ROOT / "tool/fetch_docaligner_model.py"
+    if not fetcher.is_file():
+        errors.append("verified DocAligner build-time fetch tool is missing")
+    else:
+        fetcher_source = fetcher.read_text(encoding="utf-8")
+        for token in (
+            "626727748",
+            "83_084_930",
+            "7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc",
+            "browser_download_url",
+            "os.replace",
+        ):
+            if token not in fetcher_source:
+                errors.append(f"DocAligner source/weight verification is missing: {token}")
+
+    integration_test = ROOT / "integration_test/docquad_inference_test.dart"
+    if not integration_test.is_file():
+        errors.append("real-model Android/Windows integration test is missing")
+    else:
+        integration_source = integration_test.read_text(encoding="utf-8")
+        for token in ("docAlignerExpectedBytes", "docAlignerExpectedSha256", "inferenceRuns", "lastOutputShape"):
+            if token not in integration_source:
+                errors.append(f"real DocAligner inference evidence is missing: {token}")
+
     pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
     for token in (
         "flutter_onnxruntime:",
         "assets/models/docquadnet256_trained_opset17.ort",
+        "assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx",
         "assets/legal/docquadnet-apache-2.0-LICENSE.txt",
         "assets/legal/flutter-onnxruntime-MIT-LICENSE.txt",
         "assets/legal/onnxruntime-LICENSE.txt",
@@ -192,9 +254,9 @@ def main() -> int:
             print(f"  - {error}", file=sys.stderr)
         return 1
     print(
-        "PASS: retired models remain absent; the pinned DocQuadNet-256 weight and "
-        "offline ONNX Runtime adapter match their reviewed SHA/licences; invalid or "
-        "failed AI results fall back to the classical review-only proposer; schema "
+        "PASS: retired models remain absent; the pinned DocQuadNet and DocAligner "
+        "offline ONNX Runtime adapters, model verification and CI inference paths "
+        "are present; failed AI results fall back to the classical review-only proposer; schema "
         "v5 and annotation v2 remain."
     )
     return 0

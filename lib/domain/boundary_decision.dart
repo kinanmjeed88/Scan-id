@@ -122,6 +122,11 @@ enum BoundaryReviewReason {
   /// valid proposal for manual review until a local labelled calibration set
   /// establishes a defensible automatic-accept policy.
   uncalibratedClassicalScore,
+
+  /// Two learned models returned materially different quadrilaterals. Keep one
+  /// visible for editing, explicitly flag the disagreement, and never average
+  /// their points or silently select an automatic crop.
+  modelDisagreement,
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -136,6 +141,7 @@ class BoundaryProposal {
     this.minAutoAcceptConfidence,
     this.touchesFrameEdge = false,
     this.forceReview = false,
+    this.forceReviewReason,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -169,6 +175,10 @@ class BoundaryProposal {
   /// A measured arbitration rule may require review independently of confidence.
   /// This is a decision constraint, not a fabricated score or boundary claim.
   final bool forceReview;
+
+  /// Specific reason for [forceReview], when it is not the legacy multi-scene
+  /// corroboration gate.
+  final BoundaryReviewReason? forceReviewReason;
 }
 
 /// What verification measured about a proposal. Every field is a measured
@@ -278,7 +288,8 @@ BoundaryDecision verifyBoundary(
         reasons: [
           BoundaryReviewReason.noBoundary,
           if (proposal.forceReview)
-            BoundaryReviewReason.multiSceneNotCorroborated,
+            proposal.forceReviewReason ??
+                BoundaryReviewReason.multiSceneNotCorroborated,
         ],
       ),
     );
@@ -307,14 +318,17 @@ BoundaryDecision verifyBoundary(
         reasons: [
           BoundaryReviewReason.geometryRejected,
           if (proposal.forceReview)
-            BoundaryReviewReason.multiSceneNotCorroborated,
+            proposal.forceReviewReason ??
+                BoundaryReviewReason.multiSceneNotCorroborated,
         ],
       ),
     );
   }
   final measuredAspect = assessment.aspect!;
   final reasons = <BoundaryReviewReason>[
-    if (proposal.forceReview) BoundaryReviewReason.multiSceneNotCorroborated,
+    if (proposal.forceReview)
+      proposal.forceReviewReason ??
+          BoundaryReviewReason.multiSceneNotCorroborated,
     if (proposal.producer == BoundaryProducer.detector)
       BoundaryReviewReason.uncalibratedClassicalScore,
   ];
@@ -445,6 +459,8 @@ String boundaryReviewReasonMessage(
     'لم تتأكد الأدلة الفيزيائية من تعدد حدود المشهد؛ بقيت المنطقة للمراجعة ولم تُقصّ تلقائياً.',
   BoundaryReviewReason.uncalibratedClassicalScore =>
     'اقتراح حدود هندسي محلي؛ درجته ليست ثقة معايرة، لذا حُفظت الزوايا للمراجعة اليدوية دون قصّ تلقائي.',
+  BoundaryReviewReason.modelDisagreement =>
+    'اختلف كاشفا الذكاء الاصطناعي على مواضع الزوايا؛ عُرض اقتراح واحد للمراجعة اليدوية، ولم تُدمج النتائج أو تُعتمد تلقائياً.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its

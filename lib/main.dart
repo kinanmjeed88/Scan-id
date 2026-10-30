@@ -14,7 +14,9 @@ import 'application/camera_capture.dart';
 import 'application/native_camera.dart';
 import 'application/ota_update.dart';
 import 'application/update_setup.dart';
+import 'imaging/boundary_proposal_cascade.dart';
 import 'imaging/docquad_model.dart';
+import 'imaging/docaligner_model.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/local_project_repository.dart';
@@ -79,7 +81,10 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
   final editor = LocalImageEditor(
     repository.files,
     readFullResolutionRegion: fullResolution.cropJpegRegion,
-    boundaryProposer: DocQuadNet256(),
+    boundaryProposer: BoundaryProposalCascade(
+      primary: DocQuadNet256(),
+      secondary: DocAlignerFastViT(),
+    ),
   );
   return ProjectService(
     repository,

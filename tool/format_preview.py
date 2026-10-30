@@ -25,4 +25,9 @@ for name in files:
     if not source:
         source = Path(name).read_bytes()
     encoded = base64.b64encode(source).decode("ascii")
-    print(f"::notice title=format-preview-{Path(name).name}::{encoded}")
+    chunks = [encoded[index : index + 2500] for index in range(0, len(encoded), 2500)]
+    for index, chunk in enumerate(chunks, start=1):
+        print(
+            f"::notice title=format-preview-{Path(name).name}-{index:02d}::"
+            f"{chunk}"
+        )

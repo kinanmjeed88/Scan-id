@@ -4,6 +4,7 @@ on:
     branches: ['arena/d339e72e-scan-id']
 permissions:
   contents: read
+  checks: write
 jobs:
   resolve:
     runs-on: ubuntu-24.04
@@ -22,16 +23,24 @@ jobs:
           cache: true
       - name: Resolve and publish lock snapshot for maintainers
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           flutter pub get
-          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY' > "$RUNNER_TEMP/check-output.json"
           import base64
+          import json
           from pathlib import Path
-          encoded = base64.b64encode(Path('pubspec.lock').read_bytes()).decode('ascii')
-          print('### Resolved `pubspec.lock` (base64)')
-          print()
-          print('```text')
-          print(encoded)
-          print('```')
+          encoded = base64.b64encode(
+              Path('pubspec.lock').read_bytes()
+          ).decode('ascii')
+          newline = chr(10)
+          summary = '### Resolved `pubspec.lock` (base64)' + newline * 2 + '```text' + newline + encoded + newline + '```'
+          print(json.dumps({'output': {'title': 'Resolved Pub lock snapshot', 'summary': summary}}))
           PY
+          check_id=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" \
+            --jq '.check_runs[] | select(.name == "resolve") | .id' | head -n 1)
+          test -n "$check_id"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/check-runs/$check_id" \
+            --input "$RUNNER_TEMP/check-output.json" >/dev/null

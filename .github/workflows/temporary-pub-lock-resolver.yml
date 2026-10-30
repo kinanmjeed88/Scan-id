@@ -1,0 +1,37 @@
+name: Temporary pub lock resolver
+on:
+  push:
+    branches: ['arena/d339e72e-scan-id']
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Resolve and publish lock snapshot for maintainers
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import base64
+          from pathlib import Path
+          encoded = base64.b64encode(Path('pubspec.lock').read_bytes()).decode('ascii')
+          print('### Resolved `pubspec.lock` (base64)')
+          print()
+          print('```text')
+          print(encoded)
+          print('```')
+          PY

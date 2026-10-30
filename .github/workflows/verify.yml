@@ -194,28 +194,55 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PYAPK'
+          import struct
           import sys
           import zipfile
 
           apk = "build/app/outputs/flutter-apk/app-scanid-debug.apk"
-          abis = ("arm64-v8a", "armeabi-v7a", "x86_64")
+          abis = {
+              "arm64-v8a": (183, 2),  # EM_AARCH64, ELFCLASS64
+              "armeabi-v7a": (40, 1),  # EM_ARM, ELFCLASS32
+              "x86_64": (62, 2),  # EM_X86_64, ELFCLASS64
+          }
           with zipfile.ZipFile(apk) as archive:
               names = set(archive.namelist())
-          failures = []
-          for abi in abis:
-              prefix = f"lib/{abi}/"
-              libraries = sorted(name.rsplit("/", 1)[-1] for name in names
-                                 if name.startswith(prefix) and name.endswith(".so"))
-              inventory = ", ".join(libraries) if libraries else "(no .so files)"
-              print(f"::notice title=APK native libraries {abi}::{inventory}")
-              if "libflutter.so" not in libraries:
-                  failures.append(f"{abi}: missing libflutter.so")
-              if "libonnxruntime.so" not in libraries:
-                  failures.append(f"{abi}: missing libonnxruntime.so")
-              # Debug builds normally run Dart from kernel_blob.bin, so absence
-              # of libapp.so is reported but is not itself a packaging failure.
-              print(f"::notice title=APK Dart AOT library {abi}::libapp.so "
-                    f"{'present' if 'libapp.so' in libraries else 'absent (debug expected)'}")
+              libraries_by_abi = {
+                  abi: sorted(name for name in names
+                              if name.startswith(f"lib/{abi}/") and name.endswith(".so"))
+                  for abi in abis
+              }
+              failures = []
+              for abi, (expected_machine, expected_class) in abis.items():
+                  paths = libraries_by_abi[abi]
+                  libraries = [path.rsplit("/", 1)[-1] for path in paths]
+                  inventory = ", ".join(libraries) if libraries else "(no .so files)"
+                  print(f"::notice title=APK native libraries {abi}::{inventory}")
+                  if "libflutter.so" not in libraries:
+                      failures.append(f"{abi}: missing libflutter.so")
+                  if "libonnxruntime.so" not in libraries:
+                      failures.append(f"{abi}: missing libonnxruntime.so")
+                  elf_inventory = []
+                  for path in paths:
+                      header = archive.read(path)[:20]
+                      if len(header) < 20 or header[:4] != b"\x7fELF":
+                          failures.append(f"{path}: invalid ELF header")
+                          continue
+                      elf_class, data_encoding = header[4], header[5]
+                      machine = struct.unpack_from("<H", header, 18)[0]
+                      elf_inventory.append(f"{path.rsplit('/', 1)[-1]}=EM_{machine}")
+                      if data_encoding != 1:
+                          failures.append(f"{path}: expected little-endian ELF")
+                      if elf_class != expected_class or machine != expected_machine:
+                          failures.append(
+                              f"{path}: ELF class={elf_class}, machine={machine}; "
+                              f"expected class={expected_class}, machine={expected_machine}"
+                          )
+                  print(f"::notice title=APK ELF architecture {abi}::"
+                        f"{', '.join(elf_inventory) if elf_inventory else '(none)'}")
+                  # Debug builds normally run Dart from kernel_blob.bin, so absence
+                  # of libapp.so is reported but is not itself a packaging failure.
+                  print(f"::notice title=APK Dart AOT library {abi}::libapp.so "
+                        f"{'present' if 'libapp.so' in libraries else 'absent (debug expected)'}")
           if failures:
               for failure in failures:
                   print(f"::error title=APK ABI audit::{failure}")

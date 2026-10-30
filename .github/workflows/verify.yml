@@ -189,6 +189,39 @@ jobs:
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --flavor scanid --debug
+      - name: Inspect Android debug APK native libraries by ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYAPK'
+          import sys
+          import zipfile
+
+          apk = "build/app/outputs/flutter-apk/app-scanid-debug.apk"
+          abis = ("arm64-v8a", "armeabi-v7a", "x86_64")
+          with zipfile.ZipFile(apk) as archive:
+              names = set(archive.namelist())
+          failures = []
+          for abi in abis:
+              prefix = f"lib/{abi}/"
+              libraries = sorted(name.rsplit("/", 1)[-1] for name in names
+                                 if name.startswith(prefix) and name.endswith(".so"))
+              inventory = ", ".join(libraries) if libraries else "(no .so files)"
+              print(f"::notice title=APK native libraries {abi}::{inventory}")
+              if "libflutter.so" not in libraries:
+                  failures.append(f"{abi}: missing libflutter.so")
+              if "libonnxruntime.so" not in libraries:
+                  failures.append(f"{abi}: missing libonnxruntime.so")
+              # Debug builds normally run Dart from kernel_blob.bin, so absence
+              # of libapp.so is reported but is not itself a packaging failure.
+              print(f"::notice title=APK Dart AOT library {abi}::libapp.so "
+                    f"{'present' if 'libapp.so' in libraries else 'absent (debug expected)'}")
+          if failures:
+              for failure in failures:
+                  print(f"::error title=APK ABI audit::{failure}")
+              sys.exit("APK is missing native runtime libraries for a supported ABI")
+          print("PASS: Flutter Engine and ONNX Runtime libraries are present for all audited ABIs.")
+          PYAPK
       - name: Build independent offline annotation flavor
         run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
       - name: Audit merged annotation-flavor permissions

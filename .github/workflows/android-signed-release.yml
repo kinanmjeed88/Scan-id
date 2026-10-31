@@ -214,6 +214,31 @@ jobs:
         shell: bash
         run: bash tool/bootstrap.sh
 
+      # pubspec.yaml declares the DocAligner weight as a bundled asset, and it is
+      # git-ignored: the 83 MB file is fetched from its pinned upstream release at
+      # build time. Without this step `flutter build apk` fails inside
+      # `aot_android_asset_bundle` with "No file or variants found for asset:
+      # assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx" (run 41190786006 on
+      # 6de7baf), so no signed APK can be produced at all. The fetch verifies the
+      # upstream asset id/size/digest and re-hashes the bytes; the retry is only
+      # for transient network failures, as in verify.yml.
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/3)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then
+              sleep $((attempt * 5))
+            fi
+          done
+          echo "::error title=docaligner-asset::The pinned DocAligner asset could not be fetched and verified; the release build would fail in aot_android_asset_bundle." >&2
+          exit 1
+
       # AGP installs android/app/build.gradle.kts's ndkVersion, and its default
       # CMake, on demand -- on this image that is a ~1 GB download plus extraction
       # performed inside whichever Gradle task needs them first. Run

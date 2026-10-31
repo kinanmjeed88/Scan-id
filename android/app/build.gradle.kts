@@ -49,6 +49,26 @@ val expectedCertSha256 = (
 // A buildConfigField writes source text, so the constant it defines needs quotes.
 val expectedCertSha256Literal = "\"$expectedCertSha256\""
 
+// Identity of the tree that produced this APK, so a startup report names the
+// build it came from instead of "some APK from Actions".
+val buildSha = (
+    providers.environmentVariable("GITHUB_SHA").orNull
+        ?: providers.environmentVariable("SCAN_ID_BUILD_SHA").orNull
+    )
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "local"
+val buildShaLiteral = "\"${buildSha.replace("\"", "")}\""
+
+// The startup evidence recorder is compiled in only where it is asked for: the
+// `diagnostic` flavor always, and the production `scanid` flavor only when a
+// build explicitly passes -PscanIdStartupProbe=true. Production releases keep
+// the default (off), so normal installs neither write report files nor load the
+// ONNX Runtime libraries outside their normal code path.
+val startupProbeRequested = providers.gradleProperty("scanIdStartupProbe")
+    .orNull
+    ?.equals("true", ignoreCase = true) == true
+
 // Release variants must never fall back to the debug key. The explicit environment
 // flag also protects CI jobs whose requested task names are indirect.
 val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
@@ -223,6 +243,14 @@ android {
         // Compiled in so a downloaded package can be checked against the publisher
         // this build was signed with, without asking a network what is true.
         buildConfigField("String", "EXPECTED_UPDATE_CERT_SHA256", expectedCertSha256Literal)
+        // Startup evidence recorder (see StartupProbe.kt). Off unless a variant
+        // or an explicit -P flag turns it on.
+        buildConfigField(
+            "boolean",
+            "STARTUP_PROBE",
+            if (startupProbeRequested) "true" else "false",
+        )
+        buildConfigField("String", "BUILD_SHA", buildShaLiteral)
     }
 
     flavorDimensions += "edition"
@@ -240,6 +268,9 @@ android {
             dimension = "edition"
             applicationIdSuffix = ".startupdiag"
             versionNameSuffix = "-startupdiag"
+            // This flavor exists only to record why a device exits after the
+            // splash screen, so the evidence recorder is always on here.
+            buildConfigField("boolean", "STARTUP_PROBE", "true")
         }
     }
 

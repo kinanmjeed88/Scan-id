@@ -4,6 +4,16 @@ on:
   push:
     branches: [searchidf, 'arena/**']
   workflow_dispatch:
+    inputs:
+      startup_probe_experiment:
+        description: >-
+          Also build and publish the three reduced startup-probe variants
+          (diagnostic off/load/env). Off by default: they answer whether the
+          probe's native preflight was what kept the diagnostic build alive, and
+          that question is settled for now. Each run that publishes them adds
+          about 600 MB of short-lived artifacts.
+        type: boolean
+        default: false
 env:
   PYTHONIOENCODING: utf-8
   PYTHONUTF8: 1
@@ -39,6 +49,19 @@ jobs:
           test ! -e Mostmskat
           test ! -e local-data
           python tool/check_private_ci_checkout.py
+      # Run 41239437153 filled the runner's disk while packaging the debug APK
+      # ("Could not add entry ':app:packageScanidDebug' to cache
+      # executionHistory.bin ... No space left on device"): one debug APK is
+      # 329 MB and this job keeps several build outputs plus the NDK and the
+      # Gradle caches. These toolchains are used by no step in this workflow.
+      - name: Reclaim runner disk for the APK builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h / | tail -n 1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          df -h / | tail -n 1
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -59,16 +82,32 @@ jobs:
       # own; run 38815652328 showed what that costs when plugins.gradle.org cannot
       # serve the Kotlin artifacts it proxies from Maven Central. See
       # tool/gradle/plugin-repositories.init.gradle.
+      # The weight is git-ignored (83 MB) and fetched from its pinned upstream
+      # release. The cache key is the pinned SHA-256, and
+      # tool/fetch_docaligner_model.py re-hashes the file when it is already
+      # present, so a restored cache entry is verified rather than trusted.
+      # Run 41200973966 failed here on all three attempts during an upstream
+      # outage; with the cache a transient failure costs a run only when nothing
+      # has been stored yet.
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        # Caching is an optimisation: a cache outage must not fail verification.
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            echo "Preparing pinned DocAligner asset (attempt $attempt/3)"
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
             if python tool/fetch_docaligner_model.py; then
               exit 0
             fi
-            if (( attempt < 3 )); then
-              sleep $((attempt * 5))
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
             fi
           done
           exit 1
@@ -200,6 +239,20 @@ jobs:
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --flavor scanid --debug
+      - name: Record the debug APK fingerprint at build time
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          # The same command in a job without the gates before it uploads a 35 MB
+          # larger package, so the file has to be fingerprinted the moment it is
+          # built and again just before it is uploaded: that separates "the build
+          # produces this" from "something later replaced or rewrote it".
+          python3 tool/fingerprint_apk.py \
+            scanid-debug-at-build=build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            > diagnostics/apk-fingerprint-at-build.txt 2>&1
+          cat diagnostics/apk-fingerprint-at-build.txt
+
       - name: Inspect Android debug APK native libraries by ABI
         shell: bash
         run: |
@@ -260,15 +313,126 @@ jobs:
               sys.exit("APK is missing native runtime libraries for a supported ABI")
           print("PASS: Flutter Engine and ONNX Runtime libraries are present for all audited ABIs.")
           PYAPK
+      # A 64-bit device with 16 KB memory pages cannot map a shared object whose
+      # PT_LOAD segments are aligned to 4 KB: dlopen fails and System.loadLibrary
+      # throws UnsatisfiedLinkError, which the Flutter embedding turns into a
+      # startup crash before the first frame. The x86_64 API-35 emulator uses
+      # 4 KB pages, so it can never surface that failure, which is exactly the
+      # blind spot behind the device report. This reads the packaged ELF program
+      # headers directly (no toolchain dependency) and fails on a 4 KB-aligned
+      # 64-bit library. 32-bit armeabi-v7a has no such requirement and is only
+      # reported.
+      - name: Validate 16 KB page-size alignment of packaged native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYALIGN'
+          import struct
+          import sys
+          import zipfile
+
+          apk = "build/app/outputs/flutter-apk/app-scanid-debug.apk"
+          PT_LOAD = 1
+          SIXTEEN_KB = 0x4000
+          abis = ("arm64-v8a", "x86_64", "armeabi-v7a")
+
+          def segments(blob):
+              if blob[:4] != b"\x7fELF":
+                  raise ValueError("not an ELF file")
+              elf_class = blob[4]
+              if elf_class == 2:
+                  phoff = struct.unpack_from("<Q", blob, 0x20)[0]
+                  phentsize = struct.unpack_from("<H", blob, 0x36)[0]
+                  phnum = struct.unpack_from("<H", blob, 0x38)[0]
+                  entry = 56
+                  align_offset = 48
+                  align_format = "<Q"
+              elif elf_class == 1:
+                  phoff = struct.unpack_from("<I", blob, 0x1C)[0]
+                  phentsize = struct.unpack_from("<H", blob, 0x2A)[0]
+                  phnum = struct.unpack_from("<H", blob, 0x2C)[0]
+                  entry = 32
+                  align_offset = 28
+                  align_format = "<I"
+              else:
+                  raise ValueError(f"unknown ELF class {elf_class}")
+              loads = []
+              for index in range(phnum):
+                  base = phoff + index * phentsize
+                  if base + entry > len(blob):
+                      raise ValueError("program header table is truncated")
+                  if struct.unpack_from("<I", blob, base)[0] != PT_LOAD:
+                      continue
+                  align = struct.unpack_from(align_format, blob, base + align_offset)[0]
+                  loads.append(align)
+              return elf_class, loads
+
+          failures = []
+          with zipfile.ZipFile(apk) as archive:
+              for abi in abis:
+                  names = sorted(
+                      name for name in archive.namelist()
+                      if name.startswith(f"lib/{abi}/") and name.endswith(".so")
+                  )
+                  inventory = []
+                  for name in names:
+                      try:
+                          elf_class, loads = segments(archive.read(name))
+                      except ValueError as error:
+                          failures.append(f"{name}: {error}")
+                          continue
+                      minimum = min(loads) if loads else 0
+                      inventory.append(
+                          f"{name.rsplit('/', 1)[-1]}=0x{minimum:x}"
+                          f"{'' if loads else '(no PT_LOAD)'}"
+                      )
+                      if not loads:
+                          failures.append(f"{name}: no PT_LOAD segment")
+                          continue
+                      if elf_class == 2 and minimum < SIXTEEN_KB:
+                          failures.append(
+                              f"{name}: 64-bit PT_LOAD alignment 0x{minimum:x} is below "
+                              f"0x{SIXTEEN_KB:x}; a 16 KB page-size device cannot load it"
+                          )
+                  summary = ", ".join(inventory) if inventory else "(no .so files)"
+                  print(f"::notice title=PT_LOAD alignment {abi}::{summary}")
+          if failures:
+              for failure in failures:
+                  print(f"::error title=native page-size alignment::{failure}")
+              sys.exit("A packaged 64-bit native library is not 16 KB page-size compatible")
+          print("PASS: every packaged 64-bit native library has 16 KB-aligned PT_LOAD segments.")
+          PYALIGN
+
+      # `flutter test integration_test/... --flavor scanid` later in this job
+      # writes a test-harness APK to this same path, so the app package is moved
+      # out of reach here (after the packaging audits that read it) and this copy
+      # is what gets published.
+      - name: Stage the debug APK for publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/stage_app_apk.py stage \
+            --apk build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            --out install-apks/scanid
+          echo "::notice title=runner-disk::$(df -h / | tail -n 1 | tr -s ' ' ' ')"
+
       - name: Build Android startup diagnostic APK (side-by-side)
         run: python tool/ci_gate.py startup-diagnostic-build flutter build apk --flavor diagnostic --debug
+      - name: Stage the diagnostic APK for publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/stage_app_apk.py stage \
+            --apk build/app/outputs/flutter-apk/app-diagnostic-debug.apk \
+            --out install-apks/diagnostic
       - name: Upload Android startup diagnostic APK
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-startup-diagnostic-apk
-          path: build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+          path: install-apks/diagnostic/app-diagnostic-debug.apk
           if-no-files-found: error
           retention-days: 7
+
       - name: Build independent offline annotation flavor
         run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
       - name: Audit merged annotation-flavor permissions
@@ -338,7 +502,10 @@ jobs:
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -n "$apksigner"
           "$apksigner" version || true
-          apk=build/app/outputs/flutter-apk/app-scanid-debug.apk
+          # The package that is published, not whatever occupies the build path
+          # now: the instrumentation step rewrites that file with the test build.
+          apk=install-apks/scanid/app-scanid-debug.apk
+          test -f "$apk"
           "$apksigner" verify --verbose --print-certs "$apk" > /tmp/diag-out.txt 2> /tmp/diag-err.txt || true
           out_lines="$(wc -l < /tmp/diag-out.txt | tr -d ' ')"
           err_lines="$(wc -l < /tmp/diag-err.txt | tr -d ' ')"
@@ -378,14 +545,347 @@ jobs:
             ~/.gradle/wrapper/dists
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
 
+      # Emitted last on purpose: GitHub keeps only the most recent annotations of
+      # a job, and the gates above publish their own. This is the package the
+      # phone actually receives, next to the same file as it was built.
+      # The bug this gate exists for: the plain debug artifact uploaded here used
+      # to be the integration-test harness, because `flutter test
+      # integration_test/... --flavor scanid` rewrites
+      # `build/app/outputs/flutter-apk/app-scanid-debug.apk`. The phone that
+      # installed it showed the splash screen and then the app closing, while the
+      # diagnostic package - a flavor the test does not target - started normally.
+      # Publishing a copy taken at build time removes the hazard; this check makes
+      # a future re-ordering fail instead of silently shipping the harness again.
+      - name: Prove the published packages are the built packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/stage_app_apk.py check \
+            --apk install-apks/scanid/app-scanid-debug.apk \
+            --expected install-apks/scanid/expected.json \
+            --built build/app/outputs/flutter-apk/app-scanid-debug.apk
+          python3 tool/stage_app_apk.py check \
+            --apk install-apks/diagnostic/app-diagnostic-debug.apk \
+            --expected install-apks/diagnostic/expected.json
+
       - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-debug-apk
-          path: build/app/outputs/flutter-apk/app-scanid-debug.apk
+          path: install-apks/scanid/app-scanid-debug.apk
           if-no-files-found: error
           # CI smoke artifact only; short retention prevents artifact-storage
           # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).
+          retention-days: 7
+
+  # One commit, five packages: the plain debug build, the diagnostic build as it
+  # ships today, and three diagnostic builds that each drop one part of the
+  # startup step the diagnostic build performs before Flutter registers plugins.
+  #
+  # The only place the difference between "starts" and "exits after the splash
+  # screen" is observable is the phone, so this job produces the packages that
+  # isolate that difference and compares what is actually inside them (entries,
+  # native library hashes, zip compression and alignment, merged manifests, the
+  # startup step as compiled). It is separate from `android` because five APK
+  # builds would push the verification job past its time limit.
+  android-apk-differential:
+    name: Android debug/diagnostic differential
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - name: Assert local-only evaluation data is excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e Mostmskat
+          test ! -e local-data
+          python tool/check_private_ci_checkout.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
+      - name: Install Gradle plugin-repository fallback
+        shell: bash
+        run: bash tool/install_gradle_init.sh
+      - name: Restore cached Gradle artifacts
+        id: gradle-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - name: Resolve dependencies
+        shell: bash
+        run: bash tool/bootstrap.sh
+
+      # Each build below is a debug build of the same commit. Only the flavor and
+      # the probe action change, one at a time. The merged manifest is copied
+      # immediately after each build because the path is shared between builds
+      # of the same variant and would otherwise be overwritten.
+      - name: Build plain debug, diagnostic, and (on demand) reduced variants
+        shell: bash
+        env:
+          STARTUP_PROBE_EXPERIMENT: ${{ inputs.startup_probe_experiment && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          build() {
+            local label="$1" flavor="$2" action="$3" variant="$4"
+            echo "::group::build $label (flavor=$flavor action=$action)"
+            if [ -n "$action" ]; then
+              ORG_GRADLE_PROJECT_scanIdProbeAction="$action" flutter build apk --flavor "$flavor" --debug
+            else
+              flutter build apk --flavor "$flavor" --debug
+            fi
+            cp "build/app/outputs/flutter-apk/app-${flavor}-debug.apk" "out/${label}.apk"
+            local manifest
+            manifest=$(find build/app/intermediates/merged_manifest -type f \
+              -path "*${variant}*" -name AndroidManifest.xml -print -quit)
+            test -n "$manifest"
+            cp "$manifest" "out/${label}.merged.xml"
+            {
+              cat android/app/src/main/AndroidManifest.xml
+              cat "android/app/src/${flavor}/AndroidManifest.xml" 2>/dev/null || true
+              cat android/app/src/debug/AndroidManifest.xml 2>/dev/null || true
+            } > "out/${label}.source.xml"
+            ls -l "out/${label}.apk"
+            echo "::endgroup::"
+          }
+          build scanid-debug scanid "" scanidDebug
+
+          if [ "${STARTUP_PROBE_EXPERIMENT:-false}" = "true" ]; then
+          echo "::group::reproduce the verification job build order"
+          set +e
+          flutter build apk --flavor scanid --release > out/release-guard.log 2>&1
+          release_rc=$?
+          set -e
+          tail -n 40 out/release-guard.log || true
+          if [ "$release_rc" -eq 0 ]; then
+            echo "::error title=release-order::the release build succeeded without signing credentials, so the order could not be reproduced"
+            exit 1
+          fi
+          if grep -Fq 'Release signing is required, but Android signing values are missing.' out/release-guard.log ||
+             grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' out/release-guard.log ||
+             grep -Fq 'Release APK/AAB packaging requires EXPECTED_CERT_SHA256' out/release-guard.log; then
+            echo "release build failed on the signing guard, as it does in the verification job"
+          else
+            echo "::warning title=release-order::the release build failed for another reason; the reproduction is not exact"
+          fi
+          flutter build apk --flavor scanid --debug
+          cp build/app/outputs/flutter-apk/app-scanid-debug.apk out/scanid-debug-after-release.apk
+          cp "$(find build/app/intermediates/merged_manifest -type f \
+            -path '*scanidDebug*' -name AndroidManifest.xml -print -quit)" \
+            out/scanid-debug-after-release.merged.xml
+          cp out/scanid-debug.source.xml out/scanid-debug-after-release.source.xml
+          build diagnostic-off diagnostic off diagnosticDebug
+          build diagnostic-load diagnostic load diagnosticDebug
+          build diagnostic-env diagnostic env diagnosticDebug
+          echo "::endgroup::"
+          else
+            echo "startup probe experiment not requested: building the diagnostic package only"
+          fi
+
+          build diagnostic-full diagnostic "" diagnosticDebug
+
+      # The reduced variants are only meaningful if the -P switch reached Gradle.
+      # Each action maps to its own applicationId suffix, so the packaged manifest
+      # proves which variant an APK really is; a silent fallback to `full` would
+      # otherwise yield five similar packages and a pointless comparison.
+      - name: Fingerprint every package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only the packages this run built: the release-order reproduction and
+          # the reduced variants exist only when the experiment is requested.
+          args=()
+          for label in scanid-debug scanid-debug-after-release diagnostic-full \
+                       diagnostic-off diagnostic-load diagnostic-env; do
+            if [ -f "out/${label}.apk" ]; then
+              args+=("${label}=out/${label}.apk")
+            fi
+          done
+          python3 tool/fingerprint_apk.py "${args[@]}"
+
+      - name: Prove each package carries its own applicationId
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/prove_apk_identity.py out
+
+      - name: Compare the packaged contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCONFIG'
+          import json
+          from pathlib import Path
+
+          # Only the packages this run actually built are compared, so the
+          # report never claims to have examined a variant that is not there.
+          candidates = [
+              "scanid-debug-after-release",
+              "diagnostic-full",
+              "diagnostic-off",
+              "diagnostic-load",
+              "diagnostic-env",
+          ]
+          variants = [label for label in candidates if Path(f"out/{label}.apk").is_file()]
+          config = {
+              "report": "out/apk-differential.md",
+              "baseline": {
+                  "label": "scanid-debug",
+                  "apk": "out/scanid-debug.apk",
+                  "merged": "out/scanid-debug.merged.xml",
+                  "source": "out/scanid-debug.source.xml",
+              },
+              "variants": [
+                  {
+                      "label": label,
+                      "apk": f"out/{label}.apk",
+                      "merged": f"out/{label}.merged.xml",
+                      "source": f"out/{label}.source.xml",
+                  }
+                  for label in variants
+              ],
+          }
+          Path("out/config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+          PYCONFIG
+          python3 tool/compare_apks.py --config out/config.json
+
+      - name: Upload the differential report
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-apk-differential
+          path: |
+            out/apk-differential.md
+            out/*.merged.xml
+            out/*.source.xml
+          if-no-files-found: error
+          retention-days: 7
+
+      # The phone cannot build anything: these are the packages that isolate the
+      # difference, each with its own applicationId so they can coexist there.
+      - name: Upload the diagnostic variants for the phone
+        if: ${{ inputs.startup_probe_experiment }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-no-probe-apk
+          path: out/diagnostic-off.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the load-only variant
+        if: ${{ inputs.startup_probe_experiment }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-load-only-apk
+          path: out/diagnostic-load.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the environment-only variant
+        if: ${{ inputs.startup_probe_experiment }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-env-only-apk
+          path: out/diagnostic-env.apk
+          if-no-files-found: error
+          retention-days: 3
+
+  # The device report that started this investigation is Android 16 on ARM64.
+  # CI cannot boot ARM64, but it can boot Android 16, so the startup path is
+  # exercised on the same API level the user runs. This job also proves the
+  # phone-only evidence recorder: a diagnostic launch must leave a shareable
+  # report under Download/ScanId with the full stage list in it.
+  android16-startup:
+    name: Android 16 startup evidence
+    needs: android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - name: Download the startup diagnostic APK
+        uses: actions/download-artifact@v6
+        with:
+          name: scan-id-android-startup-diagnostic-apk
+          path: startup-apk
+      - name: Check Android Emulator acceleration
+        id: emulator-acceleration
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 0666 /dev/kvm
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=android-emulator::/dev/kvm is unavailable; the emulator will use software acceleration"
+          fi
+      - name: Launch the diagnostic build on Android 16 and collect its report
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-linux-hw-accel: ${{ steps.emulator-acceleration.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
+          script: bash tool/run_android16_startup.sh
+
+      - name: Upload Android 16 startup evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android16-startup-evidence
+          path: diagnostics/android16/
+          if-no-files-found: warn
           retention-days: 7
 
   # Share the exact Windows build and regression checks with the signed release.

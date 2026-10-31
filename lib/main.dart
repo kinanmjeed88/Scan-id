@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -32,6 +33,9 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   StartupDiagnostics.mark('flutter.binding.ready');
   StartupDiagnostics.installErrorHooks();
+  // Answers whether this build carries the native startup recorder, then flushes
+  // every mark buffered so far. A production build answers "no" and stays silent.
+  unawaited(StartupDiagnostics.attachToPlatform());
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks([
       'AndroidX Core',
@@ -197,7 +201,9 @@ class _BootstrapState extends State<_Bootstrap> {
           _homeFrameScheduled = true;
           StartupDiagnostics.mark('bootstrap.service_ready');
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) StartupDiagnostics.mark('app.first_home_frame');
+            if (!mounted) return;
+            StartupDiagnostics.mark('app.first_home_frame');
+            StartupDiagnostics.publishReportAfterFirstFrame();
           });
         }
         return ScanIdApp(

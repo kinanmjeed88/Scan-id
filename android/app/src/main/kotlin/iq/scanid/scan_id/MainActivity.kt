@@ -19,20 +19,29 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Installed before super.onCreate so plugin registration, the first
+        // place the ONNX Runtime JNI library is loaded, is inside the record.
+        StartupProbe.install(this)
+        StartupProbe.mark("activity.onCreate.begin")
         startupMark("activity.onCreate.begin")
         super.onCreate(savedInstanceState)
+        StartupProbe.mark("activity.onCreate.complete")
         startupMark("activity.onCreate.complete")
     }
 
     override fun onStart() {
+        StartupProbe.mark("activity.onStart.begin")
         startupMark("activity.onStart.begin")
         super.onStart()
+        StartupProbe.mark("activity.onStart.complete")
         startupMark("activity.onStart.complete")
     }
 
     override fun onResume() {
+        StartupProbe.mark("activity.onResume.begin")
         startupMark("activity.onResume.begin")
         super.onResume()
+        StartupProbe.mark("activity.onResume.complete")
         startupMark("activity.onResume.complete")
     }
 
@@ -43,12 +52,16 @@ class MainActivity : FlutterActivity() {
     private var source: File? = null
     private var pickLimit = 20L * 1024 * 1024
     override fun configureFlutterEngine(engine: FlutterEngine) {
+        StartupProbe.mark("engine.configure.begin")
         startupMark("engine.configure.begin")
+        StartupProbe.mark("flutter_plugins.registration.begin")
         startupMark("flutter_plugins.registration.begin")
         try {
             super.configureFlutterEngine(engine)
+            StartupProbe.mark("flutter_plugins.registration.complete")
             startupMark("flutter_plugins.registration.complete")
         } catch (error: Throwable) {
+            StartupProbe.failure("flutter_plugins.registration", error)
             Log.e(
                 "ScanIdStartup",
                 "flutter_plugins.registration.failed type=${error.javaClass.name}",
@@ -139,7 +152,53 @@ class MainActivity : FlutterActivity() {
                 }
             }
         startupMark("native_channels.configure.complete")
+        StartupProbe.mark("engine.configure.complete")
+        if (StartupProbe.enabled) configureStartupProbeChannel(engine)
         startupMark("engine.configure.complete")
+    }
+
+    /**
+     * Dart-side startup breadcrumbs for the diagnostic build. The channel exists
+     * before `main()` runs, so a Dart stage can be recorded even when storage or
+     * the first route fails afterwards. Only stage names and exception types
+     * cross this channel; no project or image data is accepted.
+     */
+    private fun configureStartupProbeChannel(engine: FlutterEngine) {
+        MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/startup_probe")
+            .setMethodCallHandler { call, result ->
+                if (!StartupProbe.enabled) {
+                    result.error("disabled", "Startup probe is not compiled in", null)
+                    return@setMethodCallHandler
+                }
+                when (call.method) {
+                    "enabled" -> result.success(true)
+                    "mark" -> {
+                        val stage = call.argument<String>("stage")
+                        if (stage.isNullOrBlank() || stage.length > 200) {
+                            result.error("invalid", "Invalid stage", null)
+                        } else {
+                            StartupProbe.mark("dart.$stage")
+                            result.success(null)
+                        }
+                    }
+                    "failure" -> {
+                        val stage = call.argument<String>("stage")
+                        val type = call.argument<String>("type") ?: "unknown"
+                        if (stage.isNullOrBlank() || stage.length > 200) {
+                            result.error("invalid", "Invalid stage", null)
+                        } else {
+                            StartupProbe.mark("dart.$stage type=" + type.take(120))
+                            result.success(null)
+                        }
+                    }
+                    "publish" -> {
+                        StartupProbe.publishCurrentRun()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        StartupProbe.mark("startup_probe.channel.registered")
     }
     /** A file the app owns and may read or hand over; anything else is refused. */
     private fun privateFile(raw: String): File {

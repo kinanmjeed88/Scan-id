@@ -540,47 +540,8 @@ jobs:
           disable-linux-hw-accel: ${{ steps.emulator-acceleration.outputs.available != 'true' }}
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
-          script: |
-            set -euo pipefail
-            mkdir -p diagnostics/android16
-            apk="$(find startup-apk -name '*.apk' -print -quit)"
-            test -n "$apk"
-            adb logcat -c
-            adb install -r "$apk"
-            adb shell monkey -p iq.scanid.scan_id.startupdiag \
-              -c android.intent.category.LAUNCHER 1 > /dev/null
-            for attempt in $(seq 1 30); do
-              adb logcat -d -v threadtime > diagnostics/android16/startup.log || true
-              if grep -Fq 'app.first_home_frame' diagnostics/android16/startup.log; then
-                break
-              fi
-              sleep 2
-            done
-            grep -E 'ScanIdStartup|ScanIdProbe|FATAL EXCEPTION|AndroidRuntime|Fatal signal|UnsatisfiedLinkError|OutOfMemoryError' \
-              diagnostics/android16/startup.log > diagnostics/android16/startup-summary.log || true
-            if ! grep -Fq 'app.first_home_frame' diagnostics/android16/startup.log; then
-              cat diagnostics/android16/startup-summary.log
-              echo "::error title=android16-startup::The diagnostic build did not reach the first home frame on Android 16." >&2
-              exit 1
-            fi
-            # The report must exist where the person can reach it without a computer.
-            adb shell ls -l /sdcard/Download/ScanId > diagnostics/android16/report-listing.log 2>&1 || true
-            report="$(adb shell ls /sdcard/Download/ScanId 2>/dev/null | tr -d '\r' | head -n 1)"
-            if [[ -z "$report" ]]; then
-              cat diagnostics/android16/report-listing.log || true
-              echo "::error title=startup-report::No report file was written to Download/ScanId." >&2
-              exit 1
-            fi
-            adb shell cat "/sdcard/Download/ScanId/$report" > diagnostics/android16/report.txt
-            for marker in 'probe.installed' 'native.preflight.abi' 'flutter_plugins.registration.complete' \
-              'native.preflight.ort_environment' 'historical process exits' 'app.first_home_frame'; do
-              if ! grep -Fq "$marker" diagnostics/android16/report.txt; then
-                sed -n '1,120p' diagnostics/android16/report.txt
-                echo "::error title=startup-report::Report is missing '$marker'." >&2
-                exit 1
-              fi
-            done
-            echo "::notice title=startup-report-android16::$(grep -E 'native.preflight|pageSize|supportedAbis' diagnostics/android16/report.txt | head -n 8 | tr '\n' '~')"
+          script: bash tool/run_android16_startup.sh
+
       - name: Upload Android 16 startup evidence
         if: always()
         uses: actions/upload-artifact@v6

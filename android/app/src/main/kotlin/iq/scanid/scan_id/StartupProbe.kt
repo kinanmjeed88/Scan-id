@@ -68,7 +68,9 @@ object StartupProbe {
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
     private var installed = false
     private var sequence = 0
-    @Volatile private var publishedCurrentRun = false
+    // Number of marks in the last published report, so a later publish that
+    // carries more evidence is not suppressed by an earlier one.
+    @Volatile private var publishedMarkCount = -1
 
     /** True only in builds that opted in; production stays silent. */
     val enabled: Boolean
@@ -98,8 +100,10 @@ object StartupProbe {
             // Publishing must not depend on Dart reaching its first frame: if the
             // process dies before that, the marks above are still only in the
             // app-private log. This timer is what turns a successful or failed
-            // run into a file the person can share. The Dart first-frame call
-            // usually wins; whichever runs first publishes once.
+            // run into a file the person can share. Dart may publish first at
+            // its first frame; this second publish then still runs, because the
+            // marks list has grown by then, so the file always carries the
+            // complete sequence.
             runCatching {
                 Handler(Looper.getMainLooper()).postDelayed(
                     { publishCurrentRun() },
@@ -149,8 +153,9 @@ object StartupProbe {
     /** Publishes this run so far; safe to call from the UI thread. */
     fun publishCurrentRun() {
         if (!enabled) return
-        if (publishedCurrentRun) return
-        publishedCurrentRun = true
+        val markCount = synchronized(lock) { marks.size }
+        if (markCount == publishedMarkCount) return
+        publishedMarkCount = markCount
         val context = appContext ?: return
         runCatching { publish("first-frame", buildReport(context, includeCurrentMarks = true)) }
             .onFailure { Log.w(TAG, "current-run publish failed: ${it.javaClass.name}") }

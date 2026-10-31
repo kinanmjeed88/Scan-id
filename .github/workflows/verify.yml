@@ -566,8 +566,7 @@ jobs:
             --built build/app/outputs/flutter-apk/app-scanid-debug.apk
           python3 tool/stage_app_apk.py check \
             --apk install-apks/diagnostic/app-diagnostic-debug.apk \
-            --expected install-apks/diagnostic/expected.json \
-            --built build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+            --expected install-apks/diagnostic/expected.json
 
       - name: Android debug APK
         uses: actions/upload-artifact@v6

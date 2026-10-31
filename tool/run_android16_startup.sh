@@ -42,6 +42,16 @@ if [[ "$reached_home" -ne 1 ]]; then
   exit 1
 fi
 
+# Two reports are expected: one written at launch and one carrying this run's
+# stage marks, which Dart publishes when its first frame is up. That publish is
+# asynchronous, so the folder is polled instead of pulled immediately.
+for _ in $(seq 1 25); do
+  if [[ "$(adb shell ls /sdcard/Download/ScanId 2>/dev/null | wc -l)" -ge 2 ]]; then
+    break
+  fi
+  sleep 1
+done
+
 # The report must land where a person can reach it without a computer. Every
 # launch writes one at start ("previous-run") and one once a frame is up, so all
 # of them are pulled and searched: the stage marks of a run that died are carried

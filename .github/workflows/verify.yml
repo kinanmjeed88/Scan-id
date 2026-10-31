@@ -714,10 +714,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tool/fingerprint_apk.py \
-            scanid-debug=out/scanid-debug.apk \
-            scanid-debug-after-release=out/scanid-debug-after-release.apk \
-            diagnostic-full=out/diagnostic-full.apk
+          # Only the packages this run built: the release-order reproduction and
+          # the reduced variants exist only when the experiment is requested.
+          args=()
+          for label in scanid-debug scanid-debug-after-release diagnostic-full \
+                       diagnostic-off diagnostic-load diagnostic-env; do
+            if [ -f "out/${label}.apk" ]; then
+              args+=("${label}=out/${label}.apk")
+            fi
+          done
+          python3 tool/fingerprint_apk.py "${args[@]}"
 
       - name: Prove each package carries its own applicationId
         shell: bash

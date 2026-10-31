@@ -376,111 +376,6 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # A phone reports that the diagnostic build starts while the plain debug
-      # build exits after the splash screen, on the same commit. The next steps
-      # take the recorder apart one piece at a time so the piece responsible is
-      # identified by measurement instead of by guesswork: every variant here is
-      # still a debug build of the same flavor, but runs only the named part of
-      # the startup step, and installs under its own applicationId so all of them
-      # can sit on the phone together. `off` is the control: it is the plain debug
-      # startup path with the diagnostic packaging.
-      # Keep the complete diagnostic package, because later gates install
-      # `app-diagnostic-debug.apk` and the experiment builds reuse that filename.
-      - name: Preserve the complete diagnostic APK
-        run: cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-full-debug.apk
-      - name: Build diagnostic variant with the startup step disabled (control)
-        env:
-          ORG_GRADLE_PROJECT_scanIdProbeAction: off
-        run: |
-          set -euo pipefail
-          python tool/ci_gate.py startup-diagnostic-off-build flutter build apk --flavor diagnostic --debug
-          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-off-debug.apk
-      - name: Upload diagnostic-no-probe control APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-android-startupdiag-no-probe-apk
-          path: build/app/outputs/flutter-apk/app-diagnostic-off-debug.apk
-          if-no-files-found: error
-          retention-days: 3
-      - name: Build diagnostic variant with only the native library load
-        env:
-          ORG_GRADLE_PROJECT_scanIdProbeAction: load
-        run: |
-          set -euo pipefail
-          python tool/ci_gate.py startup-diagnostic-load-build flutter build apk --flavor diagnostic --debug
-          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-load-debug.apk
-      - name: Upload diagnostic load-only APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-android-startupdiag-load-only-apk
-          path: build/app/outputs/flutter-apk/app-diagnostic-load-debug.apk
-          if-no-files-found: error
-          retention-days: 3
-      - name: Build diagnostic variant with only the runtime environment creation
-        env:
-          ORG_GRADLE_PROJECT_scanIdProbeAction: env
-        run: |
-          set -euo pipefail
-          python tool/ci_gate.py startup-diagnostic-env-build flutter build apk --flavor diagnostic --debug
-          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-env-debug.apk
-      - name: Upload diagnostic environment-only APK
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-android-startupdiag-env-only-apk
-          path: build/app/outputs/flutter-apk/app-diagnostic-env-debug.apk
-          if-no-files-found: error
-          retention-days: 3
-      # The reduced variants are only meaningful if the -P switch actually reached
-      # Gradle. Each action maps to its own applicationId suffix, so the packaged
-      # manifest proves which variant an APK really is; a silent fallback to the
-      # default action would otherwise produce three identical packages and a
-      # useless comparison.
-      - name: Prove each experiment APK carries its own applicationId
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYSUFFIX'
-          import zipfile
-
-          expected = {
-              "app-diagnostic-full-debug.apk": "iq.scanid.scan_id.startupdiag",
-              "app-diagnostic-off-debug.apk": "iq.scanid.scan_id.startupdiagoff",
-              "app-diagnostic-load-debug.apk": "iq.scanid.scan_id.startupdiagload",
-              "app-diagnostic-env-debug.apk": "iq.scanid.scan_id.startupdiagenv",
-          }
-          failures = []
-          for name, package in expected.items():
-              path = f"build/app/outputs/flutter-apk/{name}"
-              with zipfile.ZipFile(path) as archive:
-                  manifest = archive.read("AndroidManifest.xml")
-              if package.encode("utf-16-le") not in manifest and package.encode("utf-8") not in manifest:
-                  failures.append(f"{name} does not declare {package}")
-              else:
-                  print(f"PASS: {name} declares {package}")
-          if failures:
-              raise SystemExit("; ".join(failures))
-          PYSUFFIX
-      - name: Restore the complete diagnostic APK for the remaining gates
-        run: cp build/app/outputs/flutter-apk/app-diagnostic-full-debug.apk build/app/outputs/flutter-apk/app-diagnostic-debug.apk
-      - name: Compare the plain debug APK with the diagnostic APKs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p diagnostics
-          debug=build/app/outputs/flutter-apk/app-scanid-debug.apk
-          for variant in diagnostic diagnostic-off diagnostic-load diagnostic-env; do
-            apk="build/app/outputs/flutter-apk/app-${variant}-debug.apk"
-            test -f "$apk"
-            python3 tool/compare_apks.py "$debug" "$apk" "diagnostics/apk-compare-${variant}.md" || true
-          done
-          ls -l diagnostics/apk-compare-*.md
-      - name: Upload the APK differential reports
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-apk-differential
-          path: diagnostics/apk-compare-*.md
-          if-no-files-found: error
-          retention-days: 7
       - name: Build independent offline annotation flavor
         run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
       - name: Audit merged annotation-flavor permissions
@@ -599,6 +494,200 @@ jobs:
           # CI smoke artifact only; short retention prevents artifact-storage
           # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).
           retention-days: 7
+
+  # One commit, five packages: the plain debug build, the diagnostic build as it
+  # ships today, and three diagnostic builds that each drop one part of the
+  # startup step the diagnostic build performs before Flutter registers plugins.
+  #
+  # The only place the difference between "starts" and "exits after the splash
+  # screen" is observable is the phone, so this job produces the packages that
+  # isolate that difference and compares what is actually inside them (entries,
+  # native library hashes, zip compression and alignment, merged manifests, the
+  # startup step as compiled). It is separate from `android` because five APK
+  # builds would push the verification job past its time limit.
+  android-apk-differential:
+    name: Android debug/diagnostic differential
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - name: Assert local-only evaluation data is excluded
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e Mostmskat
+          test ! -e local-data
+          python tool/check_private_ci_checkout.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
+      - name: Install Gradle plugin-repository fallback
+        shell: bash
+        run: bash tool/install_gradle_init.sh
+      - name: Restore cached Gradle artifacts
+        id: gradle-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - name: Resolve dependencies
+        shell: bash
+        run: bash tool/bootstrap.sh
+
+      # Each build below is a debug build of the same commit. Only the flavor and
+      # the probe action change, one at a time. The merged manifest is copied
+      # immediately after each build because the path is shared between builds
+      # of the same variant and would otherwise be overwritten.
+      - name: Build plain debug, diagnostic, and three reduced diagnostic variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          build() {
+            local label="$1" flavor="$2" action="$3" variant="$4"
+            echo "::group::build $label (flavor=$flavor action=$action)"
+            if [ -n "$action" ]; then
+              ORG_GRADLE_PROJECT_scanIdProbeAction="$action" flutter build apk --flavor "$flavor" --debug
+            else
+              flutter build apk --flavor "$flavor" --debug
+            fi
+            cp "build/app/outputs/flutter-apk/app-${flavor}-debug.apk" "out/${label}.apk"
+            local manifest
+            manifest=$(find build/app/intermediates/merged_manifest -type f \
+              -path "*${variant}*" -name AndroidManifest.xml -print -quit)
+            test -n "$manifest"
+            cp "$manifest" "out/${label}.merged.xml"
+            {
+              cat android/app/src/main/AndroidManifest.xml
+              cat "android/app/src/${flavor}/AndroidManifest.xml" 2>/dev/null || true
+              cat android/app/src/debug/AndroidManifest.xml 2>/dev/null || true
+            } > "out/${label}.source.xml"
+            ls -l "out/${label}.apk"
+            echo "::endgroup::"
+          }
+          build scanid-debug scanid "" scanidDebug
+          build diagnostic-full diagnostic "" diagnosticDebug
+          build diagnostic-off diagnostic off diagnosticDebug
+          build diagnostic-load diagnostic load diagnosticDebug
+          build diagnostic-env diagnostic env diagnosticDebug
+
+      # The reduced variants are only meaningful if the -P switch reached Gradle.
+      # Each action maps to its own applicationId suffix, so the packaged manifest
+      # proves which variant an APK really is; a silent fallback to `full` would
+      # otherwise yield five similar packages and a pointless comparison.
+      - name: Prove each package carries its own applicationId
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/prove_apk_identity.py out
+
+      - name: Compare the packaged contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCONFIG'
+          import json
+          from pathlib import Path
+
+          variants = ["diagnostic-full", "diagnostic-off", "diagnostic-load", "diagnostic-env"]
+          config = {
+              "report": "out/apk-differential.md",
+              "baseline": {
+                  "label": "scanid-debug",
+                  "apk": "out/scanid-debug.apk",
+                  "merged": "out/scanid-debug.merged.xml",
+                  "source": "out/scanid-debug.source.xml",
+              },
+              "variants": [
+                  {
+                      "label": label,
+                      "apk": f"out/{label}.apk",
+                      "merged": f"out/{label}.merged.xml",
+                      "source": f"out/{label}.source.xml",
+                  }
+                  for label in variants
+              ],
+          }
+          Path("out/config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+          PYCONFIG
+          python3 tool/compare_apks.py --config out/config.json
+
+      - name: Upload the differential report
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-apk-differential
+          path: |
+            out/apk-differential.md
+            out/*.merged.xml
+            out/*.source.xml
+          if-no-files-found: error
+          retention-days: 7
+
+      # The phone cannot build anything: these are the packages that isolate the
+      # difference, each with its own applicationId so they can coexist there.
+      - name: Upload the diagnostic variants for the phone
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-no-probe-apk
+          path: out/diagnostic-off.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the load-only variant
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-load-only-apk
+          path: out/diagnostic-load.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the environment-only variant
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-env-only-apk
+          path: out/diagnostic-env.apk
+          if-no-files-found: error
+          retention-days: 3
 
   # The device report that started this investigation is Android 16 on ARM64.
   # CI cannot boot ARM64, but it can boot Android 16, so the startup path is

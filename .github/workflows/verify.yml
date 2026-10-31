@@ -216,6 +216,20 @@ jobs:
         run: python tool/ci_gate.py export-audit python tool/verify_exports.py
       - name: Build Android debug APK (CI smoke test)
         run: python tool/ci_gate.py android-build flutter build apk --flavor scanid --debug
+      - name: Record the debug APK fingerprint at build time
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          # The same command in a job without the gates before it uploads a 35 MB
+          # larger package, so the file has to be fingerprinted the moment it is
+          # built and again just before it is uploaded: that separates "the build
+          # produces this" from "something later replaced or rewrote it".
+          python3 tool/fingerprint_apk.py \
+            scanid-debug-at-build=build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            > diagnostics/apk-fingerprint-at-build.txt 2>&1
+          cat diagnostics/apk-fingerprint-at-build.txt
+
       - name: Inspect Android debug APK native libraries by ABI
         shell: bash
         run: |
@@ -484,6 +498,23 @@ jobs:
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+
+      # Emitted last on purpose: GitHub keeps only the most recent annotations of
+      # a job, and the gates above publish their own. This is the package the
+      # phone actually receives, next to the same file as it was built.
+      - name: Fingerprint the package this job uploads
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "--- at build time:"
+          cat diagnostics/apk-fingerprint-at-build.txt
+          echo "--- at upload time:"
+          python3 tool/fingerprint_apk.py \
+            scanid-debug-at-upload=build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            diagnostic-at-upload=build/app/outputs/flutter-apk/app-diagnostic-debug.apk \
+            annotator-at-upload=build/app/outputs/flutter-apk/app-annotator-debug.apk
+          echo "--- built file line repeated for a diffable comparison:"
+          cat diagnostics/apk-fingerprint-at-build.txt
 
       - name: Android debug APK
         uses: actions/upload-artifact@v6

@@ -13,7 +13,7 @@
 2. **نافذة الانحدار محددة بدقة، وليست تخميناً:** المقارنة بين `v0.1.2` (آخر إصدار منشور) و`HEAD` تُظهر أن **الاعتماد الوحيد الجديد** في `pubspec.yaml`/`pubspec.lock` هو `flutter_onnxruntime` (git عند `2f0fc6c`، يحزم `com.microsoft.onnxruntime:onnxruntime-android:1.28.0`). لا تغيير في `path_provider_android`، ولا في `jni`/`jni_flutter`، ولا في Gradle/AGP/NDK، ولا في `applicationId`/`minSdk`/`targetSdk`.
 3. **التغيير الأول المؤثر:** الالتزام `2bd85ce` (2026-10-30 08:20Z) «Separate boundary review state and integrate offline DocQuadNet» — هو أول التزام يُدخل `flutter_onnxruntime` في `pubspec.yaml` وأول التزام يُنشئ `DocQuadNet256()` داخل `_openStorage` في `lib/main.dart`. بعده `9ba139b` (2026-10-30 16:58Z) أضاف DocAligner واستدعاء `BoundaryProposalCascade` في المسار نفسه.
 4. **المسار الذي يجعل هذا التغيير قاتلاً عند الإقلاع (مُثبت من كود الإضافة، لا مفترضاً):** `FlutterOnnxruntimePlugin.onAttachedToEngine` ينفّذ `ortEnvironment = OrtEnvironment.getEnvironment()` أثناء **تسجيل الإضافات**، أي داخل `configureFlutterEngine` وقبل أول إطار Flutter. لذلك تُفتح `libonnxruntime4j_jni.so` و`libonnxruntime.so` بين شاشة Splash وأول إطار من الشاشة الرئيسية. أي فشل في `dlopen` يصبح `UnsatisfiedLinkError` داخل `onCreate` → `FATAL EXCEPTION` → نهاية العملية قبل الرسم. هذا يطابق الموصوف: Splash ثم إغلاق، وليس شاشة خطأ داخل التطبيق.
-5. **ما استُبعد بالقياس (لا بالرأي):** تغليف المكتبات لكل ABI سليم (تدقيق ELF في CI)، وكل مكتبة 64‑بت مستوفية لمتطلب صفحات 16KB (`p_align ≥ 0x4000`)، و`minifyEnabled`/R8/ProGuard غير مفعّلة في الإصدار، ولا `abiFilters` ولا `splits`. أي أن «مكتبة مفقودة» و«تصغير يحذف أصناف ONNX» و«مقاس صفحة 16KB» ليست السبب.
+5. **ما استُبعد بالقياس (لا بالرأي):** تغليف المكتبات لكل ABI سليم (تدقيق ELF في CI)، وكل مكتبة 64‑بت مستوفية لمتطلب صفحات 16KB (`p_align ≥ 0x4000`)، و`minifyEnabled`/R8/ProGuard غير مفعّلة في الإصدار، ولا `abiFilters` ولا `splits`، وتحويل مكتبات ONNX و`OrtEnvironment.getEnvironment()` وكل تسجيل إضافات Flutter ينجح على **Android 16 API 36** فعلياً (قسم 9.3). أي أن «مكتبة مفقودة» و«تصغير يحذف أصناف ONNX» و«مقاس صفحة 16KB» و«سلوك Android 16 العام» ليست السبب.
 6. **ما لم يُثبت بعد — وأُعلن صراحة:** تقرير الهاتف (Bug Report) **غير موجود في المستودع** ولا في أي ملف استلمته هذه الجلسة، وAPK المنشورة على صفحة Releases غير قابلة للتنزيل من بيئة العمل هذه (`release-assets.githubusercontent.com` محجوب). لذلك **لا يمكن** الجزم بعد بنوع الفشل على الجهاز: هل هو `UnsatisfiedLinkError` برسالة تحدد السبب، أم استثناء Java آخر من `configureFlutterEngine`، أم شيء خارج ONNX تماماً؟ ما أُثبت هو: *أي* فشل داخل تسجيل إضافات ONNX يقتل العملية في النافذة الزمنية بالضبط، والتغيير الذي أدخل هذا المسار معلوم بالـSHA.
 7. **خلل ثانٍ مُثبت ومستقل:** سلسلة الإصدار الموقّع **معطّلة كلياً** عند `HEAD`: تشغيل `41190786006` فشل في `aot_android_asset_bundle` لأن `assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx` ملف مستبعد من Git (83 MB) ولم يكن أي step في `android-signed-release.yml` يجلبه. أي أنه **لا يمكن** إنتاج نسخة Release موقّعة جديدة من هذه الشجرة قبل إصلاح ذلك — أُصلح في هذا الفرع.
 8. **ما أُضيف لتحويل التشخيص إلى الهاتف وحده:** مسجّل أدلة داخل التطبيق (`StartupProbe.kt`) يعمل في نكهة `diagnostic`، ويحمّل مكتبات ONNX صراحة قبل Flutter، ويقرأ `getHistoricalProcessExitReasons()`، ويكتب تقريراً في `Download/ScanId` يمكن مشاركته من مدير الملفات دون حاسوب.
@@ -218,8 +218,10 @@ x86_64     : libdartjni.so, libflutter.so, libonnxruntime.so (EM_62), libonnxrun
 |---|---|---|
 | `41200133216` | `92622c7` | فشل حقيقي في الكود: `StartupProbe.kt:259` — `getHistoricalProcessExitInfos` غير موجود (الاسم الصحيح `getHistoricalProcessExitReasons`). Windows ✅ |
 | `41200973966` | `2eb82d5` | فشل قبل البناء: جلب أصل DocAligner فشل في محاولاته الثلاث (انقطاع upstream) — عولج بالتخزين المؤقت |
-| `41201533145` | `e0c96a8` | **Android ✅ · Windows ✅** (format, analyze, 835 اختباراً، تدقيق ABI، تدقيق 16KB، بناء Debug و`diagnostic`، اختبار إقلاع المحاكي x86_64). وظيفة Android 16 فشلت لخطأ في الغلاف (انظر 9.3) |
-| `afb9b8a` | `afb9b8a` | إصلاح غلاف Android 16؛ النتائج في نهاية هذا القسم 9.3 |
+| `41201533145` | `e0c96a8` | Android ✅ · Windows ✅ — مع فشل وظيفة Android 16 لخطأ في الغلاف (`sh` و`pipefail`) |
+| `41202944057` | `a0b74a1` | Android ✅ · Windows ✅ — وظيفة Android 16: وصلت لأول إطار لكن التقرير الملتقط كان تقرير الإقلاع وحده |
+| `41204557311` | `ee77b4e` | Android ✅ · Windows ✅ — وظيفة Android 16: التقرير الحامل للعلامات يُنشر لا تزامنياً، والجمع كان أسرع منه |
+| **`41206138050`** | **`acab6ca`** | **Android ✅ · Windows ✅ · Android 16 ✅** — كل البوابات ناجحة |
 
 **ما يعني هذا عملياً:** البناء ينجح، والتحليل والتنسيق والاختبارات تمر، والتطبيق يصل إلى أول إطار على محاكي x86_64 — وهذا **لا يثبت** سلامة ARM64 ولا يعالج الشكوى الأصلية.
 
@@ -243,8 +245,26 @@ armeabi-v7a: (لا متطلب 16KB لـ32-بت) libonnxruntime.so=0x4000
 في تشغيل `41201533145` لم تُنشأ `diagnostics/android16/` لأن `android-emulator-runner` ينفّذ كتلة `script` بـ`sh` و`set -o pipefail` غير مدعوم فيه (خرج بـ2 قبل أي أمر). نُقل المنطق إلى `tool/run_android16_startup.sh` ويُستدعى بـ`bash`، ونتيجته في التشغيل التالي:
 
 ```
-(تُملأ من التشغيل على afb9b8a)
+::notice title=startup-report-android16::2 report(s), first home frame reached on API 36 (x86_64)
+versionName=0.1.2-startupdiag  versionCode=3
+supportedAbis=x86_64,arm64-v8a  pageSize=4096
+0001 probe.installed
+0002 native.preflight.abi abis=x86_64,arm64-v8a pageSize=4096 bits=64
+0003 native.preflight.loaded name=onnxruntime4j_jni ms=20
+0004 native.preflight.loaded name=onnxruntime ms=0
+0005 native.preflight.ort_environment.created ms=46
+0008 flutter_plugins.registration.begin
+0009 flutter_plugins.registration.complete
+0041 dart.app.first_home_frame
 ```
+
+قراءة هذه السطور:
+
+1. **المسجّل يعمل من طرف إلى طرف على Android 16**: يكتب تقريرين في `Download/ScanId` (واحد عند الإقلاع وآخر يحمل علامات التشغيل)، ويستقبل علامات Dart عبر القناة (`dart.app.first_home_frame`)، ويقرأ سجل الخروج.
+2. **تحميل مكتبات ONNX وإنشاء `OrtEnvironment` ينجحان على Android 16/x86_64 دون استثناء** (20ms و0ms و46ms) ⇒ لا عطل بنيوي في حزمة ORT نفسها على هذه النسخة من النظام.
+3. **`flutter_plugins.registration.begin` ثم `complete`** في تسجيل التشغيل ⇒ تسجيل الإضافات يكتمل في هذه البيئة.
+
+**وبالتالي H8 (سلوك Android 16 العام) مستبعدة على هذا المعالج**، ويبقى الاحتمال محصوراً بما يخص **ARM64 أو الشركة المصنعة أو حالة الجهاز نفسه** — وهو ما لا يمكن قياسه من هنا، ولذلك وُجد المسجّل ليُشغَّل على الجهاز.
 
 ---
 
@@ -256,12 +276,28 @@ armeabi-v7a: (لا متطلب 16KB لـ32-بت) libonnxruntime.so=0x4000
 4. **التغيير الذي ثبت أنه سبب الانهيار:** **لم يُثبت بعد**. المثبت هو المسار: تحميل ONNX الأصلي صار يحدث داخل تسجيل الإضافات قبل أول إطار، ولا يوجد أي تغيير آخر في وقت التشغيل بين `v0.1.2` و`HEAD` سوى ONNX.
 5. **الدليل المباشر:** فرق `pubspec.lock` (ONNX هو الفرق الوحيد في وقت التشغيل) + كود `onAttachedToEngine` للإضافة المثبّتة + زمن الفشل (بين Splash وأول إطار) + تقرير PR #37 بأن الإغلاق ظهر بعد الدمج.
 6. **الاختبارات:** جدول القسم 7 يبيّن ما أثبت/استبعد كل فرضية، ومنه: ABI (مستبعد)، R8 (مستبعد)، Dart (مستبعد كقاتل)، 16KB (قيد القياس)، Android 16 (قيد القياس).
-7. **مجال السبب:** حتى الآن يُرجَّح **Native/Android** لا Dart؛ والتحديد بين «مكتبة أصلية غير قابلة للتحميل على هذا الجهاز» و«سلوك Android 16/OEM» يحتاج تقرير الجهاز.
+7. **مجال السبب:** **Native/Android، لا Dart**. المسار المثبت هو تحميل ONNX الأصلي داخل تسجيل الإضافات. المتبقي ليس «هل Android 16 يمنع التحميل» (اختُبر وينجح على x86_64/API 36) بل **لماذا يفشل على هذا الجهاز تحديداً**: عتاد ARM64 أو تخصيص الشركة المصنعة أو حالة التثبيت. تقرير الجهاز هو الذي يسمّيها ما دامت الميادين الأخرى قد سُدّت بالقياس.
 8. **الإصلاح المنفذ:** إصلاح معطّل الإصدار الموقّع (جلب أصل DocAligner) + بناء أداة تشخيص على الجهاز + بوابتا CI. لا إصلاح للانهيار قبل إثباته.
 9. **هل بقيت الميزات؟** نعم: لم يُحذف DocQuadNet/DocAligner، ولم يُعطَّل ONNX، ولم تتغير الواجهة.
-10. **نتائج CI على SHA النهائي:** القسم 9.1 — Android وWindows ناجحان؛ وظيفة Android 16 تُصلح غلافها وتُعاد.
-11. **هل اختُبر على ARM64 فعلياً؟** **لا.** لا يوجد جهاز ARM64 متاح لهذه الجلسة، ولا محاكي ARM64 على runners. هذا يبقى حداً معلوماً.
+10. **نتائج CI على SHA النهائي:** القسم 9.1 — `acab6ca`: Android ✅ · Windows ✅ · Android 16 ✅ (تنسيق، تحليل، 835 اختباراً، تدقيق ABI، تدقيق 16KB، بناء Debug و`diagnostic`، اختبار إقلاع على API 35 وAPI 36).
+11. **هل اختُبر على ARM64 فعلياً؟** **لا.** لا يوجد جهاز ARM64 متاح لهذه الجلسة، ولا محاكي ARM64 على runners الحالية. ما جرى: تحقق ABI وELF ساكن داخل الـAPK، وتشغيل فعلي على x86_64 API 35 وAPI 36. أي تصريح بخلاف ذلك سيكون ادعاءً غير صحيح.
 12. **كيف تستخرج تقريراً جديداً بلا حاسوب؟** قسم 8.3: ثبّت APK نكهة `diagnostic`، شغّله مرة أو مرتين، ثم شارك أحدث ملف من `Download/ScanId`.
+
+---
+
+## 10.1 ما تبقّى بالضبط، وكيف يُحسم بأقل جهد
+
+بعد الاستبعادات المقيسة، الفرضيات الحيّة هي:
+
+| الفرضية الحيّة | ما الذي يحسمها في تقرير الجهاز |
+|---|---|
+| فشل تحميل ORT خاص بـARM64 (مسار مكتبة/عتاد) | `native.preflight.load_failed name=… message=…` في علامة واحدة |
+| استثناء آخر داخل `configureFlutterEngine` من هذه البيئة | `flutter_plugins.registration failed type=…` + أثر `java.uncaught` |
+| انهيار أصلي (لا استثناء) | `reason=CRASH_NATIVE` أو `SIGNALED` في «historical process exits» مع الـtrace |
+| تخصيص الشركة المصنعة (realme/OEM) يمنع تحميل مكتبة | نفس المسار أعلاه مع `dlopen failed` نصاً |
+| الحزمة المثبَّتة تحمل حالة قديمة (بيانات/توقيع) | إن عملت `.startupdiag` وفشلت الحزمة الأصلية ⇒ السبب في الحالة لا في الكود |
+
+ملف واحد من الجهاز يجيب عن كل صف. لا حاجة إلى بناء APK إضافي ولا إلى حاسوب.
 
 ---
 

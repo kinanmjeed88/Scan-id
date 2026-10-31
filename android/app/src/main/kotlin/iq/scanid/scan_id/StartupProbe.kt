@@ -72,9 +72,26 @@ object StartupProbe {
     // carries more evidence is not suppressed by an earlier one.
     @Volatile private var publishedMarkCount = -1
 
+    /**
+     * Which part of the recorder this build runs (see `scanIdProbeAction` in
+     * `android/app/build.gradle.kts`). `full` is the complete recorder, `load`
+     * keeps only the explicit `System.loadLibrary` calls, `env` keeps only the
+     * ONNX Runtime environment creation, and `off` records nothing so the
+     * startup path is the plain one. Reduced builds still exist as the same
+     * flavor and build type, which is what makes them comparable.
+     */
+    private val action: String
+        get() = BuildConfig.STARTUP_PROBE_ACTION
+
     /** True only in builds that opted in; production stays silent. */
     val enabled: Boolean
-        get() = BuildConfig.STARTUP_PROBE
+        get() = BuildConfig.STARTUP_PROBE && action != "off"
+
+    private val loadsLibraries: Boolean
+        get() = action == "full" || action == "load"
+
+    private val createsEnvironment: Boolean
+        get() = action == "full" || action == "env"
 
     /** Must run before `super.onCreate` so plugin registration is covered. */
     fun install(activity: Activity) {
@@ -172,18 +189,23 @@ object StartupProbe {
             "native.preflight.abi abis=${Build.SUPPORTED_ABIS.joinToString(",")}" +
                 " pageSize=${pageSize()} bits=${if (Build.SUPPORTED_64_BIT_ABIS.isNotEmpty()) "64" else "32"}",
         )
-        for (library in listOf("onnxruntime4j_jni", "onnxruntime")) {
-            val startedAt = System.nanoTime()
-            try {
-                System.loadLibrary(library)
-                mark("native.preflight.loaded name=$library ms=${elapsedMs(startedAt)}")
-            } catch (error: Throwable) {
-                failure("native.preflight.load_failed name=$library ms=${elapsedMs(startedAt)}", error)
+        mark("probe.action name=$action loadLibraries=$loadsLibraries createEnvironment=$createsEnvironment")
+        if (loadsLibraries) {
+            for (library in listOf("onnxruntime4j_jni", "onnxruntime")) {
+                val startedAt = System.nanoTime()
+                try {
+                    System.loadLibrary(library)
+                    mark("native.preflight.loaded name=$library ms=${elapsedMs(startedAt)}")
+                } catch (error: Throwable) {
+                    failure("native.preflight.load_failed name=$library ms=${elapsedMs(startedAt)}", error)
+                }
             }
         }
-        val environment = loadOrtEnvironment()
-        if (environment is Throwable) {
-            failure("native.preflight.ort_environment", environment)
+        if (createsEnvironment) {
+            val environment = loadOrtEnvironment()
+            if (environment is Throwable) {
+                failure("native.preflight.ort_environment", environment)
+            }
         }
     }
 
@@ -247,6 +269,7 @@ object StartupProbe {
         appendLine("applicationId=${BuildConfig.APPLICATION_ID}")
         appendLine("versionName=${BuildConfig.VERSION_NAME} versionCode=${BuildConfig.VERSION_CODE}")
         appendLine("buildSha=${BuildConfig.BUILD_SHA}")
+        appendLine("probeAction=$action")
         appendLine("debugBuild=${BuildConfig.DEBUG}")
         appendLine("manufacturer=${Build.MANUFACTURER} model=${Build.MODEL} device=${Build.DEVICE}")
         appendLine(

@@ -69,6 +69,33 @@ val startupProbeRequested = providers.gradleProperty("scanIdStartupProbe")
     .orNull
     ?.equals("true", ignoreCase = true) == true
 
+// The `diagnostic` flavor starts normally on the phone where the plain debug
+// build exits after the splash screen, and it is the only build that runs an
+// extra step before Flutter registers plugins: it loads the ONNX Runtime native
+// libraries itself. To find out whether that step is what keeps it alive, the
+// recorder can be built with one part removed (-PscanIdProbeAction=...):
+//
+//   full  everything the recorder does today (the build known to start)
+//   load  only the explicit System.loadLibrary calls, no OrtEnvironment
+//   env   only OrtEnvironment creation, no explicit loadLibrary calls
+//   off   none of it: the same startup path as the plain debug build
+//
+// Every variant is still a debug build of the same commit and still writes the
+// startup report; only the named step is gone, so the one that decides between
+// starting and exiting is identifiable. Each action gets its own applicationId
+// suffix so all of them can be installed at the same time.
+val startupProbeAction = (providers.gradleProperty("scanIdProbeAction").orNull ?: "full")
+    .trim()
+    .lowercase()
+val startupProbeActions = listOf("full", "load", "env", "off")
+if (startupProbeAction !in startupProbeActions) {
+    throw GradleException(
+        "scanIdProbeAction must be one of ${startupProbeActions.joinToString(", ")}; " +
+            "the supplied value is not."
+    )
+}
+val startupProbeActionLiteral = "\"$startupProbeAction\""
+
 // Release variants must never fall back to the debug key. The explicit environment
 // flag also protects CI jobs whose requested task names are indirect.
 val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
@@ -250,6 +277,11 @@ android {
             "STARTUP_PROBE",
             if (startupProbeRequested) "true" else "false",
         )
+        buildConfigField(
+            "String",
+            "STARTUP_PROBE_ACTION",
+            if (startupProbeRequested) startupProbeActionLiteral else "\"off\"",
+        )
         buildConfigField("String", "BUILD_SHA", buildShaLiteral)
     }
 
@@ -266,11 +298,22 @@ android {
         }
         create("diagnostic") {
             dimension = "edition"
-            applicationIdSuffix = ".startupdiag"
-            versionNameSuffix = "-startupdiag"
+            // `full` keeps the historical identity so the build that is known to
+            // start stays byte-for-byte the same product; the reduced variants
+            // get their own id so the phone can hold all of them at once.
+            val suffix = when (startupProbeAction) {
+                "full" -> ".startupdiag"
+                "off" -> ".startupdiagoff"
+                "load" -> ".startupdiagload"
+                else -> ".startupdiagenv"
+            }
+            applicationIdSuffix = suffix
+            versionNameSuffix = "-startupdiag" +
+                if (startupProbeAction == "full") "" else "-$startupProbeAction"
             // This flavor exists only to record why a device exits after the
             // splash screen, so the evidence recorder is always on here.
             buildConfigField("boolean", "STARTUP_PROBE", "true")
+            buildConfigField("String", "STARTUP_PROBE_ACTION", startupProbeActionLiteral)
         }
     }
 

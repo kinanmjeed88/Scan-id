@@ -375,6 +375,112 @@ jobs:
           path: build/app/outputs/flutter-apk/app-diagnostic-debug.apk
           if-no-files-found: error
           retention-days: 7
+
+      # A phone reports that the diagnostic build starts while the plain debug
+      # build exits after the splash screen, on the same commit. The next steps
+      # take the recorder apart one piece at a time so the piece responsible is
+      # identified by measurement instead of by guesswork: every variant here is
+      # still a debug build of the same flavor, but runs only the named part of
+      # the startup step, and installs under its own applicationId so all of them
+      # can sit on the phone together. `off` is the control: it is the plain debug
+      # startup path with the diagnostic packaging.
+      # Keep the complete diagnostic package, because later gates install
+      # `app-diagnostic-debug.apk` and the experiment builds reuse that filename.
+      - name: Preserve the complete diagnostic APK
+        run: cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-full-debug.apk
+      - name: Build diagnostic variant with the startup step disabled (control)
+        env:
+          ORG_GRADLE_PROJECT_scanIdProbeAction: off
+        run: |
+          set -euo pipefail
+          python tool/ci_gate.py startup-diagnostic-off-build flutter build apk --flavor diagnostic --debug
+          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-off-debug.apk
+      - name: Upload diagnostic-no-probe control APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-no-probe-apk
+          path: build/app/outputs/flutter-apk/app-diagnostic-off-debug.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Build diagnostic variant with only the native library load
+        env:
+          ORG_GRADLE_PROJECT_scanIdProbeAction: load
+        run: |
+          set -euo pipefail
+          python tool/ci_gate.py startup-diagnostic-load-build flutter build apk --flavor diagnostic --debug
+          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-load-debug.apk
+      - name: Upload diagnostic load-only APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-load-only-apk
+          path: build/app/outputs/flutter-apk/app-diagnostic-load-debug.apk
+          if-no-files-found: error
+          retention-days: 3
+      - name: Build diagnostic variant with only the runtime environment creation
+        env:
+          ORG_GRADLE_PROJECT_scanIdProbeAction: env
+        run: |
+          set -euo pipefail
+          python tool/ci_gate.py startup-diagnostic-env-build flutter build apk --flavor diagnostic --debug
+          cp build/app/outputs/flutter-apk/app-diagnostic-debug.apk build/app/outputs/flutter-apk/app-diagnostic-env-debug.apk
+      - name: Upload diagnostic environment-only APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startupdiag-env-only-apk
+          path: build/app/outputs/flutter-apk/app-diagnostic-env-debug.apk
+          if-no-files-found: error
+          retention-days: 3
+      # The reduced variants are only meaningful if the -P switch actually reached
+      # Gradle. Each action maps to its own applicationId suffix, so the packaged
+      # manifest proves which variant an APK really is; a silent fallback to the
+      # default action would otherwise produce three identical packages and a
+      # useless comparison.
+      - name: Prove each experiment APK carries its own applicationId
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYSUFFIX'
+          import zipfile
+
+          expected = {
+              "app-diagnostic-full-debug.apk": "iq.scanid.scan_id.startupdiag",
+              "app-diagnostic-off-debug.apk": "iq.scanid.scan_id.startupdiagoff",
+              "app-diagnostic-load-debug.apk": "iq.scanid.scan_id.startupdiagload",
+              "app-diagnostic-env-debug.apk": "iq.scanid.scan_id.startupdiagenv",
+          }
+          failures = []
+          for name, package in expected.items():
+              path = f"build/app/outputs/flutter-apk/{name}"
+              with zipfile.ZipFile(path) as archive:
+                  manifest = archive.read("AndroidManifest.xml")
+              if package.encode("utf-16-le") not in manifest and package.encode("utf-8") not in manifest:
+                  failures.append(f"{name} does not declare {package}")
+              else:
+                  print(f"PASS: {name} declares {package}")
+          if failures:
+              raise SystemExit("; ".join(failures))
+          PYSUFFIX
+      - name: Restore the complete diagnostic APK for the remaining gates
+        run: cp build/app/outputs/flutter-apk/app-diagnostic-full-debug.apk build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+      - name: Compare the plain debug APK with the diagnostic APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          debug=build/app/outputs/flutter-apk/app-scanid-debug.apk
+          for variant in diagnostic diagnostic-off diagnostic-load diagnostic-env; do
+            apk="build/app/outputs/flutter-apk/app-${variant}-debug.apk"
+            test -f "$apk"
+            python3 tool/compare_apks.py "$debug" "$apk" "diagnostics/apk-compare-${variant}.md" || true
+          done
+          ls -l diagnostics/apk-compare-*.md
+      - name: Upload the APK differential reports
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-apk-differential
+          path: diagnostics/apk-compare-*.md
+          if-no-files-found: error
+          retention-days: 7
       - name: Build independent offline annotation flavor
         run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
       - name: Audit merged annotation-flavor permissions

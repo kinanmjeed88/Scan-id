@@ -59,16 +59,32 @@ jobs:
       # own; run 38815652328 showed what that costs when plugins.gradle.org cannot
       # serve the Kotlin artifacts it proxies from Maven Central. See
       # tool/gradle/plugin-repositories.init.gradle.
+      # The weight is git-ignored (83 MB) and fetched from its pinned upstream
+      # release. The cache key is the pinned SHA-256, and
+      # tool/fetch_docaligner_model.py re-hashes the file when it is already
+      # present, so a restored cache entry is verified rather than trusted.
+      # Run 41200973966 failed here on all three attempts during an upstream
+      # outage; with the cache a transient failure costs a run only when nothing
+      # has been stored yet.
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        # Caching is an optimisation: a cache outage must not fail verification.
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            echo "Preparing pinned DocAligner asset (attempt $attempt/3)"
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
             if python tool/fetch_docaligner_model.py; then
               exit 0
             fi
-            if (( attempt < 3 )); then
-              sleep $((attempt * 5))
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
             fi
           done
           exit 1
@@ -260,6 +276,96 @@ jobs:
               sys.exit("APK is missing native runtime libraries for a supported ABI")
           print("PASS: Flutter Engine and ONNX Runtime libraries are present for all audited ABIs.")
           PYAPK
+      # A 64-bit device with 16 KB memory pages cannot map a shared object whose
+      # PT_LOAD segments are aligned to 4 KB: dlopen fails and System.loadLibrary
+      # throws UnsatisfiedLinkError, which the Flutter embedding turns into a
+      # startup crash before the first frame. The x86_64 API-35 emulator uses
+      # 4 KB pages, so it can never surface that failure, which is exactly the
+      # blind spot behind the device report. This reads the packaged ELF program
+      # headers directly (no toolchain dependency) and fails on a 4 KB-aligned
+      # 64-bit library. 32-bit armeabi-v7a has no such requirement and is only
+      # reported.
+      - name: Validate 16 KB page-size alignment of packaged native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYALIGN'
+          import struct
+          import sys
+          import zipfile
+
+          apk = "build/app/outputs/flutter-apk/app-scanid-debug.apk"
+          PT_LOAD = 1
+          SIXTEEN_KB = 0x4000
+          abis = ("arm64-v8a", "x86_64", "armeabi-v7a")
+
+          def segments(blob):
+              if blob[:4] != b"\x7fELF":
+                  raise ValueError("not an ELF file")
+              elf_class = blob[4]
+              if elf_class == 2:
+                  phoff = struct.unpack_from("<Q", blob, 0x20)[0]
+                  phentsize = struct.unpack_from("<H", blob, 0x36)[0]
+                  phnum = struct.unpack_from("<H", blob, 0x38)[0]
+                  entry = 56
+                  align_offset = 48
+                  align_format = "<Q"
+              elif elf_class == 1:
+                  phoff = struct.unpack_from("<I", blob, 0x1C)[0]
+                  phentsize = struct.unpack_from("<H", blob, 0x2A)[0]
+                  phnum = struct.unpack_from("<H", blob, 0x2C)[0]
+                  entry = 32
+                  align_offset = 28
+                  align_format = "<I"
+              else:
+                  raise ValueError(f"unknown ELF class {elf_class}")
+              loads = []
+              for index in range(phnum):
+                  base = phoff + index * phentsize
+                  if base + entry > len(blob):
+                      raise ValueError("program header table is truncated")
+                  if struct.unpack_from("<I", blob, base)[0] != PT_LOAD:
+                      continue
+                  align = struct.unpack_from(align_format, blob, base + align_offset)[0]
+                  loads.append(align)
+              return elf_class, loads
+
+          failures = []
+          with zipfile.ZipFile(apk) as archive:
+              for abi in abis:
+                  names = sorted(
+                      name for name in archive.namelist()
+                      if name.startswith(f"lib/{abi}/") and name.endswith(".so")
+                  )
+                  inventory = []
+                  for name in names:
+                      try:
+                          elf_class, loads = segments(archive.read(name))
+                      except ValueError as error:
+                          failures.append(f"{name}: {error}")
+                          continue
+                      minimum = min(loads) if loads else 0
+                      inventory.append(
+                          f"{name.rsplit('/', 1)[-1]}=0x{minimum:x}"
+                          f"{'' if loads else '(no PT_LOAD)'}"
+                      )
+                      if not loads:
+                          failures.append(f"{name}: no PT_LOAD segment")
+                          continue
+                      if elf_class == 2 and minimum < SIXTEEN_KB:
+                          failures.append(
+                              f"{name}: 64-bit PT_LOAD alignment 0x{minimum:x} is below "
+                              f"0x{SIXTEEN_KB:x}; a 16 KB page-size device cannot load it"
+                          )
+                  summary = ", ".join(inventory) if inventory else "(no .so files)"
+                  print(f"::notice title=PT_LOAD alignment {abi}::{summary}")
+          if failures:
+              for failure in failures:
+                  print(f"::error title=native page-size alignment::{failure}")
+              sys.exit("A packaged 64-bit native library is not 16 KB page-size compatible")
+          print("PASS: every packaged 64-bit native library has 16 KB-aligned PT_LOAD segments.")
+          PYALIGN
+
       - name: Build Android startup diagnostic APK (side-by-side)
         run: python tool/ci_gate.py startup-diagnostic-build flutter build apk --flavor diagnostic --debug
       - name: Upload Android startup diagnostic APK
@@ -386,6 +492,63 @@ jobs:
           if-no-files-found: error
           # CI smoke artifact only; short retention prevents artifact-storage
           # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).
+          retention-days: 7
+
+  # The device report that started this investigation is Android 16 on ARM64.
+  # CI cannot boot ARM64, but it can boot Android 16, so the startup path is
+  # exercised on the same API level the user runs. This job also proves the
+  # phone-only evidence recorder: a diagnostic launch must leave a shareable
+  # report under Download/ScanId with the full stage list in it.
+  android16-startup:
+    name: Android 16 startup evidence
+    needs: android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - name: Download the startup diagnostic APK
+        uses: actions/download-artifact@v6
+        with:
+          name: scan-id-android-startup-diagnostic-apk
+          path: startup-apk
+      - name: Check Android Emulator acceleration
+        id: emulator-acceleration
+        shell: bash
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 0666 /dev/kvm
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=android-emulator::/dev/kvm is unavailable; the emulator will use software acceleration"
+          fi
+      - name: Launch the diagnostic build on Android 16 and collect its report
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-linux-hw-accel: ${{ steps.emulator-acceleration.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
+          script: bash tool/run_android16_startup.sh
+
+      - name: Upload Android 16 startup evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android16-startup-evidence
+          path: diagnostics/android16/
+          if-no-files-found: warn
           retention-days: 7
 
   # Share the exact Windows build and regression checks with the signed release.

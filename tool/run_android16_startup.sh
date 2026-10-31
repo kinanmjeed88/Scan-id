@@ -42,15 +42,19 @@ if [[ "$reached_home" -ne 1 ]]; then
   exit 1
 fi
 
-# Two reports are expected: one written at launch and one carrying this run's
-# stage marks, which Dart publishes when its first frame is up. That publish is
-# asynchronous, so the folder is polled instead of pulled immediately.
+# Three reports are expected: one written at launch, one when Dart's first frame
+# is up, and one from the probe's own ten-second timer, which is the one that
+# always carries the complete mark sequence: Dart's publish can reach the
+# platform channel before the mark it sent just ahead of it. Counting files is
+# therefore not enough (runs 41208190982 and 41211740552 pulled a two-file
+# folder without the Dart mark), so the collection waits past that timer.
 for _ in $(seq 1 25); do
   if [[ "$(adb shell ls /sdcard/Download/ScanId 2>/dev/null | wc -l)" -ge 2 ]]; then
     break
   fi
   sleep 1
 done
+sleep 12
 
 # The report must land where a person can reach it without a computer. Every
 # launch writes one at start ("previous-run") and one once a frame is up, so all

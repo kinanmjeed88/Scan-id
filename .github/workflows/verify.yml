@@ -49,6 +49,19 @@ jobs:
           test ! -e Mostmskat
           test ! -e local-data
           python tool/check_private_ci_checkout.py
+      # Run 41239437153 filled the runner's disk while packaging the debug APK
+      # ("Could not add entry ':app:packageScanidDebug' to cache
+      # executionHistory.bin ... No space left on device"): one debug APK is
+      # 329 MB and this job keeps several build outputs plus the NDK and the
+      # Gradle caches. These toolchains are used by no step in this workflow.
+      - name: Reclaim runner disk for the APK builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h / | tail -n 1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          df -h / | tail -n 1
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -239,12 +252,6 @@ jobs:
             scanid-debug-at-build=build/app/outputs/flutter-apk/app-scanid-debug.apk \
             > diagnostics/apk-fingerprint-at-build.txt 2>&1
           cat diagnostics/apk-fingerprint-at-build.txt
-          # `flutter test integration_test/... --flavor scanid` later in this job
-          # writes a test-harness APK to this same path, so the app package is
-          # copied out of reach here and this copy is what gets published.
-          python3 tool/stage_app_apk.py stage \
-            --apk build/app/outputs/flutter-apk/app-scanid-debug.apk \
-            --out install-apks/scanid
 
       - name: Inspect Android debug APK native libraries by ABI
         shell: bash
@@ -395,6 +402,19 @@ jobs:
               sys.exit("A packaged 64-bit native library is not 16 KB page-size compatible")
           print("PASS: every packaged 64-bit native library has 16 KB-aligned PT_LOAD segments.")
           PYALIGN
+
+      # `flutter test integration_test/... --flavor scanid` later in this job
+      # writes a test-harness APK to this same path, so the app package is moved
+      # out of reach here (after the packaging audits that read it) and this copy
+      # is what gets published.
+      - name: Stage the debug APK for publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/stage_app_apk.py stage \
+            --apk build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            --out install-apks/scanid
+          echo "::notice title=runner-disk::$(df -h / | tail -n 1 | tr -s ' ' ' ')"
 
       - name: Build Android startup diagnostic APK (side-by-side)
         run: python tool/ci_gate.py startup-diagnostic-build flutter build apk --flavor diagnostic --debug

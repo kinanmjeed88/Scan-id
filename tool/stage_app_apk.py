@@ -13,8 +13,8 @@ while a flavor the test does not target (the diagnostic build) keeps working.
 Two subcommands:
 
   stage --apk <built apk> --out <directory>
-      Copy the APK somewhere the instrumentation step cannot reach and record
-      what was copied (APK hash, entry count, Dart payload hash).
+      Move the APK somewhere the instrumentation step cannot reach and record
+      what was staged (APK hash, entry count, Dart payload hash).
 
   check --apk <apk about to be published> --expected <expected.json>
       Refuse to publish a package that is not the staged one, and report what
@@ -74,8 +74,13 @@ def stage(apk: Path, out: Path) -> int:
         return 1
     out.mkdir(parents=True, exist_ok=True)
     staged = out / apk.name
-    shutil.copy2(apk, staged)
+    # Moved, not copied: a debug APK is ~329 MB, twice is 658 MB of runner disk
+    # for nothing, and once it is out of the build directory no later step can
+    # publish a replacement by accident.
+    # Fingerprint before the move: the record must describe the file as built.
     record = fingerprint(apk)
+    shutil.move(str(apk), staged)
+    record["apk"] = str(staged)
     (out / "expected.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     print(
         f"staged {staged} sha256={record['sha256'][:16]} bytes={record['bytes']:,} "

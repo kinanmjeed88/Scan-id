@@ -129,6 +129,8 @@ jobs:
           PY
           node --check "$script"
           rm -f "$script"
+      - name: Capture startup diagnostics formatter preview
+        run: python tool/ci_gate.py format-preview python tool/format_preview.py lib/main.dart
       - name: Dart format gate
         run: python tool/ci_gate.py format python tool/format_report.py
       - name: Flutter analyze

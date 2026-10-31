@@ -4,6 +4,16 @@ on:
   push:
     branches: [searchidf, 'arena/**']
   workflow_dispatch:
+    inputs:
+      startup_probe_experiment:
+        description: >-
+          Also build and publish the three reduced startup-probe variants
+          (diagnostic off/load/env). Off by default: they answer whether the
+          probe's native preflight was what kept the diagnostic build alive, and
+          that question is settled for now. Each run that publishes them adds
+          about 600 MB of short-lived artifacts.
+        type: boolean
+        default: false
 env:
   PYTHONIOENCODING: utf-8
   PYTHONUTF8: 1
@@ -631,8 +641,10 @@ jobs:
       # the probe action change, one at a time. The merged manifest is copied
       # immediately after each build because the path is shared between builds
       # of the same variant and would otherwise be overwritten.
-      - name: Build plain debug, diagnostic, and three reduced diagnostic variants
+      - name: Build plain debug, diagnostic, and (on demand) reduced variants
         shell: bash
+        env:
+          STARTUP_PROBE_EXPERIMENT: ${{ inputs.startup_probe_experiment && 'true' || 'false' }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -660,13 +672,7 @@ jobs:
           }
           build scanid-debug scanid "" scanidDebug
 
-          # The plain debug APK the phone installs is not built in a clean tree:
-          # the verification job first runs a release build that is supposed to
-          # fail on the signing guard, and only then builds `scanid` debug. The
-          # same command in a clean tree produced a package that differs from the
-          # uploaded one, so that order is repeated here verbatim and the result
-          # is kept separately (scanid-debug-after-release) to be compared with
-          # the clean build produced above.
+          if [ "${STARTUP_PROBE_EXPERIMENT:-false}" = "true" ]; then
           echo "::group::reproduce the verification job build order"
           set +e
           flutter build apk --flavor scanid --release > out/release-guard.log 2>&1
@@ -690,12 +696,15 @@ jobs:
             -path '*scanidDebug*' -name AndroidManifest.xml -print -quit)" \
             out/scanid-debug-after-release.merged.xml
           cp out/scanid-debug.source.xml out/scanid-debug-after-release.source.xml
-          echo "::endgroup::"
-
-          build diagnostic-full diagnostic "" diagnosticDebug
           build diagnostic-off diagnostic off diagnosticDebug
           build diagnostic-load diagnostic load diagnosticDebug
           build diagnostic-env diagnostic env diagnosticDebug
+          echo "::endgroup::"
+          else
+            echo "startup probe experiment not requested: building the diagnostic package only"
+          fi
+
+          build diagnostic-full diagnostic "" diagnosticDebug
 
       # The reduced variants are only meaningful if the -P switch reached Gradle.
       # Each action maps to its own applicationId suffix, so the packaged manifest
@@ -724,13 +733,16 @@ jobs:
           import json
           from pathlib import Path
 
-          variants = [
+          # Only the packages this run actually built are compared, so the
+          # report never claims to have examined a variant that is not there.
+          candidates = [
               "scanid-debug-after-release",
               "diagnostic-full",
               "diagnostic-off",
               "diagnostic-load",
               "diagnostic-env",
           ]
+          variants = [label for label in candidates if Path(f"out/{label}.apk").is_file()]
           config = {
               "report": "out/apk-differential.md",
               "baseline": {
@@ -767,6 +779,7 @@ jobs:
       # The phone cannot build anything: these are the packages that isolate the
       # difference, each with its own applicationId so they can coexist there.
       - name: Upload the diagnostic variants for the phone
+        if: ${{ inputs.startup_probe_experiment }}
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-startupdiag-no-probe-apk
@@ -774,6 +787,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Upload the load-only variant
+        if: ${{ inputs.startup_probe_experiment }}
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-startupdiag-load-only-apk
@@ -781,6 +795,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Upload the environment-only variant
+        if: ${{ inputs.startup_probe_experiment }}
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-startupdiag-env-only-apk

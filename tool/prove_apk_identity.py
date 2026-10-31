@@ -21,9 +21,13 @@ from pathlib import Path
 # Package names the packaged manifest must declare for each build label. The
 # `full` variant keeps the historical suffix because it is the build the phone
 # already starts successfully, and it must stay installable as an update of it.
-EXPECTED = {
+REQUIRED = {
     "scanid-debug": b"iq.scanid.scan_id",
     "diagnostic-full": b"iq.scanid.scan_id.startupdiag",
+}
+# Built only when the startup-probe experiment is requested; each one must still
+# prove its own identity when it is there.
+EXPERIMENTAL = {
     "diagnostic-off": b"iq.scanid.scan_id.startupdiagoff",
     "diagnostic-load": b"iq.scanid.scan_id.startupdiagload",
     "diagnostic-env": b"iq.scanid.scan_id.startupdiagenv",
@@ -37,7 +41,11 @@ def main() -> int:
     directory = Path(sys.argv[1])
     failures: list[str] = []
     rows: list[str] = []
-    for label, package in EXPECTED.items():
+    expectations = dict(REQUIRED)
+    for label, package in EXPERIMENTAL.items():
+        if (directory / f"{label}.apk").is_file():
+            expectations[label] = package
+    for label, package in expectations.items():
         path = directory / f"{label}.apk"
         if not path.is_file():
             failures.append(f"{label}: missing {path}")

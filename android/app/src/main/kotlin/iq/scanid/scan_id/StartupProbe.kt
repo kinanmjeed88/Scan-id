@@ -29,7 +29,7 @@ import java.util.Locale
  *    throwable (type, message and stack) before the process dies, then defers to
  *    the handler Flutter/system installed so the normal crash reporting still
  *    happens;
- *  * the next launch reads `ActivityManager.getHistoricalProcessExitInfos()` for
+ *  * the next launch reads `ActivityManager.getHistoricalProcessExitReasons()` for
  *    this package, which is the same data an Android bug report shows under
  *    "Historical Process Exit", and keeps the reason, status, description and
  *    the recorded trace. That covers native deaths (SIGSEGV/SIGABRT) that a Dart
@@ -253,14 +253,15 @@ object StartupProbe {
 
     private fun describeExits(context: Context): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return "unavailable: requires Android 11 (API 30) for getHistoricalProcessExitInfos"
+            return "unavailable: requires Android 11 (API 30) for getHistoricalProcessExitReasons"
         }
         val manager = context.getSystemService(ActivityManager::class.java) ?: return "unavailable: no ActivityManager"
-        val exits = runCatching { manager.getHistoricalProcessExitInfos(null, 0) }
+        // null package name = this package; pid 0 = any process; 10 = bounded.
+        val exits = runCatching { manager.getHistoricalProcessExitReasons(null, 0, 10) }
             .getOrElse { return "read failed: ${it.javaClass.name}" }
         if (exits.isEmpty()) return "none recorded"
         val builder = StringBuilder()
-        exits.take(10).forEach { info: ApplicationExitInfo ->
+        exits.forEach { info: ApplicationExitInfo ->
             builder.appendLine(
                 "at=${formatTime(info.timestamp)} reason=${reasonName(info.reason)}(${info.reason})" +
                     " status=${info.status} importance=${info.importance}" +

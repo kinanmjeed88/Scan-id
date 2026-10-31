@@ -26,7 +26,8 @@ class MainActivity : FlutterActivity() {
         startupMark("activity.onCreate.begin")
         super.onCreate(savedInstanceState)
         StartupProbe.mark("activity.onCreate.complete")
-        startupMark("activity.onCreate.complete")    }
+        startupMark("activity.onCreate.complete")
+    }
 
     override fun onStart() {
         StartupProbe.mark("activity.onStart.begin")
@@ -182,11 +183,11 @@ class MainActivity : FlutterActivity() {
                     }
                     "failure" -> {
                         val stage = call.argument<String>("stage")
-                        val type = call.argument<String>("type")
+                        val type = call.argument<String>("type") ?: "unknown"
                         if (stage.isNullOrBlank() || stage.length > 200) {
                             result.error("invalid", "Invalid stage", null)
                         } else {
-                            StartupProbe.mark("dart.$stage type=${type?.take(120) ?: "unknown"}")
+                            StartupProbe.mark("dart.$stage type=" + type.take(120))
                             result.success(null)
                         }
                     }

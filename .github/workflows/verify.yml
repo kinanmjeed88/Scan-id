@@ -608,6 +608,39 @@ jobs:
             echo "::endgroup::"
           }
           build scanid-debug scanid "" scanidDebug
+
+          # The plain debug APK the phone installs is not built in a clean tree:
+          # the verification job first runs a release build that is supposed to
+          # fail on the signing guard, and only then builds `scanid` debug. The
+          # same command in a clean tree produced a package that differs from the
+          # uploaded one, so that order is repeated here verbatim and the result
+          # is kept separately (scanid-debug-after-release) to be compared with
+          # the clean build produced above.
+          echo "::group::reproduce the verification job build order"
+          set +e
+          flutter build apk --flavor scanid --release > out/release-guard.log 2>&1
+          release_rc=$?
+          set -e
+          tail -n 40 out/release-guard.log || true
+          if [ "$release_rc" -eq 0 ]; then
+            echo "::error title=release-order::the release build succeeded without signing credentials, so the order could not be reproduced"
+            exit 1
+          fi
+          if grep -Fq 'Release signing is required, but Android signing values are missing.' out/release-guard.log ||
+             grep -Fq 'Release APK/AAB packaging requires a configured release keystore.' out/release-guard.log ||
+             grep -Fq 'Release APK/AAB packaging requires EXPECTED_CERT_SHA256' out/release-guard.log; then
+            echo "release build failed on the signing guard, as it does in the verification job"
+          else
+            echo "::warning title=release-order::the release build failed for another reason; the reproduction is not exact"
+          fi
+          flutter build apk --flavor scanid --debug
+          cp build/app/outputs/flutter-apk/app-scanid-debug.apk out/scanid-debug-after-release.apk
+          cp "$(find build/app/intermediates/merged_manifest -type f \
+            -path '*scanidDebug*' -name AndroidManifest.xml -print -quit)" \
+            out/scanid-debug-after-release.merged.xml
+          cp out/scanid-debug.source.xml out/scanid-debug-after-release.source.xml
+          echo "::endgroup::"
+
           build diagnostic-full diagnostic "" diagnosticDebug
           build diagnostic-off diagnostic off diagnosticDebug
           build diagnostic-load diagnostic load diagnosticDebug
@@ -617,6 +650,15 @@ jobs:
       # Each action maps to its own applicationId suffix, so the packaged manifest
       # proves which variant an APK really is; a silent fallback to `full` would
       # otherwise yield five similar packages and a pointless comparison.
+      - name: Fingerprint every package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/fingerprint_apk.py \
+            scanid-debug=out/scanid-debug.apk \
+            scanid-debug-after-release=out/scanid-debug-after-release.apk \
+            diagnostic-full=out/diagnostic-full.apk
+
       - name: Prove each package carries its own applicationId
         shell: bash
         run: |
@@ -631,7 +673,13 @@ jobs:
           import json
           from pathlib import Path
 
-          variants = ["diagnostic-full", "diagnostic-off", "diagnostic-load", "diagnostic-env"]
+          variants = [
+              "scanid-debug-after-release",
+              "diagnostic-full",
+              "diagnostic-off",
+              "diagnostic-load",
+              "diagnostic-env",
+          ]
           config = {
               "report": "out/apk-differential.md",
               "baseline": {

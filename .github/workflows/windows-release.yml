@@ -30,8 +30,30 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+      # Same pinned asset as the other jobs: 83 MB, git-ignored, keyed by its
+      # SHA-256 so a restored copy is re-hashed rather than trusted. Run
+      # 41213748658 failed here on an upstream outage while the pull-request
+      # run of the same commit passed, so the retry budget is shared too.
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
       - name: Prepare verified DocAligner 1.1.1 model asset
-        run: python tool/fetch_docaligner_model.py
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh

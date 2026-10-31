@@ -502,7 +502,10 @@ jobs:
           apksigner="$(find "$sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
           test -n "$apksigner"
           "$apksigner" version || true
-          apk=build/app/outputs/flutter-apk/app-scanid-debug.apk
+          # The package that is published, not whatever occupies the build path
+          # now: the instrumentation step rewrites that file with the test build.
+          apk=install-apks/scanid/app-scanid-debug.apk
+          test -f "$apk"
           "$apksigner" verify --verbose --print-certs "$apk" > /tmp/diag-out.txt 2> /tmp/diag-err.txt || true
           out_lines="$(wc -l < /tmp/diag-out.txt | tr -d ' ')"
           err_lines="$(wc -l < /tmp/diag-err.txt | tr -d ' ')"

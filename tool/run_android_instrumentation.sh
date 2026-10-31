@@ -28,11 +28,16 @@ flutter test integration_test/docquad_inference_test.dart \
 docquad_status=${PIPESTATUS[0]}
 set -e
 
-startup_apk=build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+# The staged copy is the package that gets published; the build path is only a
+# fallback for running this script by hand.
+startup_apk=install-apks/diagnostic/app-diagnostic-debug.apk
+if [[ ! -f "$startup_apk" ]]; then
+  startup_apk=build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+fi
 startup_log=diagnostics/android-instrumentation/startup-diagnostic.log
 startup_logcat=diagnostics/android-instrumentation/startup-diagnostic-logcat.log
 if [[ ! -f "$startup_apk" ]]; then
-  echo "::error title=startup-diagnostic::Diagnostic APK was not built."
+  echo "::error title=startup-diagnostic::Diagnostic APK was not built or staged (looked in install-apks/diagnostic/ and build/app/outputs/flutter-apk/)."
   exit 1
 fi
 adb wait-for-device

@@ -25,6 +25,9 @@ windows/flutter/ephemeral/
 local-data/
 diagnostics/
 .venv/
+# DocAligner is fetched from its pinned upstream release during CI/build preparation.
+# Do not commit a second copy of the 83 MB ONNX weight.
+/assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
 # User-owned document corpus: keep local, never commit or send to CI.
 /Mostmskat/
 __pycache__/

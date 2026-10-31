@@ -142,6 +142,118 @@ class RectMm {
 /// Ordered TL, TR, BR, BL in image coordinates (positive Y downwards).
 /// A convex clockwise quadrilateral is required; a crossed or degenerate
 /// polygon can never become a processing request.
+/// Why a normalized crop ring cannot be used by a perspective renderer.
+enum QuadGeometryIssue {
+  wrongPointCount,
+  nonFiniteCoordinates,
+  outOfBounds,
+  notConvex,
+  collapsedArea,
+  singularPerspective,
+}
+
+/// Projective unit-square -> normalized source mapping.
+///
+/// This is pure domain mathematics: the manual validator, detector assessment,
+/// persisted geometry and raster renderer all use the same singularity contract.
+/// It does not infer a document, a physical size, or an output aspect ratio.
+class PerspectiveCoefficients {
+  const PerspectiveCoefficients._(
+    this.a,
+    this.b,
+    this.c,
+    this.d,
+    this.e,
+    this.f,
+    this.g,
+    this.h,
+  );
+
+  static PerspectiveCoefficients? tryFrom(List<Point2> p) {
+    if (p.length != 4 ||
+        p.any((point) => !point.x.isFinite || !point.y.isFinite)) {
+      return null;
+    }
+    final dx1 = p[1].x - p[2].x;
+    final dx2 = p[3].x - p[2].x;
+    final dx3 = p[0].x - p[1].x + p[2].x - p[3].x;
+    final dy1 = p[1].y - p[2].y;
+    final dy2 = p[3].y - p[2].y;
+    final dy3 = p[0].y - p[1].y + p[2].y - p[3].y;
+    double g = 0, h = 0;
+    if (dx3.abs() + dy3.abs() >= 1e-12) {
+      final determinant = dx1 * dy2 - dx2 * dy1;
+      if (!determinant.isFinite || determinant.abs() <= 1e-12) return null;
+      g = (dx3 * dy2 - dx2 * dy3) / determinant;
+      h = (dx1 * dy3 - dx3 * dy1) / determinant;
+    }
+    final result = PerspectiveCoefficients._(
+      p[1].x - p[0].x + g * p[1].x,
+      p[3].x - p[0].x + h * p[3].x,
+      p[0].x,
+      p[1].y - p[0].y + g * p[1].y,
+      p[3].y - p[0].y + h * p[3].y,
+      p[0].y,
+      g,
+      h,
+    );
+    final values = [
+      result.a,
+      result.b,
+      result.c,
+      result.d,
+      result.e,
+      result.f,
+      result.g,
+      result.h,
+    ];
+    final denominators = [1.0, 1 + g, 1 + h, 1 + g + h];
+    if (!values.every((v) => v.isFinite) ||
+        !denominators.every((v) => v.isFinite && v > 1e-9)) {
+      return null;
+    }
+    return result;
+  }
+
+  final double a, b, c, d, e, f, g, h;
+
+  Point2 at(double u, double v) {
+    final denominator = g * u + h * v + 1;
+    return Point2(
+      (a * u + b * v + c) / denominator,
+      (d * u + e * v + f) / denominator,
+    );
+  }
+}
+
+/// Validates the ordered normalized ring, independently of image content.
+/// Caller-specific area/edge/confidence gates remain in their own layers.
+QuadGeometryIssue? normalizedQuadIssue(List<Point2> corners) {
+  if (corners.length != 4) return QuadGeometryIssue.wrongPointCount;
+  if (corners.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+    return QuadGeometryIssue.nonFiniteCoordinates;
+  }
+  if (corners.any((p) => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) {
+    return QuadGeometryIssue.outOfBounds;
+  }
+  var twiceArea = 0.0;
+  for (var i = 0; i < 4; i++) {
+    final a = corners[i];
+    final b = corners[(i + 1) % 4];
+    final c = corners[(i + 2) % 4];
+    final cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (!cross.isFinite || cross <= 1e-6) return QuadGeometryIssue.notConvex;
+    twiceArea += a.x * b.y - b.x * a.y;
+  }
+  if (!twiceArea.isFinite || twiceArea <= 1e-4) {
+    return QuadGeometryIssue.collapsedArea;
+  }
+  if (PerspectiveCoefficients.tryFrom(corners) == null) {
+    return QuadGeometryIssue.singularPerspective;
+  }
+  return null;
+}
+
 class CropGeometry {
   CropGeometry({
     required List<Point2> corners,
@@ -153,25 +265,18 @@ class CropGeometry {
       withinImageBudget(outputWidth, outputHeight),
       'أبعاد القص تتجاوز حد المعالجة الآمن.',
     );
-    for (final p in corners) {
-      require(
-        p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1,
-        'زوايا القص خارج الصورة.',
-      );
-    }
-    var twiceArea = 0.0;
-    for (var i = 0; i < 4; i++) {
-      final a = corners[i];
-      final b = corners[(i + 1) % 4];
-      final c = corners[(i + 2) % 4];
-      final cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
-      require(
-        cross > 0.000001,
-        'زوايا القص متقاطعة أو غير مرتبة أو متقاربة جداً.',
-      );
-      twiceArea += a.x * b.y - b.x * a.y;
-    }
-    require(twiceArea > 0.0001, 'مساحة القص صغيرة جداً.');
+    const messages = {
+      QuadGeometryIssue.wrongPointCount: 'يجب تحديد أربع زوايا.',
+      QuadGeometryIssue.nonFiniteCoordinates: 'إحداثيات زوايا القص غير صالحة.',
+      QuadGeometryIssue.outOfBounds: 'زوايا القص خارج الصورة.',
+      QuadGeometryIssue.notConvex:
+          'زوايا القص متقاطعة أو غير مرتبة أو متقاربة جداً.',
+      QuadGeometryIssue.collapsedArea: 'مساحة القص صغيرة جداً.',
+      QuadGeometryIssue.singularPerspective:
+          'تحويل المنظور غير مستقر؛ عدّل الزوايا.',
+    };
+    final issue = normalizedQuadIssue(corners);
+    require(issue == null, messages[issue] ?? 'زوايا القص غير صالحة.');
   }
   final List<Point2> corners;
   final int outputWidth;

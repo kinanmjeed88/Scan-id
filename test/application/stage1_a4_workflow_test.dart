@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -133,14 +134,20 @@ class _FailingDetectorEditor implements ImageEditor, CropBytesImageEditor {
   final LocalImageEditor _inner;
 
   @override
-  Future<EditorSource> open(ImageAsset asset) => _inner.open(asset);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) => _inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => null;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
-      _inner.preview(asset, recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) => _inner.preview(asset, recipe, cancellation: cancellation);
 
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>

@@ -39,6 +39,65 @@ void main() {
       expect(img.decodeJpgExif(bytes)!.imageIfd.orientation, 6);
     },
   );
+  test('all EXIF orientations bake exactly once against a pixel oracle', () {
+    // Asymmetric 3x2 RGB pattern. Expected transforms are independent of the
+    // image package: each cell stores its original coordinate as RGB.
+    final raw = img.Image(width: 3, height: 2);
+    for (var y = 0; y < 2; y++) {
+      for (var x = 0; x < 3; x++) {
+        raw.setPixelRgb(x, y, 20 + x * 20, 40 + y * 20, 90);
+      }
+    }
+    final baseline = img.decodeJpg(img.encodeJpg(raw, quality: 100))!;
+    List<List<(int, int)>> expected(int orientation) {
+      final rows = <List<(int, int)>>[];
+      for (var y = 0; y < (orientation >= 5 ? 3 : 2); y++) {
+        final row = <(int, int)>[];
+        for (var x = 0; x < (orientation >= 5 ? 2 : 3); x++) {
+          row.add(switch (orientation) {
+            1 => (x, y),
+            2 => (2 - x, y),
+            3 => (2 - x, 1 - y),
+            4 => (x, 1 - y),
+            5 => (y, x),
+            6 => (y, 1 - x),
+            7 => (2 - y, 1 - x),
+            _ => (2 - y, x),
+          });
+        }
+        rows.add(row);
+      }
+      return rows;
+    }
+
+    for (var orientation = 1; orientation <= 8; orientation++) {
+      final tagged = img.Image.from(raw);
+      tagged.exif.imageIfd.orientation = orientation;
+      final bytes = img.encodeJpg(tagged, quality: 100);
+      final before = Uint8List.fromList(bytes);
+      final decoded = decodeForProcessing(bytes);
+      final grid = expected(orientation);
+      expect(decoded.height, grid.length, reason: 'EXIF $orientation');
+      expect(decoded.width, grid.first.length, reason: 'EXIF $orientation');
+      for (var y = 0; y < decoded.height; y++) {
+        for (var x = 0; x < decoded.width; x++) {
+          final source = grid[y][x];
+          final pixel = decoded.getPixel(x, y);
+          final oracle = baseline.getPixel(source.$1, source.$2);
+          expect(pixel.r, oracle.r, reason: 'EXIF $orientation at $x,$y');
+          expect(pixel.g, oracle.g, reason: 'EXIF $orientation at $x,$y');
+        }
+      }
+      expect(bytes, before);
+      expect(img.decodeJpgExif(bytes)!.imageIfd.orientation, orientation);
+      // Re-encoding the working image as PNG cannot rotate it a second time.
+      final working = img.encodePng(decoded);
+      final again = decodeForProcessing(working);
+      expect(again.width, decoded.width);
+      expect(again.height, decoded.height);
+    }
+  });
+
   test('oversized PNG header is rejected before frame decoding', () {
     final bytes = img.encodePng(img.Image(width: 1, height: 1));
     final data = ByteData.sublistView(bytes);

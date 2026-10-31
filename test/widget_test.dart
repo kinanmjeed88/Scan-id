@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:io';
 import 'package:scan_id/application/output_service.dart';
 import 'package:scan_id/domain/export_naming.dart';
@@ -892,8 +893,10 @@ class _TestEditor implements ImageEditor {
   int previewCount = 0;
   ImageEditRecipe? lastRecipe;
   @override
-  Future<EditorSource> open(ImageAsset asset) async =>
-      EditorSource(bytes, 64, 40);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) async => EditorSource(bytes, 64, 40);
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => [
     Point2(.1, .1),
@@ -902,7 +905,11 @@ class _TestEditor implements ImageEditor {
     Point2(.1, .9),
   ];
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async {
     previewCount++;
     lastRecipe = recipe;
     return renderPerspective(bytes, recipe);

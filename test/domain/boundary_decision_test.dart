@@ -92,6 +92,23 @@ void main() {
     expect(decision.acceptedCorners, isNull);
   });
 
+  test('classical detector score is not treated as calibrated confidence', () {
+    final decision = verifyBoundary(
+      BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: goodQuad(),
+      ),
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    expect(decision.kind, BoundaryDecisionKind.needsReview);
+    expect(decision.cropAuthorization, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.uncalibratedClassicalScore),
+    );
+  });
+
   test('a geometrically implausible quad needs review and cannot crop', () {
     // ~1% of the frame: assessQuad refuses it as too small.
     final decision = verifyBoundary(

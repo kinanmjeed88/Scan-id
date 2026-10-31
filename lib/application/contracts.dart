@@ -5,6 +5,7 @@ import '../domain/boundary_decision.dart';
 import '../domain/project.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
+import 'cancellation.dart';
 
 abstract interface class ProjectRepository {
   Future<List<Project>> list();
@@ -135,19 +136,28 @@ class EditorSource {
 }
 
 abstract interface class ImageEditor {
-  Future<EditorSource> open(ImageAsset asset);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  });
   Future<List<Point2>?> suggest(Uint8List preview);
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  });
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe);
 }
 
-/// Optional metadata capability for a future, separately qualified boundary
-/// proposer. The current production editor does not implement this interface;
-/// automatic detection is disabled and imports remain available for manual
-/// crop/review. Keeping the contract allows proposal provenance to remain
-/// explicit without making any detector a fallback.
+/// Metadata capability for the local two-model learned cascade and its
+/// review-only classical fallback. Every proposal still passes the shared
+/// geometry gate; neither uncalibrated learned output nor classical ranking
+/// authorizes a crop without user review.
 abstract interface class BoundaryProposalImageEditor implements ImageEditor {
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview);
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  });
   String? get boundaryModelId;
 }
 

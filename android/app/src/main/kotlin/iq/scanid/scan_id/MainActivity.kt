@@ -3,7 +3,9 @@ package iq.scanid.scan_id
 import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
+import android.os.Bundle
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.core.content.FileProvider
 import java.util.UUID
 import io.flutter.embedding.android.FlutterActivity
@@ -12,6 +14,28 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private fun startupMark(stage: String) {
+        if (BuildConfig.DEBUG) Log.i("ScanIdStartup", stage)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        startupMark("activity.onCreate.begin")
+        super.onCreate(savedInstanceState)
+        startupMark("activity.onCreate.complete")
+    }
+
+    override fun onStart() {
+        startupMark("activity.onStart.begin")
+        super.onStart()
+        startupMark("activity.onStart.complete")
+    }
+
+    override fun onResume() {
+        startupMark("activity.onResume.begin")
+        super.onResume()
+        startupMark("activity.onResume.complete")
+    }
+
     private val camera by lazy { NativeCamera(this) }
     private val largeJpegScaler by lazy { NativeLargeJpegScaler(this) }
     private val updates by lazy { UpdateInstaller(this) }
@@ -19,10 +43,28 @@ class MainActivity : FlutterActivity() {
     private var source: File? = null
     private var pickLimit = 20L * 1024 * 1024
     override fun configureFlutterEngine(engine: FlutterEngine) {
-        super.configureFlutterEngine(engine)
+        startupMark("engine.configure.begin")
+        startupMark("flutter_plugins.registration.begin")
+        try {
+            super.configureFlutterEngine(engine)
+            startupMark("flutter_plugins.registration.complete")
+        } catch (error: Throwable) {
+            Log.e(
+                "ScanIdStartup",
+                "flutter_plugins.registration.failed type=${error.javaClass.name}",
+                error,
+            )
+            throw error
+        }
+        startupMark("native.camera_channel.configure.begin (no capture)")
         camera.configure(engine)
+        startupMark("native.camera_channel.configure.complete (no capture)")
+        startupMark("native.jpeg_scaler_channel.configure.begin")
         largeJpegScaler.configure(engine)
+        startupMark("native.jpeg_scaler_channel.configure.complete")
+        startupMark("native.update_installer_channel.configure.begin")
         updates.configure(engine)
+        startupMark("native.update_installer_channel.configure.complete")
         MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/local_documents")
             .setMethodCallHandler { call, result ->
                 if (call.method == "open") {
@@ -96,6 +138,8 @@ class MainActivity : FlutterActivity() {
                     result.error("save", "Unable to open local document destination", null)
                 }
             }
+        startupMark("native_channels.configure.complete")
+        startupMark("engine.configure.complete")
     }
     /** A file the app owns and may read or hand over; anything else is refused. */
     private fun privateFile(raw: String): File {

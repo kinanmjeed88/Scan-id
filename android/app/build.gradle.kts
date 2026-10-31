@@ -236,6 +236,11 @@ android {
             applicationId = "iq.scanid.referenceannotator"
             versionNameSuffix = "-reference"
         }
+        create("diagnostic") {
+            dimension = "edition"
+            applicationIdSuffix = ".startupdiag"
+            versionNameSuffix = "-startupdiag"
+        }
     }
 
     if (releaseKeyStoreFile != null) {
@@ -281,7 +286,8 @@ flutter {
 dependencies {
     implementation("androidx.core:core:1.13.1")
     androidTestImplementation("androidx.test:core:1.6.1")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("junit:junit:4.13.2")
+    // integration_test 3.35.7 exposes runner 1.2+ and Gradle's Android
+    // consistent-resolution rule pins androidTest to the app runtime's 1.2.0.
+    androidTestImplementation("androidx.test:runner:1.2.0")
+    androidTestImplementation("junit:junit:4.12")
 }

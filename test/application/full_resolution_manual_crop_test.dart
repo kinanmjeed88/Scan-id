@@ -263,8 +263,15 @@ void main() {
     expect(bounds.top, 0.10);
     expect(bounds.right, 0.62);
     expect(bounds.bottom, 0.32);
-    final local = remapCornersIntoRegion(_tiltedQuad, bounds);
-    expect(local[0].x, closeTo(0.02 / 0.44, 1e-9));
+    final local = remapCornersIntoRegion(
+      _tiltedQuad,
+      bounds,
+      orientedWidth: 1000,
+      orientedHeight: 1000,
+      regionWidth: 440,
+      regionHeight: 220,
+    );
+    expect(local[0].x, closeTo((.20 * 999 - 180) / 439, 1e-9));
     expect(local[1].x, 1);
     expect(local[1].y, 0);
     expect(local[2].y, 1);

@@ -43,6 +43,18 @@ import 'project_service.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 
+int _boundaryReviewCount(Iterable<DocumentRecord> records) => records
+    .where(
+      (record) =>
+          record.sides.any((side) => side.detection?.suggestedPolygon != null),
+    )
+    .length;
+
+int _notDetectedCount(int count, Iterable<DocumentRecord> records) {
+  final remaining = count - _boundaryReviewCount(records);
+  return remaining > 0 ? remaining : 0;
+}
+
 /// Full-resolution perspective warp for a segmented document, off the UI
 /// isolate. Reads from the already-bounded original bytes.
 Future<Uint8List> defaultWarp(
@@ -273,9 +285,10 @@ class SmartIntake {
       return AutomaticLayoutReport(
         project: current,
         cropped: cropped,
-        notDetected: notDetected,
+        notDetected: _notDetectedCount(notDetected, newDocuments),
         recognized: recognized,
         needsReview: needsReview,
+        boundaryNeedsReview: _boundaryReviewCount(newDocuments),
         multiDocumentImages: multiImages,
         rejectedRegions: refusedRegions.length,
         rejectedByReason: rejectionTally(refusedRegions),
@@ -316,9 +329,10 @@ class SmartIntake {
     return AutomaticLayoutReport(
       project: current,
       cropped: cropped,
-      notDetected: notDetected,
+      notDetected: _notDetectedCount(notDetected, newDocuments),
       recognized: recognized,
       needsReview: needsReview,
+      boundaryNeedsReview: _boundaryReviewCount(newDocuments),
       multiDocumentImages: multiImages,
       rejectedRegions: refusedRegions.length,
       rejectedByReason: rejectionTally(refusedRegions),
@@ -541,9 +555,16 @@ class SmartIntake {
       return AutomaticLayoutReport(
         project: current,
         cropped: cropped,
-        notDetected: notDetected,
+        notDetected: _notDetectedCount(notDetected, [
+          ...newDocuments,
+          ...replacementRecords.values,
+        ]),
         recognized: recognized,
         needsReview: needsReview,
+        boundaryNeedsReview: _boundaryReviewCount([
+          ...newDocuments,
+          ...replacementRecords.values,
+        ]),
         multiDocumentImages: multiImages,
         rejectedRegions: refusedRegions.length,
         rejectedByReason: rejectionTally(refusedRegions),
@@ -587,9 +608,16 @@ class SmartIntake {
     return AutomaticLayoutReport(
       project: current,
       cropped: cropped,
-      notDetected: notDetected,
+      notDetected: _notDetectedCount(notDetected, [
+        ...newDocuments,
+        ...replacementRecords.values,
+      ]),
       recognized: recognized,
       needsReview: needsReview,
+      boundaryNeedsReview: _boundaryReviewCount([
+        ...newDocuments,
+        ...replacementRecords.values,
+      ]),
       multiDocumentImages: multiImages,
       rejectedRegions: refusedRegions.length,
       rejectedByReason: rejectionTally(refusedRegions),

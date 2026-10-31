@@ -21,9 +21,15 @@ dependencies:
   printing: 5.14.3
   crypto: 3.0.7
   url_launcher: ^6.2.4
+  flutter_onnxruntime:
+    git:
+      url: https://github.com/masicai/flutter_onnxruntime.git
+      ref: 2f0fc6c102652965004b89512b7187e6621dddf7
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: 5.0.0
 
@@ -31,3 +37,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/legal/androidx-core-LICENSE.txt
+    - assets/legal/docquadnet-apache-2.0-LICENSE.txt
+    - assets/legal/flutter-onnxruntime-MIT-LICENSE.txt
+    - assets/legal/onnxruntime-LICENSE.txt
+    - assets/models/docquadnet256_trained_opset17.ort
+    - assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx

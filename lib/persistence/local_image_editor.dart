@@ -5,7 +5,9 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import '../application/cancellation.dart';
 import '../application/contracts.dart';
+import '../domain/boundary_decision.dart';
 import '../application/ids.dart';
 import '../application/image_reader.dart';
 import '../domain/crop_draft.dart';
@@ -13,6 +15,8 @@ import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
+import '../imaging/docquad_model.dart';
+import '../imaging/document_detector.dart';
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
@@ -35,46 +39,129 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
-class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
-  const LocalImageEditor(this.files, {this.readFullResolutionRegion});
+class LocalImageEditor
+    implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor {
+  const LocalImageEditor(
+    this.files, {
+    this.readFullResolutionRegion,
+    this.boundaryProposer,
+  });
   final SafeFiles files;
 
   /// Null in tests that never crop a large JPEG. A production editor must set
   /// it. A missing reader is an explicit failure, not a silent sample.
   final FullResolutionRegionReader? readFullResolutionRegion;
 
+  /// Optional offline learned proposer. Missing/failed/invalid model results
+  /// fall through to the local classical detector and remain review-only.
+  final BoundaryProposalModel? boundaryProposer;
+
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
   );
 
   @override
-  Future<EditorSource> open(ImageAsset asset) async {
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
-    return Isolate.run(() {
-      final image = decodeForProcessing(bytes);
-      final reduced = img.copyResize(
-        image,
-        width: image.width >= image.height
-            ? math.min(maxRecognitionPreviewLongEdge, image.width)
-            : null,
-        height: image.height > image.width
-            ? math.min(maxRecognitionPreviewLongEdge, image.height)
-            : null,
-      );
-      return EditorSource(img.encodePng(reduced), image.width, image.height);
-    });
+    cancellation?.throwIfCancelled();
+    return runCancellableIsolate(
+      () {
+        final image = decodeForProcessing(bytes);
+        final reduced = img.copyResize(
+          image,
+          width: image.width >= image.height
+              ? math.min(maxRecognitionPreviewLongEdge, image.width)
+              : null,
+          height: image.height > image.width
+              ? math.min(maxRecognitionPreviewLongEdge, image.height)
+              : null,
+        );
+        return EditorSource(img.encodePng(reduced), image.width, image.height);
+      },
+      cancellation: cancellation,
+      debugName: 'crop-source',
+    );
   }
 
-  /// No automatic boundary or region detector is installed in this build.
-  /// Keep the imported source intact for the user's manual crop/review.
+  /// Identifies the offline cascade for diagnostics; the proposal's producer
+  /// field records whether DocQuadNet or the classical fallback actually ran.
   @override
-  Future<List<Point2>?> suggest(Uint8List _) async => null;
+  String? get boundaryModelId => boundaryProposer == null
+      ? null
+      : '${boundaryProposer!.modelId}+classical-fallback';
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
+    final learned = boundaryProposer;
+    if (learned != null) {
+      try {
+        final proposal = await learned.suggestProposal(
+          preview,
+          cancellation: cancellation,
+        );
+        cancellation?.throwIfCancelled();
+        if (proposal != null) return proposal;
+      } on OperationCancelled {
+        rethrow;
+      } on Object {
+        // Model load/inference is optional. The independent local detector is
+        // the next cascade stage, not a swallowed failure or network retry.
+      }
+    }
+    final measured = await runCancellableIsolate(
+      () {
+        final decoded = decodeForProcessing(preview);
+        final result = detectDocumentCornersScored(decoded);
+        final corners = result?.corners;
+        if (result == null || corners == null) return null;
+        return <double>[
+          for (final point in corners) point.x,
+          for (final point in corners) point.y,
+          result.score,
+        ];
+      },
+      cancellation: cancellation,
+      debugName: 'classical-boundary-proposal',
+    );
+    if (measured == null || measured.length != 9) return null;
+    cancellation?.throwIfCancelled();
+    final corners = [
+      for (var i = 0; i < 4; i++) Point2(measured[i], measured[i + 4]),
+    ];
+    return BoundaryProposal(
+      producer: BoundaryProducer.detector,
+      corners: corners,
+      // The classical score ranks its own candidates; it is neither returned
+      // as confidence nor used for auto-acceptance. verifyBoundary routes this
+      // producer to manual review pending local calibration data.
+    );
+  }
+
+  @override
+  Future<List<Point2>?> suggest(Uint8List preview) async =>
+      (await suggestProposal(preview))?.corners;
+
+  @override
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
-    return Isolate.run(
+    cancellation?.throwIfCancelled();
+    return runCancellableIsolate(
       () => renderPerspective(bytes, recipe, previewLongEdge: 1200),
+      cancellation: cancellation,
+      debugName: 'crop-preview',
     );
   }
 
@@ -167,6 +254,10 @@ class LocalImageEditor implements ImageEditor, CropBytesImageEditor {
     final localCorners = remapCornersIntoRegion(
       recipe.geometry.corners,
       bounds,
+      orientedWidth: oriented.$1,
+      orientedHeight: oriented.$2,
+      regionWidth: extractedHeader.width,
+      regionHeight: extractedHeader.height,
     );
     final measured = CropDraft(
       corners: localCorners,

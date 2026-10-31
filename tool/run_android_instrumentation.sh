@@ -21,6 +21,64 @@ set +e
 gradle_status=${PIPESTATUS[0]}
 set -e
 
+set +e
+flutter test integration_test/docquad_inference_test.dart \
+  -d "${ANDROID_SERIAL:-emulator-5554}" --flavor scanid --reporter expanded \
+  2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
+docquad_status=${PIPESTATUS[0]}
+set -e
+
+startup_apk=build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+startup_log=diagnostics/android-instrumentation/startup-diagnostic.log
+startup_logcat=diagnostics/android-instrumentation/startup-diagnostic-logcat.log
+if [[ ! -f "$startup_apk" ]]; then
+  echo "::error title=startup-diagnostic::Diagnostic APK was not built."
+  exit 1
+fi
+adb wait-for-device
+adb logcat -c
+adb install -r "$startup_apk" > "$startup_log" 2>&1
+adb shell monkey -p iq.scanid.scan_id.startupdiag \
+  -c android.intent.category.LAUNCHER 1 >> "$startup_log" 2>&1
+for attempt in $(seq 1 20); do
+  adb logcat -d -v threadtime > "$startup_logcat"
+  if grep -Fq 'app.first_home_frame' "$startup_logcat"; then
+    break
+  fi
+  sleep 1
+done
+grep -E 'ScanIdStartup|SCANID_STARTUP|FATAL EXCEPTION|AndroidRuntime|Fatal signal|SIGABRT|SIGSEGV|UnsatisfiedLinkError|MissingPluginException|PlatformException|OutOfMemoryError|ExceptionInInitializerError' \
+  "$startup_logcat" > diagnostics/android-instrumentation/startup-diagnostic-summary.log || true
+for marker in \
+  'activity.onCreate.begin' \
+  'flutter_plugins.registration.complete' \
+  'native.camera_channel.configure.complete (no capture)' \
+  'engine.configure.complete' \
+  'dart.main.enter' \
+  'flutter.binding.ready' \
+  'runApp.returned' \
+  'flutter.first_frame' \
+  'storage.database_open.complete' \
+  'services.construct.complete' \
+  'app.first_home_frame'; do
+  if ! grep -Fq "$marker" "$startup_logcat"; then
+    echo "::error title=startup-diagnostic::Missing startup marker: $marker"
+    cat diagnostics/android-instrumentation/startup-diagnostic-summary.log
+    exit 1
+  fi
+done
+{
+  echo "startupDiagnosticPackage=iq.scanid.scan_id.startupdiag"
+  grep -E 'ScanIdStartup|SCANID_STARTUP' \
+    diagnostics/android-instrumentation/startup-diagnostic-summary.log || true
+} > diagnostics/android-instrumentation/startup-diagnostic-evidence.txt
+startup_trace="$(grep -E 'ScanIdStartup|SCANID_STARTUP' \
+  diagnostics/android-instrumentation/startup-diagnostic-summary.log \
+  | tail -n 30 \
+  | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+  | tr '\n' '~')"
+echo "::notice title=startup-diagnostic-x86_64::Diagnostic APK reached the first home frame on the CI x86_64 emulator; this is not ARM64 device evidence. $startup_trace"
+
 metrics_file=diagnostics/android-instrumentation/native-jpeg-crop-metrics.log
 logcat_file=diagnostics/android-instrumentation/android-crop-metrics-logcat.log
 adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
@@ -46,7 +104,7 @@ import xml.etree.ElementTree as ET
 
 results = {}
 paths = glob.glob(
-    "build/app/outputs/androidTest-results/connected/scanidDebug/**/*.xml",
+    "build/app/outputs/androidTest-results/connected/**/*.xml",
     recursive=True,
 )
 for path in paths:
@@ -72,11 +130,14 @@ for path in paths:
         continue
     skipped += sum(1 for case in root.iter("testcase") if any(c.tag == "skipped" for c in case))
 print(f"androidTests={len(results)} failures={failed} skipped={skipped}")
+if not results:
+    print("NO_ANDROID_TEST_CASES: Gradle success is not instrumentation evidence")
 for name, details in results.items():
     for detail in details:
         print(f"{name}: {detail}")
 PY
 )"
+test_report="$test_report; docquadFlutterInferenceExit=$docquad_status"
 
 if grep -q '^case=' "$metrics_file"; then
   metrics_report="$(awk -v source="$metrics_source" '
@@ -106,19 +167,32 @@ fi
   printf '%s\n%s\n' "$test_report" "$metrics_report"
 } > diagnostics/android-instrumentation/summary.txt
 
-if (( gradle_status != 0 )); then
+if (( gradle_status != 0 || docquad_status != 0 )); then
   gradle_summary="$(
     { grep -E '(^FAILURE:|^\* What went wrong:|^Execution failed for task|^> Task .*FAILED|^e: |error:|^Caused by:|^There were failing tests|^.*AssertionError)' \
         diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
       | tail -n 20
   )"
-  details="$(printf '%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" \
-    | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
-  echo "::error title=android-gradle-failure-summary::Gradle exit=$gradle_status; $details"
+  resolution_details="$(
+    { grep -n -A45 -B5 -E 'Cannot find a version|No matching version|Could not resolve all files' \
+        diagnostics/android-instrumentation/connected-debug-android-test.log || true; } \
+      | head -c 7000
+  )"
+  docquad_summary="$(tail -n 20 diagnostics/android-instrumentation/docquad-inference.log)"
+  details="$(printf '%s\n%s\n%s\n%s\n%s' "$test_report" "$metrics_report" "$gradle_summary" "$resolution_details" "$docquad_summary" \
+    | head -c 10500 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+  echo "::error title=android-runtime-inference-failure::Gradle exit=$gradle_status; DocQuad exit=$docquad_status; $details"
 else
   details="$(printf '%s\n%s' "$test_report" "$metrics_report" \
     | head -c 2600 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
   echo "::notice title=android-instrumentation-evidence::$details"
 fi
 
-exit "$gradle_status"
+if (( gradle_status == 0 && docquad_status == 0 )) && ! grep -q 'androidTests=[1-9][0-9]* failures=0 ' <<< "$test_report"; then
+  echo "::error title=android-instrumentation::No successful Android test cases were reported; refusing to count logcat metrics as tests."
+  exit 1
+fi
+if (( gradle_status != 0 )); then
+  exit "$gradle_status"
+fi
+exit "$docquad_status"

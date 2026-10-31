@@ -1,3 +1,4 @@
+import 'package:scan_id/application/cancellation.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -35,21 +36,29 @@ class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   String? get boundaryModelId => 'synthetic-boundary-review-test';
 
   @override
-  Future<EditorSource> open(ImageAsset asset) => _inner.open(asset);
+  Future<EditorSource> open(
+    ImageAsset asset, {
+    CancellationToken? cancellation,
+  }) => _inner.open(asset, cancellation: cancellation);
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async => _proposal.corners;
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async =>
-      _proposal;
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async => _proposal;
 
   Future<SegmentationResult> segment(Uint8List preview) async =>
       const SegmentationResult(multi: false, candidates: <SegmentCandidate>[]);
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) =>
-      _inner.preview(asset, recipe);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) => _inner.preview(asset, recipe, cancellation: cancellation);
 
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
@@ -61,7 +70,11 @@ class _TrackingFakeEditor extends FakeImageEditor {
   String? lastPreviewAssetId;
 
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async {
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async {
     lastPreviewAssetId = asset.id;
     lastPreviewRecipe = recipe;
     return super.preview(asset, recipe);
@@ -79,7 +92,10 @@ class _RefreshingFakeEditor extends _TrackingFakeEditor
   String? get boundaryModelId => 'synthetic-review-test';
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) async {
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async {
     refreshCount++;
     return _proposal;
   }
@@ -96,7 +112,10 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
   String? get boundaryModelId => 'synthetic-controlled-review-test';
 
   @override
-  Future<BoundaryProposal?> suggestProposal(Uint8List preview) {
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) {
     refreshCount++;
     final pending = pendingRefresh;
     if (pending != null) return pending.future;
@@ -108,8 +127,11 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
 
 class _InvalidPreviewEditor extends FakeImageEditor {
   @override
-  Future<Uint8List> preview(ImageAsset asset, ImageEditRecipe recipe) async =>
-      Uint8List.fromList([0x01, 0x02, 0x03]);
+  Future<Uint8List> preview(
+    ImageAsset asset,
+    ImageEditRecipe recipe, {
+    CancellationToken? cancellation,
+  }) async => Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 
 void main() {
@@ -145,13 +167,13 @@ void main() {
       expect(service.multiDocumentSegmentationEnabled, isFalse);
       expect(project.assets, hasLength(1));
       expect(project.assets.single.crop, isNull);
-      expect(project.assets.single.suggestedCrop, isNull);
+      expect(project.assets.single.suggestedCrop, hasLength(4));
       expect(project.assets.single.derivedFrom, isNull);
       expect(project.items, hasLength(1));
       expect(project.items.single.documentKind, DocumentKind.unknown);
       expect(project.items.single.pageIndex, isNull);
-      expect(report.warnings.join(' '), contains('لا يتوفر كشف تلقائي للحدود'));
-      expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNull);
+      expect(report.warnings.join(' '), contains('اقتراح حدود هندسي محلي'));
+      expect(await editor.suggest(Uint8List.fromList(sourceBytes)), isNotNull);
       expect(
         (await defaultSegment(Uint8List.fromList(sourceBytes))).candidates,
         isEmpty,
@@ -164,6 +186,51 @@ void main() {
       );
     },
   );
+
+  test('classical local proposal flows through geometry gate and is stored '
+      'only as a suggestion', () async {
+    final tempDir = await Directory.systemTemp.createTemp('scanid_classical_');
+    addTearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+    final files = SafeFiles(tempDir);
+    final assets = LocalAssetRepository(files);
+    final projects = await LocalProjectRepository.open(tempDir);
+    addTearDown(projects.close);
+    final proposedQuad = [
+      Point2(.12, .13),
+      Point2(.88, .13),
+      Point2(.88, .87),
+      Point2(.12, .87),
+    ];
+    final editor = _UncertainBoundaryEditor(
+      LocalImageEditor(files),
+      BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: proposedQuad,
+      ),
+    );
+    final service = ProjectService(projects, assets, imageEditor: editor);
+    final bytes = File('test/fixtures/synthetic_card.png').readAsBytesSync();
+    var project = await service.create('اقتراح هندسي للمراجعة');
+    project = (await service.importImages(project, [
+      ImportSource('synthetic.png', () => Stream.value(bytes)),
+    ])).project;
+    final result = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final saved = await projects.get(result.project.id);
+
+    expect(saved.assets.single.crop, isNull);
+    expect(saved.assets.single.suggestedCrop, hasLength(4));
+    for (var i = 0; i < 4; i++) {
+      expect(saved.assets.single.suggestedCrop![i].x, proposedQuad[i].x);
+      expect(saved.assets.single.suggestedCrop![i].y, proposedQuad[i].y);
+    }
+    expect(result.cropped, 0);
+    expect(result.warnings.join(' '), contains('اقتراح حدود هندسي محلي'));
+    expect(saved.items.single.documentKind, DocumentKind.unknown);
+  });
 
   test(
     'injected boundary proposal remains review-only and persists suggestedCrop on ImageAsset',
@@ -216,6 +283,8 @@ void main() {
       final arranged = await service.arrangeImportedImages(project, [
         project.assets.single.id,
       ]);
+      expect(arranged.notDetected, 0);
+      expect(arranged.boundaryNeedsReview, 1);
       final reloaded = await projects.get(arranged.project.id);
       final savedAsset = reloaded.assets.single;
       final savedItem = reloaded.items.single;
@@ -256,6 +325,8 @@ void main() {
         ),
       );
       final report = await intake.run(smartImported, [smartAssetId]);
+      expect(report.notDetected, 0);
+      expect(report.boundaryNeedsReview, 1);
       final doc = report.project.documents.single;
       final smartAsset = report.project.assets.firstWhere(
         (a) => a.id == smartAssetId,

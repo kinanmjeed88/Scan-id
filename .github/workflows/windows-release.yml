@@ -30,6 +30,8 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        run: python tool/fetch_docaligner_model.py
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
@@ -39,6 +41,8 @@ jobs:
         run: python tool/ci_gate.py windows-scaler-build cmake --build build/windows/x64 --config Release --target large_jpeg_scaler_test
       - name: Run native Windows scaler regressions
         run: python tool/ci_gate.py windows-scaler-test ctest --test-dir build/windows/x64 -C Release --output-on-failure -R large_jpeg_scaler_windows
+      - name: Run bundled DocQuad ONNX Runtime inference on Windows
+        run: python tool/ci_gate.py docquad-windows flutter test integration_test/docquad_inference_test.dart -d windows --reporter expanded
       - name: Create Windows portable ZIP
         shell: pwsh
         run: |

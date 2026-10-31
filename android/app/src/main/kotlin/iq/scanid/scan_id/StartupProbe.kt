@@ -7,6 +7,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.system.Os
 import android.system.OsConstants
@@ -58,6 +60,7 @@ object StartupProbe {
     private const val APP_LOG = "startup-probe.log"
     private const val MAX_TRACE_CHARS = 6000
     private const val MAX_APP_LOG_CHARS = 24000
+    private const val LATE_PUBLISH_DELAY_MS = 10_000L
 
     private val lock = Any()
     private val marks = ArrayList<String>()
@@ -65,6 +68,7 @@ object StartupProbe {
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
     private var installed = false
     private var sequence = 0
+    @Volatile private var publishedCurrentRun = false
 
     /** True only in builds that opted in; production stays silent. */
     val enabled: Boolean
@@ -91,6 +95,17 @@ object StartupProbe {
             runCatching { publish("previous-run", buildReport(context, includeCurrentMarks = false)) }
                 .onFailure { Log.w(TAG, "previous-run publish failed: ${it.javaClass.name}") }
             preflightNativeLibraries()
+            // Publishing must not depend on Dart reaching its first frame: if the
+            // process dies before that, the marks above are still only in the
+            // app-private log. This timer is what turns a successful or failed
+            // run into a file the person can share. The Dart first-frame call
+            // usually wins; whichever runs first publishes once.
+            runCatching {
+                Handler(Looper.getMainLooper()).postDelayed(
+                    { publishCurrentRun() },
+                    LATE_PUBLISH_DELAY_MS,
+                )
+            }.onFailure { Log.w(TAG, "late publish could not be scheduled: ${it.javaClass.name}") }
         }
     }
 
@@ -134,6 +149,8 @@ object StartupProbe {
     /** Publishes this run so far; safe to call from the UI thread. */
     fun publishCurrentRun() {
         if (!enabled) return
+        if (publishedCurrentRun) return
+        publishedCurrentRun = true
         val context = appContext ?: return
         runCatching { publish("first-frame", buildReport(context, includeCurrentMarks = true)) }
             .onFailure { Log.w(TAG, "current-run publish failed: ${it.javaClass.name}") }

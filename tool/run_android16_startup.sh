@@ -42,15 +42,23 @@ if [[ "$reached_home" -ne 1 ]]; then
   exit 1
 fi
 
-# The report must land where a person can reach it without a computer.
-adb shell ls -l /sdcard/Download/ScanId > diagnostics/android16/report-listing.log 2>&1 || true
-report="$(adb shell ls /sdcard/Download/ScanId 2>/dev/null | tr -d '\r' | head -n 1)"
-if [[ -z "$report" ]]; then
+# The report must land where a person can reach it without a computer. Every
+# launch writes one at start ("previous-run") and one once a frame is up, so all
+# of them are pulled and searched: the stage marks of a run that died are carried
+# into the next launch's report through the app-private log.
+adb shell ls -lt /sdcard/Download/ScanId > diagnostics/android16/report-listing.log 2>&1 || true
+rm -rf diagnostics/android16/reports
+if ! adb pull /sdcard/Download/ScanId diagnostics/android16/reports > diagnostics/android16/report-pull.log 2>&1; then
   cat diagnostics/android16/report-listing.log || true
   echo "::error title=startup-report::No report file was written to Download/ScanId." >&2
   exit 1
 fi
-adb shell cat "/sdcard/Download/ScanId/$report" > diagnostics/android16/report.txt
+mapfile -t reports < <(find diagnostics/android16/reports -type f -name '*.txt' ! -name 'report-listing.log' | sort)
+if (( ${#reports[@]} == 0 )); then
+  cat diagnostics/android16/report-listing.log || true
+  echo "::error title=startup-report::The Download/ScanId folder held no report file." >&2
+  exit 1
+fi
 
 missing=()
 for marker in \
@@ -60,16 +68,16 @@ for marker in \
   'flutter_plugins.registration.complete' \
   'historical process exits' \
   'app.first_home_frame'; do
-  if ! grep -Fq "$marker" diagnostics/android16/report.txt; then
+  if ! grep -Fq "$marker" "${reports[@]}"; then
     missing+=("$marker")
   fi
 done
+# Bounded, secretless excerpt in the annotation channel: the artifact store is
+# not always reachable, and an annotation is.
+excerpt="$(grep -hE 'native.preflight|pageSize|supportedAbis|versionName|probe.installed|registration|first_home_frame' "${reports[@]}" \
+  | head -n 14 | tr '\n' '~' | sed -e 's/%/%25/g' -e 's/\r/%0D/g')"
 if (( ${#missing[@]} )); then
-  sed -n '1,160p' diagnostics/android16/report.txt || true
-  echo "::error title=startup-report::The report is missing: ${missing[*]}" >&2
+  echo "::error title=startup-report::The reports are missing: ${missing[*]} :: $excerpt" >&2
   exit 1
 fi
-
-summary="$(grep -E 'native.preflight|pageSize|supportedAbis|versionName' diagnostics/android16/report.txt \
-  | head -n 8 | tr '\n' '~' | sed -e 's/%/%25/g' -e 's/\r/%0D/g')"
-echo "::notice title=startup-report-android16::The diagnostic build reached the first home frame on API 36 (x86_64) and wrote $report :: $summary"
+echo "::notice title=startup-report-android16::${#reports[@]} report(s), first home frame reached on API 36 (x86_64) :: $excerpt"

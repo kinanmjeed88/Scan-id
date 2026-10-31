@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../application/cancellation.dart';
 import '../application/ota_update.dart';
 import '../application/project_service.dart';
+import '../application/startup_diagnostics.dart';
 import 'shared.dart';
 
 /// The one offer the app makes when a newer release is published.
@@ -107,6 +108,7 @@ class _StartupUpdateCheckState extends State<StartupUpdateCheck> {
   void initState() {
     super.initState();
     if (widget.service != null) {
+      StartupDiagnostics.mark('startup_update_check.scheduled_after_frame');
       // After the first frame: the offer is a dialog, and a dialog needs the
       // navigator this widget is installed under. The project list also gets to
       // appear first; a check that may spend 25 seconds timing out must never
@@ -120,15 +122,20 @@ class _StartupUpdateCheckState extends State<StartupUpdateCheck> {
   Future<void> _ask() async {
     final service = widget.service;
     if (service == null || !mounted) return;
+    StartupDiagnostics.mark('startup_update_check.begin');
     UpdateInfo? found;
     try {
       found = await service.checkForUpdate();
-    } on Object {
+    } on Object catch (error) {
+      StartupDiagnostics.failure('startup_update_check.nonfatal', error);
       // A courtesy at startup, not a task the person asked for: no failure is
       // worth a warning before they have done anything, and the settings card
       // reports one when they ask for the check themselves.
       return;
     }
+    StartupDiagnostics.mark(
+      'startup_update_check.complete has_update=${found != null}',
+    );
     final update = found;
     if (!mounted || update == null) return;
     if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;

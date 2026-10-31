@@ -249,6 +249,15 @@ jobs:
               sys.exit("APK is missing native runtime libraries for a supported ABI")
           print("PASS: Flutter Engine and ONNX Runtime libraries are present for all audited ABIs.")
           PYAPK
+      - name: Build Android startup diagnostic APK (side-by-side)
+        run: python tool/ci_gate.py startup-diagnostic-build flutter build apk --flavor diagnostic --debug
+      - name: Upload Android startup diagnostic APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-startup-diagnostic-apk
+          path: build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+          if-no-files-found: error
+          retention-days: 7
       - name: Build independent offline annotation flavor
         run: python tool/ci_gate.py annotator-build flutter build apk --flavor annotator --debug --target lib/reference_annotation/main.dart
       - name: Audit merged annotation-flavor permissions

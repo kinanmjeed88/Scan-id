@@ -236,6 +236,11 @@ android {
             applicationId = "iq.scanid.referenceannotator"
             versionNameSuffix = "-reference"
         }
+        create("diagnostic") {
+            dimension = "edition"
+            applicationIdSuffix = ".startupdiag"
+            versionNameSuffix = "-startupdiag"
+        }
     }
 
     if (releaseKeyStoreFile != null) {

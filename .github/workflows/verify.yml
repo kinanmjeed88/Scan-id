@@ -229,6 +229,12 @@ jobs:
             scanid-debug-at-build=build/app/outputs/flutter-apk/app-scanid-debug.apk \
             > diagnostics/apk-fingerprint-at-build.txt 2>&1
           cat diagnostics/apk-fingerprint-at-build.txt
+          # `flutter test integration_test/... --flavor scanid` later in this job
+          # writes a test-harness APK to this same path, so the app package is
+          # copied out of reach here and this copy is what gets published.
+          python3 tool/stage_app_apk.py stage \
+            --apk build/app/outputs/flutter-apk/app-scanid-debug.apk \
+            --out install-apks/scanid
 
       - name: Inspect Android debug APK native libraries by ABI
         shell: bash
@@ -382,11 +388,18 @@ jobs:
 
       - name: Build Android startup diagnostic APK (side-by-side)
         run: python tool/ci_gate.py startup-diagnostic-build flutter build apk --flavor diagnostic --debug
+      - name: Stage the diagnostic APK for publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tool/stage_app_apk.py stage \
+            --apk build/app/outputs/flutter-apk/app-diagnostic-debug.apk \
+            --out install-apks/diagnostic
       - name: Upload Android startup diagnostic APK
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-startup-diagnostic-apk
-          path: build/app/outputs/flutter-apk/app-diagnostic-debug.apk
+          path: install-apks/diagnostic/app-diagnostic-debug.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -502,25 +515,32 @@ jobs:
       # Emitted last on purpose: GitHub keeps only the most recent annotations of
       # a job, and the gates above publish their own. This is the package the
       # phone actually receives, next to the same file as it was built.
-      - name: Fingerprint the package this job uploads
+      # The bug this gate exists for: the plain debug artifact uploaded here used
+      # to be the integration-test harness, because `flutter test
+      # integration_test/... --flavor scanid` rewrites
+      # `build/app/outputs/flutter-apk/app-scanid-debug.apk`. The phone that
+      # installed it showed the splash screen and then the app closing, while the
+      # diagnostic package - a flavor the test does not target - started normally.
+      # Publishing a copy taken at build time removes the hazard; this check makes
+      # a future re-ordering fail instead of silently shipping the harness again.
+      - name: Prove the published packages are the built packages
         shell: bash
         run: |
           set -euo pipefail
-          echo "--- at build time:"
-          cat diagnostics/apk-fingerprint-at-build.txt
-          echo "--- at upload time:"
-          python3 tool/fingerprint_apk.py \
-            scanid-debug-at-upload=build/app/outputs/flutter-apk/app-scanid-debug.apk \
-            diagnostic-at-upload=build/app/outputs/flutter-apk/app-diagnostic-debug.apk \
-            annotator-at-upload=build/app/outputs/flutter-apk/app-annotator-debug.apk
-          echo "--- built file line repeated for a diffable comparison:"
-          cat diagnostics/apk-fingerprint-at-build.txt
+          python3 tool/stage_app_apk.py check \
+            --apk install-apks/scanid/app-scanid-debug.apk \
+            --expected install-apks/scanid/expected.json \
+            --built build/app/outputs/flutter-apk/app-scanid-debug.apk
+          python3 tool/stage_app_apk.py check \
+            --apk install-apks/diagnostic/app-diagnostic-debug.apk \
+            --expected install-apks/diagnostic/expected.json \
+            --built build/app/outputs/flutter-apk/app-diagnostic-debug.apk
 
       - name: Android debug APK
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-debug-apk
-          path: build/app/outputs/flutter-apk/app-scanid-debug.apk
+          path: install-apks/scanid/app-scanid-debug.apk
           if-no-files-found: error
           # CI smoke artifact only; short retention prevents artifact-storage
           # quota exhaustion (430 artifacts / 5.5 GB hit the quota in Oct 2026).

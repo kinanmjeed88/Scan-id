@@ -60,7 +60,18 @@ jobs:
       # serve the Kotlin artifacts it proxies from Maven Central. See
       # tool/gradle/plugin-repositories.init.gradle.
       - name: Prepare verified DocAligner 1.1.1 model asset
-        run: python tool/fetch_docaligner_model.py
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/3)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then
+              sleep $((attempt * 5))
+            fi
+          done
+          exit 1
 
       - name: Install Gradle plugin-repository fallback
         shell: bash

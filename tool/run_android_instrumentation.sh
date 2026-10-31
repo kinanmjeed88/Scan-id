@@ -35,6 +35,7 @@ if [[ ! -f "$startup_apk" ]]; then
   echo "::error title=startup-diagnostic::Diagnostic APK was not built."
   exit 1
 fi
+adb wait-for-device
 adb logcat -c
 adb install -r "$startup_apk" > "$startup_log" 2>&1
 adb shell monkey -p iq.scanid.scan_id.startupdiag \

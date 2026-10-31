@@ -101,9 +101,7 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
   const fullResolution = PlatformFullResolutionJpegCropper();
   final primaryModel = DocQuadNet256();
   final secondaryModel = DocAlignerFastViT();
-  StartupDiagnostics.mark(
-    'detector_adapters.constructed sessions=not_loaded',
-  );
+  StartupDiagnostics.mark('detector_adapters.constructed sessions=not_loaded');
   final editor = LocalImageEditor(
     repository.files,
     readFullResolutionRegion: fullResolution.cropJpegRegion,

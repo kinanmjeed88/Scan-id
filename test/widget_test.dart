@@ -187,6 +187,91 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('tap mode: four taps in any order become canonical handles', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final editor = _TestEditor();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()]),
+    );
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      imageEditor: editor,
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () {
+                Navigator.of(context).push<Project>(
+                  MaterialPageRoute(
+                    builder: (_) => CropScreen(
+                      project: project,
+                      asset: project.assets.single,
+                      service: service,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('فتح القص'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('فتح القص'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('crop-tap-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('crop-tap-mode')));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+    Offset at(double fx, double fy) =>
+        Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+
+    // Two taps: partial selection, no handles yet.
+    await tester.tapAt(at(.2, .2));
+    await tester.pumpAndSettle();
+    // 16 px is outside the 12 px marker radius but inside the 20 px minimum.
+    await tester.tapAt(at(.2, .2) + const Offset(16, 0));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('قريبة'), findsWidgets);
+    await tester.tapAt(at(.8, .2));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('crop-tap-0')), findsOneWidget);
+    expect(find.byKey(const Key('crop-tap-1')), findsOneWidget);
+    expect(find.byKey(const Key('crop-corner-0')), findsNothing);
+
+    // Taps 3 and 4 arrive in a non-canonical order (bottom-left first).
+    await tester.tapAt(at(.2, .8));
+    await tester.pumpAndSettle();
+    await tester.tapAt(at(.8, .8));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('crop-tap-mode')), findsOneWidget);
+    expect(find.byKey(const Key('crop-tap-0')), findsNothing);
+    for (var i = 0; i < 4; i++) {
+      expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
+    }
+    // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
+    final expected = [at(.2, .2), at(.8, .2), at(.8, .8), at(.2, .8)];
+    for (var i = 0; i < 4; i++) {
+      final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
+      expect(
+        (centre - expected[i]).distance,
+        lessThan(1),
+        reason: 'corner $i must sit on its canonical position',
+      );
+    }
+  });
+
   testWidgets(
     'crop proposal can be undone; only a reviewed preview can be committed',
     (tester) async {

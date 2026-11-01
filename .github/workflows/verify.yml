@@ -187,11 +187,14 @@ jobs:
       - name: TEMP format diff diagnostic
         if: failure()
         run: |
-          for f in $(git diff --name-only 546c7fb -- '*.dart'); do
+          for f in $(git ls-files '*.dart'); do
             dart format --output=show "$f" > /tmp/fmt_out.dart 2>/dev/null || true
-            diff "$f" /tmp/fmt_out.dart | head -60 | while IFS= read -r line; do
-              echo "::warning title=FMTDIFF $f::$line"
-            done
+            if ! cmp -s "$f" /tmp/fmt_out.dart; then
+              echo "::warning title=FMTFILE::$f differs"
+              diff "$f" /tmp/fmt_out.dart | head -60 | while IFS= read -r line; do
+                echo "::warning title=FMTDIFF $f::$line"
+              done
+            fi
           done
       - name: Flutter analyze
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos

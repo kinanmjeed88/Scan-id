@@ -181,21 +181,6 @@ jobs:
           rm -f "$script"
       - name: Dart format gate
         run: python tool/ci_gate.py format python tool/format_report.py
-      # TEMPORARY DIAGNOSTIC (remove before merge): prints the formatter's
-      # diff for changed Dart files as annotations, because the job log is
-      # unreadable. It never changes the gate result.
-      - name: TEMP format diff diagnostic
-        if: failure()
-        run: |
-          for f in test/widget_test.dart lib/presentation/crop_screen.dart test/application/manual_intake_integration_test.dart lib/domain/geometry.dart lib/domain/manual_quad_selection.dart test/domain/manual_quad_selection_test.dart lib/imaging/document_detector.dart lib/application/project_service.dart; do
-            dart format --output=show "$f" 2>/dev/null | sed '/^Formatted /d' > /tmp/fmt_out.dart || true
-            if ! cmp -s "$f" /tmp/fmt_out.dart; then
-              echo "::warning title=FMTFILE::$f differs"
-              diff "$f" /tmp/fmt_out.dart | head -60 | while IFS= read -r line; do
-                echo "::warning title=FMTDIFF $f::$line"
-              done
-            fi
-          done
       - name: Flutter analyze
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests

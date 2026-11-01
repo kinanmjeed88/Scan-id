@@ -143,6 +143,69 @@ class RectMm {
 /// A convex clockwise quadrilateral is required; a crossed or degenerate
 /// polygon can never become a processing request.
 /// Why a normalized crop ring cannot be used by a perspective renderer.
+/// Canonical corner order TL, TR, BR, BL (the [CropGeometry] convention).
+///
+/// The result depends only on point positions, not on tap or detection order,
+/// so a corner keeps a stable identity while it is dragged. The rule is the
+/// detector's rule, moved here unchanged so that manual taps and automatic
+/// detection share one implementation:
+/// - angle-sort about the centroid, with a positive shoelace area;
+/// - the start edge maximises `dx + 1.15 * len / maxLen` over edges with
+///   `dx > 0` (a heading term plus a relative-length tie-break, so severe
+///   foreshortening and tilts near 45° do not flip a landscape document by 90°).
+///   The 1.15 weight is inherited from the existing detector; its origin is not
+///   documented in the repository and it is not tuned here.
+///
+/// Throws [ValidationException] unless exactly four points are given.
+List<Point2> canonicalQuadCorners(List<Point2> points) {
+  require(points.length == 4, 'يجب تحديد أربع زوايا.');
+  double mean(Iterable<double> values) {
+    var total = 0.0;
+    var count = 0;
+    for (final v in values) {
+      total += v;
+      count++;
+    }
+    return total / count;
+  }
+
+  final cx = mean(points.map((p) => p.x));
+  final cy = mean(points.map((p) => p.y));
+  final sorted = [...points]
+    ..sort(
+      (a, b) => math
+          .atan2(a.y - cy, a.x - cx)
+          .compareTo(math.atan2(b.y - cy, b.x - cx)),
+    );
+  var twiceArea = 0.0;
+  for (var i = 0; i < 4; i++) {
+    final a = sorted[i], b = sorted[(i + 1) % 4];
+    twiceArea += a.x * b.y - b.x * a.y;
+  }
+  final ordered = twiceArea < 0 ? sorted.reversed.toList() : sorted;
+  double edgeLength(Point2 a, Point2 b) =>
+      math.sqrt(math.pow(b.x - a.x, 2) + math.pow(b.y - a.y, 2)).toDouble();
+  final lengths = [
+    for (var i = 0; i < 4; i++) edgeLength(ordered[i], ordered[(i + 1) % 4]),
+  ];
+  final maxLen = math.max(1e-6, lengths.reduce(math.max));
+  var start = 0;
+  var bestScore = double.negativeInfinity;
+  for (var i = 0; i < 4; i++) {
+    final a = ordered[i], b = ordered[(i + 1) % 4];
+    final len = lengths[i];
+    if (len <= 0) continue;
+    final dx = (b.x - a.x) / len;
+    if (dx <= 0) continue;
+    final score = dx + 1.15 * (len / maxLen);
+    if (score > bestScore) {
+      bestScore = score;
+      start = i;
+    }
+  }
+  return [for (var i = 0; i < 4; i++) ordered[(start + i) % 4]];
+}
+
 enum QuadGeometryIssue {
   wrongPointCount,
   nonFiniteCoordinates,

@@ -13,6 +13,7 @@ import '../domain/edit_history.dart';
 import '../domain/geometry.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/manual_boundary.dart';
+import '../domain/manual_quad_selection.dart';
 import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
@@ -23,6 +24,10 @@ import 'shortcuts.dart';
 /// New manual crop drafts start at the midpoint of the existing 0–1 sharpness
 /// control. It is preview-only: the original stays unchanged until acceptance.
 const initialManualCropSharpness = .5;
+
+/// Taps closer than this many screen pixels to an already placed tap are
+/// ignored. It only removes accidental double taps; it is not a detection rule.
+const manualTapMinSeparationPx = 20.0;
 
 class CropScreen extends StatefulWidget {
   const CropScreen({
@@ -201,6 +206,9 @@ class _CropScreenState extends State<CropScreen> {
   CancellationToken? _operationCancellation;
   bool _showResult = false;
   bool _dirty = false;
+  // Non-null only while the user places corners by tapping. Partial taps are
+  // not undo entries; the completed quadrilateral is one history entry.
+  ManualQuadSelection? _tapSelection;
   CropDraft? _initialReviewDraft;
   late DocumentKind _initialKind;
   late String _initialWidthText;
@@ -632,6 +640,7 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
+      _tapSelection = null;
       _clearPreview();
       _dirty = true;
       _error = null;
@@ -688,6 +697,7 @@ class _CropScreenState extends State<CropScreen> {
     }
     setState(() {
       _state = next;
+      _tapSelection = null;
       _clearPreview();
       _dirty = true;
       _error = null;
@@ -702,6 +712,7 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
+      _tapSelection = null;
       _clearPreview();
       _dirty = true;
       _error = null;
@@ -821,6 +832,7 @@ class _CropScreenState extends State<CropScreen> {
     final editor = _editor;
     final source = _source!;
     final draft = _draft!;
+    final startState = _state;
     final operation = _beginOperation(canCancel: true);
     try {
       final List<Point2>? points;
@@ -833,6 +845,15 @@ class _CropScreenState extends State<CropScreen> {
         points = await editor.suggest(source.preview);
       }
       if (!mounted || operation != _operationGeneration) return;
+      if (!identical(_state, startState)) {
+        // The frame changed while detection ran. Applying the old result would
+        // overwrite a user edit, so it is discarded.
+        setState(() {
+          _proposalNotice =
+              'تغيّر الإطار أثناء الكشف؛ لم يُطبَّق الاقتراح القديم.';
+        });
+        return;
+      }
       if (points == null) {
         setState(() {
           _proposalNotice =
@@ -1306,84 +1327,8 @@ class _CropScreenState extends State<CropScreen> {
                                     ),
                                   ),
                                 ),
-                                for (var i = 0; i < 4; i++)
-                                  Positioned(
-                                    left: _draft!.corners[i].x * width,
-                                    top: _draft!.corners[i].y * height,
-                                    child: GestureDetector(
-                                      key: Key('crop-corner-$i'),
-                                      behavior: HitTestBehavior.opaque,
-                                      onPanUpdate: _busy
-                                          ? null
-                                          : (details) {
-                                              final render =
-                                                  _canvasKey.currentContext!
-                                                          .findRenderObject()!
-                                                      as RenderBox;
-                                              final local = render
-                                                  .globalToLocal(
-                                                    details.globalPosition,
-                                                  );
-                                              final next = _draft!.withCorner(
-                                                i,
-                                                Point2(
-                                                  (local.dx / width)
-                                                      .clamp(0, 1)
-                                                      .toDouble(),
-                                                  (local.dy / height)
-                                                      .clamp(0, 1)
-                                                      .toDouble(),
-                                                ),
-                                              );
-                                              setState(() {
-                                                _coalescedCustomField = null;
-                                                _state = _state!.copyWith(
-                                                  draft: next,
-                                                );
-                                                _clearPreview();
-                                                _dirty = true;
-                                                _error = null;
-                                                _proposalNotice = null;
-                                              });
-                                            },
-                                      onPanEnd: _busy
-                                          ? null
-                                          : (_) {
-                                              _change(_draft!);
-                                            },
-                                      onPanCancel: _busy
-                                          ? null
-                                          : () {
-                                              setState(() {
-                                                _coalescedCustomField = null;
-                                                _state = _history!.current;
-                                              });
-                                            },
-                                      child: Semantics(
-                                        label: 'زاوية القص ${i + 1}',
-                                        child: Container(
-                                          width: 40,
-                                          height: 40,
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xff12685e),
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            '${i + 1}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                ..._tapLayer(width, height),
+                                ..._cornerHandles(width, height),
                               ],
                             ),
                           ),
@@ -1396,6 +1341,203 @@ class _CropScreenState extends State<CropScreen> {
       ),
     ],
   );
+
+  void _toggleTapMode() {
+    setState(() {
+      _error = null;
+      _tapSelection = _tapSelection == null
+          ? ManualQuadSelection.empty()
+          : null;
+    });
+  }
+
+  void _tapCanvas(Offset global, double width, double height) {
+    final render = _canvasKey.currentContext!.findRenderObject()! as RenderBox;
+    final local = render.globalToLocal(global);
+    _addManualTap(
+      Point2(
+        (local.dx / width).clamp(0, 1).toDouble(),
+        (local.dy / height).clamp(0, 1).toDouble(),
+      ),
+      minSeparation: manualTapMinSeparationPx / width,
+    );
+  }
+
+  /// Adds one tap. Completing four valid taps commits one history entry.
+  /// An unsafe completed quadrilateral is rejected and the selection restarts.
+  void _addManualTap(Point2 tap, {required double minSeparation}) {
+    final selection = _tapSelection;
+    if (selection == null) return;
+    ManualQuadSelection next;
+    try {
+      next = selection.addTap(tap, minSeparation: minSeparation);
+    } catch (error) {
+      setState(() => _error = userError(error));
+      return;
+    }
+    if (!next.isComplete) {
+      setState(() {
+        _tapSelection = next;
+        _error = null;
+      });
+      return;
+    }
+    List<Point2> corners;
+    try {
+      corners = next.completedCorners();
+    } catch (error) {
+      setState(() {
+        _tapSelection = ManualQuadSelection.empty();
+        _error = userError(error);
+      });
+      return;
+    }
+    final draft = _draft!;
+    _change(
+      CropDraft(
+        corners: corners,
+        adjustments: draft.adjustments,
+        aspectRatio: draft.aspectRatio,
+      ),
+    );
+  }
+
+  void _moveCorner(int index, Offset global, double width, double height) {
+    final render = _canvasKey.currentContext!.findRenderObject()! as RenderBox;
+    final local = render.globalToLocal(global);
+    final next = _draft!.withCorner(
+      index,
+      Point2(
+        (local.dx / width).clamp(0, 1).toDouble(),
+        (local.dy / height).clamp(0, 1).toDouble(),
+      ),
+    );
+    setState(() {
+      _coalescedCustomField = null;
+      _state = _state!.copyWith(draft: next);
+      _clearPreview();
+      _dirty = true;
+      _error = null;
+      _proposalNotice = null;
+    });
+  }
+
+  void _cancelCornerDrag() {
+    setState(() {
+      _coalescedCustomField = null;
+      _state = _history!.current;
+    });
+  }
+
+  /// Tap-mode layer: a surface that receives taps, plus markers for the taps
+  /// placed so far. Outside tap mode it contributes nothing.
+  List<Widget> _tapLayer(double width, double height) {
+    final selection = _tapSelection;
+    if (selection == null) return const [];
+    return [
+      Positioned(
+        left: 20.0,
+        top: 20.0,
+        width: width,
+        height: height,
+        child: GestureDetector(
+          key: const Key('crop-tap-surface'),
+          behavior: HitTestBehavior.opaque,
+          onTapUp: _busy
+              ? null
+              : (details) {
+                  _tapCanvas(details.globalPosition, width, height);
+                },
+          child: const SizedBox.expand(),
+        ),
+      ),
+      for (var i = 0; i < selection.points.length; i++)
+        Positioned(
+          left: 20.0 + selection.points[i].x * width - 12.0,
+          top: 20.0 + selection.points[i].y * height - 12.0,
+          child: _ScreenFixedSize(controller: _view, child: _tapMarker(i)),
+        ),
+    ];
+  }
+
+  /// The four draggable corners. Hidden in tap mode, where no corner exists
+  /// until the fourth tap completes the quadrilateral.
+  List<Widget> _cornerHandles(double width, double height) {
+    if (_tapSelection != null) return const [];
+    final corners = _draft!.corners;
+    return [
+      for (var i = 0; i < 4; i++)
+        Positioned(
+          left: corners[i].x * width,
+          top: corners[i].y * height,
+          child: _cornerHandle(i, width, height),
+        ),
+    ];
+  }
+
+  /// One draggable corner. Its centre sits on the corner; the wrapper keeps the
+  /// visible size constant under zoom.
+  Widget _cornerHandle(int i, double width, double height) {
+    return _ScreenFixedSize(
+      controller: _view,
+      child: GestureDetector(
+        key: Key('crop-corner-$i'),
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: _busy
+            ? null
+            : (details) {
+                _moveCorner(i, details.globalPosition, width, height);
+              },
+        onPanEnd: _busy
+            ? null
+            : (_) {
+                _change(_draft!);
+              },
+        onPanCancel: _busy ? null : _cancelCornerDrag,
+        child: Semantics(
+          label: 'زاوية القص ${i + 1}',
+          child: Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xff12685e),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: Text(
+              '${i + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tapMarker(int i) {
+    return Container(
+      key: Key('crop-tap-$i'),
+      width: 24,
+      height: 24,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xff12685e),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Text(
+        '${i + 1}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
 
   Widget _tools() {
     final adjustments = _draft!.adjustments;
@@ -1433,6 +1575,24 @@ class _CropScreenState extends State<CropScreen> {
             icon: const Icon(Icons.rotate_90_degrees_cw),
             label: Text('تدوير · ${adjustments.quarterTurns * 90}°'),
           ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const Key('crop-tap-mode'),
+            onPressed: _busy ? null : _toggleTapMode,
+            icon: const Icon(Icons.touch_app_outlined),
+            label: Text(
+              _tapSelection == null
+                  ? 'تحديد الزوايا بالنقر'
+                  : 'إلغاء التحديد بالنقر',
+            ),
+          ),
+          if (_tapSelection != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'انقر الزوايا الأربع بأي ترتيب (${_tapSelection!.points.length}/4)؛ تُرتَّب تلقائيا.',
+              ),
+            ),
           const SizedBox(height: 12),
           const Text('نوع المستمسك ومقاس الطباعة على A4'),
           DropdownButton<DocumentKind>(
@@ -1698,4 +1858,27 @@ class _CropPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CropPainter oldDelegate) =>
       !identical(oldDelegate.points, points);
+}
+
+/// Keeps its child at a constant on-screen size inside an [InteractiveViewer]
+/// by cancelling the viewer's current scale around the child's centre.
+class _ScreenFixedSize extends StatelessWidget {
+  const _ScreenFixedSize({required this.controller, required this.child});
+
+  final TransformationController controller;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: controller,
+      builder: (context, matrix, child) {
+        return Transform.scale(
+          scale: 1 / math.max(1, matrix.getMaxScaleOnAxis()),
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
 }

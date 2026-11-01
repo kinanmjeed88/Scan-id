@@ -233,9 +233,17 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('crop-tap-mode')));
     await tester.pumpAndSettle();
-    final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-    Offset at(double fx, double fy) =>
-        Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    // The canvas rect is measured again before every tap: the error banner
+    // raised by the duplicate tap moves the canvas down until a valid tap.
+    Offset at(double fx, double fy) {
+      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    }
+    final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+    Offset expected(double fx, double fy) => Offset(
+      pristine.left + pristine.width * fx,
+      pristine.top + pristine.height * fy,
+    );
 
     // Two taps: partial selection, no handles yet.
     await tester.tapAt(at(.2, .2));
@@ -261,11 +269,16 @@ void main() {
       expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
     }
     // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
-    final expected = [at(.2, .2), at(.8, .2), at(.8, .8), at(.2, .8)];
+    final corners = [
+      expected(.2, .2),
+      expected(.8, .2),
+      expected(.8, .8),
+      expected(.2, .8),
+    ];
     for (var i = 0; i < 4; i++) {
       final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
       expect(
-        (centre - expected[i]).distance,
+        (centre - corners[i]).distance,
         lessThan(1),
         reason: 'corner $i must sit on its canonical position',
       );

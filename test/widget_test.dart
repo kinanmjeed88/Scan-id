@@ -240,10 +240,12 @@ void main() {
       return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
     }
     final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-    Offset expected(double fx, double fy) => Offset(
-      pristine.left + pristine.width * fx,
-      pristine.top + pristine.height * fy,
-    );
+    Offset expected(double fx, double fy) {
+      return Offset(
+        pristine.left + pristine.width * fx,
+        pristine.top + pristine.height * fy,
+      );
+    }
 
     // Two taps: partial selection, no handles yet.
     await tester.tapAt(at(.2, .2));

@@ -187,105 +187,106 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets('tap mode: four taps in any order become canonical handles', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final repository = _MemoryProjects();
-    final editor = _TestEditor();
-    final project = await repository.create(
-      projectFixture(assets: [assetFixture()]),
-    );
-    final service = ProjectService(
-      repository,
-      _NoAssets(),
-      imageEditor: editor,
-    );
-    await tester.pumpWidget(
-      AppShell(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: FilledButton(
-              onPressed: () {
-                Navigator.of(context).push<Project>(
-                  MaterialPageRoute(
-                    builder: (_) => CropScreen(
-                      project: project,
-                      asset: project.assets.single,
-                      service: service,
+  testWidgets(
+    'tap mode: four taps in any order become canonical handles',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _MemoryProjects();
+      final editor = _TestEditor();
+      final project = await repository.create(
+        projectFixture(assets: [assetFixture()]),
+      );
+      final service = ProjectService(
+        repository,
+        _NoAssets(),
+        imageEditor: editor,
+      );
+      await tester.pumpWidget(
+        AppShell(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: FilledButton(
+                onPressed: () {
+                  Navigator.of(context).push<Project>(
+                    MaterialPageRoute(
+                      builder: (_) => CropScreen(
+                        project: project,
+                        asset: project.assets.single,
+                        service: service,
+                      ),
                     ),
-                  ),
-                );
-              },
-              child: const Text('فتح القص'),
+                  );
+                },
+                child: const Text('فتح القص'),
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('فتح القص'));
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.byKey(const Key('crop-tap-mode')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('crop-tap-mode')));
-    await tester.pumpAndSettle();
-    // The canvas rect is measured again before every tap: the error banner
-    // raised by the duplicate tap moves the canvas down until a valid tap.
-    Offset at(double fx, double fy) {
-      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-      return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
-    }
-    final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-    Offset expected(double fx, double fy) {
-      return Offset(
-        pristine.left + pristine.width * fx,
-        pristine.top + pristine.height * fy,
       );
-    }
+      await tester.tap(find.text('فتح القص'));
+      await tester.pumpAndSettle();
 
-    // Two taps: partial selection, no handles yet.
-    await tester.tapAt(at(.2, .2));
-    await tester.pumpAndSettle();
-    // 16 px is outside the 12 px marker radius but inside the 20 px minimum.
-    await tester.tapAt(at(.2, .2) + const Offset(16, 0));
-    await tester.pumpAndSettle();
-    expect(find.textContaining('قريبة'), findsWidgets);
-    await tester.tapAt(at(.8, .2));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('crop-tap-0')), findsOneWidget);
-    expect(find.byKey(const Key('crop-tap-1')), findsOneWidget);
-    expect(find.byKey(const Key('crop-corner-0')), findsNothing);
+      await tester.ensureVisible(find.byKey(const Key('crop-tap-mode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('crop-tap-mode')));
+      await tester.pumpAndSettle();
+      // The canvas rect is measured again before every tap: the error banner
+      // raised by the duplicate tap moves the canvas down until a valid tap.
+      Offset at(double fx, double fy) {
+        final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+        return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+      }
+      final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      Offset expected(double fx, double fy) {
+        return Offset(
+          pristine.left + pristine.width * fx,
+          pristine.top + pristine.height * fy,
+        );
+      }
 
-    // Taps 3 and 4 arrive in a non-canonical order (bottom-left first).
-    await tester.tapAt(at(.2, .8));
-    await tester.pumpAndSettle();
-    await tester.tapAt(at(.8, .8));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('crop-tap-mode')), findsOneWidget);
-    expect(find.byKey(const Key('crop-tap-0')), findsNothing);
-    for (var i = 0; i < 4; i++) {
-      expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
-    }
-    // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
-    final corners = [
-      expected(.2, .2),
-      expected(.8, .2),
-      expected(.8, .8),
-      expected(.2, .8),
-    ];
-    for (var i = 0; i < 4; i++) {
-      final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
-      expect(
-        (centre - corners[i]).distance,
-        lessThan(1),
-        reason: 'corner $i must sit on its canonical position',
-      );
-    }
-  });
+      // Two taps: partial selection, no handles yet.
+      await tester.tapAt(at(.2, .2));
+      await tester.pumpAndSettle();
+      // 16 px is outside the 12 px marker radius but inside the 20 px minimum.
+      await tester.tapAt(at(.2, .2) + const Offset(16, 0));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('قريبة'), findsWidgets);
+      await tester.tapAt(at(.8, .2));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-tap-0')), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-1')), findsOneWidget);
+      expect(find.byKey(const Key('crop-corner-0')), findsNothing);
+
+      // Taps 3 and 4 arrive in a non-canonical order (bottom-left first).
+      await tester.tapAt(at(.2, .8));
+      await tester.pumpAndSettle();
+      await tester.tapAt(at(.8, .8));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-tap-mode')), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-0')), findsNothing);
+      for (var i = 0; i < 4; i++) {
+        expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
+      }
+      // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
+      final corners = [
+        expected(.2, .2),
+        expected(.8, .2),
+        expected(.8, .8),
+        expected(.2, .8),
+      ];
+      for (var i = 0; i < 4; i++) {
+        final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
+        expect(
+          (centre - corners[i]).distance,
+          lessThan(1),
+          reason: 'corner $i must sit on its canonical position',
+        );
+      }
+    },
+  );
 
   testWidgets(
     'crop proposal can be undone; only a reviewed preview can be committed',

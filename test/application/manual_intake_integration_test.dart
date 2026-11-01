@@ -232,6 +232,50 @@ void main() {
     expect(saved.items.single.documentKind, DocumentKind.unknown);
   });
 
+  test('legacy import keeps a proposer forceReview demand (D9)', () async {
+    final tempDir = await Directory.systemTemp.createTemp('scanid_d9_');
+    addTearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+    final files = SafeFiles(tempDir);
+    final assets = LocalAssetRepository(files);
+    final projects = await LocalProjectRepository.open(tempDir);
+    addTearDown(projects.close);
+    final editor = _UncertainBoundaryEditor(
+      LocalImageEditor(files),
+      BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: [
+          Point2(.12, .13),
+          Point2(.88, .13),
+          Point2(.88, .87),
+          Point2(.12, .87),
+        ],
+        forceReview: true,
+        forceReviewReason: BoundaryReviewReason.modelDisagreement,
+      ),
+    );
+    final service = ProjectService(projects, assets, imageEditor: editor);
+    final bytes = File('test/fixtures/synthetic_card.png').readAsBytesSync();
+    var project = await service.create('مراجعة إجبارية');
+    project = (await service.importImages(project, [
+      ImportSource('synthetic.png', () => Stream.value(bytes)),
+    ])).project;
+    final result = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final saved = await projects.get(result.project.id);
+
+    expect(result.cropped, 0);
+    expect(saved.assets.single.crop, isNull);
+    expect(
+      result.warnings.join(' '),
+      contains(
+        boundaryReviewReasonMessage(BoundaryReviewReason.modelDisagreement),
+      ),
+    );
+  });
+
   test(
     'injected boundary proposal remains review-only and persists suggestedCrop on ImageAsset',
     () async {

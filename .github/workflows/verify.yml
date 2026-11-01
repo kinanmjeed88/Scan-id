@@ -187,8 +187,8 @@ jobs:
       - name: TEMP format diff diagnostic
         if: failure()
         run: |
-          for f in $(git ls-files '*.dart'); do
-            dart format --output=show "$f" > /tmp/fmt_out.dart 2>/dev/null || true
+          for f in test/widget_test.dart lib/presentation/crop_screen.dart test/application/manual_intake_integration_test.dart lib/domain/geometry.dart lib/domain/manual_quad_selection.dart test/domain/manual_quad_selection_test.dart lib/imaging/document_detector.dart lib/application/project_service.dart; do
+            dart format --output=show "$f" 2>/dev/null | sed '/^Formatted /d' > /tmp/fmt_out.dart || true
             if ! cmp -s "$f" /tmp/fmt_out.dart; then
               echo "::warning title=FMTFILE::$f differs"
               diff "$f" /tmp/fmt_out.dart | head -60 | while IFS= read -r line; do

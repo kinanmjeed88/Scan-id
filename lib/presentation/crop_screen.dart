@@ -1327,53 +1327,8 @@ class _CropScreenState extends State<CropScreen> {
                                     ),
                                   ),
                                 ),
-                                if (_tapSelection != null)
-                                  Positioned(
-                                    left: 20,
-                                    top: 20,
-                                    width: width,
-                                    height: height,
-                                    child: GestureDetector(
-                                      key: const Key('crop-tap-surface'),
-                                      behavior: HitTestBehavior.opaque,
-                                      onTapUp: _busy
-                                          ? null
-                                          : (details) => _tapCanvas(
-                                              details.globalPosition,
-                                              width,
-                                              height,
-                                            ),
-                                      child: const SizedBox.expand(),
-                                    ),
-                                  ),
-                                if (_tapSelection != null)
-                                  for (
-                                    var i = 0;
-                                    i < _tapSelection!.points.length;
-                                    i++
-                                  )
-                                    Positioned(
-                                      left:
-                                          20 +
-                                          _tapSelection!.points[i].x * width -
-                                          12,
-                                      top:
-                                          20 +
-                                          _tapSelection!.points[i].y * height -
-                                          12,
-                                      child: _ScreenFixedSize(
-                                        controller: _view,
-                                        child: _tapMarker(i),
-                                      ),
-                                    ),
-                                if (_tapSelection == null)
-                                  for (var i = 0; i < 4; i++)
-                                    Positioned(
-                                      left: _draft!.corners[i].x * width,
-                                      top: _draft!.corners[i].y * height,
-                                      child: _cornerHandle(i, width, height),
-                                    ),
-
+                                ..._tapLayer(width, height),
+                                ..._cornerHandles(width, height),
                               ],
                             ),
                           ),
@@ -1474,57 +1429,115 @@ class _CropScreenState extends State<CropScreen> {
     });
   }
 
+  /// Tap-mode layer: a surface that receives taps, plus markers for the taps
+  /// placed so far. Outside tap mode it contributes nothing.
+  List<Widget> _tapLayer(double width, double height) {
+    final selection = _tapSelection;
+    if (selection == null) return const [];
+    return [
+      Positioned(
+        left: 20.0,
+        top: 20.0,
+        width: width,
+        height: height,
+        child: GestureDetector(
+          key: const Key('crop-tap-surface'),
+          behavior: HitTestBehavior.opaque,
+          onTapUp: _busy
+              ? null
+              : (details) {
+                  _tapCanvas(details.globalPosition, width, height);
+                },
+          child: const SizedBox.expand(),
+        ),
+      ),
+      for (var i = 0; i < selection.points.length; i++)
+        Positioned(
+          left: 20.0 + selection.points[i].x * width - 12.0,
+          top: 20.0 + selection.points[i].y * height - 12.0,
+          child: _ScreenFixedSize(controller: _view, child: _tapMarker(i)),
+        ),
+    ];
+  }
+
+  /// The four draggable corners. Hidden in tap mode, where no corner exists
+  /// until the fourth tap completes the quadrilateral.
+  List<Widget> _cornerHandles(double width, double height) {
+    if (_tapSelection != null) return const [];
+    final corners = _draft!.corners;
+    return [
+      for (var i = 0; i < 4; i++)
+        Positioned(
+          left: corners[i].x * width,
+          top: corners[i].y * height,
+          child: _cornerHandle(i, width, height),
+        ),
+    ];
+  }
+
   /// One draggable corner. Its centre sits on the corner; the wrapper keeps the
   /// visible size constant under zoom.
-  Widget _cornerHandle(int i, double width, double height) => _ScreenFixedSize(
-    controller: _view,
-    child: GestureDetector(
-      key: Key('crop-corner-$i'),
-      behavior: HitTestBehavior.opaque,
-      onPanUpdate: _busy
-          ? null
-          : (details) =>
-                _moveCorner(i, details.globalPosition, width, height),
-      onPanEnd: _busy ? null : (_) => _change(_draft!),
-      onPanCancel: _busy ? null : _cancelCornerDrag,
-      child: Semantics(
-        label: 'زاوية القص ${i + 1}',
-        child: Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xff12685e),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-          ),
-          child: Text(
-            '${i + 1}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
+  Widget _cornerHandle(int i, double width, double height) {
+    return _ScreenFixedSize(
+      controller: _view,
+      child: GestureDetector(
+        key: Key('crop-corner-$i'),
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: _busy
+            ? null
+            : (details) {
+                _moveCorner(i, details.globalPosition, width, height);
+              },
+        onPanEnd: _busy
+            ? null
+            : (_) {
+                _change(_draft!);
+              },
+        onPanCancel: _busy ? null : _cancelCornerDrag,
+        child: Semantics(
+          label: 'زاوية القص ${i + 1}',
+          child: Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xff12685e),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: Text(
+              '${i + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
-  Widget _tapMarker(int i) => Container(
-    key: Key('crop-tap-$i'),
-    width: 24,
-    height: 24,
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: const Color(0xff12685e),
-      shape: BoxShape.circle,
-      border: Border.all(color: Colors.white, width: 2),
-    ),
-    child: Text(
-      '${i + 1}',
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-    ),
-  );
+  Widget _tapMarker(int i) {
+    return Container(
+      key: Key('crop-tap-$i'),
+      width: 24,
+      height: 24,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xff12685e),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Text(
+        '${i + 1}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
 
   Widget _tools() {
     final adjustments = _draft!.adjustments;
@@ -1856,12 +1869,16 @@ class _ScreenFixedSize extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder(
-    valueListenable: controller,
-    builder: (context, matrix, child) => Transform.scale(
-      scale: 1 / math.max(1, matrix.getMaxScaleOnAxis()),
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: controller,
+      builder: (context, matrix, child) {
+        return Transform.scale(
+          scale: 1 / math.max(1, matrix.getMaxScaleOnAxis()),
+          child: child,
+        );
+      },
       child: child,
-    ),
-    child: child,
-  );
+    );
+  }
 }

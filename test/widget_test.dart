@@ -239,7 +239,9 @@ void main() {
         final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
         return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
       }
-      final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      final pristine = tester.getRect(
+      find.byKey(const Key('crop-tap-surface')),
+    );
       Offset expected(double fx, double fy) {
         return Offset(
           pristine.left + pristine.width * fx,

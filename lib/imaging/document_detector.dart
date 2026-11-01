@@ -1195,44 +1195,9 @@ bool _onBorder(_P a, _P b, int w, int h, double tol) =>
 /// severe perspective foreshortening nor tilts around `45°` flip landscape
 /// documents by `90°` or confuse non-`min(x + y)` perspective corners.
 List<_P> _orderQuad(List<_P> q) {
-  final cx = _mean([for (final p in q) p.x]);
-  final cy = _mean([for (final p in q) p.y]);
-  final sorted = [...q]
-    ..sort(
-      (a, b) => math
-          .atan2(a.y - cy, a.x - cx)
-          .compareTo(math.atan2(b.y - cy, b.x - cx)),
-    );
-  var area2 = 0.0;
-  for (var i = 0; i < 4; i++) {
-    final a = sorted[i], b = sorted[(i + 1) % 4];
-    area2 += a.x * b.y - b.x * a.y;
-  }
-  if (area2 < 0) {
-    final rev = sorted.reversed.toList();
-    sorted
-      ..clear()
-      ..addAll(rev);
-  }
-  final lengths = [
-    for (var i = 0; i < 4; i++) _dist(sorted[i], sorted[(i + 1) % 4]),
-  ];
-  final maxLen = math.max(1e-6, lengths.reduce(math.max));
-  var start = 0;
-  var bestScore = double.negativeInfinity;
-  for (var i = 0; i < 4; i++) {
-    final a = sorted[i], b = sorted[(i + 1) % 4];
-    final len = lengths[i];
-    if (len <= 0) continue;
-    final dx = (b.x - a.x) / len;
-    if (dx <= 0) continue;
-    final score = dx + 1.15 * (len / maxLen);
-    if (score > bestScore) {
-      bestScore = score;
-      start = i;
-    }
-  }
-  return [for (var i = 0; i < 4; i++) sorted[(start + i) % 4]];
+  // Shared with manual four-tap selection; see canonicalQuadCorners.
+  final ordered = canonicalQuadCorners([for (final p in q) Point2(p.x, p.y)]);
+  return [for (final p in ordered) _P(p.x, p.y)];
 }
 
 bool _validQuad(List<_P> q, int w, int h, double minArea) {

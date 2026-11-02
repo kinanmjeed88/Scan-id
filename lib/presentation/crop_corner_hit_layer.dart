@@ -89,28 +89,13 @@ class RenderCornerHitLayer extends RenderBox {
     required this.onDragEnd,
     required this.onDragCancel,
   }) {
-    _pan = PanGestureRecognizer(debugOwner: this)
-      ..onStart = (_) {
-        final index = _activeIndex;
-        if (index != null) onDragStart(index);
-      }
-      ..onUpdate = (details) {
-        final index = _activeIndex;
-        if (index != null) onDragUpdate(index, details.globalPosition);
-      }
-      ..onEnd = (_) {
-        final index = _activeIndex;
-        _activeIndex = null;
-        if (index != null) onDragEnd(index);
-      }
-      ..onCancel = () {
-        final index = _activeIndex;
-        _activeIndex = null;
-        if (index != null) onDragCancel(index);
-      };
+    // Accepts the pointer on touch-down, before the enclosing viewer's pan
+    // recognizer can claim it, so a corner drag is never turned into a view
+    // pan. A pointer outside every radius never reaches this recognizer.
+    _multi = ImmediateMultiDragGestureRecognizer()..onStart = _startDrag;
   }
 
-  late final PanGestureRecognizer _pan;
+  late final ImmediateMultiDragGestureRecognizer _multi;
   int? _activeIndex;
 
   // Mutable so the owning widget can update them without recreating the box.
@@ -122,6 +107,27 @@ class RenderCornerHitLayer extends RenderBox {
   void Function(int index, Offset globalPosition) onDragUpdate;
   ValueChanged<int> onDragEnd;
   ValueChanged<int> onDragCancel;
+
+  Drag? _startDrag(Offset position) {
+    final index = _activeIndex;
+    if (index == null) return null;
+    onDragStart(index);
+    return _CornerDrag(this, index);
+  }
+
+  void _dragUpdated(int index, Offset globalPosition) {
+    onDragUpdate(index, globalPosition);
+  }
+
+  void _dragEnded(int index) {
+    _activeIndex = null;
+    onDragEnd(index);
+  }
+
+  void _dragCancelled(int index) {
+    _activeIndex = null;
+    onDragCancel(index);
+  }
 
   @override
   void performLayout() {
@@ -157,14 +163,38 @@ class RenderCornerHitLayer extends RenderBox {
   void handleEvent(PointerEvent event, covariant HitTestEntry entry) {
     if (event is PointerDownEvent && entry is _CornerHitEntry) {
       _activeIndex = entry.index;
-      _pan.addPointer(event);
+      _multi.addPointer(event);
     }
   }
 
   @override
   void dispose() {
-    _pan.dispose();
+    _multi.dispose();
     super.dispose();
+  }
+}
+
+/// One corner drag. Forwards every pointer update to the layer, so the drag
+/// does not depend on the slop-crossing move being delivered as an update.
+class _CornerDrag extends Drag {
+  _CornerDrag(this._layer, this._index);
+
+  final RenderCornerHitLayer _layer;
+  final int _index;
+
+  @override
+  void update(DragUpdateDetails details) {
+    _layer._dragUpdated(_index, details.globalPosition);
+  }
+
+  @override
+  void end(DragEndDetails details) {
+    _layer._dragEnded(_index);
+  }
+
+  @override
+  void cancel() {
+    _layer._dragCancelled(_index);
   }
 }
 

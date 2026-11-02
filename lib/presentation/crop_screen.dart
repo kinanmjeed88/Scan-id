@@ -703,7 +703,8 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   /// Commits a new draft. [clearManualRequired] is set only by a valid
-  /// boundary (a suggestion or four taps); every other change keeps the gate.
+  /// boundary (a suggestion, four taps, or a corner drag that ended without
+  /// crossing edges); every other change keeps the gate.
   void _change(CropDraft next, {bool clearManualRequired = false}) {
     final current = _state!;
     final manual = clearManualRequired ? false : current.manualRequired;
@@ -1519,13 +1520,16 @@ class _CropScreenState extends State<CropScreen> {
       return;
     }
     _cornerDragMoved = true;
+    // The fallback gate and the status line stay as they are during the
+    // gesture. Lifting them here would remove the status line under the
+    // pointer; the canvas would then move and the corner would follow the
+    // pointer 32 px off its place. The drag end lifts the gate (see onDragEnd).
     setState(() {
       _coalescedCustomField = null;
-      _state = _state!.copyWith(draft: next, manualRequired: false);
+      _state = _state!.copyWith(draft: next);
       _clearPreview();
       _dirty = true;
       _error = null;
-      _proposalNotice = null;
     });
   }
 
@@ -1607,7 +1611,7 @@ class _CropScreenState extends State<CropScreen> {
               // The commit clears _error; keep the crossing notice so the user
               // learns why the corner stopped at its last valid position.
               final keepNotice = _error == _cornerCrossingMessage;
-              _change(_draft!);
+              _change(_draft!, clearManualRequired: true);
               if (keepNotice) setState(() => _error = _cornerCrossingMessage);
             }
           },

@@ -370,12 +370,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      // Let the real four-second feedback snackbar expire before tapping
+      // Let the real six-second feedback snackbar expire before tapping
       // controls underneath it. pumpAndSettle does not advance idle timers.
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
       await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      // The Suggest feedback is a six-second snackbar (showMessage). Five
+      // seconds of it have passed, and it can still cover the toggle below,
+      // so let it expire before controls underneath it are tapped.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       expect(
         tester

@@ -327,6 +327,15 @@ int _sideOf(double value) {
   return 0;
 }
 
+/// True when segments ab and cd cross at a point interior to both.
+bool _properCrossing(Point2 a, Point2 b, Point2 c, Point2 d) {
+  final cdSideOfA = _sideOf(_orientation(a, b, c));
+  final cdSideOfB = _sideOf(_orientation(a, b, d));
+  final abSideOfC = _sideOf(_orientation(c, d, a));
+  final abSideOfD = _sideOf(_orientation(c, d, b));
+  return cdSideOfA * cdSideOfB < 0 && abSideOfC * abSideOfD < 0;
+}
+
 /// True when two opposite edges of the ring cross at an interior point of both.
 ///
 /// Touching, shared endpoints and collinear contact are NOT crossings; those
@@ -334,17 +343,20 @@ int _sideOf(double value) {
 /// gate so that a pointer move cannot turn the ring into a bow-tie.
 bool quadEdgesCross(List<Point2> ring) {
   if (ring.length != 4) return false;
-  bool properCrossing(Point2 a, Point2 b, Point2 c, Point2 d) {
-    final cdSideOfA = _sideOf(_orientation(a, b, c));
-    final cdSideOfB = _sideOf(_orientation(a, b, d));
-    final abSideOfC = _sideOf(_orientation(c, d, a));
-    final abSideOfD = _sideOf(_orientation(c, d, b));
-    return cdSideOfA * cdSideOfB < 0 && abSideOfC * abSideOfD < 0;
-  }
-
-  final first = properCrossing(ring[0], ring[1], ring[2], ring[3]);
-  final second = properCrossing(ring[1], ring[2], ring[3], ring[0]);
+  final first = _properCrossing(ring[0], ring[1], ring[2], ring[3]);
+  final second = _properCrossing(ring[1], ring[2], ring[3], ring[0]);
   return first || second;
+}
+
+/// True when [p] lies inside or on the triangle a-b-c (no strictly opposite
+/// side signs against the three edges).
+bool _insideOrOnTriangle(Point2 p, Point2 a, Point2 b, Point2 c) {
+  final s1 = _sideOf(_orientation(a, b, p));
+  final s2 = _sideOf(_orientation(b, c, p));
+  final s3 = _sideOf(_orientation(c, a, p));
+  final hasNegative = s1 < 0 || s2 < 0 || s3 < 0;
+  final hasPositive = s1 > 0 || s2 > 0 || s3 > 0;
+  return !(hasNegative && hasPositive);
 }
 
 /// Validity of four points taken as an UNORDERED set (tap input), before any
@@ -362,20 +374,9 @@ QuadGeometryIssue? unorderedQuadIssue(List<Point2> points) {
   if (points.any((p) => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) {
     return QuadGeometryIssue.outOfBounds;
   }
-  bool insideOrOnTriangle(Point2 p, Point2 a, Point2 b, Point2 c) {
-    final signs = [
-      _sideOf(_orientation(a, b, p)),
-      _sideOf(_orientation(b, c, p)),
-      _sideOf(_orientation(c, a, p)),
-    ];
-    final hasNegative = signs.any((s) => s < 0);
-    final hasPositive = signs.any((s) => s > 0);
-    return !(hasNegative && hasPositive);
-  }
-
   for (var i = 0; i < 4; i++) {
     final others = [for (var j = 0; j < 4; j++) if (j != i) points[j]];
-    if (insideOrOnTriangle(points[i], others[0], others[1], others[2])) {
+    if (_insideOrOnTriangle(points[i], others[0], others[1], others[2])) {
       return QuadGeometryIssue.notConvex;
     }
   }

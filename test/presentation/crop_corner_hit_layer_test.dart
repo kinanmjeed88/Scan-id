@@ -37,11 +37,13 @@ Future<void> _pumpCrop(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Rect _canvas(WidgetTester tester) =>
-    tester.getRect(find.byKey(const Key('crop-source-image')));
+Rect _canvas(WidgetTester tester) {
+  return tester.getRect(find.byKey(const Key('crop-source-image')));
+}
 
-Offset _handleCentre(WidgetTester tester, int i) =>
-    tester.getCenter(find.byKey(Key('crop-corner-$i')));
+Offset _handleCentre(WidgetTester tester, int i) {
+  return tester.getCenter(find.byKey(Key('crop-corner-$i')));
+}
 
 /// Normalized canvas position of corner [i], read from the rendered handle.
 Offset _normalized(WidgetTester tester, int i) {
@@ -59,12 +61,13 @@ List<Point2> _quadFromHandles(WidgetTester tester) {
   return quad;
 }
 
+bool _isController(Widget w) {
+  return w is InteractiveViewer && w.transformationController != null;
+}
+
 TransformationController _viewer(WidgetTester tester) {
-  final viewer = tester.widget<InteractiveViewer>(
-    find.byWidgetPredicate(
-      (w) => w is InteractiveViewer && w.transformationController != null,
-    ),
-  );
+  final finder = find.byWidgetPredicate(_isController);
+  final viewer = tester.widget<InteractiveViewer>(finder);
   return viewer.transformationController!;
 }
 

@@ -60,11 +60,8 @@ void main() {
     for (final w in _sizes) {
       for (final h in _sizes) {
         final budget = withinImageBudget(w, h);
-        expect(
-          _fullFrameRefused(w, h),
-          !budget,
-          reason: 'full-density path, ${w}x$h',
-        );
+        final refused = _fullFrameRefused(w, h);
+        expect(refused, !budget, reason: 'full-density path, ${w}x$h');
         expect(_recipeRefused(w, h), !budget, reason: 'recipe path, ${w}x$h');
       }
     }
@@ -91,21 +88,17 @@ void main() {
     final corners = [
       CropDraft.fullImage(),
       CropDraft(corners: rotated),
-      CropDraft(
-        corners: rotated,
-        aspectRatio: 1.5,
-      ),
+      CropDraft(corners: rotated, aspectRatio: 1.5),
     ];
     for (final w in [1, 2, 100, 3999, 4000]) {
       for (final h in [1, 2, 100, 3999, 4000]) {
         if (!withinImageBudget(w, h)) continue;
         for (final draft in corners) {
           final geometry = draft.toRecipe(w, h).geometry;
-          expect(
-            withinImageBudget(geometry.outputWidth, geometry.outputHeight),
-            isTrue,
-            reason: 'source ${w}x$h',
-          );
+          final outW = geometry.outputWidth;
+          final outH = geometry.outputHeight;
+          final fits = withinImageBudget(outW, outH);
+          expect(fits, isTrue, reason: 'source ${w}x$h');
         }
       }
     }

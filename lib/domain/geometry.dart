@@ -317,8 +317,9 @@ QuadGeometryIssue? normalizedQuadIssue(List<Point2> corners) {
   return null;
 }
 
-double _orientation(Point2 a, Point2 b, Point2 c) =>
-    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+double _orientation(Point2 a, Point2 b, Point2 c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
 
 int _sideOf(double value) {
   if (value > 1e-12) return 1;
@@ -341,8 +342,9 @@ bool quadEdgesCross(List<Point2> ring) {
     return cdSideOfA * cdSideOfB < 0 && abSideOfC * abSideOfD < 0;
   }
 
-  return properCrossing(ring[0], ring[1], ring[2], ring[3]) ||
-      properCrossing(ring[1], ring[2], ring[3], ring[0]);
+  final first = properCrossing(ring[0], ring[1], ring[2], ring[3]);
+  final second = properCrossing(ring[1], ring[2], ring[3], ring[0]);
+  return first || second;
 }
 
 /// Validity of four points taken as an UNORDERED set (tap input), before any

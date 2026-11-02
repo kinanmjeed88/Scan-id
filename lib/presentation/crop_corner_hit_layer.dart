@@ -48,17 +48,18 @@ class CornerHitLayer extends LeafRenderObjectWidget {
   final ValueChanged<int> onDragCancel;
 
   @override
-  RenderCornerHitLayer createRenderObject(BuildContext context) =>
-      RenderCornerHitLayer(
-        corners: corners,
-        canvasSize: canvasSize,
-        inset: inset,
-        zoom: zoom,
-        onDragStart: onDragStart,
-        onDragUpdate: onDragUpdate,
-        onDragEnd: onDragEnd,
-        onDragCancel: onDragCancel,
-      );
+  RenderCornerHitLayer createRenderObject(BuildContext context) {
+    return RenderCornerHitLayer(
+      corners: corners,
+      canvasSize: canvasSize,
+      inset: inset,
+      zoom: zoom,
+      onDragStart: onDragStart,
+      onDragUpdate: onDragUpdate,
+      onDragEnd: onDragEnd,
+      onDragCancel: onDragCancel,
+    );
+  }
 
   @override
   void updateRenderObject(
@@ -133,19 +134,15 @@ class RenderCornerHitLayer extends RenderBox {
   int? cornerAt(Offset position) {
     final rawZoom = zoom();
     final scale = rawZoom.isFinite && rawZoom > 0 ? rawZoom : 1.0;
+    final w = canvasSize.width;
+    final h = canvasSize.height;
     final centres = [
-      for (final c in corners)
-        Point2(
-          inset + c.x * canvasSize.width,
-          inset + c.y * canvasSize.height,
-        ),
+      for (final c in corners) Point2(inset + c.x * w, inset + c.y * h),
     ];
     if (!position.dx.isFinite || !position.dy.isFinite) return null;
-    return nearestCornerIndex(
-      centres,
-      Point2(position.dx, position.dy),
-      cornerCaptureRadiusPx / scale,
-    );
+    final point = Point2(position.dx, position.dy);
+    final radius = cornerCaptureRadiusPx / scale;
+    return nearestCornerIndex(centres, point, radius);
   }
 
   @override

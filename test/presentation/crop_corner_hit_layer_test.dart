@@ -124,7 +124,7 @@ void main() {
     });
   }
 
-  testWidgets('T04 pan: the dragged corner follows the pointer', (tester) async {
+  testWidgets('T04 pan: the dragged corner follows', (tester) async {
     await _pumpCrop(tester);
     await _setZoom(tester, 3, topLeftInViewer: const Offset(120, 80));
 

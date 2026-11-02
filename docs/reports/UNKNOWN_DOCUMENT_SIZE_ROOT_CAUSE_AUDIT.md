@@ -483,21 +483,22 @@ Not affected by this report, and not to be changed without explicit approval: D2
 
 ## 13. Implementation batch (PR #39, branch `arena/9c08ad5c-scan-id`): fixes, tests, status
 
-Status of this section: **code written, not compiled or run locally (Dart and
-Flutter are unavailable here). Nothing in this section is a CI result.** The
-verdict stays NOT READY until a green CI run exists on the final SHA.
+Status of this section: **code written and not compiled locally (Dart and
+Flutter are unavailable here). The compiled results are CI results from GitHub
+Actions run `41524485716` on `ce5d800`, listed in §13.6.** The verdict stays
+NOT READY: the items in §13.4 are open.
 
 ### 13.1 Findings and status after this batch
 
 | Finding | Status before | Change in this batch | Status now |
 |---|---|---|---|
-| C1 Undo restores ungated full frame | CONFIRMED (code read) | Gate is part of the history state (`_CropEditorState.manualRequired`). Undo/redo restore it. Fallback replaces the current entry, so undo never reaches an ungated full frame. Taps, valid suggestion, and corner drag clear the gate; the reset button keeps it. | FIXED (pending CI) |
-| C2 Suggest after fallback | CONFIRMED | Only a valid suggestion clears the gate (`_change(..., clearManualRequired: true)`). Malformed or stale results keep the gate and the corners. The fallback instruction stays while the gate is set. | FIXED (pending CI) |
-| C3 No candidate → silent full frame | CONFIRMED; NEEDS PRODUCT DECISION (now in scope per implementation request) | A new draft with no usable boundary starts gated, with the Arabic instruction. An invalid saved suggestion starts gated with its reason. An explicit extraction (`extractDerived`) and a saved crop keep their own paths. | FIXED (pending CI) |
-| F-C kind confirms size without crop | CONFIRMED | `DocumentEdits.setKind`: a known kind confirms only with an approved crop (`asset.crop != null`). Without one, the size is provisional, unconfirmed, and unplaced. `other` keeps the current confirmation. A typed or manual resize still confirms. | FIXED (pending CI) |
-| adoptCrop silently resets confirmed sizes | CONFIRMED (via `setKind` loop) | Only provisional, unconfirmed natural sizes are re-oriented (`refreshProvisionalSize`). Confirmed sizes are never changed. | FIXED (pending CI) |
-| Revert path confirms sizes | CONFIRMED | `manual_boundary.revertManualCropOnProject` uses `refreshProvisionalSize` and does not confirm. | FIXED (pending CI) |
-| F-E aspect from four corners | CONFIRMED (averaged-edge bias) | New `lib/domain/physical_aspect.dart`: vanishing points, focal `f² = −(a·b)`, unit-square homography, `W/H = |K⁻¹g0| / |K⁻¹g1|`. Used only in `CropDraft.toRecipe` for free crops, only when determinable. Area is kept, so D7 is unchanged. It never sets physical size. | IMPLEMENTED (pending CI) |
+| C1 Undo restores ungated full frame | CONFIRMED (code read) | Gate is part of the history state (`_CropEditorState.manualRequired`). Undo/redo restore it. Fallback replaces the current entry, so undo never reaches an ungated full frame. Taps, valid suggestion, and corner drag clear the gate; the reset button keeps it. | FIXED (CI green on `ce5d800`) |
+| C2 Suggest after fallback | CONFIRMED | Only a valid suggestion clears the gate (`_change(..., clearManualRequired: true)`). Malformed or stale results keep the gate and the corners. The fallback instruction stays while the gate is set. | FIXED (CI green on `ce5d800`) |
+| C3 No candidate → silent full frame | CONFIRMED; NEEDS PRODUCT DECISION (now in scope per implementation request) | A new draft with no usable boundary starts gated, with the Arabic instruction. An invalid saved suggestion starts gated with its reason. An explicit extraction (`extractDerived`) and a saved crop keep their own paths. | FIXED (CI green on `ce5d800`) |
+| F-C kind confirms size without crop | CONFIRMED | `DocumentEdits.setKind`: a known kind confirms only with an approved crop (`asset.crop != null`). Without one, the size is provisional, unconfirmed, and unplaced. `other` keeps the current confirmation. A typed or manual resize still confirms. | FIXED (CI green on `ce5d800`) |
+| adoptCrop silently resets confirmed sizes | CONFIRMED (via `setKind` loop) | Only provisional, unconfirmed natural sizes are re-oriented (`refreshProvisionalSize`). Confirmed sizes are never changed. | FIXED (CI green on `ce5d800`) |
+| Revert path confirms sizes | CONFIRMED | `manual_boundary.revertManualCropOnProject` uses `refreshProvisionalSize` and does not confirm. | FIXED (CI green on `ce5d800`) |
+| F-E aspect from four corners | CONFIRMED (averaged-edge bias) | New `lib/domain/physical_aspect.dart`: vanishing points, focal `f² = −(a·b)`, unit-square homography, `W/H = |K⁻¹g0| / |K⁻¹g1|`. Used only in `CropDraft.toRecipe` for free crops, only when determinable. Area is kept, so D7 is unchanged. It never sets physical size. | IMPLEMENTED (CI green on `ce5d800`) |
 | F-D re-crop changes size | Mechanism CONFIRMED; NOT REPRODUCED | No code change. Item mm stay on re-crop. The existing non-blocking export warning (`export_plan.dart`, ratio differs by more than .01) is the conflict signal. No new test added. | PARTIAL: tests not yet added |
 | F-K / F-M proposal validation | Reviewed; no reproduction | No code change. `_usableSuggestedCorners` → `assessQuad` validates before any draft. Repeated points, self-intersection, and winding are covered by `assessQuad` tests in the existing suite. Whole-frame gate hardening is not changed. | NOT IMPLEMENTED in this batch (listed in §13.4) |
 | A4 eligibility unification | Mapped (§4, §5) | Invariants preserved: `PageLayout.checked` and `arrangeDocuments` still require `sizeConfirmed`. The F-C change makes unconfirmed items unplaced, so they cannot reach A4 by kind alone. No new unified eligibility type. | PARTIAL: no new unified type or tests |
@@ -585,3 +586,104 @@ Required gates, unchanged: format (`dart format --output=none
 (all files above), Windows and Android builds, Android 16 instrumentation. A
 green result is valid only on the SHA that produced it. Unreadable logs are
 reported as unreadable.
+
+### 13.6 CI closure for the batch (run `41524485716`, SHA `ce5d800`)
+
+Every required gate passed on `ce5d800`. The results below are CI results, not
+local ones.
+
+| Gate | Result on `ce5d800` |
+|---|---|
+| Format (`dart format --output=none --set-exit-if-changed`) | exit 0; 222 files, 0 changed |
+| Source audit (`tool/check_source.py`) | exit 0; 221 Dart files; domain boundaries checked |
+| `flutter analyze --fatal-infos` | exit 0 |
+| `flutter test --reporter expanded` | `+915: All tests passed!`; zero `[E]` markers |
+| Android debug build and APK checks | success (job `125548580720`) |
+| Android instrumentation | `androidTests=4 failures=0 skipped=0` |
+| Android 16 startup evidence | success; first home frame on API 36 emulator (x86_64, not ARM64 device evidence) |
+| Windows build | success (job `125548581528`) |
+| APK differential | success (job `125548581640`) |
+
+**Runs in this round, in order** (all on the same branch; none was green until the last):
+
+| Run | SHA | Result (`[E]`-marked failures) | Cause and fix |
+|---|---|---|---|
+| `41518846746` | `f89a518` | 3: lifecycle undo, T-stale, widget undo | Expectations and timing; see the fixes below |
+| `41519990215` | `c245968` | 2: T-stale, widget undo | Lifecycle expectation corrected; T-stale is a product issue (below) |
+| `41521117407` | `7dc50e7` | 3: widget undo, T04 pan, T04 nearest handle | Gate kept during the drag fixes T-stale; T04 reference measured after the release shift |
+| `41522190868` | `998f2ec` | 1: widget undo | Toggle label flipped to "cancel", but the surface was absent |
+| `41523422386` | `184d613` | 1: widget undo | Diagnostic: canvas, result, and corner-0 all absent (0) |
+| `41524485716` | `ce5d800` | **0: all pass** | — |
+
+**Root causes found in this round**
+
+1. **T-stale (product, CONFIRMED by arithmetic):** the first valid corner move
+   lifted the fallback gate and removed the status line during the drag. The
+   canvas moved up 32 px under the pointer, so every later move put the corner
+   32 px low (normalized y 0.069, the observed error). **Fix:** the gate and the
+   status line stay during the gesture; the drag end lifts the gate (through
+   `_change(..., clearManualRequired: true)`), when the boundary has been checked
+   for crossing edges. Preview stays blocked while a drag is in progress.
+   Normalized corners do not depend on the release shift.
+2. **Widget undo (test timing, CONFIRMED by the Suggest feedback):** Suggest shows
+   a six-second snackbar (`showMessage`). The test waited five seconds, so the
+   snackbar could still cover the lower controls. The earlier comment said four
+   seconds; it is corrected. **Fix:** a two-second wait after Undo, before tapping
+   the toggle.
+3. **Widget undo (layout, CONFIRMED by the diagnostic):** in the narrow layout the
+   canvas is the first child of a lazy `ListView`. Reaching the tap-mode toggle,
+   which sits below the 440 px canvas, scrolls the canvas out of the built range,
+   so `crop-source-image`, `crop-result`, and `crop-corner-0` were all absent. The
+   toggle itself worked. **Fix:** the helper drags the list back from the toggle
+   (a drag does not press a button) before it asserts the surface. This is a test
+   helper change. Real users see the same culling and nothing is lost: the state
+   is kept, and the canvas rebuilds when they scroll up.
+
+**Correction to an earlier note:** `41518846746` did not fail the exporter test.
+The three `[E]`-marked failures in that run were the lifecycle undo test, T-stale,
+and the widget undo test. The exporter name appeared only as a progress line. The
+exporter test has passed in every run since, and the isolated export run
+(`export-isolation`, 11 tests) passed in about 10 s. The original exporter failure
+was therefore a misreading, not a reproduced failure. Its status is NOT
+REPRODUCED.
+
+**Spec-driven and measurement changes added in this round** (each is listed in
+§13.3 as well; none weakens an assertion):
+
+7. `test/application/crop_lifecycle_test.dart` "undo after fallback never restores
+   an ungated full frame": after Undo, the tap surface is absent and corner-0 is
+   present. The earlier expectation was a batch error. Undo restores the gated
+   frame with draggable corners, not four-tap mode.
+8. `test/widget_test.dart` "crop proposal can be undone": asserts the tap-mode
+   toggle is enabled after Undo; waits two seconds for the Suggest snackbar;
+   enters four-tap mode through the toggle and drags the list back; the expectation
+   of four valid taps and Preview is unchanged.
+9. `test/presentation/crop_corner_hit_layer_test.dart` T04 "pan" and "hit picks the
+   nearest handle": the pointer is mapped onto the canvas measured before the
+   press, because the status line now leaves at drag end. The old reference was
+   measured after the release shift, which is 32 px away.
+10. `test/application/manual_intake_integration_test.dart` `dirtyDraft`: two frames
+    instead of one. `pumpAndSettle` was rejected because a pending suggestion keeps
+    a progress indicator animating, and it would time out.
+11. `test/presentation/crop_tap_helpers.dart` `ensureCropTapMode`: asserts the
+    surface opens, reports the toggle's rect and label on failure, and scrolls
+    back after the toggle.
+
+**Decision added in this round:** a corner drag keeps the fallback gate until the
+drag ends (`lib/presentation/crop_screen.dart`, `_moveCorner` and `onDragEnd`). This
+is a UX change in drag timing only: the gate is not lifted earlier, and the notice
+does not disappear under the pointer. It needs no user approval, because it changes
+no protected contract and no user-visible rule.
+
+**Still open after `ce5d800`** (the verdict is NOT READY until these are closed or
+the user accepts them as residual):
+
+- A4 eligibility: no unified eligibility type and no tests for the eight-case
+  matrix (§13.4).
+- F-D: no re-crop tests (§13.4).
+- F-K/F-M: no whole-frame gate hardening and no tests for repeated points,
+  self-intersection, or ordering (§13.4).
+- F-E: no real-corpus measurement; the Python grid is pure geometry, not Dart
+  evidence.
+- Exporter: NOT REPRODUCED; a diagnostic isolation step and the test-log artifact
+  stay in `verify.yml` as non-gating evidence.

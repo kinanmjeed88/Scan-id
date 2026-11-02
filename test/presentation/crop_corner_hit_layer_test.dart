@@ -48,7 +48,11 @@ Offset _handleCentre(WidgetTester tester, int i) {
 /// Moves the pointer in steps, as a finger does. A single jump was observed
 /// not to move the corner through the hit layer (CI run 41448139242), so the
 /// tests never use one.
-Future<void> dragInSteps(WidgetTester tester, Offset start, Offset delta) async {
+Future<void> dragInSteps(
+  WidgetTester tester,
+  Offset start,
+  Offset delta,
+) async {
   final gesture = await tester.startGesture(start);
   for (var step = 0; step < 10; step++) {
     await gesture.moveBy(delta / 10);

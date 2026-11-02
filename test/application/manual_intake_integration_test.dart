@@ -1138,15 +1138,17 @@ void main() {
     Point2(.8, .85),
     Point2(.15, .8),
   ];
-  BoundaryProposal proposalOf(List<Point2> corners) => BoundaryProposal(
-    producer: BoundaryProducer.learnedModel,
-    corners: corners,
-    modelConfidence: 0.42,
-    minAutoAcceptConfidence: 0.55,
-  );
+  BoundaryProposal proposalOf(List<Point2> corners) {
+    return BoundaryProposal(
+      producer: BoundaryProducer.learnedModel,
+      corners: corners,
+      modelConfidence: 0.42,
+      minAutoAcceptConfidence: 0.55,
+    );
+  }
 
   testWidgets(
-    'T-stale: a suggestion that completes after cancel and a new edit is dropped',
+    'T-stale: a result arriving after cancel and an edit is dropped',
     (tester) async {
       final editor = _ControlledBoundaryEditor();
       final late = Completer<BoundaryProposal?>();
@@ -1185,14 +1187,13 @@ void main() {
   );
 
   testWidgets(
-    'T-stale: reversed completion order keeps the newest suggestion',
+    'T-stale: reversed completion keeps the newest suggestion',
     (tester) async {
       final editor = _ControlledBoundaryEditor();
       final first = Completer<BoundaryProposal?>();
       final second = Completer<BoundaryProposal?>();
-      editor.queuedRefreshes
-        ..add(first)
-        ..add(second);
+      editor.queuedRefreshes.add(first);
+      editor.queuedRefreshes.add(second);
       await pumpStaleCrop(tester, editor);
 
       await dirtyDraft(tester);

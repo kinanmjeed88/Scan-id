@@ -320,7 +320,11 @@ QuadGeometryIssue? normalizedQuadIssue(List<Point2> corners) {
 double _orientation(Point2 a, Point2 b, Point2 c) =>
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 
-int _sideOf(double value) => value > 1e-12 ? 1 : (value < -1e-12 ? -1 : 0);
+int _sideOf(double value) {
+  if (value > 1e-12) return 1;
+  if (value < -1e-12) return -1;
+  return 0;
+}
 
 /// True when two opposite edges of the ring cross at an interior point of both.
 ///

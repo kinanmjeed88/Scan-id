@@ -50,18 +50,23 @@ Offset _normalized(WidgetTester tester, int i) {
   return Offset((c.dx - r.left) / r.width, (c.dy - r.top) / r.height);
 }
 
-List<Point2> _quadFromHandles(WidgetTester tester) => [
-  for (var i = 0; i < 4; i++)
-    Point2(_normalized(tester, i).dx, _normalized(tester, i).dy),
-];
+List<Point2> _quadFromHandles(WidgetTester tester) {
+  final quad = <Point2>[];
+  for (var i = 0; i < 4; i++) {
+    final n = _normalized(tester, i);
+    quad.add(Point2(n.dx, n.dy));
+  }
+  return quad;
+}
 
-TransformationController _viewer(WidgetTester tester) => tester
-    .widget<InteractiveViewer>(
-      find.byWidgetPredicate(
-        (w) => w is InteractiveViewer && w.transformationController != null,
-      ),
-    )
-    .transformationController!;
+TransformationController _viewer(WidgetTester tester) {
+  final viewer = tester.widget<InteractiveViewer>(
+    find.byWidgetPredicate(
+      (w) => w is InteractiveViewer && w.transformationController != null,
+    ),
+  );
+  return viewer.transformationController!;
+}
 
 /// Sets zoom [zoom] and places the canvas top-left at [topLeftInViewer]
 /// (viewer-local). Default: keep the identity placement (zoom about it).
@@ -79,9 +84,7 @@ Future<void> _setZoom(
   final target = topLeftInViewer ?? c0;
   // M = T(t) * S(zoom): M * c0 = zoom * c0 + t must equal the target.
   final t = target - c0 * zoom;
-  controller.value = Matrix4.identity()
-    ..translate(t.dx, t.dy)
-    ..scale(zoom);
+  controller.value = Matrix4.identity()..translate(t.dx, t.dy)..scale(zoom);
   await tester.pump();
 }
 
@@ -94,9 +97,7 @@ const _fullFrame = [
 
 void main() {
   for (final zoom in [1.0, 3.0, 5.0]) {
-    testWidgets('T04: handle stays 40 px and on its corner at zoom $zoom', (
-      tester,
-    ) async {
+    testWidgets('T04 zoom $zoom: handle 40 px on corner', (tester) async {
       await _pumpCrop(tester);
       await _setZoom(tester, zoom);
 
@@ -123,9 +124,7 @@ void main() {
     });
   }
 
-  testWidgets('T04 pan: a corner placed on screen drags by the pointer delta', (
-    tester,
-  ) async {
+  testWidgets('T04 pan: the dragged corner follows the pointer', (tester) async {
     await _pumpCrop(tester);
     await _setZoom(tester, 3, topLeftInViewer: const Offset(120, 80));
 
@@ -146,9 +145,7 @@ void main() {
     expect(_viewer(tester).value.getTranslation(), before);
   });
 
-  testWidgets('T04 far pan: a drag away from corners pans, moves nothing', (
-    tester,
-  ) async {
+  testWidgets('T04 far pan: pans, moves no corner', (tester) async {
     await _pumpCrop(tester);
     final r0 = _canvas(tester);
     final viewport = tester.getRect(find.byType(InteractiveViewer).first);
@@ -173,9 +170,7 @@ void main() {
     }
   });
 
-  testWidgets('T06 widget: a drag that would cross edges is refused', (
-    tester,
-  ) async {
+  testWidgets('T06 widget: a crossing drag is refused', (tester) async {
     await _pumpCrop(tester);
     final r = _canvas(tester);
 

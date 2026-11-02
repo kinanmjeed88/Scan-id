@@ -112,13 +112,11 @@ void main() {
   });
 
   test('CropGeometry itself refuses an output above the budget', () {
-    expect(
-      () => CropGeometry(
-        corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
-        outputWidth: 4001,
-        outputHeight: 4000,
-      ),
-      throwsA(isA<ValidationException>()),
-    );
+    final corners = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
+    void build() {
+      CropGeometry(corners: corners, outputWidth: 4001, outputHeight: 4000);
+    }
+
+    expect(build, throwsA(isA<ValidationException>()));
   });
 }

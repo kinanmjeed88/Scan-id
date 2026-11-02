@@ -20,11 +20,13 @@ Future<void> ensureCropTapMode(WidgetTester tester) async {
   final label = tester
       .widget<Text>(find.descendant(of: toggle, matching: find.byType(Text)))
       .data;
+  int count(String key) => find.byKey(Key(key)).evaluate().length;
   expect(
     surface,
     findsOneWidget,
     reason:
         'the tap-mode toggle must open four-tap mode; it was at $rectBefore, '
-        'label after the tap: "$label"',
+        'label after the tap: "$label"; canvas ${count('crop-source-image')}, '
+        'result ${count('crop-result')}, corner-0 ${count('crop-corner-0')}',
   );
 }

@@ -88,12 +88,7 @@ Future<void> _setZoom(
   await tester.pump();
 }
 
-const _fullFrame = [
-  Offset(0, 0),
-  Offset(1, 0),
-  Offset(1, 1),
-  Offset(0, 1),
-];
+const _fullFrame = [Offset(0, 0), Offset(1, 0), Offset(1, 1), Offset(0, 1)];
 
 void main() {
   for (final zoom in [1.0, 3.0, 5.0]) {
@@ -175,10 +170,7 @@ void main() {
     final r = _canvas(tester);
 
     // Step 1 (valid): corner 0 to (0, 0.2).
-    await tester.dragFrom(
-      _handleCentre(tester, 0),
-      Offset(0, 0.2 * r.height),
-    );
+    await tester.dragFrom(_handleCentre(tester, 0), Offset(0, 0.2 * r.height));
     await tester.pump();
     expect(_normalized(tester, 0).dy, closeTo(0.2, 0.01));
     expect(find.text(_crossingMessage), findsNothing);

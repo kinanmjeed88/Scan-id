@@ -1083,11 +1083,7 @@ void main() {
     final repository = MemoryProjects();
     final asset = assetFixture(id: 'asset-stale-suggestion');
     final project = await repository.create(projectFixture(assets: [asset]));
-    final service = ProjectService(
-      repository,
-      NoAssets(),
-      imageEditor: editor,
-    );
+    final service = ProjectService(repository, NoAssets(), imageEditor: editor);
     await tester.pumpWidget(
       MaterialApp(
         home: Directionality(

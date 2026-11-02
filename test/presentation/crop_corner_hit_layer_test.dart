@@ -171,17 +171,17 @@ void main() {
     // The corner is placed at the pointer. The press starts on the handle
     // centre, which sits on the corner to within _pxTol, so the final error is
     // that same offset. A corner that did not move is ~36 px away.
-    // The pointer's final position on the canvas at rest: the status line can
-    // appear or disappear during the gesture and shift the canvas.
-    final rest = _canvas(tester);
+    // The pointer maps onto the canvas as it was during the gesture, which is
+    // the canvas measured before the press: the status line leaves at the drag
+    // end, and the release shift moves corner and canvas together.
     final moved = _normalized(tester, 0);
     final target = Offset(
-      (start.dx + delta.dx - rest.left) / rest.width,
-      (start.dy + delta.dy - rest.top) / rest.height,
+      (start.dx + delta.dx - r.left) / r.width,
+      (start.dy + delta.dy - r.top) / r.height,
     );
     final errorPx = Offset(
-      (moved.dx - target.dx) * rest.width,
-      (moved.dy - target.dy) * rest.height,
+      (moved.dx - target.dx) * r.width,
+      (moved.dy - target.dy) * r.height,
     ).distance;
     expect(errorPx, lessThan(_pxTol), reason: 'corner must follow the pointer');
     // Other corners do not move, and the view does not pan.
@@ -265,20 +265,21 @@ void main() {
     // 24 px radius of corner 3 only. Other corners are hundreds of px away.
     final start = _handleCentre(tester, 3) + const Offset(8, -8);
     final before = [for (var i = 0; i < 4; i++) _normalized(tester, i)];
+    final layout = _canvas(tester);
     const delta = Offset(40, -30);
     await dragInSteps(tester, start, delta);
 
-    // The pointer's final position on the canvas at rest: the status line can
-    // appear or disappear during the gesture and shift the canvas.
-    final rest = _canvas(tester);
+    // The pointer maps onto the canvas as it was during the gesture (measured
+    // before the press). The status line leaves at the drag end, so the release
+    // shift moves corner and canvas together and the normalized corner stays.
     final moved = _normalized(tester, 3);
     final target = Offset(
-      (start.dx + delta.dx - rest.left) / rest.width,
-      (start.dy + delta.dy - rest.top) / rest.height,
+      (start.dx + delta.dx - layout.left) / layout.width,
+      (start.dy + delta.dy - layout.top) / layout.height,
     );
     final errorPx = Offset(
-      (moved.dx - target.dx) * rest.width,
-      (moved.dy - target.dy) * rest.height,
+      (moved.dx - target.dx) * layout.width,
+      (moved.dy - target.dy) * layout.height,
     ).distance;
     expect(errorPx, lessThan(_pxTol), reason: 'corner 3 follows the pointer');
     for (var i = 0; i < 3; i++) {

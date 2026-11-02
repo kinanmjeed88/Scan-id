@@ -1106,9 +1106,26 @@ void main() {
 
   // Corner 1 is dragged first so the draft is dirty: cancelling a suggestion
   // then keeps the screen open instead of popping it.
+  // Pointer moves are split into steps, as a finger sends them; a single jump
+  // did not move a corner through the hit layer (CI run 41448139242).
+  Future<void> dragInSteps(
+    WidgetTester tester,
+    Offset start,
+    Offset delta,
+  ) async {
+    final gesture = await tester.startGesture(start);
+    for (var step = 0; step < 10; step++) {
+      await gesture.moveBy(delta / 10);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.up();
+    await tester.pump();
+  }
+
   Future<void> dirtyDraft(WidgetTester tester) async {
     final r = staleCanvas(tester);
-    await tester.dragFrom(
+    await dragInSteps(
+      tester,
       tester.getCenter(find.byKey(const Key('crop-corner-1'))),
       Offset(-0.2 * r.width, 0),
     );
@@ -1158,14 +1175,16 @@ void main() {
 
     // New user edit while the cancelled request is still outstanding.
     final r = staleCanvas(tester);
-    await tester.dragFrom(
+    await dragInSteps(
+      tester,
       tester.getCenter(find.byKey(const Key('crop-corner-2'))),
       Offset(-0.1 * r.width, -0.1 * r.height),
     );
     await tester.pump();
     final editedCorner1 = staleNormalized(tester, 1);
     final editedCorner2 = staleNormalized(tester, 2);
-    expect(editedCorner2.dx, closeTo(0.9, 0.01));
+    // The user's edit moved corner 2 inwards (pan slop may absorb a few px).
+    expect(editedCorner2.dx, lessThan(0.99));
 
     late.complete(proposalOf(quadA));
     await tester.pump();

@@ -337,10 +337,13 @@ void main() {
         final corner = find.byKey(Key('crop-corner-$i'));
         final before = tester.getCenter(corner);
         // Send multiple move events beyond pan slop, as a real finger does.
+        // Handles are visual only (P6): the crop hit layer beneath them
+        // receives the pointer, so the handle is not the hit target itself.
         await tester.timedDrag(
           corner,
           Offset(i == 0 || i == 3 ? 60 : -60, i < 2 ? 40 : -40),
           const Duration(milliseconds: 300),
+          warnIfMissed: false,
         );
         await tester.pumpAndSettle();
         expect(
@@ -466,7 +469,13 @@ void main() {
       await tester.pumpAndSettle();
       final start = tester.getCenter(find.byKey(const Key('crop-corner-0')));
       final end = tester.getCenter(find.byKey(const Key('crop-corner-2')));
-      await tester.dragFrom(start, end - start);
+      // Multi-step, like a finger: a single jump does not move a handle here.
+      await tester.timedDrag(
+        find.byKey(const Key('crop-corner-0')),
+        end - start,
+        const Duration(milliseconds: 300),
+        warnIfMissed: false,
+      );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();

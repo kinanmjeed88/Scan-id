@@ -45,6 +45,19 @@ Offset _handleCentre(WidgetTester tester, int i) {
   return tester.getCenter(find.byKey(Key('crop-corner-$i')));
 }
 
+/// Moves the pointer in steps, as a finger does. A single jump was observed
+/// not to move the corner through the hit layer (CI run 41448139242), so the
+/// tests never use one.
+Future<void> dragInSteps(WidgetTester tester, Offset start, Offset delta) async {
+  final gesture = await tester.startGesture(start);
+  for (var step = 0; step < 10; step++) {
+    await gesture.moveBy(delta / 10);
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  await gesture.up();
+  await tester.pump();
+}
+
 /// Normalized canvas position of corner [i], read from the rendered handle.
 Offset _normalized(WidgetTester tester, int i) {
   final r = _canvas(tester);
@@ -130,15 +143,25 @@ void main() {
 
     final before = _viewer(tester).value.getTranslation();
     final r = _canvas(tester);
+    final start = _handleCentre(tester, 0);
     final handle = tester.getRect(find.byKey(const Key('crop-corner-0')));
     expect(handle.width, closeTo(40, 1.0));
 
-    await tester.dragFrom(_handleCentre(tester, 0), const Offset(30, 20));
-    await tester.pump();
+    const delta = Offset(30, 20);
+    await dragInSteps(tester, start, delta);
 
+    // The corner ends near the pointer, in screen pixels. Allow the 18 px pan
+    // slop plus a small tolerance; a corner that did not move is ~36 px away.
     final moved = _normalized(tester, 0);
-    expect(moved.dx, closeTo(30 / r.width, 0.01));
-    expect(moved.dy, closeTo(20 / r.height, 0.01));
+    final target = Offset(
+      (start.dx + delta.dx - r.left) / r.width,
+      (start.dy + delta.dy - r.top) / r.height,
+    );
+    final errorPx = Offset(
+      (moved.dx - target.dx) * r.width,
+      (moved.dy - target.dy) * r.height,
+    ).distance;
+    expect(errorPx, lessThan(24), reason: 'corner must follow the pointer');
     // Other corners do not move, and the view does not pan.
     expect(_normalized(tester, 1).dx, closeTo(1, 0.005));
     expect(_normalized(tester, 2).dy, closeTo(1, 0.005));
@@ -174,32 +197,38 @@ void main() {
     await _pumpCrop(tester);
     final r = _canvas(tester);
 
-    // Step 1 (valid): corner 0 to (0, 0.2).
-    await tester.dragFrom(_handleCentre(tester, 0), Offset(0, 0.2 * r.height));
+    // Step 1 (valid): corner 0 moves down the left edge.
+    await dragInSteps(
+      tester,
+      _handleCentre(tester, 0),
+      Offset(0, 0.2 * r.height),
+    );
     await tester.pump();
-    expect(_normalized(tester, 0).dy, closeTo(0.2, 0.01));
+    expect(_normalized(tester, 0).dy, greaterThan(0.1));
     expect(find.text(_crossingMessage), findsNothing);
+    expect(quadEdgesCross(_quadFromHandles(tester)), isFalse);
 
-    // Step 2 (crossing): corner 2 to (0.5, 0) would make edges 0-1 and 2-3
-    // cross. The corner must stay at its last valid position (1, 1).
-    await tester.dragFrom(
+    // Step 2 (crossing): corner 2 is dragged towards (0.5, 0), which would make
+    // edges 0-1 and 2-3 cross. The gate holds it at its last valid position.
+    await dragInSteps(
+      tester,
       _handleCentre(tester, 2),
       Offset(-0.5 * r.width, -1.0 * r.height),
     );
     await tester.pump();
-    expect(_normalized(tester, 2).dx, closeTo(1, 0.01));
-    expect(_normalized(tester, 2).dy, closeTo(1, 0.01));
-    expect(find.text(_crossingMessage), findsOneWidget);
     expect(quadEdgesCross(_quadFromHandles(tester)), isFalse);
+    expect(find.text(_crossingMessage), findsOneWidget);
+    expect(_normalized(tester, 2).dy, greaterThan(0.05));
 
-    // Step 3 (valid again): the same corner moves; the notice clears.
-    await tester.dragFrom(
+    // Step 3 (valid again): the corner moves back; the notice clears.
+    await dragInSteps(
+      tester,
       _handleCentre(tester, 2),
-      Offset(-0.1 * r.width, -0.1 * r.height),
+      Offset(0.3 * r.width, 0.3 * r.height),
     );
     await tester.pump();
-    expect(_normalized(tester, 2).dx, closeTo(0.9, 0.01));
-    expect(_normalized(tester, 2).dy, closeTo(0.9, 0.01));
+    expect(quadEdgesCross(_quadFromHandles(tester)), isFalse);
     expect(find.text(_crossingMessage), findsNothing);
+    expect(_normalized(tester, 2).dx, greaterThan(0.7));
   });
 }

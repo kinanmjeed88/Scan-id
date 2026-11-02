@@ -92,6 +92,11 @@ class _CropEditorState {
   /// of the history entry, so undo and redo restore it with the frame.
   final bool manualRequired;
 
+  /// A valid boundary (a suggestion or four taps) lifts the fallback gate.
+  _CropEditorState withBoundary(CropDraft boundary) {
+    return copyWith(draft: boundary, manualRequired: false);
+  }
+
   _CropEditorState copyWith({
     CropDraft? draft,
     DocumentKind? selectedKind,
@@ -478,13 +483,12 @@ class _CropScreenState extends State<CropScreen> {
         if (previous != null) {
           // A previously saved boundary is a real boundary, not a full frame.
           history.record(
-            baseState.copyWith(
-              draft: CropDraft(
+            baseState.withBoundary(
+              CropDraft(
                 corners: previous,
                 adjustments: baseFull.adjustments,
                 aspectRatio: initialAspect,
               ),
-              manualRequired: false,
             ),
           );
         }
@@ -494,10 +498,7 @@ class _CropScreenState extends State<CropScreen> {
             adjustments: baseFull.adjustments,
             aspectRatio: initialAspect,
           );
-          activeState = baseState.copyWith(
-            draft: proposedDraft,
-            manualRequired: false,
-          );
+          activeState = baseState.withBoundary(proposedDraft);
           history.record(activeState);
         } else {
           activeState = baseState;

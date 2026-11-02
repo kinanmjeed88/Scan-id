@@ -115,9 +115,9 @@ List<Point2> _projectRectangle({
 
 void _expectRatio(
   PhysicalAspectEstimate? estimate,
-  double expectedRatio, {
-  required double tolerance,
-}) {
+  double expectedRatio,
+  double tolerance,
+) {
   expect(estimate, isNotNull, reason: 'the ratio is determinable here');
   expect(estimate!.aspect / expectedRatio, closeTo(1, tolerance));
 }
@@ -157,7 +157,7 @@ void main() {
         _expectRatio(
           _estimateFor(corners, 3000, 4000),
           w / h,
-          tolerance: .005,
+          .005,
         );
       }
     });
@@ -177,7 +177,7 @@ void main() {
         _expectRatio(
           _estimateFor(corners, 3000, 4000),
           85.6 / 54,
-          tolerance: .005,
+          .005,
         );
       }
     });
@@ -204,7 +204,7 @@ void main() {
         _expectRatio(
           _estimateFor(corners, 3000, 4000),
           85.6 / 54,
-          tolerance: .005,
+          .005,
         );
       }
     });
@@ -229,7 +229,7 @@ void main() {
         _expectRatio(
           _estimateFor(corners, sw, sh),
           85.6 / 54,
-          tolerance: .005,
+          .005,
         );
       }
     });
@@ -250,7 +250,7 @@ void main() {
       _expectRatio(
         _estimateFor(mild, 3000, 4000),
         85.6 / 54,
-        tolerance: .01,
+        .01,
       );
 
       final strong = _projectRectangle(
@@ -267,7 +267,7 @@ void main() {
       _expectRatio(
         _estimateFor(strong, 3000, 4000),
         85.6 / 54,
-        tolerance: .035,
+        .035,
       );
     });
 

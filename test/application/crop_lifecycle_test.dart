@@ -17,6 +17,7 @@ import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
+import '../presentation/crop_tap_helpers.dart';
 
 class _DelayedEditor implements ImageEditor {
   _DelayedEditor(this._inner);
@@ -197,6 +198,7 @@ void main() {
         tester.widget<ButtonStyleButton>(find.byKey(const Key('accept-crop')));
 
     Future<void> tapFourCorners(WidgetTester tester) async {
+      await ensureCropTapMode(tester);
       final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
       for (final (fx, fy) in const [
         (0.2, 0.2),
@@ -228,7 +230,10 @@ void main() {
       tester,
     ) async {
       await pumpScreen(tester);
-      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      // The gate blocks Preview and Accept but does not change the input mode:
+      // corners stay draggable, and tap mode opens through its toggle.
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
       expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
       expect(previewButton(tester).onPressed, isNull);
       expect(acceptButton(tester).onPressed, isNull);
@@ -249,7 +254,8 @@ void main() {
       );
       await pumpScreen(tester);
       expect(find.textContaining('الحدود المحفوظة غير صالحة'), findsWidgets);
-      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
       expect(previewButton(tester).onPressed, isNull);
     });
 

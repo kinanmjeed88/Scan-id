@@ -143,6 +143,14 @@ const manualFallbackNotice =
     'الكشف التلقائي لم ينجح؛ انقر الزوايا الأربع يدوياً بأي ترتيب. '
     'المعاينة والاعتماد معطّلان حتى تكتمل الزوايا أو تُعدَّل إحداها.';
 
+/// The fallback instruction, placed after the reason of a failed suggestion
+/// when there is one, so the reason is not lost to the instruction.
+String _fallbackNoticeWith(String? reason) {
+  if (reason == null || reason.isEmpty) return manualFallbackNotice;
+  if (reason.endsWith(manualFallbackNotice)) return reason;
+  return '$reason $manualFallbackNotice';
+}
+
 bool _samePoints(List<Point2>? a, List<Point2>? b) {
   if (identical(a, b)) return true;
   if (a == null || b == null || a.length != b.length) return false;
@@ -985,7 +993,7 @@ class _CropScreenState extends State<CropScreen> {
       _state = gated;
       _tapSelection = ManualQuadSelection.empty();
       _clearPreview();
-      _proposalNotice = manualFallbackNotice;
+      _proposalNotice = _fallbackNoticeWith(_proposalNotice);
     });
   }
 

@@ -11,6 +11,7 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/presentation/app.dart';
+import 'crop_tap_helpers.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 
 import '../fixtures.dart';
@@ -96,6 +97,7 @@ DocumentRecord _unresolvedRecord(String docId, String assetId) =>
 /// Places four valid corners on the tap surface, the way a user lifts the
 /// fallback gate of an untouched frame.
 Future<void> tapFourCorners(WidgetTester tester) async {
+  await ensureCropTapMode(tester);
   final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
   for (final (fx, fy) in const [
     (0.2, 0.2),

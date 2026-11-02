@@ -194,6 +194,12 @@ jobs:
           name: scan-id-flutter-test-log
           path: diagnostics/test.log
           if-no-files-found: warn
+      # Diagnostic only: the export tests alone, so a load- or order-dependent
+      # failure can be told apart from a deterministic one. It does not gate.
+      - name: Export tests in isolation (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: python tool/ci_gate.py export-isolation flutter test test/export/document_exporter_test.dart --reporter expanded
       # The build below MUST fail, and only the signing guard may be the reason.
       # A repository outage must not read as "the release build no longer
       # enforces signing" (that is what a red gate on a good revision looks

@@ -23,6 +23,7 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
+import 'presentation/crop_tap_helpers.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
@@ -240,13 +241,6 @@ void main() {
       return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
     }
 
-    final pristine = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-    Offset expected(double fx, double fy) {
-      return Offset(
-        pristine.left + pristine.width * fx,
-        pristine.top + pristine.height * fy,
-      );
-    }
 
     // Two taps: partial selection, no handles yet.
     await tester.tapAt(at(.2, .2));
@@ -272,11 +266,22 @@ void main() {
       expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
     }
     // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
+    // Measured at rest, after the fourth tap: the status line leaves then and
+    // the canvas moves, so a rectangle taken before the taps would be stale.
+    // The handles sit on the source image.
+    final rest = tester.getRect(find.byKey(const Key('crop-source-image')));
+    Offset atRest(double fx, double fy) {
+      return Offset(
+        rest.left + rest.width * fx,
+        rest.top + rest.height * fy,
+      );
+    }
+
     final corners = [
-      expected(.2, .2),
-      expected(.8, .2),
-      expected(.8, .8),
-      expected(.2, .8),
+      atRest(.2, .2),
+      atRest(.8, .2),
+      atRest(.8, .8),
+      atRest(.2, .8),
     ];
     for (var i = 0; i < 4; i++) {
       final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
@@ -392,6 +397,7 @@ void main() {
             .onPressed,
         isNull,
       );
+      await ensureCropTapMode(tester);
       final surface = tester.getRect(find.byKey(const Key('crop-tap-surface')));
       Offset at(double fx, double fy) => Offset(
         surface.left + surface.width * fx,

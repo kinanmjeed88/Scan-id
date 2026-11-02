@@ -25,6 +25,7 @@ import 'package:scan_id/presentation/crop_screen.dart';
 
 import '../fixtures.dart';
 import '../presentation/editor_harness.dart';
+import '../presentation/crop_tap_helpers.dart';
 
 class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   _UncertainBoundaryEditor(this._inner, this._proposal);
@@ -147,6 +148,7 @@ bool _acceptEnabled(WidgetTester tester) {
 /// its width and height). This is how a user lifts the fallback gate after a
 /// failed detection, so a preview is then a preview of a real boundary.
 Future<void> tapFourCorners(WidgetTester tester) async {
+  await ensureCropTapMode(tester);
   final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
   for (final (fx, fy) in const [
     (0.2, 0.2),

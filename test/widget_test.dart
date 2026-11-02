@@ -270,10 +270,7 @@ void main() {
     // The handles sit on the source image.
     final rest = tester.getRect(find.byKey(const Key('crop-source-image')));
     Offset atRest(double fx, double fy) {
-      return Offset(
-        rest.left + rest.width * fx,
-        rest.top + rest.height * fy,
-      );
+      return Offset(rest.left + rest.width * fx, rest.top + rest.height * fy);
     }
 
     final corners = [

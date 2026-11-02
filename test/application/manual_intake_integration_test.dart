@@ -138,6 +138,11 @@ class _InvalidPreviewEditor extends FakeImageEditor {
   }) async => Uint8List.fromList([0x01, 0x02, 0x03]);
 }
 
+bool _acceptEnabled(WidgetTester tester) {
+  final accept = find.byKey(const Key('accept-crop'));
+  return tester.widget<FilledButton>(accept).onPressed != null;
+}
+
 void main() {
   test(
     'production import leaves a multi-region image intact for manual review',
@@ -1160,6 +1165,44 @@ void main() {
     );
   }
 
+  // Expected frames are exact up to the handle-centre offset (<= 0.5 px).
+  void expectFrame(WidgetTester tester, List<Point2> frame, Rect r) {
+    for (var i = 0; i < 4; i++) {
+      final n = staleNormalized(tester, i);
+      expect(n.dx, closeTo(frame[i].x, 0.5 / r.width), reason: 'x$i');
+      expect(n.dy, closeTo(frame[i].y, 0.5 / r.height), reason: 'y$i');
+    }
+  }
+
+  // A preview of the current frame. The Recipe it builds is read back from the
+  // editor, so a stale frame would show up as the wrong corners.
+  Future<void> previewFrame(WidgetTester tester) async {
+    await tester.ensureVisible(find.text('معاينة التصحيح'));
+    await tester.tap(find.text('معاينة التصحيح'));
+    await tester.pump();
+    await pumpCropPreviewResult(tester);
+  }
+
+  void expectRecipeCorners(
+    _TrackingFakeEditor editor,
+    List<Point2> expected,
+    Rect r,
+  ) {
+    final corners = editor.lastPreviewRecipe!.geometry.corners;
+    for (var i = 0; i < 4; i++) {
+      expect(
+        corners[i].x,
+        closeTo(expected[i].x, 0.5 / r.width),
+        reason: 'x$i',
+      );
+      expect(
+        corners[i].y,
+        closeTo(expected[i].y, 0.5 / r.height),
+        reason: 'y$i',
+      );
+    }
+  }
+
   testWidgets('T-stale: late result after cancel is dropped', (tester) async {
     final editor = _ControlledBoundaryEditor();
     final late = Completer<BoundaryProposal?>();
@@ -1167,35 +1210,47 @@ void main() {
     await pumpStaleCrop(tester, editor);
 
     await dirtyDraft(tester);
+    final r = staleCanvas(tester);
+    // The dirty step moved corner 1 by -0.2 in x, from (1, 0) to (0.8, 0).
+    expectFrame(tester, [
+      Point2(0, 0),
+      Point2(0.8, 0),
+      Point2(1, 1),
+      Point2(0, 1),
+    ], r);
+
     await tester.tap(find.text('اقتراح حدود المستمسك'));
     await tester.pump();
     expect(editor.refreshCount, 1);
 
     await cancelSuggestionAndKeepEditing(tester);
 
-    // New user edit while the cancelled request is still outstanding.
-    final r = staleCanvas(tester);
+    // Newest user edit while the cancelled request is still outstanding:
+    // corner 2 moves by (-0.1, -0.1) from (1, 1) to (0.9, 0.9).
     await dragInSteps(
       tester,
       tester.getCenter(find.byKey(const Key('crop-corner-2'))),
       Offset(-0.1 * r.width, -0.1 * r.height),
     );
     await tester.pump();
-    final editedCorner1 = staleNormalized(tester, 1);
-    final editedCorner2 = staleNormalized(tester, 2);
-    // The user's edit moved corner 2 inwards (pan slop may absorb a few px).
-    expect(editedCorner2.dx, lessThan(0.99));
+    final frame = [
+      Point2(0, 0),
+      Point2(0.8, 0),
+      Point2(0.9, 0.9),
+      Point2(0, 1),
+    ];
+    expectFrame(tester, frame, r);
 
     late.complete(proposalOf(quadA));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    // The late result is not applied: the user's frame is unchanged.
-    expect(staleNormalized(tester, 1).dx, closeTo(editedCorner1.dx, 0.005));
-    expect(staleNormalized(tester, 2).dx, closeTo(editedCorner2.dx, 0.005));
-    expect(staleNormalized(tester, 0).dx, closeTo(0, 0.005));
+    // The late result is dropped: the user's frame is still in place.
+    expectFrame(tester, frame, r);
     expect(find.textContaining('اقتراح جديد'), findsNothing);
-    expect(editor.lastPreviewRecipe, isNull);
+    // A preview of the current frame carries the user's corners, not quadA.
+    await previewFrame(tester);
+    expectRecipeCorners(editor, frame, r);
   });
 
   testWidgets('T-stale: reversed completion keeps newest', (tester) async {
@@ -1216,25 +1271,83 @@ void main() {
     expect(editor.refreshCount, 2);
 
     // Newest completes first, then the superseded request completes.
+    final r = staleCanvas(tester);
     second.complete(proposalOf(quadB));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    for (var i = 0; i < 4; i++) {
-      expect(staleNormalized(tester, i).dx, closeTo(quadB[i].x, 0.01));
-      expect(staleNormalized(tester, i).dy, closeTo(quadB[i].y, 0.01));
-    }
+    expectFrame(tester, quadB, r);
 
     first.complete(proposalOf(quadA));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    for (var i = 0; i < 4; i++) {
-      expect(
-        staleNormalized(tester, i).dx,
-        closeTo(quadB[i].x, 0.01),
-        reason: 'superseded result must not replace corner $i',
-      );
-    }
+    // The superseded result is dropped: corners stay on the newest frame.
+    expectFrame(tester, quadB, r);
     expect(find.textContaining('اقتراح جديد'), findsOneWidget);
+    await previewFrame(tester);
+    expectRecipeCorners(editor, quadB, r);
+  });
+
+  testWidgets('D9 UI: forced review blocks accept', (tester) async {
+    tester.view.physicalSize = const Size(1100, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // A proposer's review demand, through the real arrange path (the same
+    // path as the D9 data test above).
+    final proposal = BoundaryProposal(
+      producer: BoundaryProducer.detector,
+      corners: quadA,
+      modelConfidence: 0.42,
+      minAutoAcceptConfidence: 0.55,
+      forceReview: true,
+      forceReviewReason: BoundaryReviewReason.modelDisagreement,
+    );
+    final editor = _RefreshingFakeEditor(proposal);
+    final repository = MemoryProjects();
+    final asset = assetFixture(id: 'asset-d9-ui');
+    final project = await repository.create(projectFixture(assets: [asset]));
+    final service = ProjectService(repository, NoAssets(), imageEditor: editor);
+
+    // The demand stops the automatic crop and leaves the proposal as a
+    // review-only suggestion on the asset.
+    final arranged = await service.arrangeImportedImages(project, [asset.id]);
+    final reviewed = arranged.project.assets.single;
+    expect(arranged.cropped, 0);
+    expect(reviewed.crop, isNull);
+    expect(reviewed.suggestedCrop, isNotNull);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: CropScreen(
+            project: arranged.project,
+            asset: reviewed,
+            service: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The proposal opens as an editable draft, not as an accepted crop.
+    final r = staleCanvas(tester);
+    expectFrame(tester, quadA, r);
     expect(editor.lastPreviewRecipe, isNull);
+    expect(_acceptEnabled(tester), isFalse);
+
+    // Accept needs a preview of this exact frame.
+    await previewFrame(tester);
+    expect(_acceptEnabled(tester), isTrue);
+
+    // Any edit of the reviewed frame invalidates that preview.
+    await dragInSteps(
+      tester,
+      tester.getCenter(find.byKey(const Key('crop-corner-2'))),
+      Offset(-0.05 * r.width, 0),
+    );
+    await tester.pump();
+    expect(_acceptEnabled(tester), isFalse);
   });
 }

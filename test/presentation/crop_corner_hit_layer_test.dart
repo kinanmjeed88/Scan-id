@@ -12,6 +12,12 @@ import 'editor_harness.dart';
 
 const _crossingMessage = 'زوايا القص تتقاطع؛ أبقيت آخر موضع صالح للزاوية.';
 
+// Pixel tolerance for geometry checks. Layout and transforms are float64 at
+// devicePixelRatio 1, so a correct handle lands within float error of its
+// corner. 0.5 px is far below one pixel. It is NOT the 24 px capture radius:
+// that radius decides which handle a touch selects, not where a handle sits.
+const _pxTol = 0.5;
+
 Future<void> _pumpCrop(WidgetTester tester) async {
   tester.view.physicalSize = const Size(1100, 820);
   tester.view.devicePixelRatio = 1;
@@ -121,8 +127,8 @@ void main() {
       final r = _canvas(tester);
       for (var i = 0; i < 4; i++) {
         final handle = tester.getRect(find.byKey(Key('crop-corner-$i')));
-        expect(handle.width, closeTo(40, 1.0), reason: 'corner $i width');
-        expect(handle.height, closeTo(40, 1.0), reason: 'corner $i height');
+        expect(handle.width, closeTo(40, _pxTol), reason: 'corner $i width');
+        expect(handle.height, closeTo(40, _pxTol), reason: 'corner $i height');
 
         final expected = Offset(
           r.left + _fullFrame[i].dx * r.width,
@@ -130,13 +136,21 @@ void main() {
         );
         expect(
           (handle.center - expected).distance,
-          lessThan(1.5),
+          lessThan(_pxTol),
           reason: 'corner $i centre on its corner',
         );
         // Normalized corners are unchanged by zoom: zoom is a view property.
         final n = _normalized(tester, i);
-        expect(n.dx, closeTo(_fullFrame[i].dx, 0.005), reason: 'x$i');
-        expect(n.dy, closeTo(_fullFrame[i].dy, 0.005), reason: 'y$i');
+        expect(
+          n.dx,
+          closeTo(_fullFrame[i].dx, _pxTol / r.width),
+          reason: 'x$i',
+        );
+        expect(
+          n.dy,
+          closeTo(_fullFrame[i].dy, _pxTol / r.height),
+          reason: 'y$i',
+        );
       }
     });
   }
@@ -149,13 +163,14 @@ void main() {
     final r = _canvas(tester);
     final start = _handleCentre(tester, 0);
     final handle = tester.getRect(find.byKey(const Key('crop-corner-0')));
-    expect(handle.width, closeTo(40, 1.0));
+    expect(handle.width, closeTo(40, _pxTol));
 
     const delta = Offset(30, 20);
     await dragInSteps(tester, start, delta);
 
-    // The corner ends near the pointer, in screen pixels. Allow the 18 px pan
-    // slop plus a small tolerance; a corner that did not move is ~36 px away.
+    // The corner is placed at the pointer. The press starts on the handle
+    // centre, which sits on the corner to within _pxTol, so the final error is
+    // that same offset. A corner that did not move is ~36 px away.
     final moved = _normalized(tester, 0);
     final target = Offset(
       (start.dx + delta.dx - r.left) / r.width,
@@ -165,10 +180,10 @@ void main() {
       (moved.dx - target.dx) * r.width,
       (moved.dy - target.dy) * r.height,
     ).distance;
-    expect(errorPx, lessThan(24), reason: 'corner must follow the pointer');
+    expect(errorPx, lessThan(_pxTol), reason: 'corner must follow the pointer');
     // Other corners do not move, and the view does not pan.
-    expect(_normalized(tester, 1).dx, closeTo(1, 0.005));
-    expect(_normalized(tester, 2).dy, closeTo(1, 0.005));
+    expect(_normalized(tester, 1).dx, closeTo(1, _pxTol / r.width));
+    expect(_normalized(tester, 2).dy, closeTo(1, _pxTol / r.height));
     expect(_viewer(tester).value.getTranslation(), before);
   });
 
@@ -194,6 +209,77 @@ void main() {
     for (var i = 0; i < 4; i++) {
       expect(_normalized(tester, i).dx, closeTo(_fullFrame[i].dx, 0.01));
       expect(_normalized(tester, i).dy, closeTo(_fullFrame[i].dy, 0.01));
+    }
+  });
+
+  testWidgets('T04 panned handles stay on corners', (tester) async {
+    await _pumpCrop(tester);
+    final viewport = tester.getRect(find.byType(InteractiveViewer).first);
+    final r0 = _canvas(tester);
+    await _setZoom(
+      tester,
+      3,
+      topLeftInViewer: Offset(
+        viewport.width / 2 - 1.5 * r0.width,
+        viewport.height / 2 - 1.5 * r0.height,
+      ),
+    );
+    // Pan from an empty area (no handle within 24 px of the press).
+    await tester.dragFrom(viewport.center, const Offset(-60, 0));
+    await tester.pump();
+
+    // After the pan, each handle centre still equals its canvas corner.
+    final r = _canvas(tester);
+    for (var i = 0; i < 4; i++) {
+      final centre = _handleCentre(tester, i);
+      final expected = Offset(
+        r.left + _fullFrame[i].dx * r.width,
+        r.top + _fullFrame[i].dy * r.height,
+      );
+      expect(
+        (centre - expected).distance,
+        lessThan(_pxTol),
+        reason: 'corner $i',
+      );
+    }
+  });
+
+  testWidgets('T04 hit picks the nearest handle', (tester) async {
+    await _pumpCrop(tester);
+    final viewport = tester.getRect(find.byType(InteractiveViewer).first);
+    final r0 = _canvas(tester);
+    // Bottom-left corner (index 3) at the viewport centre, so it is on screen.
+    await _setZoom(
+      tester,
+      5,
+      topLeftInViewer: Offset(
+        viewport.width / 2,
+        viewport.height / 2 - 5 * r0.height,
+      ),
+    );
+
+    final r = _canvas(tester);
+    // 8 px right and 8 px up of the handle centre: about 11 px away, inside the
+    // 24 px radius of corner 3 only. Other corners are hundreds of px away.
+    final start = _handleCentre(tester, 3) + const Offset(8, -8);
+    final before = [for (var i = 0; i < 4; i++) _normalized(tester, i)];
+    const delta = Offset(40, -30);
+    await dragInSteps(tester, start, delta);
+
+    final moved = _normalized(tester, 3);
+    final target = Offset(
+      (start.dx + delta.dx - r.left) / r.width,
+      (start.dy + delta.dy - r.top) / r.height,
+    );
+    final errorPx = Offset(
+      (moved.dx - target.dx) * r.width,
+      (moved.dy - target.dy) * r.height,
+    ).distance;
+    expect(errorPx, lessThan(_pxTol), reason: 'corner 3 follows the pointer');
+    for (var i = 0; i < 3; i++) {
+      final now = _normalized(tester, i);
+      expect(now.dx, closeTo(before[i].dx, 1e-9), reason: 'x$i unchanged');
+      expect(now.dy, closeTo(before[i].dy, 1e-9), reason: 'y$i unchanged');
     }
   });
 

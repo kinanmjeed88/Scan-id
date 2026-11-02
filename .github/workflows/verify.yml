@@ -185,6 +185,15 @@ jobs:
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests
         run: python tool/ci_gate.py test flutter test --reporter expanded
+      # Full expanded test log (exception text, stack traces) for failed runs.
+      # Annotations keep only the tail, so this artifact is the diagnostic record.
+      - name: Upload Flutter test log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-flutter-test-log
+          path: diagnostics/test.log
+          if-no-files-found: warn
       # The build below MUST fail, and only the signing guard may be the reason.
       # A repository outage must not read as "the release build no longer
       # enforces signing" (that is what a red gate on a good revision looks

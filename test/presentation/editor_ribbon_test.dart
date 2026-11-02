@@ -107,7 +107,7 @@ void main() {
   });
 
   testWidgets(
-    'kind gallery applies the catalog size at once and arranges by category',
+    'kind gallery applies a provisional catalog size without placing the item',
     (tester) async {
       final editor = await EditorHarness.pump(tester);
       expect(
@@ -124,18 +124,15 @@ void main() {
       expect(residence.documentKind, DocumentKind.residenceCard);
       expect(residence.width, 92.4);
       expect(residence.height, 62.8);
-      expect(residence.sizeConfirmed, isTrue);
-      expect(residence.pageIndex, 0);
-      // National card, then residence card, then passport, each on its row.
-      expect(itemIn(saved, 'card').y, closeTo(5, 1e-6));
-      expect(residence.y, closeTo(5 + 53.98 + 5, 1e-6));
-      expect(
-        itemIn(saved, 'passport').y,
-        closeTo(5 + 53.98 + 5 + 62.8 + 5, 1e-6),
-      );
-      // The sheet shows the edit immediately.
-      expect(find.byKey(const Key('page-slot-unknown')), findsOneWidget);
-      expect(find.byKey(const Key('offsheet-unknown')), findsNothing);
+      // Spec change (F-C strict kind rule, 2026-11-02): choosing a kind applies
+      // the catalog size only as a provisional size. Without an approved crop
+      // or manual dimensions it stays unconfirmed, so it is not placed on the
+      // sheet. Placement and category arrangement of confirmed items are
+      // covered by the arrangement tests.
+      expect(residence.sizeConfirmed, isFalse);
+      expect(residence.pageIndex, isNull);
+      expect(find.byKey(const Key('offsheet-unknown')), findsOneWidget);
+      expect(find.byKey(const Key('page-slot-unknown')), findsNothing);
     },
   );
 

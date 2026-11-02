@@ -269,7 +269,9 @@ void main() {
 
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      // Undo returns to the gated frame with draggable corners; tap mode is off.
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
       expect(previewButton(tester).onPressed, isNull);
       expect(acceptButton(tester).onPressed, isNull);
       expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);

@@ -1166,6 +1166,10 @@ void main() {
       tester.getCenter(find.byKey(const Key('crop-corner-1'))),
       Offset(-0.2 * r.width, 0),
     );
+    // Two frames, not pumpAndSettle: a suggestion may still be pending (its
+    // progress indicator never settles). The status line leaves with the gate,
+    // and the handle wrappers follow the canvas one frame later.
+    await tester.pump();
     await tester.pump();
   }
 

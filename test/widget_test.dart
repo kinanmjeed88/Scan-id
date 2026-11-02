@@ -393,6 +393,12 @@ void main() {
             .onPressed,
         isNull,
       );
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const Key('crop-tap-mode')))
+            .onPressed,
+        isNotNull,
+      );
       await ensureCropTapMode(tester);
       final surface = tester.getRect(find.byKey(const Key('crop-tap-surface')));
       Offset at(double fx, double fy) => Offset(

@@ -281,12 +281,7 @@ void main() {
     });
 
     test('repeated corners and degenerate input return null', () {
-      final repeated = [
-        Point2(0, 0),
-        Point2(0, 0),
-        Point2(1, 1),
-        Point2(0, 1),
-      ];
+      final repeated = [Point2(0, 0), Point2(0, 0), Point2(1, 1), Point2(0, 1)];
       final unitSquare = [
         Point2(0, 0),
         Point2(1, 0),

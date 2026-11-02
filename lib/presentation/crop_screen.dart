@@ -243,6 +243,7 @@ class _CropScreenState extends State<CropScreen> {
   CancellationToken? _operationCancellation;
   bool _showResult = false;
   bool _dirty = false;
+
   /// Whether the fallback gate is set on the current state.
   bool get _manualRequired => _state?.manualRequired ?? false;
   bool _cornerDragMoved = false;

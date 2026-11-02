@@ -359,3 +359,29 @@ class CropGeometry {
     );
   }
 }
+
+/// Index of the corner nearest to [point], or null when no corner lies within
+/// [maxDistance] (inclusive). Equal distances resolve to the lowest index, so
+/// the choice never depends on pointer order or floating-point luck.
+int? nearestCornerIndex(
+  List<Point2> corners,
+  Point2 point,
+  double maxDistance,
+) {
+  require(
+    maxDistance.isFinite && maxDistance >= 0,
+    'مسافة الالتقاط غير صالحة.',
+  );
+  int? best;
+  var bestDistance = double.infinity;
+  for (var i = 0; i < corners.length; i++) {
+    final dx = corners[i].x - point.x;
+    final dy = corners[i].y - point.y;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    if (distance <= maxDistance && distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

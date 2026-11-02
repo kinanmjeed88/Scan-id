@@ -113,6 +113,10 @@ class _SuggestedCornersResolution {
   final String? notice;
 }
 
+const manualFallbackNotice =
+    'الكشف التلقائي لم ينجح؛ انقر الزوايا الأربع يدوياً بأي ترتيب. '
+    'المعاينة والاعتماد معطّلان حتى تكتمل الزوايا أو تُعدَّل إحداها.';
+
 bool _samePoints(List<Point2>? a, List<Point2>? b) {
   if (identical(a, b)) return true;
   if (a == null || b == null || a.length != b.length) return false;
@@ -206,6 +210,9 @@ class _CropScreenState extends State<CropScreen> {
   CancellationToken? _operationCancellation;
   bool _showResult = false;
   bool _dirty = false;
+  // Set when live detection fails on an untouched frame. Preview and accept
+  // stay blocked until four taps or an explicit corner edit clears it.
+  bool _manualRequired = false;
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
@@ -342,6 +349,7 @@ class _CropScreenState extends State<CropScreen> {
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
+    _manualRequired = false;
     _initialReviewDraft = null;
     _view.value = Matrix4.identity();
     _initializeInitialMetadata();
@@ -854,6 +862,13 @@ class _CropScreenState extends State<CropScreen> {
         });
         return;
       }
+      final detectionFailed =
+          points == null ||
+          !_usableSuggestedCorners(
+            points,
+            sourceWidth: source.width,
+            sourceHeight: source.height,
+          );
       if (points == null) {
         setState(() {
           _proposalNotice =
@@ -890,6 +905,7 @@ class _CropScreenState extends State<CropScreen> {
           'اقتراح للمراجعة فقط؛ تراجع يستعيد الحدود السابقة. عاين النتيجة قبل الحفظ.',
         );
       }
+      if (detectionFailed) _enterManualFallback();
     } catch (error) {
       if (_isCurrentOperation(operation)) {
         setState(() {
@@ -897,13 +913,32 @@ class _CropScreenState extends State<CropScreen> {
           _proposalNotice =
               'تعذر تحديث الاقتراح؛ بقيت الحدود الحالية ولم يتغير الأصل.';
         });
+        _enterManualFallback();
       }
     } finally {
       _finishOperation(operation);
     }
   }
 
+  /// Auto-to-manual fallback. A failed detection on an untouched full frame
+  /// moves the user to four taps. Preview and accept stay blocked until four
+  /// taps or a corner edit, so the full frame is never accepted as a detected
+  /// crop. A user's own corners are never replaced by this fallback.
+  void _enterManualFallback() {
+    final current = _draft;
+    if (current == null ||
+        !_samePoints(current.corners, CropDraft.fullImage().corners)) {
+      return;
+    }
+    setState(() {
+      _manualRequired = true;
+      _tapSelection = ManualQuadSelection.empty();
+      _proposalNotice = manualFallbackNotice;
+    });
+  }
+
   Future<void> _render() async {
+    if (_manualRequired) return;
     final asset = widget.asset;
     final operation = _beginOperation(canCancel: true);
     final draftRevision = _draftRevision;
@@ -958,6 +993,7 @@ class _CropScreenState extends State<CropScreen> {
     if (preview == null ||
         recipe == null ||
         source == null ||
+        _manualRequired ||
         !_hasCurrentPreview) {
       return;
     }
@@ -1392,6 +1428,7 @@ class _CropScreenState extends State<CropScreen> {
       });
       return;
     }
+    _manualRequired = false;
     final draft = _draft!;
     _change(
       CropDraft(
@@ -1412,6 +1449,7 @@ class _CropScreenState extends State<CropScreen> {
         (local.dy / height).clamp(0, 1).toDouble(),
       ),
     );
+    _manualRequired = false;
     setState(() {
       _coalescedCustomField = null;
       _state = _state!.copyWith(draft: next);
@@ -1809,13 +1847,15 @@ class _CropScreenState extends State<CropScreen> {
           ),
           const SizedBox(height: 16),
           OutlinedButton(
-            onPressed: _busy ? null : _render,
+            onPressed: _busy || _manualRequired ? null : _render,
             child: const Text('معاينة التصحيح'),
           ),
           const SizedBox(height: 8),
           FilledButton(
             key: const Key('accept-crop'),
-            onPressed: _busy || !_hasCurrentPreview ? null : _accept,
+            onPressed: _busy || _manualRequired || !_hasCurrentPreview
+                ? null
+                : _accept,
             child: const Text('اعتماد القص وحفظ'),
           ),
         ],

@@ -104,3 +104,11 @@ until CI is green on the last SHA.
 - The earlier failure on `546c7fb` (two jobs, steps that fetch a model and
   launch the diagnostic build) is handled by a rerun of the failed jobs. The
   cause is reported as unproven if the rerun does not explain it.
+
+## 11. حالة المرحلة 3 (2026-11-02)
+
+- **P1:** قرار بيانات: الإبقاء على الوزن 1.15. التفاصيل والأرقام في التقرير §13.3، والمحاكاة في `tool/evidence/p1_orientation_port.py` (Python، ليست Dart).
+- **P6:** الجزء الدالي `nearestCornerIndex` مُنفَّذ مع اختبارات. دمج الإيماءات لم يُنفَّذ.
+- **الانتقال التلقائي إلى اليدوي (البند 5):** مُنفَّذ مع اختبار widget؛ غير مُتحقَّق منه حتى CI.
+- **T04، T06، T-stale، D7، D2:** لم تُنفَّذ في هذا التمرير. الأسباب والموافقات المطلوبة في التقرير §13.2 و§13.5.
+- **D9:** مراجعة كاملة لمسارات `BoundaryProposal` (التقرير §13.4).

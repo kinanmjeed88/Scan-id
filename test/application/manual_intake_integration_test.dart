@@ -746,36 +746,29 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('لا يحتوي على أربع زوايا صالحة'),
-        findsOneWidget,
+      // Spec change (auto-to-manual fallback, 2026-11-02): a malformed
+      // suggestion on the untouched frame enters four-tap mode. Preview and
+      // accept stay blocked, so the full frame is never previewed or accepted
+      // as a detected crop. The old expectation (a full-frame preview after a
+      // failed suggestion) is intentionally replaced.
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      final previewButton = find.widgetWithText(
+        OutlinedButton,
+        'معاينة التصحيح',
       );
-
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      await tester.pumpAndSettle();
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(tester.widget<OutlinedButton>(previewButton).onPressed, isNull);
+      expect(editor.lastPreviewRecipe, isNull);
 
       editor.proposal = null;
       await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('لا يتوفر اقتراح تلقائي في هذا الإصدار'),
-        findsOneWidget,
-      );
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
-      expect(
-        tester
-            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
-            .onPressed,
-        isNotNull,
-        reason:
-            'the still-current valid preview remains available after an empty refresh',
-      );
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(previewButton).onPressed, isNull);
+      expect(editor.lastPreviewRecipe, isNull);
       expect(tester.takeException(), isNull);
     },
   );

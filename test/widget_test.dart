@@ -241,7 +241,6 @@ void main() {
       return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
     }
 
-
     // Two taps: partial selection, no handles yet.
     await tester.tapAt(at(.2, .2));
     await tester.pumpAndSettle();

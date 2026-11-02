@@ -261,7 +261,6 @@ void main() {
       ),
     );
 
-    final r = _canvas(tester);
     // 8 px right and 8 px up of the handle centre: about 11 px away, inside the
     // 24 px radius of corner 3 only. Other corners are hundreds of px away.
     final start = _handleCentre(tester, 3) + const Offset(8, -8);

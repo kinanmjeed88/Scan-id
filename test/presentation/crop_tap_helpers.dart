@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Opens four-tap mode on the crop screen when it is not already open.

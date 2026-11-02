@@ -126,11 +126,13 @@ PhysicalAspectEstimate? _estimateFor(
   List<Point2> corners,
   int sourceWidth,
   int sourceHeight,
-) => estimatePhysicalAspect(
-  corners,
-  sourceWidth: sourceWidth,
-  sourceHeight: sourceHeight,
-);
+) {
+  return estimatePhysicalAspect(
+    corners,
+    sourceWidth: sourceWidth,
+    sourceHeight: sourceHeight,
+  );
+}
 
 void main() {
   group('estimatePhysicalAspect', () {

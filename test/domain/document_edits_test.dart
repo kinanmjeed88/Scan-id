@@ -107,38 +107,27 @@ void main() {
         PageLayout.item(typed, 'doc').copyWith(pageIndex: 0, x: 10, y: 10),
       ],
     );
-    final changed = PageLayout.item(
-      DocumentEdits.setKind(placed, 'doc', DocumentKind.passport),
-      'doc',
-    );
+    final c = DocumentEdits.setKind(placed, 'doc', DocumentKind.passport);
+    final changed = PageLayout.item(c, 'doc');
     expect(changed.sizeConfirmed, isFalse);
     expect(changed.pageIndex, isNull);
   });
 
   test('other without a confirmed size stays unconfirmed', () {
-    final item = PageLayout.item(
-      DocumentEdits.setKind(_project(), 'doc', DocumentKind.other),
-      'doc',
-    );
+    final other = DocumentEdits.setKind(_project(), 'doc', DocumentKind.other);
+    final item = PageLayout.item(other, 'doc');
     expect(item.sizeConfirmed, isFalse);
     expect(item.pageIndex, isNull);
   });
 
   test('refreshProvisionalSize re-orients only unconfirmed catalog sizes', () {
     // A portrait provisional size on a landscape picture must lie down.
-    final portrait = _project().copyWith(
-      items: [
-        PageLayout.item(_project(), 'doc').copyWith(
-          documentKind: DocumentKind.passport,
-          width: 88,
-          height: 125,
-        ),
-      ],
-    );
-    final refreshed = PageLayout.item(
-      DocumentEdits.refreshProvisionalSize(portrait, 'doc'),
-      'doc',
-    );
+    final base = PageLayout.item(_project(), 'doc');
+    final passport = base.copyWith(documentKind: DocumentKind.passport);
+    final portraitItem = passport.copyWith(width: 88, height: 125);
+    final portrait = _project().copyWith(items: [portraitItem]);
+    final refreshedDoc = DocumentEdits.refreshProvisionalSize(portrait, 'doc');
+    final refreshed = PageLayout.item(refreshedDoc, 'doc');
     expect([refreshed.width, refreshed.height], [125, 88]);
     expect(refreshed.sizeConfirmed, isFalse);
 
@@ -157,20 +146,13 @@ void main() {
 
   test('"unknown" takes the document off the sheet, "other" keeps it', () {
     // A typed size is an explicit confirmation; it keeps "other" on the sheet.
-    final typed = DocumentEdits.resize(
-      DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport),
-      'doc',
-      width: 125,
-    );
-    final placed = typed.copyWith(
-      items: [
-        PageLayout.item(typed, 'doc').copyWith(pageIndex: 0, x: 10, y: 10),
-      ],
-    );
-    final unknown = PageLayout.item(
-      DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown),
-      'doc',
-    );
+    final p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport);
+    final typed = DocumentEdits.resize(p, 'doc', width: 125);
+    final item = PageLayout.item(typed, 'doc');
+    final onSheet = item.copyWith(pageIndex: 0, x: 10, y: 10);
+    final placed = typed.copyWith(items: [onSheet]);
+    final u = DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown);
+    final unknown = PageLayout.item(u, 'doc');
     expect(unknown.pageIndex, isNull);
     expect(unknown.sizeConfirmed, isFalse);
     final other = PageLayout.item(

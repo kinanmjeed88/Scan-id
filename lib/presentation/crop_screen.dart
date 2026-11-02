@@ -702,12 +702,9 @@ class _CropScreenState extends State<CropScreen> {
   /// Commits a new draft. [clearManualRequired] is set only by a valid
   /// boundary (a suggestion or four taps); every other change keeps the gate.
   void _change(CropDraft next, {bool clearManualRequired = false}) {
-    _commitState(
-      _state!.copyWith(
-        draft: next,
-        manualRequired: clearManualRequired ? false : null,
-      ),
-    );
+    final current = _state!;
+    final manual = clearManualRequired ? false : current.manualRequired;
+    _commitState(current.copyWith(draft: next, manualRequired: manual));
   }
 
   double? _tryParseCustomRatio(String widthText, String heightText) {

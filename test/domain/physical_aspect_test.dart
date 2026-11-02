@@ -154,11 +154,7 @@ void main() {
           tiltX: _deg(25),
           tiltY: _deg(25),
         );
-        _expectRatio(
-          _estimateFor(corners, 3000, 4000),
-          w / h,
-          .005,
-        );
+        _expectRatio(_estimateFor(corners, 3000, 4000), w / h, .005);
       }
     });
 
@@ -174,11 +170,7 @@ void main() {
           tiltY: _deg(25),
           roll: _deg(roll),
         );
-        _expectRatio(
-          _estimateFor(corners, 3000, 4000),
-          85.6 / 54,
-          .005,
-        );
+        _expectRatio(_estimateFor(corners, 3000, 4000), 85.6 / 54, .005);
       }
     });
 
@@ -201,11 +193,7 @@ void main() {
           tiltX: _deg(tx),
           tiltY: _deg(ty),
         );
-        _expectRatio(
-          _estimateFor(corners, 3000, 4000),
-          85.6 / 54,
-          .005,
-        );
+        _expectRatio(_estimateFor(corners, 3000, 4000), 85.6 / 54, .005);
       }
     });
 
@@ -226,11 +214,7 @@ void main() {
           tiltX: _deg(25),
           tiltY: _deg(25),
         );
-        _expectRatio(
-          _estimateFor(corners, sw, sh),
-          85.6 / 54,
-          .005,
-        );
+        _expectRatio(_estimateFor(corners, sw, sh), 85.6 / 54, .005);
       }
     });
 
@@ -247,11 +231,7 @@ void main() {
         tiltY: _deg(30),
         pixelOffsets: _fixedPattern,
       );
-      _expectRatio(
-        _estimateFor(mild, 3000, 4000),
-        85.6 / 54,
-        .01,
-      );
+      _expectRatio(_estimateFor(mild, 3000, 4000), 85.6 / 54, .01);
 
       final strong = _projectRectangle(
         physicalWidth: 85.6,
@@ -264,11 +244,7 @@ void main() {
         roll: _deg(20),
         pixelOffsets: _fixedPattern,
       );
-      _expectRatio(
-        _estimateFor(strong, 3000, 4000),
-        85.6 / 54,
-        .035,
-      );
+      _expectRatio(_estimateFor(strong, 3000, 4000), 85.6 / 54, .035);
     });
 
     test('single-axis tilt and in-plane rotation are not determinable', () {

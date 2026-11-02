@@ -93,7 +93,6 @@ DocumentRecord _unresolvedRecord(String docId, String assetId) =>
       ),
     );
 
-
 /// Places four valid corners on the tap surface, the way a user lifts the
 /// fallback gate of an untouched frame.
 Future<void> tapFourCorners(WidgetTester tester) async {

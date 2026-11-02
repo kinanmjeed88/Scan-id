@@ -109,13 +109,17 @@ class _CropEditorState {
 
 /// Tap mode is active exactly while the fallback gate is set, so the user is
 /// never blocked without a way to place the four corners.
-ManualQuadSelection? _tapSelectionFor(_CropEditorState state) =>
-    state.manualRequired ? ManualQuadSelection.empty() : null;
+ManualQuadSelection? _tapSelectionFor(_CropEditorState state) {
+  if (!state.manualRequired) return null;
+  return ManualQuadSelection.empty();
+}
 
 /// The fallback instruction stays visible while the gate is set. Any other
 /// state shows no fallback instruction.
-String? _noticeFor(_CropEditorState state) =>
-    state.manualRequired ? manualFallbackNotice : null;
+String? _noticeFor(_CropEditorState state) {
+  if (!state.manualRequired) return null;
+  return manualFallbackNotice;
+}
 
 String _formatMillimeters(double value) {
   if ((value - value.roundToDouble()).abs() < 1e-6) {
@@ -441,9 +445,10 @@ class _CropScreenState extends State<CropScreen> {
       // saved crop and an explicit extraction keep their own paths.
       final gateBase = crop == null && !extractDerived;
       final needsManual = gateBase && proposed == null;
-      final notice = needsManual
-          ? '${resolution.notice ?? ''} $manualFallbackNotice'.trim()
-          : resolution.notice;
+      var notice = resolution.notice;
+      if (needsManual) {
+        notice = '${resolution.notice ?? ''} $manualFallbackNotice'.trim();
+      }
       final EditHistory<_CropEditorState> history;
       final _CropEditorState activeState;
       if (crop != null) {
@@ -972,9 +977,8 @@ class _CropScreenState extends State<CropScreen> {
   /// crop. A user's own corners are never replaced by this fallback.
   void _enterManualFallback() {
     final current = _state;
-    if (current == null ||
-        current.manualRequired ||
-        !_samePoints(current.draft.corners, CropDraft.fullImage().corners)) {
+    if (current == null || current.manualRequired) return;
+    if (!_samePoints(current.draft.corners, CropDraft.fullImage().corners)) {
       return;
     }
     // Replaces the current entry rather than adding one, so undo cannot

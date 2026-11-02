@@ -21,13 +21,21 @@ const List<(double, double)> _fixedPattern = [
   (-2.0, -2.0),
 ];
 
-_Matrix _multiply(_Matrix a, _Matrix b) => [
-  for (var i = 0; i < 3; i++)
-    [
-      for (var j = 0; j < 3; j++)
-        a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j],
-    ],
-];
+_Matrix _multiply(_Matrix a, _Matrix b) {
+  final product = [
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0],
+  ];
+  for (var i = 0; i < 3; i++) {
+    for (var j = 0; j < 3; j++) {
+      for (var k = 0; k < 3; k++) {
+        product[i][j] += a[i][k] * b[k][j];
+      }
+    }
+  }
+  return product;
+}
 
 _Matrix _rotationX(double t) {
   final c = math.cos(t);

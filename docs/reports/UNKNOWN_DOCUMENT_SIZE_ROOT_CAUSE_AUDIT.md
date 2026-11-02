@@ -614,6 +614,8 @@ local ones.
 | `41522190868` | `998f2ec` | 1: widget undo | Toggle label flipped to "cancel", but the surface was absent |
 | `41523422386` | `184d613` | 1: widget undo | Diagnostic: canvas, result, and corner-0 all absent (0) |
 | `41524485716` | `ce5d800` | **0: all pass** | — |
+| `41527303468` | `b03d6c1` | infrastructure: cancelled at the 50-minute job limit in the emulator step `Android native instrumentation` (21:31 to 22:09 UTC); every other gate passed; rerun refused by GitHub | Same code re-pushed as an empty commit; the emulator step is not a code failure (it passed on `ce5d800`) |
+| `41534968235` | `95ccef6` | **0: all pass** (`+915`, `androidTests=4 failures=0`, Android 16 success) | Final green SHA of this round |
 
 **Root causes found in this round**
 

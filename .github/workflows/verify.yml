@@ -179,6 +179,49 @@ jobs:
           PY
           node --check "$script"
           rm -f "$script"
+      # TEMPORARY DIAGNOSTIC (remove after the format diff is recorded). Formats
+      # copies only; the real files and the read-only gate are untouched.
+      - name: Format diagnostic (temporary, copies only)
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          rm -rf format_probe && mkdir -p format_probe
+          trap 'rm -rf format_probe' EXIT
+          : > diagnostics/format-diff.txt
+          f="lib/domain/crop_draft.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="lib/domain/document_edits.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="lib/domain/manual_boundary.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="lib/domain/physical_aspect.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="lib/presentation/crop_screen.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="lib/presentation/editor_controller.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/application/crop_lifecycle_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/application/document_export_pipeline_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/application/manual_intake_integration_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/application/stage1_a4_workflow_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/domain/document_edits_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/domain/physical_aspect_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/presentation/crop_corner_hit_layer_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/presentation/crop_tap_helpers.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/presentation/editor_ribbon_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/presentation/stage1_manual_confirmation_widget_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          f="test/widget_test.dart"; n=$(echo "$f" | tr '/' '_'); cp "$f" "format_probe/orig_$n"; cp "$f" "format_probe/fmt_$n"; dart format "format_probe/fmt_$n" >/dev/null 2>&1; diff -u --label "a/$f" --label "b/$f" "format_probe/orig_$n" "format_probe/fmt_$n" >> diagnostics/format-diff.txt || true
+          echo "===== FORMAT DIFF BEGIN ====="
+          cat diagnostics/format-diff.txt
+          echo "===== FORMAT DIFF END ====="
+          python3 - <<'PY'
+          import urllib.parse, pathlib
+          text = pathlib.Path('diagnostics/format-diff.txt').read_text(encoding='utf-8')
+          chunks, cur = [], ''
+          for line in text.splitlines(keepends=True):
+              if len((cur + line).encode('utf-8')) > 3000:
+                  chunks.append(cur); cur = ''
+              cur += line
+          if cur: chunks.append(cur)
+          for i, c in enumerate(chunks[:10], 1):
+              print(f"::notice title=format-diff-{i}of{len(chunks)}::" + urllib.parse.quote(c, safe=' /+-_.,:;=()[]{}<>@!#$%&*\'"?~|^`'))
+          print(f"chunks={len(chunks)}")
+          PY
       - name: Dart format gate
         run: python tool/ci_gate.py format python tool/format_report.py
       - name: Flutter analyze

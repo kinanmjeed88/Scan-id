@@ -87,7 +87,9 @@ Future<void> _setZoom(
   final target = topLeftInViewer ?? c0;
   // M = T(t) * S(zoom): M * c0 = zoom * c0 + t must equal the target.
   final t = target - c0 * zoom;
-  controller.value = Matrix4.identity()..translate(t.dx, t.dy)..scale(zoom);
+  final m = Matrix4.identity()..translate(t.dx, t.dy);
+  m.scale(zoom);
+  controller.value = m;
   await tester.pump();
 }
 

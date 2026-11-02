@@ -819,3 +819,7 @@ flowchart TD
 | `multiDocumentSegmentationEnabled` | false | `multi_document_segmentation_flag.dart:8` |
 | `defaultSegment` | فارغ آمن | `recognition_pipeline.dart:210` |
 | JPEG save | 95 | `prepare_image.dart:94`، و`local_image_editor` |
+
+---
+
+**ملاحظة إضافية (2026-11-02، المرحلة 5):** صف D7 في الجدول أعلاه («توحيد `toRecipe` ليرفض أيضاً») **لم يُعتمد**. القرار الحالي في تقرير الدمج (`SCAN_ID_MAKTABATI_CROP_INTEGRATION_REPORT.md`، §5 و§14.6 و§15.6): الإبقاء على حد 16 ميغابكسل، و`toRecipe` يصغّر صامتاً، ومسار الدقة الكاملة يرفض ولا يصغّر. أي تغيير مرئي يحتاج موافقة المستخدم. النص الأصلي أعلاه لم يُعدَّل، وهذه الملاحظة تُسجّل الفرق بين التوصية والقرار.

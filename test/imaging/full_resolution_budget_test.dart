@@ -56,6 +56,22 @@ void main() {
     expect(_fullFrameRefused(maxImportPixels + 1, 1), isTrue);
   });
 
+  test('full-res refuses a 4800 px region of a 6000 px original', () {
+    // Diamond-sized crop: bounding box 0.1..0.9 of a 6000x6000 original is
+    // about 4800x4800 = 23.04 MP. The full-density check refuses it and does
+    // not downscale (the message says so). The sampled recipe is built from
+    // preview dimensions, so it is not the same quantity; see report 15.7.
+    const diamondBox = (left: 0.1, top: 0.1, right: 0.9, bottom: 0.9);
+    expect(
+      () => requireFullResolutionCropFits(
+        bounds: diamondBox,
+        orientedWidth: 6000,
+        orientedHeight: 6000,
+      ),
+      throwsA(isA<ValidationException>()),
+    );
+  });
+
   test('both paths agree with the shared predicate over a size grid', () {
     for (final w in _sizes) {
       for (final h in _sizes) {

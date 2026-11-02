@@ -1341,6 +1341,15 @@ void main() {
     await previewFrame(tester);
     expect(_acceptEnabled(tester), isTrue);
 
+    // Editing needs the corner view: a preview replaces the handles with the
+    // result image. Switch back, then edit the reviewed frame.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SegmentedButton<bool>),
+        matching: find.text('الزوايا'),
+      ),
+    );
+    await tester.pumpAndSettle();
     // Any edit of the reviewed frame invalidates that preview.
     await dragInSteps(
       tester,

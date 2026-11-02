@@ -817,88 +817,91 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'auto-to-manual: a failed detection blocks preview and accept',
-    (tester) async {
-      tester.view.physicalSize = const Size(1400, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final repository = _MemoryProjects();
-      final project = await repository.create(
-        projectFixture(assets: [assetFixture()]),
-      );
-      final service = ProjectService(
-        repository,
-        _NoAssets(),
-        imageEditor: _NoSuggestionEditor(),
-      );
-      await tester.pumpWidget(
-        AppShell(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: FilledButton(
-                onPressed: () {
-                  Navigator.of(context).push<Project>(
-                    MaterialPageRoute(
-                      builder: (_) => CropScreen(
-                        project: project,
-                        asset: project.assets.single,
-                        service: service,
-                      ),
+  testWidgets('auto-to-manual: a failed detection blocks preview and accept', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()]),
+    );
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      imageEditor: _NoSuggestionEditor(),
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () {
+                Navigator.of(context).push<Project>(
+                  MaterialPageRoute(
+                    builder: (_) => CropScreen(
+                      project: project,
+                      asset: project.assets.single,
+                      service: service,
                     ),
-                  );
-                },
-                child: const Text('فتح القص'),
-              ),
+                  ),
+                );
+              },
+              child: const Text('فتح القص'),
             ),
           ),
         ),
-      );
-      await tester.tap(find.text('فتح القص'));
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.tap(find.text('فتح القص'));
+    await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('اقتراح حدود المستمسك'));
-      await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('اقتراح حدود المستمسك'));
+    await tester.pumpAndSettle();
 
-      // The failed detection on the untouched full frame enters tap mode.
-      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
-      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
-      ButtonStyleButton accept() => tester.widget<ButtonStyleButton>(
+    // The failed detection on the untouched full frame enters tap mode.
+    expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+    expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
+    final previewButton = find.ancestor(
+      of: find.text('معاينة التصحيح'),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+    ButtonStyleButton acceptButton() {
+      return tester.widget<ButtonStyleButton>(
         find.byKey(const Key('accept-crop')),
       );
-      ButtonStyleButton preview() => tester.widget<ButtonStyleButton>(
-        find.ancestor(
-          of: find.text('معاينة التصحيح'),
-          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
-        ),
-      );
-      expect(preview().onPressed, isNull);
-      expect(accept().onPressed, isNull);
+    }
 
-      // Four separated taps complete the quadrilateral and lift the block.
-      Offset at(double fx, double fy) {
-        final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
-        return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
-      }
+    expect(tester.widget<ButtonStyleButton>(previewButton).onPressed, isNull);
+    expect(acceptButton().onPressed, isNull);
 
-      for (final point in const [
-        (0.2, 0.2),
-        (0.8, 0.2),
-        (0.8, 0.8),
-        (0.2, 0.8),
-      ]) {
-        await tester.tapAt(at(point.$1, point.$2));
-        await tester.pumpAndSettle();
-      }
-      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
-      expect(preview().onPressed, isNotNull);
-      // Accept still needs a current preview of the new quadrilateral.
-      expect(accept().onPressed, isNull);
-    },
-  );
+    // Four separated taps complete the quadrilateral and lift the block.
+    Offset at(double fx, double fy) {
+      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    }
+
+    for (final point in const [
+      (0.2, 0.2),
+      (0.8, 0.2),
+      (0.8, 0.8),
+      (0.2, 0.8),
+    ]) {
+      await tester.tapAt(at(point.$1, point.$2));
+      await tester.pumpAndSettle();
+    }
+    expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+    expect(
+      tester.widget<ButtonStyleButton>(previewButton).onPressed,
+      isNotNull,
+    );
+    // Accept still needs a current preview of the new quadrilateral.
+    expect(acceptButton().onPressed, isNull);
+  });
 
   testWidgets('the A4 editor has no overflow on narrow phones', (tester) async {
     for (final size in const [Size(320, 640), Size(360, 780)]) {

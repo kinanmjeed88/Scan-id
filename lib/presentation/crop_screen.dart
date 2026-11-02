@@ -1550,7 +1550,13 @@ class _CropScreenState extends State<CropScreen> {
             if (_busy) return;
             // Commit only when the corner really moved: a fully refused drag
             // must not add an undo step.
-            if (_cornerDragMoved) _change(_draft!);
+            if (_cornerDragMoved) {
+              // The commit clears _error; keep the crossing notice so the user
+              // learns why the corner stopped at its last valid position.
+              final keepNotice = _error == _cornerCrossingMessage;
+              _change(_draft!);
+              if (keepNotice) setState(() => _error = _cornerCrossingMessage);
+            }
           },
           onDragCancel: (_) {
             if (_busy) return;

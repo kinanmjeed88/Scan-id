@@ -62,6 +62,13 @@ class ManualQuadSelection {
   /// canonical quadrilateral is not a safe crop quadrilateral.
   List<Point2> completedCorners() {
     require(isComplete, 'يلزم تحديد أربع زوايا قبل القص.');
+    // Order-independent pre-check (convex position of the tapped SET). It never
+    // looks at tap sequence, so a bow-tie tapped in crossing order is still
+    // accepted when its canonical ring is convex.
+    require(
+      unorderedQuadIssue(points) == null,
+      'الزوايا المحددة لا تكوّن مستطيلا صالحا؛ أعد التحديد.',
+    );
     final corners = canonicalQuadCorners(points);
     final issue = normalizedQuadIssue(corners);
     require(

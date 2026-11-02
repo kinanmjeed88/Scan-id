@@ -106,6 +106,9 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
   BoundaryProposal? proposal;
   Object? refreshError;
   Completer<BoundaryProposal?>? pendingRefresh;
+  // T-stale: completers served in call order; the test decides the order in
+  // which they complete, so results can arrive out of order.
+  final List<Completer<BoundaryProposal?>> queuedRefreshes = [];
   int refreshCount = 0;
 
   @override
@@ -117,6 +120,7 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
     CancellationToken? cancellation,
   }) {
     refreshCount++;
+    if (queuedRefreshes.isNotEmpty) return queuedRefreshes.removeAt(0).future;
     final pending = pendingRefresh;
     if (pending != null) return pending.future;
     final error = refreshError;
@@ -1064,6 +1068,163 @@ void main() {
       await tapKey(tester, const Key('review-crop-rec-uncertain'));
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  // ---- T-stale: a late suggestion must never overwrite a newer frame ----
+  Future<void> pumpStaleCrop(
+    WidgetTester tester,
+    _ControlledBoundaryEditor editor,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = MemoryProjects();
+    final asset = assetFixture(id: 'asset-stale-suggestion');
+    final project = await repository.create(projectFixture(assets: [asset]));
+    final service = ProjectService(
+      repository,
+      NoAssets(),
+      imageEditor: editor,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: CropScreen(project: project, asset: asset, service: service),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Rect staleCanvas(WidgetTester tester) =>
+      tester.getRect(find.byKey(const Key('crop-source-image')));
+
+  Offset staleNormalized(WidgetTester tester, int i) {
+    final r = staleCanvas(tester);
+    final c = tester.getCenter(find.byKey(Key('crop-corner-$i')));
+    return Offset((c.dx - r.left) / r.width, (c.dy - r.top) / r.height);
+  }
+
+  // Corner 1 is dragged first so the draft is dirty: cancelling a suggestion
+  // then keeps the screen open instead of popping it.
+  Future<void> dirtyDraft(WidgetTester tester) async {
+    final r = staleCanvas(tester);
+    await tester.dragFrom(
+      tester.getCenter(find.byKey(const Key('crop-corner-1'))),
+      Offset(-0.2 * r.width, 0),
+    );
+    await tester.pump();
+  }
+
+  Future<void> cancelSuggestionAndKeepEditing(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
+    await tester.pump();
+    await tester.tap(find.text('متابعة التحرير'));
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+
+  final quadA = [
+    Point2(.12, .12),
+    Point2(.88, .12),
+    Point2(.88, .88),
+    Point2(.12, .88),
+  ];
+  final quadB = [
+    Point2(.2, .15),
+    Point2(.85, .2),
+    Point2(.8, .85),
+    Point2(.15, .8),
+  ];
+  BoundaryProposal proposalOf(List<Point2> corners) => BoundaryProposal(
+    producer: BoundaryProducer.learnedModel,
+    corners: corners,
+    modelConfidence: 0.42,
+    minAutoAcceptConfidence: 0.55,
+  );
+
+  testWidgets(
+    'T-stale: a suggestion that completes after cancel and a new edit is dropped',
+    (tester) async {
+      final editor = _ControlledBoundaryEditor();
+      final late = Completer<BoundaryProposal?>();
+      editor.queuedRefreshes.add(late);
+      await pumpStaleCrop(tester, editor);
+
+      await dirtyDraft(tester);
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pump();
+      expect(editor.refreshCount, 1);
+
+      await cancelSuggestionAndKeepEditing(tester);
+
+      // New user edit while the cancelled request is still outstanding.
+      final r = staleCanvas(tester);
+      await tester.dragFrom(
+        tester.getCenter(find.byKey(const Key('crop-corner-2'))),
+        Offset(-0.1 * r.width, -0.1 * r.height),
+      );
+      await tester.pump();
+      final editedCorner1 = staleNormalized(tester, 1);
+      final editedCorner2 = staleNormalized(tester, 2);
+      expect(editedCorner2.dx, closeTo(0.9, 0.01));
+
+      late.complete(proposalOf(quadA));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The late result is not applied: the user's frame is unchanged.
+      expect(staleNormalized(tester, 1).dx, closeTo(editedCorner1.dx, 0.005));
+      expect(staleNormalized(tester, 2).dx, closeTo(editedCorner2.dx, 0.005));
+      expect(staleNormalized(tester, 0).dx, closeTo(0, 0.005));
+      expect(find.textContaining('اقتراح جديد'), findsNothing);
+      expect(editor.lastPreviewRecipe, isNull);
+    },
+  );
+
+  testWidgets(
+    'T-stale: reversed completion order keeps the newest suggestion',
+    (tester) async {
+      final editor = _ControlledBoundaryEditor();
+      final first = Completer<BoundaryProposal?>();
+      final second = Completer<BoundaryProposal?>();
+      editor.queuedRefreshes
+        ..add(first)
+        ..add(second);
+      await pumpStaleCrop(tester, editor);
+
+      await dirtyDraft(tester);
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pump();
+      await cancelSuggestionAndKeepEditing(tester);
+
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pump();
+      expect(editor.refreshCount, 2);
+
+      // Newest completes first, then the superseded request completes.
+      second.complete(proposalOf(quadB));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      for (var i = 0; i < 4; i++) {
+        expect(staleNormalized(tester, i).dx, closeTo(quadB[i].x, 0.01));
+        expect(staleNormalized(tester, i).dy, closeTo(quadB[i].y, 0.01));
+      }
+
+      first.complete(proposalOf(quadA));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      for (var i = 0; i < 4; i++) {
+        expect(
+          staleNormalized(tester, i).dx,
+          closeTo(quadB[i].x, 0.01),
+          reason: 'superseded result must not replace corner $i',
+        );
+      }
+      expect(find.textContaining('اقتراح جديد'), findsOneWidget);
+      expect(editor.lastPreviewRecipe, isNull);
     },
   );
 }

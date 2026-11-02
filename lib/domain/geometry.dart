@@ -317,6 +317,65 @@ QuadGeometryIssue? normalizedQuadIssue(List<Point2> corners) {
   return null;
 }
 
+double _orientation(Point2 a, Point2 b, Point2 c) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+
+int _sideOf(double value) => value > 1e-12 ? 1 : (value < -1e-12 ? -1 : 0);
+
+/// True when two opposite edges of the ring cross at an interior point of both.
+///
+/// Touching, shared endpoints and collinear contact are NOT crossings; those
+/// shapes are rejected by [normalizedQuadIssue] instead. Used as a drag-time
+/// gate so that a pointer move cannot turn the ring into a bow-tie.
+bool quadEdgesCross(List<Point2> ring) {
+  if (ring.length != 4) return false;
+  bool properCrossing(Point2 a, Point2 b, Point2 c, Point2 d) {
+    final cdSideOfA = _sideOf(_orientation(a, b, c));
+    final cdSideOfB = _sideOf(_orientation(a, b, d));
+    final abSideOfC = _sideOf(_orientation(c, d, a));
+    final abSideOfD = _sideOf(_orientation(c, d, b));
+    return cdSideOfA * cdSideOfB < 0 && abSideOfC * abSideOfD < 0;
+  }
+
+  return properCrossing(ring[0], ring[1], ring[2], ring[3]) ||
+      properCrossing(ring[1], ring[2], ring[3], ring[0]);
+}
+
+/// Validity of four points taken as an UNORDERED set (tap input), before any
+/// canonical ordering is applied.
+///
+/// Convex position is a property of the set, not of the tap sequence: a point
+/// lying inside or on the triangle of the other three makes no convex ring.
+/// Checking it here means ordering can never hide that defect. Area and
+/// perspective checks still run on the ordered ring in [normalizedQuadIssue].
+QuadGeometryIssue? unorderedQuadIssue(List<Point2> points) {
+  if (points.length != 4) return QuadGeometryIssue.wrongPointCount;
+  if (points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+    return QuadGeometryIssue.nonFiniteCoordinates;
+  }
+  if (points.any((p) => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) {
+    return QuadGeometryIssue.outOfBounds;
+  }
+  bool insideOrOnTriangle(Point2 p, Point2 a, Point2 b, Point2 c) {
+    final signs = [
+      _sideOf(_orientation(a, b, p)),
+      _sideOf(_orientation(b, c, p)),
+      _sideOf(_orientation(c, a, p)),
+    ];
+    final hasNegative = signs.any((s) => s < 0);
+    final hasPositive = signs.any((s) => s > 0);
+    return !(hasNegative && hasPositive);
+  }
+
+  for (var i = 0; i < 4; i++) {
+    final others = [for (var j = 0; j < 4; j++) if (j != i) points[j]];
+    if (insideOrOnTriangle(points[i], others[0], others[1], others[2])) {
+      return QuadGeometryIssue.notConvex;
+    }
+  }
+  return null;
+}
+
 class CropGeometry {
   CropGeometry({
     required List<Point2> corners,

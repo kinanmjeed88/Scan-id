@@ -18,8 +18,13 @@ import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
 import '../imaging/prepare_image.dart';
+import 'crop_corner_hit_layer.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
+
+/// Shown when a drag would make two opposite edges cross. The move is refused.
+const _cornerCrossingMessage =
+    'زوايا القص تتقاطع؛ أبقيت آخر موضع صالح للزاوية.';
 
 /// New manual crop drafts start at the midpoint of the existing 0–1 sharpness
 /// control. It is preview-only: the original stays unchanged until acceptance.
@@ -213,6 +218,7 @@ class _CropScreenState extends State<CropScreen> {
   // Set when live detection fails on an untouched frame. Preview and accept
   // stay blocked until four taps or an explicit corner edit clears it.
   bool _manualRequired = false;
+  bool _cornerDragMoved = false;
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
@@ -1347,6 +1353,7 @@ class _CropScreenState extends State<CropScreen> {
                                         Positioned.fill(
                                           child: Image.memory(
                                             _source!.preview,
+                                            key: const Key('crop-source-image'),
                                             fit: BoxFit.fill,
                                           ),
                                         ),
@@ -1449,6 +1456,15 @@ class _CropScreenState extends State<CropScreen> {
         (local.dy / height).clamp(0, 1).toDouble(),
       ),
     );
+    if (quadEdgesCross(next.corners)) {
+      // Drag-time gate (UI only): the corner stays at its last valid position.
+      // CropDraft still allows crossing by design.
+      if (_error != _cornerCrossingMessage) {
+        setState(() => _error = _cornerCrossingMessage);
+      }
+      return;
+    }
+    _cornerDragMoved = true;
     _manualRequired = false;
     setState(() {
       _coalescedCustomField = null;
@@ -1500,6 +1516,10 @@ class _CropScreenState extends State<CropScreen> {
 
   /// The four draggable corners. Hidden in tap mode, where no corner exists
   /// until the fourth tap completes the quadrilateral.
+  ///
+  /// P6: the corners are visual only (IgnorePointer). Hits come from ONE
+  /// geometric layer placed last, which selects the nearest corner inside a
+  /// 24 px screen radius and lets the viewer pan everywhere else.
   List<Widget> _cornerHandles(double width, double height) {
     if (_tapSelection != null) return const [];
     final corners = _draft!.corners;
@@ -1508,48 +1528,60 @@ class _CropScreenState extends State<CropScreen> {
         Positioned(
           left: corners[i].x * width,
           top: corners[i].y * height,
-          child: _cornerHandle(i, width, height),
+          child: _ScreenFixedSize(
+            controller: _view,
+            child: IgnorePointer(child: _cornerVisual(i)),
+          ),
         ),
+      Positioned.fill(
+        child: CornerHitLayer(
+          corners: corners,
+          canvasSize: Size(width, height),
+          inset: 20,
+          zoom: () => _view.value.getMaxScaleOnAxis(),
+          onDragStart: (_) {
+            _cornerDragMoved = false;
+          },
+          onDragUpdate: (index, global) {
+            if (_busy) return;
+            _moveCorner(index, global, width, height);
+          },
+          onDragEnd: (_) {
+            if (_busy) return;
+            // Commit only when the corner really moved: a fully refused drag
+            // must not add an undo step.
+            if (_cornerDragMoved) _change(_draft!);
+          },
+          onDragCancel: (_) {
+            if (_busy) return;
+            _cornerDragMoved = false;
+            _cancelCornerDrag();
+          },
+        ),
+      ),
     ];
   }
 
-  /// One draggable corner. Its centre sits on the corner; the wrapper keeps the
-  /// visible size constant under zoom.
-  Widget _cornerHandle(int i, double width, double height) {
-    return _ScreenFixedSize(
-      controller: _view,
-      child: GestureDetector(
+  /// Visual of one corner. Its centre sits on the corner; the wrapper keeps the
+  /// visible size constant under zoom. Input is handled by the hit layer.
+  Widget _cornerVisual(int i) {
+    return Semantics(
+      label: 'زاوية القص ${i + 1}',
+      child: Container(
         key: Key('crop-corner-$i'),
-        behavior: HitTestBehavior.opaque,
-        onPanUpdate: _busy
-            ? null
-            : (details) {
-                _moveCorner(i, details.globalPosition, width, height);
-              },
-        onPanEnd: _busy
-            ? null
-            : (_) {
-                _change(_draft!);
-              },
-        onPanCancel: _busy ? null : _cancelCornerDrag,
-        child: Semantics(
-          label: 'زاوية القص ${i + 1}',
-          child: Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: const Color(0xff12685e),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-            ),
-            child: Text(
-              '${i + 1}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+        width: 40,
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: const Color(0xff12685e),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+        child: Text(
+          '${i + 1}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
           ),
         ),
       ),

@@ -70,8 +70,15 @@ bool coversOrientedFrame(
 /// native JPEG crop uses. A span above [maxImportPixels] must be refused
 /// before any silent downsample.
 int snappedSpanPixels(double start, double end, int size) {
+  // The interval must lie inside the image: a negative or >1 bound would
+  // yield a span that looks valid but describes pixels outside the source.
   require(
-    size > 0 && start.isFinite && end.isFinite && start < end,
+    size > 0 &&
+        start.isFinite &&
+        end.isFinite &&
+        start >= 0 &&
+        end <= 1 &&
+        start < end,
     'امتداد القص غير صالح.',
   );
   final first = (start * size).floor();
@@ -89,12 +96,9 @@ void requireFullResolutionCropFits({
 }) {
   final width = snappedSpanPixels(bounds.left, bounds.right, orientedWidth);
   final height = snappedSpanPixels(bounds.top, bounds.bottom, orientedHeight);
+  // Same predicate as every other 16 MP check (shared, overflow-safe).
   require(
-    width > 0 &&
-        height > 0 &&
-        width <= maxImportPixels &&
-        height <= maxImportPixels &&
-        width * height <= maxImportPixels,
+    withinImageBudget(width, height),
     'منطقة القص أكبر من حد المعالجة كاملة الدقة (16 مليون بكسل). '
     'لن يُستخدم التصغير الصامت.',
   );

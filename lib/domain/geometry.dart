@@ -375,7 +375,11 @@ QuadGeometryIssue? unorderedQuadIssue(List<Point2> points) {
     return QuadGeometryIssue.outOfBounds;
   }
   for (var i = 0; i < 4; i++) {
-    final others = [points[(i + 1) % 4], points[(i + 2) % 4], points[(i + 3) % 4]];
+    final others = [
+      points[(i + 1) % 4],
+      points[(i + 2) % 4],
+      points[(i + 3) % 4],
+    ];
     if (_insideOrOnTriangle(points[i], others[0], others[1], others[2])) {
       return QuadGeometryIssue.notConvex;
     }

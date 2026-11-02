@@ -143,6 +143,24 @@ bool _acceptEnabled(WidgetTester tester) {
   return tester.widget<FilledButton>(accept).onPressed != null;
 }
 
+/// Places four valid corners by taps on the tap surface (at 20 % and 80 % of
+/// its width and height). This is how a user lifts the fallback gate after a
+/// failed detection, so a preview is then a preview of a real boundary.
+Future<void> tapFourCorners(WidgetTester tester) async {
+  final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+  for (final (fx, fy) in const [
+    (0.2, 0.2),
+    (0.8, 0.2),
+    (0.8, 0.8),
+    (0.2, 0.8),
+  ]) {
+    await tester.tapAt(
+      Offset(rect.left + rect.width * fx, rect.top + rect.height * fy),
+    );
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
   test(
     'production import leaves a multi-region image intact for manual review',
@@ -481,13 +499,16 @@ void main() {
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
-
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      await tester.pumpAndSettle();
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      // Spec change (PR #39, C1): Undo restores the untouched full frame as an
+      // unapproved frame, so Preview stays blocked until a boundary is set.
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'معاينة التصحيح'),
+            )
+            .onPressed,
+        isNull,
+      );
 
       // Redo restores proposed quad, then preview and accept manual crop.
       await tester.tap(find.byTooltip('إعادة'));
@@ -805,6 +826,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // Spec change (PR #39, C3): the untouched frame is gated, so the preview
+    // of this invalid-preview probe needs four valid taps first.
+    await tapFourCorners(tester);
     await tester.ensureVisible(find.text('معاينة التصحيح'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('معاينة التصحيح'));
@@ -901,13 +925,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
 
+      // Spec change (PR #39, C3): the second asset has no boundary, so its
+      // preview needs four valid taps. The preview then shows those corners.
+      await tapFourCorners(tester);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
       await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       expect(editor.lastPreviewAssetId, secondAsset.id);
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(
+        editor.lastPreviewRecipe!.geometry.corners.first.x,
+        closeTo(.2, .01),
+      );
       expect(tester.takeException(), isNull);
     },
   );

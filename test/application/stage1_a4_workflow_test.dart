@@ -689,13 +689,14 @@ void main() {
       expect(project.items.single.documentKind, DocumentKind.unknown);
       expect(project.items.single.sizeConfirmed, isFalse);
       expect(project.items.single.pageIndex, isNull);
-      // Simulate a generic user confirmation; no type or print size is inferred.
+      // Spec change (PR #39, F-C): choosing "other" alone no longer confirms a
+      // size. The simulated user confirmation is an explicit typed size.
       project = await projects.save(
         arrangeDocuments(
-          DocumentEdits.setKind(
+          DocumentEdits.resize(
             project,
             project.items.single.id,
-            DocumentKind.other,
+            width: project.items.single.width,
           ),
         ).result,
       );
@@ -747,9 +748,14 @@ void main() {
       ]);
       final itemBefore = project2.items.single;
       if (!itemBefore.sizeConfirmed) {
+        // Spec change (PR #39, F-C): an explicit typed size confirms, not kind.
         project2 = await projects.save(
           arrangeDocuments(
-            DocumentEdits.setKind(project2, itemBefore.id, DocumentKind.other),
+            DocumentEdits.resize(
+              project2,
+              itemBefore.id,
+              width: itemBefore.width,
+            ),
           ).result,
         );
       }

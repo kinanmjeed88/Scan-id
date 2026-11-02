@@ -1,0 +1,1153 @@
+{
+ "seed": 20261102,
+ "trials": 300,
+ "groups": {
+  "G1_single_axis_symmetric": [
+   {
+    "name": "tilt_x=10 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.608794,
+    "assess_err_pct": 1.489314,
+    "recipe_err_pct": 1.453106,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.944019,
+    "angle_score": 0.920373,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=20 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.681866,
+    "assess_err_pct": 6.099029,
+    "recipe_err_pct": 6.055212,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.867449,
+    "angle_score": 0.841689,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=30 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.812521,
+    "assess_err_pct": 14.341265,
+    "recipe_err_pct": 14.283404,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.787368,
+    "angle_score": 0.757966,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=40 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 2.017699,
+    "assess_err_pct": 27.284743,
+    "recipe_err_pct": 27.202188,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.701566,
+    "angle_score": 0.661694,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=10 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.609093,
+    "assess_err_pct": 1.508205,
+    "recipe_err_pct": 1.472476,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.954661,
+    "angle_score": 0.93537,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=20 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.68361,
+    "assess_err_pct": 6.209061,
+    "recipe_err_pct": 6.165937,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.895493,
+    "angle_score": 0.870593,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=30 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.818445,
+    "assess_err_pct": 14.714968,
+    "recipe_err_pct": 14.657871,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.825797,
+    "angle_score": 0.800732,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=40 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 2.033943,
+    "assess_err_pct": 28.309514,
+    "recipe_err_pct": 28.227225,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.74966,
+    "angle_score": 0.719183,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=10 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.609258,
+    "assess_err_pct": 1.518598,
+    "recipe_err_pct": 1.483192,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.961903,
+    "angle_score": 0.945613,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=20 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.684587,
+    "assess_err_pct": 6.270703,
+    "recipe_err_pct": 6.22807,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.914903,
+    "angle_score": 0.890576,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=30 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.821857,
+    "assess_err_pct": 14.930237,
+    "recipe_err_pct": 14.87374,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.85265,
+    "angle_score": 0.830685,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=40 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 2.043612,
+    "assess_err_pct": 28.919445,
+    "recipe_err_pct": 28.837569,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.783628,
+    "angle_score": 0.760097,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=10 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.555331,
+    "assess_err_pct": -1.883328,
+    "recipe_err_pct": -1.913598,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.944691,
+    "angle_score": 0.945935,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=20 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.465935,
+    "assess_err_pct": -7.522787,
+    "recipe_err_pct": -7.546664,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.877553,
+    "angle_score": 0.881404,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=30 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.320947,
+    "assess_err_pct": -16.669232,
+    "recipe_err_pct": -16.6839,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.784043,
+    "angle_score": 0.789847,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=40 f_rel=0.6",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.139253,
+    "assess_err_pct": -28.131225,
+    "recipe_err_pct": -28.13664,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 2400.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.643566,
+    "angle_score": 0.648069,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=10 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.557464,
+    "assess_err_pct": -1.748779,
+    "recipe_err_pct": -1.779182,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.956055,
+    "angle_score": 0.956768,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=20 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.475276,
+    "assess_err_pct": -6.933503,
+    "recipe_err_pct": -6.958242,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.904789,
+    "angle_score": 0.906583,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=30 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.342513,
+    "assess_err_pct": -15.308733,
+    "recipe_err_pct": -15.32485,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.835387,
+    "angle_score": 0.836665,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=40 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.171459,
+    "assess_err_pct": -26.099579,
+    "recipe_err_pct": -26.106494,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.731024,
+    "angle_score": 0.727289,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=10 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.558661,
+    "assess_err_pct": -1.673274,
+    "recipe_err_pct": -1.70411,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.963978,
+    "angle_score": 0.964401,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=20 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.479753,
+    "assess_err_pct": -6.651072,
+    "recipe_err_pct": -6.675966,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.921039,
+    "angle_score": 0.921893,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=30 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.352385,
+    "assess_err_pct": -14.686006,
+    "recipe_err_pct": -14.702634,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.864784,
+    "angle_score": 0.86416,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=40 f_rel=0.9",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.186731,
+    "assess_err_pct": -25.136156,
+    "recipe_err_pct": -25.143833,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3600.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.783202,
+    "angle_score": 0.77606,
+    "accepted": true
+   }
+  ],
+  "G2_inplane_roll": [
+   {
+    "name": "roll=15 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.585185,
+    "assess_err_pct": 0.0,
+    "recipe_err_pct": -0.036879,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.976234,
+    "angle_score": 1.0,
+    "accepted": true
+   },
+   {
+    "name": "roll=30 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.585185,
+    "assess_err_pct": 0.0,
+    "recipe_err_pct": -0.038698,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.960038,
+    "angle_score": 1.0,
+    "accepted": true
+   },
+   {
+    "name": "roll=45 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.585185,
+    "assess_err_pct": 0.0,
+    "recipe_err_pct": -0.037789,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.967844,
+    "angle_score": 1.0,
+    "accepted": true
+   }
+  ],
+  "G3_two_axis": [
+   {
+    "name": "x=20 y=20 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.584383,
+    "assess_err_pct": -0.050586,
+    "recipe_err_pct": -0.084833,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": 3000.0,
+    "f_true": 3000.0,
+    "metric_est_err_pct": 0.0,
+    "geometry_confidence": 0.78247,
+    "angle_score": 0.638074,
+    "accepted": true
+   },
+   {
+    "name": "x=20 y=-20 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.583649,
+    "assess_err_pct": -0.096905,
+    "recipe_err_pct": -0.131385,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": 3000.0,
+    "f_true": 3000.0,
+    "metric_est_err_pct": 0.0,
+    "geometry_confidence": 0.784909,
+    "angle_score": 0.646771,
+    "accepted": true
+   },
+   {
+    "name": "x=30 y=10 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.798731,
+    "assess_err_pct": 13.471321,
+    "recipe_err_pct": 13.416451,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": 3000.0,
+    "f_true": 3000.0,
+    "metric_est_err_pct": 0.0,
+    "geometry_confidence": 0.759485,
+    "angle_score": 0.662207,
+    "accepted": true
+   },
+   {
+    "name": "x=20 y=5 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.67779,
+    "assess_err_pct": 5.841895,
+    "recipe_err_pct": 5.799568,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": 3000.0,
+    "f_true": 3000.0,
+    "metric_est_err_pct": 0.0,
+    "geometry_confidence": 0.870496,
+    "angle_score": 0.814698,
+    "accepted": true
+   },
+   {
+    "name": "x=30 y=30 f_rel=0.75",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.624334,
+    "assess_err_pct": 2.469645,
+    "recipe_err_pct": 2.431669,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": 3000.0,
+    "f_true": 3000.0,
+    "metric_est_err_pct": 0.0,
+    "geometry_confidence": 0.623401,
+    "angle_score": 0.357496,
+    "accepted": true
+   }
+  ],
+  "G4_off_centre": [
+   {
+    "name": "tilt_x=20 centre=(0.25, 0.5)",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.678408,
+    "assess_err_pct": 5.880854,
+    "recipe_err_pct": 5.830352,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.802368,
+    "angle_score": 0.782283,
+    "accepted": true
+   },
+   {
+    "name": "tilt_x=20 centre=(0.75, 0.25)",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.506945,
+    "assess_err_pct": -4.935709,
+    "recipe_err_pct": -4.969597,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.828753,
+    "angle_score": 0.804432,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=20 centre=(0.25, 0.5)",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.332274,
+    "assess_err_pct": -15.954674,
+    "recipe_err_pct": -15.975361,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.868136,
+    "angle_score": 0.913234,
+    "accepted": true
+   },
+   {
+    "name": "tilt_y=20 centre=(0.75, 0.25)",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.63999,
+    "assess_err_pct": 3.457323,
+    "recipe_err_pct": 3.409467,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.790913,
+    "angle_score": 0.790531,
+    "accepted": true
+   }
+  ],
+  "G5_orientation": [
+   {
+    "name": "image portrait, card landscape",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.68361,
+    "assess_err_pct": 6.209061,
+    "recipe_err_pct": 6.165937,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.895493,
+    "angle_score": 0.870593,
+    "accepted": true
+   },
+   {
+    "name": "image landscape, card landscape",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.681112,
+    "assess_err_pct": 6.05144,
+    "recipe_err_pct": 6.018694,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.881248,
+    "angle_score": 0.8309,
+    "accepted": true
+   },
+   {
+    "name": "image portrait, card portrait",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.472315,
+    "assess_err_pct": -7.120324,
+    "recipe_err_pct": -7.139181,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.874359,
+    "angle_score": 0.878837,
+    "accepted": true
+   },
+   {
+    "name": "image landscape, card portrait",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.464287,
+    "assess_err_pct": -7.62674,
+    "recipe_err_pct": -7.641577,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.840982,
+    "angle_score": 0.849261,
+    "accepted": true
+   }
+  ],
+  "G6_aspect_ratios": [
+   {
+    "name": "ID-1 85.6x54 tilt_x=20",
+    "fit": true,
+    "truth": 1.58519,
+    "assess_aspect": 1.68361,
+    "assess_err_pct": 6.209061,
+    "recipe_err_pct": 6.165937,
+    "metric_known_f_err_pct": -0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.895493,
+    "angle_score": 0.870593,
+    "accepted": true
+   },
+   {
+    "name": "A4 210x297 tilt_x=20",
+    "fit": true,
+    "truth": 1.41429,
+    "assess_aspect": 1.317377,
+    "assess_err_pct": -6.852151,
+    "recipe_err_pct": -6.866189,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.88062,
+    "angle_score": 0.877331,
+    "accepted": true
+   },
+   {
+    "name": "Passport 125x88 tilt_x=20",
+    "fit": true,
+    "truth": 1.42045,
+    "assess_aspect": 1.509814,
+    "assess_err_pct": 6.290931,
+    "recipe_err_pct": 6.258585,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.906952,
+    "angle_score": 0.871234,
+    "accepted": true
+   },
+   {
+    "name": "Square 100x100 tilt_x=20",
+    "fit": true,
+    "truth": 1.0,
+    "assess_aspect": 1.066797,
+    "assess_err_pct": 6.679708,
+    "recipe_err_pct": 6.675352,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.896437,
+    "angle_score": 0.874307,
+    "accepted": true
+   },
+   {
+    "name": "2:1 100x50 tilt_x=20",
+    "fit": true,
+    "truth": 2.0,
+    "assess_aspect": 2.121533,
+    "assess_err_pct": 6.07664,
+    "recipe_err_pct": 6.006878,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.865332,
+    "angle_score": 0.868946,
+    "accepted": true
+   },
+   {
+    "name": "3:1 150x50 tilt_x=20",
+    "fit": true,
+    "truth": 3.0,
+    "assess_aspect": 3.178001,
+    "assess_err_pct": 5.933357,
+    "recipe_err_pct": 5.80118,
+    "metric_known_f_err_pct": 0.0,
+    "metric_est_f": null,
+    "f_true": 3000.0,
+    "metric_est_err_pct": null,
+    "geometry_confidence": 0.824903,
+    "angle_score": 0.865936,
+    "accepted": true
+   }
+  ],
+  "G7_corner_noise": [
+   {
+    "case": "frontal",
+    "sigma_px": 0.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_est_f": null,
+    "metric_est_f_n_observable": 0
+   },
+   {
+    "case": "frontal",
+    "sigma_px": 1.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.083,
+     "p95_abs_pct": 0.208,
+     "max_abs_pct": 0.388
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.083,
+     "p95_abs_pct": 0.209,
+     "max_abs_pct": 0.388
+    },
+    "metric_est_f": {
+     "n": 57,
+     "mean_abs_pct": 0.098,
+     "p95_abs_pct": 0.21,
+     "max_abs_pct": 0.263
+    },
+    "metric_est_f_n_observable": 57
+   },
+   {
+    "case": "frontal",
+    "sigma_px": 2.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.162,
+     "p95_abs_pct": 0.406,
+     "max_abs_pct": 0.545
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.163,
+     "p95_abs_pct": 0.412,
+     "max_abs_pct": 0.545
+    },
+    "metric_est_f": {
+     "n": 78,
+     "mean_abs_pct": 0.216,
+     "p95_abs_pct": 0.537,
+     "max_abs_pct": 1.071
+    },
+    "metric_est_f_n_observable": 78
+   },
+   {
+    "case": "frontal",
+    "sigma_px": 3.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.234,
+     "p95_abs_pct": 0.566,
+     "max_abs_pct": 0.946
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.234,
+     "p95_abs_pct": 0.569,
+     "max_abs_pct": 0.936
+    },
+    "metric_est_f": {
+     "n": 86,
+     "mean_abs_pct": 0.341,
+     "p95_abs_pct": 0.801,
+     "max_abs_pct": 1.718
+    },
+    "metric_est_f_n_observable": 86
+   },
+   {
+    "case": "tilt_x=20",
+    "sigma_px": 0.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 6.209,
+     "p95_abs_pct": 6.209,
+     "max_abs_pct": 6.209
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_est_f": null,
+    "metric_est_f_n_observable": 0
+   },
+   {
+    "case": "tilt_x=20",
+    "sigma_px": 1.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 6.211,
+     "p95_abs_pct": 6.406,
+     "max_abs_pct": 6.656
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.125,
+     "p95_abs_pct": 0.319,
+     "max_abs_pct": 0.655
+    },
+    "metric_est_f": {
+     "n": 155,
+     "mean_abs_pct": 6.602,
+     "p95_abs_pct": 24.988,
+     "max_abs_pct": 36.836
+    },
+    "metric_est_f_n_observable": 155
+   },
+   {
+    "case": "tilt_x=20",
+    "sigma_px": 2.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 6.2,
+     "p95_abs_pct": 6.569,
+     "max_abs_pct": 6.813
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.255,
+     "p95_abs_pct": 0.65,
+     "max_abs_pct": 0.955
+    },
+    "metric_est_f": {
+     "n": 156,
+     "mean_abs_pct": 5.62,
+     "p95_abs_pct": 19.381,
+     "max_abs_pct": 33.66
+    },
+    "metric_est_f_n_observable": 156
+   },
+   {
+    "case": "tilt_x=20",
+    "sigma_px": 3.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 6.166,
+     "p95_abs_pct": 6.772,
+     "max_abs_pct": 7.275
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.386,
+     "p95_abs_pct": 0.969,
+     "max_abs_pct": 1.489
+    },
+    "metric_est_f": {
+     "n": 174,
+     "mean_abs_pct": 6.518,
+     "p95_abs_pct": 24.215,
+     "max_abs_pct": 36.275
+    },
+    "metric_est_f_n_observable": 174
+   },
+   {
+    "case": "tilt_x=30",
+    "sigma_px": 0.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 14.715,
+     "p95_abs_pct": 14.715,
+     "max_abs_pct": 14.715
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_est_f": null,
+    "metric_est_f_n_observable": 0
+   },
+   {
+    "case": "tilt_x=30",
+    "sigma_px": 1.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 14.716,
+     "p95_abs_pct": 14.93,
+     "max_abs_pct": 15.074
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.167,
+     "p95_abs_pct": 0.404,
+     "max_abs_pct": 0.57
+    },
+    "metric_est_f": {
+     "n": 169,
+     "mean_abs_pct": 10.237,
+     "p95_abs_pct": 25.15,
+     "max_abs_pct": 52.195
+    },
+    "metric_est_f_n_observable": 169
+   },
+   {
+    "case": "tilt_x=30",
+    "sigma_px": 2.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 14.719,
+     "p95_abs_pct": 15.233,
+     "max_abs_pct": 15.659
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.351,
+     "p95_abs_pct": 0.846,
+     "max_abs_pct": 1.867
+    },
+    "metric_est_f": {
+     "n": 181,
+     "mean_abs_pct": 9.973,
+     "p95_abs_pct": 24.192,
+     "max_abs_pct": 67.92
+    },
+    "metric_est_f_n_observable": 181
+   },
+   {
+    "case": "tilt_x=30",
+    "sigma_px": 3.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 14.744,
+     "p95_abs_pct": 15.469,
+     "max_abs_pct": 16.212
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.544,
+     "p95_abs_pct": 1.31,
+     "max_abs_pct": 1.822
+    },
+    "metric_est_f": {
+     "n": 169,
+     "mean_abs_pct": 9.323,
+     "p95_abs_pct": 20.457,
+     "max_abs_pct": 35.608
+    },
+    "metric_est_f_n_observable": 169
+   },
+   {
+    "case": "x20 y20 (two-axis)",
+    "sigma_px": 0.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.051,
+     "p95_abs_pct": 0.051,
+     "max_abs_pct": 0.051
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_est_f": {
+     "n": 300,
+     "mean_abs_pct": 0.0,
+     "p95_abs_pct": 0.0,
+     "max_abs_pct": 0.0
+    },
+    "metric_est_f_n_observable": 300
+   },
+   {
+    "case": "x20 y20 (two-axis)",
+    "sigma_px": 1.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.097,
+     "p95_abs_pct": 0.237,
+     "max_abs_pct": 0.352
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.158,
+     "p95_abs_pct": 0.404,
+     "max_abs_pct": 0.655
+    },
+    "metric_est_f": {
+     "n": 300,
+     "mean_abs_pct": 0.159,
+     "p95_abs_pct": 0.402,
+     "max_abs_pct": 0.659
+    },
+    "metric_est_f_n_observable": 300
+   },
+   {
+    "case": "x20 y20 (two-axis)",
+    "sigma_px": 2.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.179,
+     "p95_abs_pct": 0.439,
+     "max_abs_pct": 0.739
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.309,
+     "p95_abs_pct": 0.777,
+     "max_abs_pct": 1.354
+    },
+    "metric_est_f": {
+     "n": 300,
+     "mean_abs_pct": 0.312,
+     "p95_abs_pct": 0.773,
+     "max_abs_pct": 1.385
+    },
+    "metric_est_f_n_observable": 300
+   },
+   {
+    "case": "x20 y20 (two-axis)",
+    "sigma_px": 3.0,
+    "assess": {
+     "n": 300,
+     "mean_abs_pct": 0.257,
+     "p95_abs_pct": 0.632,
+     "max_abs_pct": 1.033
+    },
+    "metric_known_f": {
+     "n": 300,
+     "mean_abs_pct": 0.434,
+     "p95_abs_pct": 1.094,
+     "max_abs_pct": 1.341
+    },
+    "metric_est_f": {
+     "n": 300,
+     "mean_abs_pct": 0.435,
+     "p95_abs_pct": 1.068,
+     "max_abs_pct": 1.34
+    },
+    "metric_est_f_n_observable": 300
+   }
+  ],
+  "G8_systematic_inward_shift": [
+   {
+    "inward_shift_frac": 0.0,
+    "assess_err_pct": 6.209,
+    "geometry_confidence": 0.8955,
+    "accepted": true,
+    "metric_known_f_err_pct": -0.0
+   },
+   {
+    "inward_shift_frac": 0.005,
+    "assess_err_pct": 6.209,
+    "geometry_confidence": 0.8936,
+    "accepted": true,
+    "metric_known_f_err_pct": -0.059
+   },
+   {
+    "inward_shift_frac": 0.01,
+    "assess_err_pct": 6.209,
+    "geometry_confidence": 0.8918,
+    "accepted": true,
+    "metric_known_f_err_pct": -0.118
+   },
+   {
+    "inward_shift_frac": 0.02,
+    "assess_err_pct": 6.209,
+    "geometry_confidence": 0.8881,
+    "accepted": true,
+    "metric_known_f_err_pct": -0.24
+   }
+  ],
+  "G9_assumed_f_sensitivity_tilt_x20": [
+   {
+    "f_assumed_rel": 0.5,
+    "metric_err_pct": 3.417
+   },
+   {
+    "f_assumed_rel": 0.6,
+    "metric_err_pct": 2.175
+   },
+   {
+    "f_assumed_rel": 0.7,
+    "metric_err_pct": 0.762
+   },
+   {
+    "f_assumed_rel": 0.75,
+    "metric_err_pct": -0.0
+   },
+   {
+    "f_assumed_rel": 0.8,
+    "metric_err_pct": -0.796
+   },
+   {
+    "f_assumed_rel": 0.9,
+    "metric_err_pct": -2.478
+   },
+   {
+    "f_assumed_rel": 1.0,
+    "metric_err_pct": -4.261
+   }
+  ],
+  "G10_one_sided_edge_offset": [
+   {
+    "top_edge_offset_frac_of_H": 0.0,
+    "assess_err_pct": 6.209,
+    "geometry_confidence": 0.8955,
+    "accepted": true,
+    "metric_known_f_err_pct": -0.0
+   },
+   {
+    "top_edge_offset_frac_of_H": 0.005,
+    "assess_err_pct": 8.367,
+    "geometry_confidence": 0.8904,
+    "accepted": true,
+    "metric_known_f_err_pct": 1.697
+   },
+   {
+    "top_edge_offset_frac_of_H": 0.01,
+    "assess_err_pct": 10.613,
+    "geometry_confidence": 0.8853,
+    "accepted": true,
+    "metric_known_f_err_pct": 3.448
+   },
+   {
+    "top_edge_offset_frac_of_H": 0.02,
+    "assess_err_pct": 15.396,
+    "geometry_confidence": 0.8749,
+    "accepted": true,
+    "metric_known_f_err_pct": 7.122
+   }
+  ]
+ }
+}

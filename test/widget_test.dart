@@ -382,6 +382,30 @@ void main() {
             .onPressed,
         isNull,
       );
+      // Spec change (PR #39, C1): Undo restores the untouched full frame as an
+      // unapproved frame, so Preview stays blocked until four valid taps.
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'معاينة التصحيح'),
+            )
+            .onPressed,
+        isNull,
+      );
+      final surface = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      Offset at(double fx, double fy) => Offset(
+        surface.left + surface.width * fx,
+        surface.top + surface.height * fy,
+      );
+      for (final (fx, fy) in const [
+        (0.2, 0.2),
+        (0.8, 0.2),
+        (0.8, 0.8),
+        (0.2, 0.8),
+      ]) {
+        await tester.tapAt(at(fx, fy));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -390,8 +414,8 @@ void main() {
       expect(editor.previewCount, 1);
       expect(
         editor.lastRecipe!.geometry.corners.first.x,
-        0,
-        reason: 'Rejecting proposal restored the original corner',
+        closeTo(.2, .01),
+        reason: 'The preview shows the four tapped corners, not the frame',
       );
       expect(repository.values[project.id]!.revision, 0);
       await tester.ensureVisible(find.byKey(const Key('crop-brightness')));

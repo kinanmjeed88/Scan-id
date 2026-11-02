@@ -78,6 +78,7 @@ class _CropEditorState {
     required this.selectedKind,
     required this.customWidthText,
     required this.customHeightText,
+    this.manualRequired = false,
   });
 
   final CropDraft draft;
@@ -85,18 +86,36 @@ class _CropEditorState {
   final String customWidthText;
   final String customHeightText;
 
+  /// Set while the frame is an unapproved full frame that has no detected
+  /// boundary (detection failed or no candidate existed). Preview and accept
+  /// stay blocked until four valid taps or a corner edit clears it. It is part
+  /// of the history entry, so undo and redo restore it with the frame.
+  final bool manualRequired;
+
   _CropEditorState copyWith({
     CropDraft? draft,
     DocumentKind? selectedKind,
     String? customWidthText,
     String? customHeightText,
+    bool? manualRequired,
   }) => _CropEditorState(
     draft: draft ?? this.draft,
     selectedKind: selectedKind ?? this.selectedKind,
     customWidthText: customWidthText ?? this.customWidthText,
     customHeightText: customHeightText ?? this.customHeightText,
+    manualRequired: manualRequired ?? this.manualRequired,
   );
 }
+
+/// Tap mode is active exactly while the fallback gate is set, so the user is
+/// never blocked without a way to place the four corners.
+ManualQuadSelection? _tapSelectionFor(_CropEditorState state) =>
+    state.manualRequired ? ManualQuadSelection.empty() : null;
+
+/// The fallback instruction stays visible while the gate is set. Any other
+/// state shows no fallback instruction.
+String? _noticeFor(_CropEditorState state) =>
+    state.manualRequired ? manualFallbackNotice : null;
 
 String _formatMillimeters(double value) {
   if ((value - value.roundToDouble()).abs() < 1e-6) {
@@ -215,9 +234,8 @@ class _CropScreenState extends State<CropScreen> {
   CancellationToken? _operationCancellation;
   bool _showResult = false;
   bool _dirty = false;
-  // Set when live detection fails on an untouched frame. Preview and accept
-  // stay blocked until four taps or an explicit corner edit clears it.
-  bool _manualRequired = false;
+  /// Whether the fallback gate is set on the current state.
+  bool get _manualRequired => _state?.manualRequired ?? false;
   bool _cornerDragMoved = false;
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
@@ -355,7 +373,6 @@ class _CropScreenState extends State<CropScreen> {
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
-    _manualRequired = false;
     _initialReviewDraft = null;
     _view.value = Matrix4.identity();
     _initializeInitialMetadata();
@@ -419,6 +436,14 @@ class _CropScreenState extends State<CropScreen> {
           : const _SuggestedCornersResolution();
       if (!_isCurrentOperation(operation)) return;
       final proposed = resolution.corners;
+      // The untouched full frame is never an approved boundary (C1/C3). It is
+      // gated until four valid taps, a valid suggestion, or a corner edit. A
+      // saved crop and an explicit extraction keep their own paths.
+      final gateBase = crop == null && !extractDerived;
+      final needsManual = gateBase && proposed == null;
+      final notice = needsManual
+          ? '${resolution.notice ?? ''} $manualFallbackNotice'.trim()
+          : resolution.notice;
       final EditHistory<_CropEditorState> history;
       final _CropEditorState activeState;
       if (crop != null) {
@@ -441,10 +466,12 @@ class _CropScreenState extends State<CropScreen> {
           selectedKind: initialKind,
           customWidthText: initialWidthText,
           customHeightText: initialHeightText,
+          manualRequired: gateBase,
         );
         history = EditHistory(baseState);
         final previous = resolution.previousSavedCorners;
         if (previous != null) {
+          // A previously saved boundary is a real boundary, not a full frame.
           history.record(
             baseState.copyWith(
               draft: CropDraft(
@@ -452,6 +479,7 @@ class _CropScreenState extends State<CropScreen> {
                 adjustments: baseFull.adjustments,
                 aspectRatio: initialAspect,
               ),
+              manualRequired: false,
             ),
           );
         }
@@ -461,7 +489,10 @@ class _CropScreenState extends State<CropScreen> {
             adjustments: baseFull.adjustments,
             aspectRatio: initialAspect,
           );
-          activeState = baseState.copyWith(draft: proposedDraft);
+          activeState = baseState.copyWith(
+            draft: proposedDraft,
+            manualRequired: false,
+          );
           history.record(activeState);
         } else {
           activeState = baseState;
@@ -472,7 +503,8 @@ class _CropScreenState extends State<CropScreen> {
         _history = history;
         _state = activeState;
         _initialReviewDraft = proposed != null ? activeState.draft : null;
-        _proposalNotice = resolution.notice;
+        _tapSelection = _tapSelectionFor(activeState);
+        _proposalNotice = notice;
         _busy = false;
         _busyCancelable = false;
       });
@@ -654,16 +686,23 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
-      _tapSelection = null;
+      _tapSelection = _tapSelectionFor(next);
       _clearPreview();
       _dirty = true;
       _error = null;
-      _proposalNotice = null;
+      _proposalNotice = _noticeFor(next);
     });
   }
 
-  void _change(CropDraft next) {
-    _commitState(_state!.copyWith(draft: next));
+  /// Commits a new draft. [clearManualRequired] is set only by a valid
+  /// boundary (a suggestion or four taps); every other change keeps the gate.
+  void _change(CropDraft next, {bool clearManualRequired = false}) {
+    _commitState(
+      _state!.copyWith(
+        draft: next,
+        manualRequired: clearManualRequired ? false : null,
+      ),
+    );
   }
 
   double? _tryParseCustomRatio(String widthText, String heightText) {
@@ -711,11 +750,11 @@ class _CropScreenState extends State<CropScreen> {
     }
     setState(() {
       _state = next;
-      _tapSelection = null;
+      _tapSelection = _tapSelectionFor(next);
       _clearPreview();
       _dirty = true;
       _error = null;
-      _proposalNotice = null;
+      _proposalNotice = _noticeFor(next);
     });
   }
 
@@ -726,11 +765,11 @@ class _CropScreenState extends State<CropScreen> {
     _syncControllerText(_customHeightController, next.customHeightText);
     setState(() {
       _state = next;
-      _tapSelection = null;
+      _tapSelection = _tapSelectionFor(next);
       _clearPreview();
       _dirty = true;
       _error = null;
-      _proposalNotice = null;
+      _proposalNotice = _noticeFor(next);
     });
   }
 
@@ -901,6 +940,7 @@ class _CropScreenState extends State<CropScreen> {
             adjustments: draft.adjustments,
             aspectRatio: draft.aspectRatio,
           ),
+          clearManualRequired: true,
         );
         setState(() {
           _proposalNotice =
@@ -931,14 +971,20 @@ class _CropScreenState extends State<CropScreen> {
   /// taps or a corner edit, so the full frame is never accepted as a detected
   /// crop. A user's own corners are never replaced by this fallback.
   void _enterManualFallback() {
-    final current = _draft;
+    final current = _state;
     if (current == null ||
-        !_samePoints(current.corners, CropDraft.fullImage().corners)) {
+        current.manualRequired ||
+        !_samePoints(current.draft.corners, CropDraft.fullImage().corners)) {
       return;
     }
+    // Replaces the current entry rather than adding one, so undo cannot
+    // return to an ungated full frame.
+    final gated = current.copyWith(manualRequired: true);
+    _history!.replaceCurrent(gated);
     setState(() {
-      _manualRequired = true;
-      _tapSelection = ManualQuadSelection.empty();
+      _state = gated;
+      _tapSelection = _tapSelectionFor(gated);
+      _clearPreview();
       _proposalNotice = manualFallbackNotice;
     });
   }
@@ -1435,7 +1481,6 @@ class _CropScreenState extends State<CropScreen> {
       });
       return;
     }
-    _manualRequired = false;
     final draft = _draft!;
     _change(
       CropDraft(
@@ -1443,6 +1488,7 @@ class _CropScreenState extends State<CropScreen> {
         adjustments: draft.adjustments,
         aspectRatio: draft.aspectRatio,
       ),
+      clearManualRequired: true,
     );
   }
 
@@ -1465,10 +1511,9 @@ class _CropScreenState extends State<CropScreen> {
       return;
     }
     _cornerDragMoved = true;
-    _manualRequired = false;
     setState(() {
       _coalescedCustomField = null;
-      _state = _state!.copyWith(draft: next);
+      _state = _state!.copyWith(draft: next, manualRequired: false);
       _clearPreview();
       _dirty = true;
       _error = null;
@@ -1789,7 +1834,7 @@ class _CropScreenState extends State<CropScreen> {
                     );
                     _clearPreview();
                     _dirty = true;
-                    _proposalNotice = null;
+                    _proposalNotice = _noticeFor(_state!);
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1811,7 +1856,7 @@ class _CropScreenState extends State<CropScreen> {
                     );
                     _clearPreview();
                     _dirty = true;
-                    _proposalNotice = null;
+                    _proposalNotice = _noticeFor(_state!);
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1833,7 +1878,7 @@ class _CropScreenState extends State<CropScreen> {
                     );
                     _clearPreview();
                     _dirty = true;
-                    _proposalNotice = null;
+                    _proposalNotice = _noticeFor(_state!);
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1855,7 +1900,7 @@ class _CropScreenState extends State<CropScreen> {
                     );
                     _clearPreview();
                     _dirty = true;
-                    _proposalNotice = null;
+                    _proposalNotice = _noticeFor(_state!);
                   }),
             onChangeEnd: _busy ? null : (_) => _change(_draft!),
           ),
@@ -1868,6 +1913,7 @@ class _CropScreenState extends State<CropScreen> {
                       selectedKind: _initialKind,
                       customWidthText: _initialWidthText,
                       customHeightText: _initialHeightText,
+                      manualRequired: _manualRequired,
                     ),
                   ),
             child: const Text('إعادة ضبط إلى الأصل'),

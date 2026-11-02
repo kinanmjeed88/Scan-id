@@ -16,11 +16,19 @@ class DocumentEdits {
     DocumentKind kind,
   ) => project.catalog.sizeFor(kind, landscape: asset.width >= asset.height);
 
+  /// Whether [asset] has an approved crop. An approved crop is the only basis
+  /// on which a category choice may confirm a physical size. A saved
+  /// suggestion, a detected quadrilateral, or a full-frame photo is not one.
+  static bool hasApprovedCrop(ImageAsset asset) => asset.crop != null;
+
   /// Sets the category of a document and applies its catalog size at once.
   ///
-  /// Known categories get their catalog size and are ready to be placed.
-  /// "Other" keeps the current size as a manual size. "Unknown" takes the
-  /// document off the sheet until a category is chosen.
+  /// Choosing a category is not a size confirmation on its own. A known
+  /// category confirms its catalog size only when the picture has an approved
+  /// crop. Otherwise the item keeps the catalog size as a provisional size,
+  /// stays unconfirmed, and is taken off the sheet until the crop is approved
+  /// or a size is typed. "Other" keeps the current size and its confirmation.
+  /// "Unknown" takes the document off the sheet until a category is chosen.
   static Project setKind(Project project, String itemId, DocumentKind kind) {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
@@ -28,19 +36,22 @@ class DocumentEdits {
     final size = catalogSize(project, asset, kind);
     final DocumentItem next;
     if (size != null) {
+      final confirmed = hasApprovedCrop(asset);
       next = item.copyWith(
         documentKind: kind,
         width: size.width,
         height: size.height,
         recognitionConfidence: 0,
-        sizeConfirmed: true,
+        sizeConfirmed: confirmed,
         keepAspectRatio: true,
+        unplaced: !confirmed,
       );
     } else if (kind == DocumentKind.other) {
       next = item.copyWith(
         documentKind: kind,
         recognitionConfidence: 0,
-        sizeConfirmed: true,
+        sizeConfirmed: item.sizeConfirmed,
+        unplaced: !item.sizeConfirmed,
       );
     } else {
       next = item.copyWith(
@@ -51,6 +62,23 @@ class DocumentEdits {
       );
     }
     return _replace(project, next);
+  }
+
+  /// Re-orients a provisional catalog size to the current picture orientation.
+  ///
+  /// This never confirms a size and never changes a confirmed one. A printed
+  /// size that the user confirmed or typed is kept, and any change to it needs
+  /// an explicit action. Used when a crop changes the picture orientation.
+  static Project refreshProvisionalSize(Project project, String itemId) {
+    final item = PageLayout.item(project, itemId);
+    if (item.sizeConfirmed || item.locked) return project;
+    final asset = project.assets.firstWhere((a) => a.id == item.assetId);
+    final size = catalogSize(project, asset, item.documentKind);
+    if (size == null) return project;
+    return _replace(
+      project,
+      item.copyWith(width: size.width, height: size.height),
+    );
   }
 
   /// Sets a document's printed size in millimetres. With a locked aspect

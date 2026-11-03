@@ -52,8 +52,9 @@ Project _project(ImageAsset asset) => projectFixture(
   ],
 );
 
-QuadAssessment _assess(List<Point2> corners) =>
-    assessQuad(corners, sourceWidth: 400, sourceHeight: 250);
+QuadAssessment _assess(List<Point2> corners) {
+  return assessQuad(corners, sourceWidth: 400, sourceHeight: 250);
+}
 
 void main() {
   group('full frame approval', () {

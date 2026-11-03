@@ -689,3 +689,163 @@ the user accepts them as residual):
   evidence.
 - Exporter: NOT REPRODUCED; a diagnostic isolation step and the test-log artifact
   stay in `verify.yml` as non-gating evidence.
+
+## 14. Phase 8 batch (PR #39, commit `ace6bb3`): one implementation batch
+
+Status of this section: **code and tests written in one batch. Dart and Flutter
+are unavailable in this sandbox, so nothing here is a local run. Each result
+is a GitHub Actions result on the SHA named in §14.8, or it is marked
+PENDING.** A status is VERIFIED only when CI ran the relevant test on that SHA.
+The verdict is NOT READY (§14.9).
+
+### 14.1 Findings and status
+
+| ID | Finding | Evidence before the batch | Change | Status |
+|---|---|---|---|---|
+| F-K | `hasApprovedCrop` was `crop != null`, so a full frame stored by an adjustment, rotation, or enhancement counted as an approved crop. `setKind` then confirmed a catalog size without a boundary decision. | CONFIRMED by code read (`DocumentEdits.hasApprovedCrop`, `setKind`, `editor_controller` ~1002/1041/1071 `crop ?? fullImage`). | `ImageAsset.hasApprovedCrop` = `crop != null && (userAuthoredCrop \|\| !isFullFrameCorners(crop.corners))`. `isFullFrameCorners` (tolerance 1e-6) is in `geometry.dart`. `DocumentEdits.hasApprovedCrop`, `crop_screen` initial crop, revert guard, `resetCropToOriginal` guard, and the layout reset-crop enable all use it. | FIXED; tests in `test/domain/full_frame_approval_test.dart` and `crop_lifecycle_test.dart`. CI: PENDING (§14.8). |
+| F-K gate | A stored full frame started with no gate, so Preview was enabled. | CONFIRMED by code read (`crop == null` branches, `crop_screen.dart`). | `crop_screen` treats an unapproved stored frame as no crop, so the base frame is gated and the saved suggestion is used. Test: "an adjusted full frame is not a saved crop". | FIXED; CI PENDING. |
+| C1 | Reset to the original full frame could leave Preview and Accept enabled. | CONFIRMED by code read (`manualRequired: _manualRequired` on reset). | Reset sets `manualRequired: true`, the same as Undo to the starting frame. Test: "restoring the full frame re-gates Preview and Accept". | FIXED; CI PENDING. |
+| F-C | `setKind` confirmed a size in the catalog branch and overwrote a typed or manual size. | CONFIRMED by code read. | A confirmed size without an approved crop is kept on a category change. An approved crop applies the catalog size. `other` keeps a confirmed size. `unknown` on a confirmed item keeps its size. An unconfirmed item with no catalog size goes off the sheet. `resetSize` is the explicit catalog-size action and refuses locked items. | FIXED (spec-driven test changes, §14.4); CI PENDING. |
+| F-A4 | A4 eligibility rules are spread across `arrangement`, `page_layout`, `export_plan`, `packing`, and `project_service`. Is there a divergent decision? | Read every site (§14.2). All placement sites key on `sizeConfirmed` and `locked`, and no site accepts an unconfirmed size. | **No shared type was added.** The task allows one only when the audit proves a divergent decision, and none was proven. The eight-case matrix tests the production paths (`PageLayout.checked`, `autoLayoutStatus`, `ExportPlan`, `Project` reload) directly. | NOT REPRODUCED as a divergence; matrix tests added; CI PENDING. |
+| F-D | Re-crop: does it change the physical size? | CONFIRMED by code read. `applyManualCrop` writes only an asset revision, and the item's mm stays the same. Save confirms only when `confirmForSheet \|\| kindOrSizeChanged`. Export warns when the crop ratio differs from the sheet (`export_plan.dart`). | No product change for the size path. Tests in `test/application/recrop_size_test.dart` cover confirmed catalog re-crop, typed size on re-crop, a provisional size never confirmed silently, a turned picture keeping its printed size, and save, reload, and export after re-crop. | VERIFIED only after CI on the final SHA (PENDING). |
+| F-E | Physical aspect from four corners: which cases are determinable and how accurate are they? | Python port (§14.5). Pure geometry only. | Dart test added: strong two-axis perspective with roll (40/40 and 50/35, roll 15°), noise-free, bound 0.1 %. The existing Dart tests already cover two-axis, roll, asymmetric tilt, sizes, noise, and the null cases. | Synthetic geometry only. CI PENDING. Real-image accuracy: **BLOCKED** (no licensed reference set, §14.6). |
+| F-N | Narrow layout: a lazy `ListView` culled the canvas when the tools scrolled, which lost the canvas, the corners, and the manual selection. | CONFIRMED by counts in `184d613` and by the code (`ListView` in the narrow branch). | The canvas is a fixed-height `SizedBox`. Only the tools scroll (`Expanded(SingleChildScrollView(_tools()))`). The canvas stays mounted. The scroll-back workaround in `ensureCropTapMode` is removed. Test: `test/presentation/crop_narrow_layout_test.dart`. | FIXED; CI PENDING. |
+| Exporter | The exporter test failure in an early run. | No `[E]` marker in any later run (§13.6). | No change. | NOT REPRODUCED. |
+| D7 | 16 MP limit and the silent downscale. | Unchanged. | None. Protected. The existing `full_resolution_budget_test.dart` runs in CI. | NOT CHANGED. |
+| Smart recognition | `_confirmedCatalogSize` can accept with a null `crop`, so recognition and `asset.crop` could disagree. | Read only. | None. Unreachable while `minAutoAcceptConfidence = 1.01`. | NOT REACHABLE (latent; documented). |
+
+### 14.2 Eligibility audit (read of every site)
+
+- `arrangement.dart`: `autoLayoutStatus` (`locked` first, then `sizeConfirmed`, then fit); `arrangeDocuments` (movable = `sizeConfirmed`, unlocked, unfixed; a page-placed unconfirmed item goes to `unplaced`); `_compactPass` (locks a confirmed unplaced item).
+- `page_layout.dart`: `PageLayout.checked` requires `sizeConfirmed` for any item with `pageIndex`.
+- `export_plan.dart`: included items must be confirmed; printable bounds are checked there too.
+- `packing.dart`: items on the page must be confirmed; pending items must be confirmed.
+- `project.dart`: `Project.fromJson` keeps `pageIndex` only for a confirmed size.
+- `project_service.dart`: `AutomaticLayoutReport.unplaced` and `awaitingSize` use the same `sizeConfirmed` fact.
+- `layout_screen.dart`: move-to-page tooltip and enable.
+
+Every site reads `sizeConfirmed` and, where relevant, `locked`. Nothing reads the
+boundary to decide placement. An unconfirmed item is refused at each site, and a
+valid boundary does not change that. **No divergent decision was proven, so no
+shared type was added.** The matrix in `test/domain/item_eligibility_test.dart`
+checks each state through these production paths.
+
+The matrix separates geometry validity (boundary approved), kind known, size
+confirmed, manual placement, automatic placement, and export. It has eight cases:
+no approved boundary; a stored full frame (not an approval); approved boundary
+with unknown kind; known kind with unconfirmed size; manual confirmed size;
+catalog confirmed size; needs review (a saved suggestion); valid for manual
+placement only (locked); and valid for automatic placement. Plus the unapproved
+missing-asset and reload checks.
+
+### 14.3 Full-frame and default-quad paths (F-K / F-M)
+
+Producers and consumers checked against `assessQuad`, `canonicalQuadCorners`, and
+the `CropScreen` gate:
+
+- Full-frame producers that store `crop` without a decision: `editor_controller`
+  adjustment, auto-enhance, and rotation revisions (`crop ?? fullImage`). These are
+  the F-K root. They are not approvals after this batch.
+- Legitimate full-frame paths: `local_project_recovery.dart` (recovery of a
+  saved full frame); `resetManualCrop` (`crop: null`); the explicit extraction
+  path (`extractDerived`). None is changed.
+- Not approvals: the legacy polygon in `project.dart`, and `fullFrameRegion` in
+  `smart_recognition.dart`.
+- Gate: a stored unapproved frame, a reset, and an invalid saved suggestion all
+  start or return to the gated state. A kind change never approves a boundary
+  (`setKind` does not touch `crop`).
+- `assessQuad` rejects repeated or near-coincident points, self-intersection,
+  wrong point order, non-convex shape, out-of-image coordinates, non-finite
+  values, and collapsed area. The tests in `full_frame_approval_test.dart` use
+  these values and check the rejection reason.
+
+Existing gate lifecycle tests (CI-verified in earlier phases, unchanged) cover:
+detect-fail then Undo and Redo; an invalid saved suggestion; a valid Suggest that
+lifts the gate; a malformed Suggest that keeps it; and Preview and Accept blocked
+while the frame is unapproved.
+
+### 14.4 Spec-driven test changes in this batch (documented; no assertion weakened)
+
+1. `test/domain/document_edits_test.dart` "a category change takes a confirmed
+   uncropped item off the sheet" → **"a category change keeps a typed size on the
+   sheet"**. Reason: F-C. A confirmed size is not revoked by a category change
+   without an approved boundary. The old expectation removed the item.
+2. `test/domain/document_edits_test.dart` **new** "with an approved crop, a
+   category change applies its catalog size". Reason: the approved-crop branch
+   of F-C.
+3. `test/domain/document_edits_test.dart` ""unknown" takes the document off the
+   sheet, "other" keeps it" → **""unknown" keeps a typed size; an unconfirmed
+   document leaves the sheet"**. Reason: the same F-C rule. An unknown category
+   is not an invalid crop, and a confirmed size is kept.
+4. `test/presentation/crop_tap_helpers.dart` `ensureCropTapMode`: the scroll-back
+   drag after the toggle is **removed**. Reason: F-N. The canvas now stays
+   mounted, so the workaround is not needed. The helper still asserts the surface
+   and reports failures. The narrow-layout test checks the same condition directly.
+5. New tests (not replacements): `crop_lifecycle_test.dart` ("an adjusted full
+   frame is not a saved crop"; "restoring the full frame re-gates Preview and
+   Accept"); `physical_aspect_test.dart` ("strong two-axis perspective with roll
+   recovers the ratio"); `recrop_size_test.dart`; `full_frame_approval_test.dart`;
+   `item_eligibility_test.dart`; `crop_narrow_layout_test.dart`.
+
+### 14.5 F-E: Dart and Python evidence
+
+The derivation is in `lib/domain/physical_aspect.dart`: f² = −(a·b) from the two
+vanishing points, and W/H = |K⁻¹g0| / |K⁻¹g1| from the unit-square homography.
+λ cancels. Single-axis tilt, affine views, and in-plane roll alone do not fix f,
+so the result is null. The caller keeps its averaged-edge estimate, which is
+exact for an affine view.
+
+Python port (`tool/evidence/physical_aspect_results.json`, pure geometry, not a
+Dart run). Relative error in the physical ratio:
+
+| Case | Determinable | Error |
+|---|---|---|
+| Two-axis 25/25, five ratios, 3000×4000, f 3500 | yes | −0.012 % |
+| Two-axis 25/25, roll 0 / 10 / 20 / 30 / 45 | yes | −0.012 / −0.013 / −0.017 / −0.028 / +0.118 % |
+| Asymmetric tilt 20/20, 30/30, 30/−30, 40/25, 15/35, 10/45 | yes | −0.010 to −0.025 % |
+| Sizes 1200×1600 to 6000×4000 | yes | −0.006 to −0.029 % |
+| Strong two-axis 40/40 roll 0 | yes | −0.017 % |
+| Strong two-axis 40/40 roll 15 | yes | −0.023 % |
+| Strong two-axis 50/35 roll 15 | yes | −0.047 % |
+| Fixed ±2 px corner pattern, 30/30 | yes | +0.606 % |
+| Fixed ±2 px corner pattern, 40/25 roll 20 | yes | −2.53 % |
+| Fixed ±2 px corner pattern, 40/40 roll 15 | yes | −0.503 % |
+| x-tilt only, y-tilt only, in-plane roll only | no (null) | — |
+
+Limits. The Dart test bounds are set from these numbers, not from a Dart run.
+The noise-free bounds are derived from exact arithmetic (no noise, exact
+inversion), and the noise bounds come from the measured pattern. Lighting does
+not enter the estimator (it reads corners only), so it is not a tested input.
+These are synthetic geometric results. They are not real-image accuracy claims.
+
+### 14.6 Real-image F-E: BLOCKED
+
+No licensed or personal reference images were used (task constraint). No
+reference set with known physical dimensions was available in this sandbox, and
+the sandbox allows no image download. Real-image accuracy is therefore **BLOCKED**.
+This batch makes no claim about real photographs.
+
+### 14.7 Narrow layout (F-N)
+
+The canvas is in a `SizedBox` of height `min(preferred, maxHeight)`, and the tools
+are in `Expanded(SingleChildScrollView)`. The canvas is never removed from the
+tree, so the crop context, the corner handles, and the four taps survive tool
+scrolling. The widget test scrolls the tools down and back up and checks that the
+surface is present and each tapped corner stays within 0.5 px. The canvas is
+outside the scrolling area, so scrolling the tools does not rebuild it. No memory
+or frame-time measurement was taken in this sandbox.
+
+### 14.8 CI (final SHA)
+
+PENDING. The batch is pushed as `ace6bb3` (push run `41597722241`, pull-request
+run `41597728149`). The results are added below when the run finishes.
+
+### 14.9 Verdict
+
+**NOT READY.** Open items: F-E real-image accuracy (BLOCKED, §14.6); the
+product decisions in §13.1/§11 (D2, D7 and the unknown-kind placement policy are
+not changed here and need the user's approval); and CI on the final SHA, which
+is not yet complete. No critical or medium issue is known to be open in the code
+paths this batch touches. The verdict is not READY until the CI results above
+show every required gate green on one SHA and the decision items are closed or
+accepted.

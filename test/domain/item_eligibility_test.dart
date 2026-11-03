@@ -283,8 +283,7 @@ void main() {
     });
   }
 
-  test('an unconfirmed size never enters placement just because the boundary '
-      'is valid', () {
+  test('an unconfirmed size is never placed on a valid boundary', () {
     final valid = _cases[2];
     expect(valid.project().assets.single.hasApprovedCrop, isTrue);
     expect(_accepts(() => PageLayout.checked(_placed(valid))), isFalse);

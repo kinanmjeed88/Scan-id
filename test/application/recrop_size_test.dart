@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/export_plan.dart';
@@ -53,25 +54,36 @@ class _Harness {
     imageEditor: editor,
   );
 
-  Future<Project> start() => repo.create(
-    projectFixture(assets: [assetFixture(id: 'asset1')], items: [_doc()]),
-  );
+  Future<Project> start() {
+    return repo.create(
+      projectFixture(assets: [assetFixture(id: 'asset1')], items: [_doc()]),
+    );
+  }
 
-  Future<Project> recrop(
-    Project p,
-    CropGeometry geometry, {
-    ImageAdjustments? adjustments,
-  }) => service.applyManualCrop(
-    p,
-    p.assets.single,
-    ImageEditRecipe(geometry, adjustments ?? ImageAdjustments()),
-    sourceWidth: 400,
-    sourceHeight: 250,
-  );
+  Future<Project> recrop(Project p, CropGeometry geometry) {
+    return service.applyManualCrop(
+      p,
+      p.assets.single,
+      ImageEditRecipe(geometry, ImageAdjustments()),
+      sourceWidth: 400,
+      sourceHeight: 250,
+    );
+  }
+
+  Future<Project> recropTurned(Project p, CropGeometry geometry) {
+    return service.applyManualCrop(
+      p,
+      p.assets.single,
+      ImageEditRecipe(geometry, ImageAdjustments().copyWith(quarterTurns: 1)),
+      sourceWidth: 400,
+      sourceHeight: 250,
+    );
+  }
 
   /// Saves [p] with the passport category applied, as the user would choose it.
-  Future<Project> passport(Project p) =>
-      repo.save(DocumentEdits.setKind(p, 'doc', DocumentKind.passport));
+  Future<Project> passport(Project p) {
+    return repo.save(DocumentEdits.setKind(p, 'doc', DocumentKind.passport));
+  }
 }
 
 Project _placed(Project p) => p.copyWith(
@@ -100,7 +112,7 @@ void main() {
     expect(_warns(p), isTrue);
   });
 
-  test('a typed size survives a re-crop; the crop never resizes it', () async {
+  test('a typed size survives a re-crop', () async {
     final h = _Harness();
     var p = await h.start();
     p = await h.recrop(p, _landscape);
@@ -129,11 +141,7 @@ void main() {
     p = await h.recrop(p, _landscape);
     p = await h.passport(p);
     final before = PageLayout.item(p, 'doc');
-    p = await h.recrop(
-      p,
-      _landscape,
-      adjustments: ImageAdjustments().copyWith(quarterTurns: 1),
-    );
+    p = await h.recropTurned(p, _landscape);
     final item = PageLayout.item(p, 'doc');
     expect([item.width, item.height], [before.width, before.height]);
     expect(p.assets.single.width < p.assets.single.height, isTrue);

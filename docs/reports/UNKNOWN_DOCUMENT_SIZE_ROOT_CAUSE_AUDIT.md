@@ -893,3 +893,23 @@ Not proven:
 - F-E real-image accuracy (BLOCKED: no licensed references). The Dart tests use synthetic geometry only. Lighting does not enter the estimator, which uses only the corners, so it is not a tested variable.
 - Per-case relative errors come from the Python port (§14.5). The Dart tests assert bounds and do not print the errors.
 - The explicit category overwrite (F-C) is a product decision, not a fixed defect.
+
+### 14.11 CI incident on `0dc9d07` (android job) and the diagnostic fix
+
+Premise check: the failing step is **`Android native instrumentation (BitmapRegionDecoder)`** (step 39 of the `android` job, `tool/run_android_instrumentation.sh`), not "Android debug APK". That step (45) was skipped. The signing-guard step (24) succeeded: its single attempt printed the expected guard message, and no retry was needed.
+
+Evidence and limits:
+
+- The `flutter test` step passed: `+959: All tests passed!`, with no failures.
+- The step exited 255. The job log and the instrumentation artifact could not be downloaded (blob access fails in this sandbox, as recorded in §13 and in the repository notes). The annotation channel holds only the step-level error.
+- The script emits `android-runtime-inference-failure` when Gradle or DocQuad fails, and `startup-diagnostic` for startup failures. Neither annotation is present, and the success notice is absent. So the script ended in its unguarded `adb` and startup phase, before the summary. This is inferred from the script's control flow, not proven by a log line.
+- The runner had reported "No space left on device" on `b1d3884`'s run. That is evidence of disk pressure on the runner, but this run's log has no disk message, so it is not claimed as the cause.
+
+Change (no product change, no exit status changed):
+
+- `tool/run_android_instrumentation.sh`: an ERR trap that reports the failing line and command when errexit is active. It is silent inside the `set +e` capture regions. The exit status is unchanged (tested locally: a failing `sh -c 'exit 255'` still ends the script with 255).
+- The same script prints the host headroom (`rootFreeKiB`, `memAvailableMiB`) at start, so a disk or memory shortage can be checked against the next failing run.
+
+Test: the trap was checked with local bash only (not CI). The workflow file is unchanged; `tool/check_source.py` and `tool/check_workflow_permissions.py` pass; `verify.yml` parses as YAML with the four jobs.
+
+Status: the root cause is **not proven**. The trap is the fix for the observability gap; the next failing run will name the command.

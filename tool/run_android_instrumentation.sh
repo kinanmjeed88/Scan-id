@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# An unguarded failure in the emulator phase used to end the step with only the
+# script's status (run 41617672661 on 0dc9d07: exit 255, no reason). This trap
+# names the failing command and line. It only reports: the exit status is the
+# one the failing command returned, and no failure is hidden or retried here.
+on_unexpected_failure() {
+  local status=$?
+  # Captured failures inside `set +e` regions are handled by the script itself.
+  [[ $- == *e* ]] || return 0
+  local command
+  command="$(printf '%s' "$2" | tr '\n' ' ' | sed -e 's/%/%25/g')"
+  echo "::error title=android-instrumentation-script::exit $status at line $1: $command"
+}
+trap 'on_unexpected_failure "$LINENO" "$BASH_COMMAND"' ERR
+
 mkdir -p diagnostics/android-instrumentation
+# Host headroom at the start of the step, so a disk or memory shortage can be
+# checked against the failing run instead of inferred.
+echo "::notice title=android-instrumentation-host::$(df -Pk / | tail -n 1 | awk '{printf "rootFreeKiB=%s ", $4}') $(free -m | awk '/^Mem:/ {printf "memAvailableMiB=%s", $7}')"
 if [[ ! -x android/gradlew ]]; then
   echo "Flutter's Android build did not provide executable android/gradlew." \
     | tee diagnostics/android-instrumentation/connected-debug-android-test.log

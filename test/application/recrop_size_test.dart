@@ -52,9 +52,11 @@ class _Harness {
   );
 
   Future<Project> start() {
-    return repo.create(
-      projectFixture(assets: [assetFixture(id: 'asset1')], items: [_doc()]),
+    final project = projectFixture(
+      assets: [assetFixture(id: 'asset1')],
+      items: [_doc()],
     );
+    return repo.create(project);
   }
 
   Future<Project> recrop(Project p, CropGeometry geometry) {

@@ -15,6 +15,11 @@ import '../fixtures.dart';
 
 final _frame = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
 
+CropGeometry? _crop(List<Point2>? corners) {
+  if (corners == null) return null;
+  return CropGeometry(corners: corners, outputWidth: 400, outputHeight: 250);
+}
+
 ImageAsset _asset({
   List<Point2>? corners,
   bool userAuthored = false,
@@ -29,9 +34,7 @@ ImageAsset _asset({
     thumbnailPath: base.thumbnailPath,
     width: base.width,
     height: base.height,
-    crop: corners == null
-        ? null
-        : CropGeometry(corners: corners, outputWidth: 400, outputHeight: 250),
+    crop: _crop(corners),
     userAuthoredCrop: userAuthored,
     suggestedCrop: suggestion,
   );
@@ -142,14 +145,12 @@ void main() {
         Point2(.5, .5 + 3 / 249),
       ]);
       expect(q.acceptable, isFalse);
-      expect(
-        {
-          QuadRejection.tooSmall,
-          QuadRejection.degenerateEdges,
-          QuadRejection.notConvex,
-        },
-        contains(q.rejection),
-      );
+      const allowed = [
+        QuadRejection.tooSmall,
+        QuadRejection.degenerateEdges,
+        QuadRejection.notConvex,
+      ];
+      expect(allowed, contains(q.rejection));
     });
 
     test('a self-intersecting bow-tie is refused as not convex', () {

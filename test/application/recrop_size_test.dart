@@ -30,15 +30,17 @@ final _square = CropGeometry(
 
 const _mismatch = 'نسبة المستطيل تختلف عن الصورة';
 
-DocumentItem _doc() => DocumentItem(
-  id: 'doc',
-  assetId: 'asset1',
-  x: 10,
-  y: 10,
-  width: 85.6,
-  height: 54,
-  pageIndex: null,
-);
+DocumentItem _doc() {
+  return DocumentItem(
+    id: 'doc',
+    assetId: 'asset1',
+    x: 10,
+    y: 10,
+    width: 85.6,
+    height: 54,
+    pageIndex: null,
+  );
+}
 
 class _Harness {
   final MemoryProjects repo = MemoryProjects();
@@ -81,9 +83,11 @@ class _Harness {
   }
 }
 
-Project _placed(Project p) => p.copyWith(
-  items: [PageLayout.item(p, 'doc').copyWith(pageIndex: 0, x: 10, y: 10)],
-);
+Project _placed(Project p) {
+  return p.copyWith(
+    items: [PageLayout.item(p, 'doc').copyWith(pageIndex: 0, x: 10, y: 10)],
+  );
+}
 
 bool _warns(Project p) {
   final warnings = ExportPlan(_placed(p), ExportProfile()).warnings;

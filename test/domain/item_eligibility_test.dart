@@ -15,12 +15,7 @@ import '../fixtures.dart';
 // placement, automatic placement, export). Every expectation is taken from
 // the contract (boundary, kind and size rules), not from the current code.
 
-final _fullFrame = [
-  Point2(0, 0),
-  Point2(1, 0),
-  Point2(1, 1),
-  Point2(0, 1),
-];
+final _fullFrame = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
 
 final _quad = [
   Point2(.1, .12),
@@ -49,11 +44,9 @@ ImageAsset _asset({
   );
 }
 
-CropGeometry _geometry(List<Point2> corners) => CropGeometry(
-  corners: corners,
-  outputWidth: 400,
-  outputHeight: 250,
-);
+CropGeometry _geometry(List<Point2> corners) {
+  return CropGeometry(corners: corners, outputWidth: 400, outputHeight: 250);
+}
 
 class _Case {
   const _Case({
@@ -82,23 +75,25 @@ class _Case {
   final bool automatic;
   final bool export;
 
-  Project project({int? pageIndex}) => projectFixture(
-    assets: [asset],
-    items: [
-      DocumentItem(
-        id: 'doc',
-        assetId: asset.id,
-        x: 10,
-        y: 10,
-        width: 85.6,
-        height: 54,
-        pageIndex: pageIndex,
-        documentKind: kind,
-        sizeConfirmed: confirmed,
-        locked: locked,
-      ),
-    ],
-  );
+  Project project({int? pageIndex}) {
+    return projectFixture(
+      assets: [asset],
+      items: [
+        DocumentItem(
+          id: 'doc',
+          assetId: asset.id,
+          x: 10,
+          y: 10,
+          width: 85.6,
+          height: 54,
+          pageIndex: pageIndex,
+          documentKind: kind,
+          sizeConfirmed: confirmed,
+          locked: locked,
+        ),
+      ],
+    );
+  }
 }
 
 final _cases = <_Case>[

@@ -37,20 +37,22 @@ ImageAsset _asset({
   );
 }
 
-Project _project(ImageAsset asset) => projectFixture(
-  assets: [asset],
-  items: [
-    DocumentItem(
-      id: 'doc',
-      assetId: asset.id,
-      x: 10,
-      y: 10,
-      width: 85.6,
-      height: 54,
-      pageIndex: null,
-    ),
-  ],
-);
+Project _project(ImageAsset asset) {
+  return projectFixture(
+    assets: [asset],
+    items: [
+      DocumentItem(
+        id: 'doc',
+        assetId: asset.id,
+        x: 10,
+        y: 10,
+        width: 85.6,
+        height: 54,
+        pageIndex: null,
+      ),
+    ],
+  );
+}
 
 QuadAssessment _assess(List<Point2> corners) {
   return assessQuad(corners, sourceWidth: 400, sourceHeight: 250);

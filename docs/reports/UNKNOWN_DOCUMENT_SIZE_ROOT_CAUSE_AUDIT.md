@@ -692,24 +692,24 @@ the user accepts them as residual):
 
 ## 14. Phase 8 batch (PR #39, commit `ace6bb3`): one implementation batch
 
-Status of this section: **code and tests written in one batch. Dart and Flutter
-are unavailable in this sandbox, so nothing here is a local run. Each result
-is a GitHub Actions result on the SHA named in §14.8, or it is marked
-PENDING.** A status is VERIFIED only when CI ran the relevant test on that SHA.
-The verdict is NOT READY (§14.9).
+Status of this section: **code and tests written in one batch, then repaired
+in §14.10. Dart and Flutter are unavailable in this sandbox, so nothing here is a
+local run. Each result is a GitHub Actions result on the SHA named in §14.10.** A
+status is VERIFIED only when CI ran the relevant test on that SHA. The verdict is
+NOT READY (§14.9).
 
 ### 14.1 Findings and status
 
 | ID | Finding | Evidence before the batch | Change | Status |
 |---|---|---|---|---|
-| F-K | `hasApprovedCrop` was `crop != null`, so a full frame stored by an adjustment, rotation, or enhancement counted as an approved crop. `setKind` then confirmed a catalog size without a boundary decision. | CONFIRMED by code read (`DocumentEdits.hasApprovedCrop`, `setKind`, `editor_controller` ~1002/1041/1071 `crop ?? fullImage`). | `ImageAsset.hasApprovedCrop` = `crop != null && (userAuthoredCrop \|\| !isFullFrameCorners(crop.corners))`. `isFullFrameCorners` (tolerance 1e-6) is in `geometry.dart`. `DocumentEdits.hasApprovedCrop`, `crop_screen` initial crop, revert guard, `resetCropToOriginal` guard, and the layout reset-crop enable all use it. | FIXED; tests in `test/domain/full_frame_approval_test.dart` and `crop_lifecycle_test.dart`. CI: PENDING (§14.8). |
-| F-K gate | A stored full frame started with no gate, so Preview was enabled. | CONFIRMED by code read (`crop == null` branches, `crop_screen.dart`). | `crop_screen` treats an unapproved stored frame as no crop, so the base frame is gated and the saved suggestion is used. Test: "an adjusted full frame is not a saved crop". | FIXED; CI PENDING. |
-| C1 | Reset to the original full frame could leave Preview and Accept enabled. | CONFIRMED by code read (`manualRequired: _manualRequired` on reset). | Reset sets `manualRequired: true`, the same as Undo to the starting frame. Test: "restoring the full frame re-gates Preview and Accept". | FIXED; CI PENDING. |
-| F-C | `setKind` confirmed a size in the catalog branch and overwrote a typed or manual size. | CONFIRMED by code read. | A confirmed size without an approved crop is kept on a category change. An approved crop applies the catalog size. `other` keeps a confirmed size. `unknown` on a confirmed item keeps its size. An unconfirmed item with no catalog size goes off the sheet. `resetSize` is the explicit catalog-size action and refuses locked items. | FIXED (spec-driven test changes, §14.4); CI PENDING. |
-| F-A4 | A4 eligibility rules are spread across `arrangement`, `page_layout`, `export_plan`, `packing`, and `project_service`. Is there a divergent decision? | Read every site (§14.2). All placement sites key on `sizeConfirmed` and `locked`, and no site accepts an unconfirmed size. | **No shared type was added.** The task allows one only when the audit proves a divergent decision, and none was proven. The eight-case matrix tests the production paths (`PageLayout.checked`, `autoLayoutStatus`, `ExportPlan`, `Project` reload) directly. | NOT REPRODUCED as a divergence; matrix tests added; CI PENDING. |
-| F-D | Re-crop: does it change the physical size? | CONFIRMED by code read. `applyManualCrop` writes only an asset revision, and the item's mm stays the same. Save confirms only when `confirmForSheet \|\| kindOrSizeChanged`. Export warns when the crop ratio differs from the sheet (`export_plan.dart`). | No product change for the size path. Tests in `test/application/recrop_size_test.dart` cover confirmed catalog re-crop, typed size on re-crop, a provisional size never confirmed silently, a turned picture keeping its printed size, and save, reload, and export after re-crop. | VERIFIED only after CI on the final SHA (PENDING). |
-| F-E | Physical aspect from four corners: which cases are determinable and how accurate are they? | Python port (§14.5). Pure geometry only. | Dart test added: strong two-axis perspective with roll (40/40 and 50/35, roll 15°), noise-free, bound 0.1 %. The existing Dart tests already cover two-axis, roll, asymmetric tilt, sizes, noise, and the null cases. | Synthetic geometry only. CI PENDING. Real-image accuracy: **BLOCKED** (no licensed reference set, §14.6). |
-| F-N | Narrow layout: a lazy `ListView` culled the canvas when the tools scrolled, which lost the canvas, the corners, and the manual selection. | CONFIRMED by counts in `184d613` and by the code (`ListView` in the narrow branch). | The canvas is a fixed-height `SizedBox`. Only the tools scroll (`Expanded(SingleChildScrollView(_tools()))`). The canvas stays mounted. The scroll-back workaround in `ensureCropTapMode` is removed. Test: `test/presentation/crop_narrow_layout_test.dart`. | FIXED; CI PENDING. |
+| F-K | `hasApprovedCrop` was `crop != null`, so a full frame stored by an adjustment, rotation, or enhancement counted as an approved crop. `setKind` then confirmed a catalog size without a boundary decision. | CONFIRMED by code read (`DocumentEdits.hasApprovedCrop`, `setKind`, `editor_controller` ~1002/1041/1071 `crop ?? fullImage`). | `ImageAsset.hasApprovedCrop` = `crop != null && (userAuthoredCrop \|\| !isFullFrameCorners(crop.corners))`. `isFullFrameCorners` (tolerance 1e-6) is in `geometry.dart`. `DocumentEdits.hasApprovedCrop`, `crop_screen` initial crop, revert guard, `resetCropToOriginal` guard, and the layout reset-crop enable all use it. | FIXED; tests in `test/domain/full_frame_approval_test.dart` and `crop_lifecycle_test.dart`. VERIFIED on `b7d9065` (§14.10). |
+| F-K gate | A stored full frame started with no gate, so Preview was enabled. | CONFIRMED by code read (`crop == null` branches, `crop_screen.dart`). | `crop_screen` treats an unapproved stored frame as no crop, so the base frame is gated and the saved suggestion is used. Test: "an adjusted full frame is not a saved crop". | FIXED; VERIFIED on `b7d9065`. |
+| C1 | Reset to the original full frame could leave Preview and Accept enabled. | CONFIRMED by code read (`manualRequired: _manualRequired` on reset). | Reset sets `manualRequired: true`, the same as Undo to the starting frame. Test: "restoring the full frame re-gates Preview and Accept". | FIXED; VERIFIED on `b7d9065`. |
+| F-C | `setKind` confirmed a catalog size for a full frame with no approved boundary (through the old `hasApprovedCrop`), and a category choice replaces a typed size. | CONFIRMED by code read. | Crop-approval part FIXED through F-K: `hasApprovedCrop` means an approved boundary, so nothing is confirmed without one. The overwrite on an explicit category choice keeps the HEAD rule (`7a39191`): the category's catalog size applies, and it is confirmed only with an approved crop. The Phase 8 keep-confirmed variant was reverted in `bc25121` because it kept a previous category's size and failed three existing tests (§14.10). | Crop-approval part: VERIFIED on `b7d9065`. Explicit-overwrite rule: **NEEDS PRODUCT DECISION** (a category choice can replace a typed size; the user accepts or changes this). |
+| F-A4 | A4 eligibility rules are spread across `arrangement`, `page_layout`, `export_plan`, `packing`, and `project_service`. Is there a divergent decision? | Read every site (§14.2). All placement sites key on `sizeConfirmed` and `locked`, and no site accepts an unconfirmed size. | **No shared type was added.** The task allows one only when the audit proves a divergent decision, and none was proven. The eight-case matrix tests the production paths (`PageLayout.checked`, `autoLayoutStatus`, `ExportPlan`, `Project` reload) directly. | NOT REPRODUCED as a divergence; matrix tests added; VERIFIED on `b7d9065`. |
+| F-D | Re-crop: does it change the physical size? | CONFIRMED by code read. `applyManualCrop` writes only an asset revision; the item's mm stays the same. Save confirms only when `confirmForSheet \|\| kindOrSizeChanged`. Export warns when the crop ratio differs from the sheet (`export_plan.dart`). | No change to the size path. Tests in `test/application/recrop_size_test.dart`: confirmed catalog re-crop, typed size re-crop, provisional size never confirmed silently, turned picture keeps its printed size, ratio mismatch through the existing export warning, save and reload. | VERIFIED on `b7d9065` (5 tests in the 959-test run). |
+| F-E | Physical aspect from four corners: which cases are determinable and how accurate are they? | Python port (§14.5). Pure geometry only. | Dart tests (`test/domain/physical_aspect_test.dart`) cover the Python cases: two-axis perspective, roll up to 45°, asymmetric perspective, sizes and focal lengths, fixed two-pixel corner noise, strong two-axis perspective with roll (40/40 and 50/35, roll 15°, bound 0.1 %), single-axis tilt and roll as null, degenerate input as null. | Synthetic geometry only. Dart tests VERIFIED on `b7d9065`. Real-image accuracy: **BLOCKED** (no licensed reference set, §14.6). |
+| F-N | Narrow layout: a lazy `ListView` culled the canvas when the tools scrolled, which lost the canvas, the corners, and the manual selection. | CONFIRMED by counts in `184d613` and by the code (`ListView` in the narrow branch). | The canvas is a fixed-height `SizedBox`; only the tools scroll (`Expanded(SingleChildScrollView(_tools()))`). The canvas stays mounted. The helper `ensureCropTapMode` is unchanged from `7a39191` (its scroll-back is harmless and was kept). Test: `test/presentation/crop_narrow_layout_test.dart`. | VERIFIED on `b7d9065` (the narrow test passes in the 959-test run). |
 | Exporter | The exporter test failure in an early run. | No `[E]` marker in any later run (§13.6). | No change. | NOT REPRODUCED. |
 | D7 | 16 MP limit and the silent downscale. | Unchanged. | None. Protected. The existing `full_resolution_budget_test.dart` runs in CI. | NOT CHANGED. |
 | Smart recognition | `_confirmedCatalogSize` can accept with a null `crop`, so recognition and `asset.crop` could disagree. | Read only. | None. Unreachable while `minAutoAcceptConfidence = 1.01`. | NOT REACHABLE (latent; documented). |
@@ -764,28 +764,33 @@ detect-fail then Undo and Redo; an invalid saved suggestion; a valid Suggest tha
 lifts the gate; a malformed Suggest that keeps it; and Preview and Accept blocked
 while the frame is unapproved.
 
-### 14.4 Spec-driven test changes in this batch (documented; no assertion weakened)
+### 14.4 Spec-driven test changes (documented; no assertion weakened)
 
-1. `test/domain/document_edits_test.dart` "a category change takes a confirmed
-   uncropped item off the sheet" → **"a category change keeps a typed size on the
-   sheet"**. Reason: F-C. A confirmed size is not revoked by a category change
-   without an approved boundary. The old expectation removed the item.
-2. `test/domain/document_edits_test.dart` **new** "with an approved crop, a
-   category change applies its catalog size". Reason: the approved-crop branch
-   of F-C.
-3. `test/domain/document_edits_test.dart` ""unknown" takes the document off the
-   sheet, "other" keeps it" → **""unknown" keeps a typed size; an unconfirmed
-   document leaves the sheet"**. Reason: the same F-C rule. An unknown category
-   is not an invalid crop, and a confirmed size is kept.
-4. `test/presentation/crop_tap_helpers.dart` `ensureCropTapMode`: the scroll-back
-   drag after the toggle is **removed**. Reason: F-N. The canvas now stays
-   mounted, so the workaround is not needed. The helper still asserts the surface
-   and reports failures. The narrow-layout test checks the same condition directly.
-5. New tests (not replacements): `crop_lifecycle_test.dart` ("an adjusted full
-   frame is not a saved crop"; "restoring the full frame re-gates Preview and
-   Accept"); `physical_aspect_test.dart` ("strong two-axis perspective with roll
-   recovers the ratio"); `recrop_size_test.dart`; `full_frame_approval_test.dart`;
-   `item_eligibility_test.dart`; `crop_narrow_layout_test.dart`.
+Changes in the Phase 8 batch that remain in the tree after `bc25121`:
+
+1. `test/domain/document_edits_test.dart`: **reverted to `7a39191`.** The Phase 8
+   rewrites of the category-change expectations were removed with the keep-confirmed
+   `setKind` change. The HEAD expectations stand unchanged.
+2. `test/presentation/crop_tap_helpers.dart`: **reverted to `7a39191`.** The
+   scroll-back drag was not removed; the narrow fix does not depend on it.
+3. `test/domain/item_eligibility_test.dart` (reload cases, spec-driven): the reload
+   assertion follows `Project.fromJson`. An unconfirmed item leaves its page on
+   reload, by design. The old expectation (keeps `pageIndex`) was wrong.
+4. `test/domain/item_eligibility_test.dart` (missing asset, spec-driven): the test
+   asserts that `Project` refuses an item whose asset is missing
+   (`ValidationException`). The earlier expectation (loads unconfirmed) was wrong,
+   because no model state can hold such an item.
+5. `test/presentation/crop_narrow_layout_test.dart` (spec-driven): after four taps
+   the tap surface is closed, as C3 requires. The test now asserts that the surface
+   is closed and that the corner handles and tapped positions survive scrolling. It
+   taps at 35/65 % of the surface, away from the corner handle hit areas.
+6. `test/application/crop_lifecycle_test.dart`: the test "an adjusted full frame is
+   not a saved crop" builds the stored full frame directly. The helper comment was
+   shortened to fit 80 columns.
+7. New tests (additions, not replacements): `test/domain/full_frame_approval_test.dart`,
+   `test/domain/item_eligibility_test.dart`, `test/application/recrop_size_test.dart`,
+   `test/presentation/crop_narrow_layout_test.dart`, the two `crop_lifecycle_test.dart`
+   tests, and the strong-perspective and noise tests in `physical_aspect_test.dart`.
 
 ### 14.5 F-E: Dart and Python evidence
 
@@ -831,21 +836,54 @@ The canvas is in a `SizedBox` of height `min(preferred, maxHeight)`, and the too
 are in `Expanded(SingleChildScrollView)`. The canvas is never removed from the
 tree, so the crop context, the corner handles, and the four taps survive tool
 scrolling. The widget test scrolls the tools down and back up and checks that the
-surface is present and each tapped corner stays within 0.5 px. The canvas is
-outside the scrolling area, so scrolling the tools does not rebuild it. No memory
-or frame-time measurement was taken in this sandbox.
+surface is closed after four taps (as C3 requires), the corner handles remain, and
+each tapped corner stays within 0.5 px. The canvas is outside the scrolling area,
+so scrolling the tools does not rebuild it. No memory or frame-time measurement
+was taken in this sandbox. The test passes in the 959-test run on `b7d9065`.
 
-### 14.8 CI (final SHA)
+### 14.8 CI (see §14.10 for the per-commit results)
 
-PENDING. The batch is pushed as `ace6bb3` (push run `41597722241`, pull-request
-run `41597728149`). The results are added below when the run finishes.
+The batch was pushed as `ace6bb3` (failed at format), then `7551bcb`, `3483b4f`,
+and `ab2692d` (format and 11 test failures), `bc25121` (2 test failures), and
+`b7d9065` (every test passed; Android 16 evidence failed; §14.10).
 
 ### 14.9 Verdict
 
-**NOT READY.** Open items: F-E real-image accuracy (BLOCKED, §14.6); the
-product decisions in §13.1/§11 (D2, D7 and the unknown-kind placement policy are
-not changed here and need the user's approval); and CI on the final SHA, which
-is not yet complete. No critical or medium issue is known to be open in the code
-paths this batch touches. The verdict is not READY until the CI results above
-show every required gate green on one SHA and the decision items are closed or
-accepted.
+**NOT READY.** Open items: F-E real-image accuracy (BLOCKED, §14.6); the product
+decisions D2, D7, the unknown-kind placement policy, and the explicit category
+overwrite (F-C, §14.1); the Android 16 startup evidence on the final SHA (§14.10);
+and the drag-time notice wording (§14.10, LOW). The verdict changes only when the
+product decisions are accepted and every required gate, including Android 16, is
+green on one SHA.
+
+
+### 14.10 Repair round: `bc25121`, `b7d9065` (CI results)
+
+CI on `ab2692d` failed with 11 `[E]` results and a format gate. The `[E]` lines
+and annotations were read in full. Root causes and changes:
+
+| ID | Problem | Root cause (from CI annotations) | Change | Tests | Status |
+|---|---|---|---|---|---|
+| F-C regression | `setKind` kept a confirmed size without an approved crop. | The keep-confirmed rule let a previous category's catalog size survive a category change. It failed `review_screen_test`, `editor_ribbon_test`, and `recognition_overrides_test` (expected `[125, 88]`, got `85.6`). The existing tests were right; the change was wrong. | `document_edits.dart` and `document_edits_test.dart` reverted to `7a39191`. Only `hasApprovedCrop` now delegates to `ImageAsset.hasApprovedCrop`. | The three existing tests pass in the 959-test run. | FIXED (regression reverted) |
+| Reload, 5 cases | Reloaded unconfirmed items were expected to keep `pageIndex`. | `Project.fromJson` drops `pageIndex` for an unconfirmed item by design. The test was wrong. | Spec-driven change (§14.4 item 3). | `item_eligibility_test.dart` reload cases | VERIFIED on `b7d9065` |
+| Missing asset | Expected an orphan item to load unconfirmed. | `Project` refuses it at construction (`ValidationException`: an item refers to a missing image). No state can hold it. | Spec-driven change (§14.4 item 4). | `item_eligibility_test.dart` | VERIFIED on `b7d9065` |
+| F-N tap points | Taps at 20/80 % of the surface hit the corner handle layer (hit-test warning). | The test tapped inside the corner handles' hit areas. | Taps at 35/65 %. The surface is closed after four taps; corners survive scrolling (§14.4 item 5). | `crop_narrow_layout_test.dart` | VERIFIED on `b7d9065` |
+| Adjusted full frame | Test depended on an editor revision. | Set-up, not product behaviour. | The stored full frame is built directly and the test asserts it is gated. | `crop_lifecycle_test.dart` | VERIFIED on `b7d9065` |
+| Format gate, `recrop_size_test.dart` | Flagged across four commits. | The file had four constructs the formatter rewrites: a multi-line field initializer, a `for` over a list literal, an inline `copyWith` argument, and the `_Harness` field initializer. The earlier edits changed only the layout of single calls. | File rewritten without those constructs; same five tests. | Format: `226 files (0 changed)` on `b7d9065` | VERIFIED on `b7d9065` |
+| F-M gate tests | Detect fails, then Undo/Redo; invalid suggestion, then Preview or Accept. | Existing gate tests cover these paths. | None needed. Covered by `crop_lifecycle_test.dart`: "undo after fallback never restores an ungated full frame", and "a malformed suggestion after fallback keeps the gate", which asserts Preview and Accept are null. | Passed on `b7d9065` | VERIFIED on `b7d9065` (domain and gate level) |
+| Gate bypass via kind change | Can a category change lift the gate? | The gate is crop-screen state (`_CropEditorState.manualRequired`); a category change does not reach it. | None. Domain test: a category cannot confirm a size from an adjusted full frame. | `full_frame_approval_test.dart` | VERIFIED on `b7d9065` (domain). Gate level: by code read |
+| Android 16 startup evidence | `b7d9065` FAILED: "The reports are missing: app.first_home_frame". | The logcat check passed, so the first home frame was reached, but the pulled report lacked the mark. The startup code has no diff since `7a39191` (`lib/main.dart` and the diagnostics files are unchanged). The collector's own comment records the race: a mark can reach the platform channel after its report is written, and the collector waits a fixed 12 s. | Not changed in this round. Rerun on the documentation commit to separate infrastructure from a deterministic defect (§13.5 rule). If it fails again, the collector should wait for the mark rather than a fixed delay. | — | NOT RESOLVED on `b7d9065`; see the PR body for the final SHA |
+| Drag-time notice | The crossing notice clears on the next valid move during a drag. | By design: `_moveCorner` clears `_error` when the draft is valid again. The drag-end gate lift is present (`7dc50e7`, `onDragEnd` calls `_change(..., clearManualRequired: true)`). Earlier notes that the lift was missing were wrong. | None. The notice reflects the current state. | — | LOW. Documented; no gate defect |
+
+Test results on `b7d9065` (push run `41603371892`):
+
+- `android` job: success. `All tests passed! +959`, 0 failures. Format `226 files (0 changed)`. Source audit PASS. Instrumentation `androidTests=4 failures=0 skipped=0`. DocQuad inference exit 0.
+- `Android debug/diagnostic differential`: success.
+- `windows / windows`: success.
+- `Android 16 startup evidence`: failure (row above).
+
+Not proven:
+
+- F-E real-image accuracy (BLOCKED: no licensed references). The Dart tests use synthetic geometry only. Lighting does not enter the estimator, which uses only the corners, so it is not a tested variable.
+- Per-case relative errors come from the Python port (§14.5). The Dart tests assert bounds and do not print the errors.
+- The explicit category overwrite (F-C) is a product decision, not a fixed defect.

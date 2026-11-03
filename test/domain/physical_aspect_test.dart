@@ -247,6 +247,25 @@ void main() {
       _expectRatio(_estimateFor(strong, 3000, 4000), 85.6 / 54, .035);
     });
 
+    test('strong two-axis perspective with roll recovers the ratio', () {
+      // Noise-free. Python port (not a Dart run): -0.023 % at 40/40 roll 15 and
+      // -0.047 % at 50/35 roll 15. The 0.1 % bound is about twice the worst
+      // measured value. The derivation is exact without noise.
+      for (final (tx, ty) in [(40.0, 40.0), (50.0, 35.0)]) {
+        final corners = _projectRectangle(
+          physicalWidth: 85.6,
+          physicalHeight: 54,
+          sourceWidth: 3000,
+          sourceHeight: 4000,
+          focal: 3500,
+          tiltX: _deg(tx),
+          tiltY: _deg(ty),
+          roll: _deg(15),
+        );
+        _expectRatio(_estimateFor(corners, 3000, 4000), 85.6 / 54, .001);
+      }
+    });
+
     test('single-axis tilt and in-plane rotation are not determinable', () {
       // With one vanishing point at infinity the focal length is not
       // determined, so the ratio must stay unknown. The caller then keeps the

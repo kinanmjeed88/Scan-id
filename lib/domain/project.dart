@@ -325,6 +325,19 @@ class ImageAsset {
   final ImageAdjustments adjustments;
   final List<String> transforms;
 
+  /// Whether the picture has an approved crop, the only basis on which a
+  /// category or a size confirmation may rest (F-C, F-K).
+  ///
+  /// A crop is approved when the user authored it, or when its geometry is
+  /// not the full frame (an automatic accepted boundary). A full frame that a
+  /// colour, rotation or enhancement revision stored in [crop] is not an
+  /// approval: the revision decided pixels, not the boundary.
+  bool get hasApprovedCrop {
+    final geometry = crop;
+    if (geometry == null) return false;
+    return userAuthoredCrop || !isFullFrameCorners(geometry.corners);
+  }
+
   /// Whether this JPEG's current source bytes use the bounded sampling path.
   /// Preview and recognition use [processingInputPath]. A final crop reads
   /// [originalPath] through a bounded native region extract, never by decoding

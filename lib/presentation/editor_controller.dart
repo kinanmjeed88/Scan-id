@@ -898,7 +898,7 @@ class LayoutEditorController extends ChangeNotifier {
   /// copy as one undoable step.
   Future<void> resetCropToOriginal() async {
     final asset = activeAsset;
-    if (asset == null || asset.crop == null) return;
+    if (asset == null || !asset.hasApprovedCrop) return;
     Project? saved;
     final ok = await run(() async {
       final fresh = session.current.assets

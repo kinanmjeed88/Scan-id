@@ -19,50 +19,63 @@ class DocumentEdits {
   /// Whether [asset] has an approved crop. An approved crop is the only basis
   /// on which a category choice may confirm a physical size. A saved
   /// suggestion, a detected quadrilateral, or a full-frame photo is not one.
-  static bool hasApprovedCrop(ImageAsset asset) => asset.crop != null;
+  static bool hasApprovedCrop(ImageAsset asset) => asset.hasApprovedCrop;
 
-  /// Sets the category of a document and applies its catalog size at once.
+  /// Sets the category of a document.
   ///
-  /// Choosing a category is not a size confirmation on its own. A known
-  /// category confirms its catalog size only when the picture has an approved
-  /// crop. Otherwise the item keeps the catalog size as a provisional size,
-  /// stays unconfirmed, and is taken off the sheet until the crop is approved
-  /// or a size is typed. "Other" keeps the current size and its confirmation.
-  /// "Unknown" takes the document off the sheet until a category is chosen.
+  /// Choosing a category is not a size confirmation on its own, and it never
+  /// replaces a size the user confirmed without an approved crop: a typed or
+  /// manual size has no boundary basis that could justify replacing it. For
+  /// every other item the category applies its catalog size. A known category
+  /// confirms that size only when the picture has an approved crop; otherwise
+  /// the catalog size stays provisional and the item is off the sheet until the
+  /// crop is approved or a size is typed. "Unknown" on an unconfirmed item takes
+  /// it off the sheet until a category is chosen. "Other" keeps a confirmed
+  /// size. [resetSize] is the explicit way back to a catalog size.
   static Project setKind(Project project, String itemId, DocumentKind kind) {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
     final asset = project.assets.firstWhere((a) => a.id == item.assetId);
     final size = catalogSize(project, asset, kind);
-    final DocumentItem next;
+    final keepsConfirmedSize =
+        item.sizeConfirmed && (size == null || !hasApprovedCrop(asset));
+    if (keepsConfirmedSize) {
+      return _replace(
+        project,
+        item.copyWith(documentKind: kind, recognitionConfidence: 0),
+      );
+    }
     if (size != null) {
-      final confirmed = hasApprovedCrop(asset);
-      next = item.copyWith(
-        documentKind: kind,
-        width: size.width,
-        height: size.height,
-        recognitionConfidence: 0,
-        sizeConfirmed: confirmed,
-        keepAspectRatio: true,
-        unplaced: !confirmed,
+      return _replace(
+        project,
+        _withCatalogSize(item, kind, size, confirmed: hasApprovedCrop(asset)),
       );
-    } else if (kind == DocumentKind.other) {
-      next = item.copyWith(
-        documentKind: kind,
-        recognitionConfidence: 0,
-        sizeConfirmed: item.sizeConfirmed,
-        unplaced: !item.sizeConfirmed,
-      );
-    } else {
-      next = item.copyWith(
+    }
+    return _replace(
+      project,
+      item.copyWith(
         documentKind: kind,
         recognitionConfidence: 0,
         sizeConfirmed: false,
         unplaced: true,
-      );
-    }
-    return _replace(project, next);
+      ),
+    );
   }
+
+  static DocumentItem _withCatalogSize(
+    DocumentItem item,
+    DocumentKind kind,
+    PhysicalSizeMm size, {
+    required bool confirmed,
+  }) => item.copyWith(
+    documentKind: kind,
+    width: size.width,
+    height: size.height,
+    recognitionConfidence: 0,
+    sizeConfirmed: confirmed,
+    keepAspectRatio: true,
+    unplaced: !confirmed,
+  );
 
   /// Re-orients a provisional catalog size to the current picture orientation.
   ///
@@ -112,14 +125,27 @@ class DocumentEdits {
     );
   }
 
-  /// Restores the catalog size of the document's category.
+  /// Restores the catalog size of the document's category. This is the
+  /// explicit size action; a category change alone keeps a confirmed size.
   static Project resetSize(Project project, String itemId) {
     final item = PageLayout.item(project, itemId);
+    require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
     require(
       project.catalog.natural(item.documentKind) != null,
       'لا يوجد مقاس محفوظ لهذا النوع؛ أدخل العرض والارتفاع يدوياً.',
     );
-    return setKind(project, itemId, item.documentKind);
+    final asset = project.assets.firstWhere((a) => a.id == item.assetId);
+    final size = catalogSize(project, asset, item.documentKind);
+    require(size != null, 'لا يوجد مقاس محفوظ لهذا النوع.');
+    return _replace(
+      project,
+      _withCatalogSize(
+        item,
+        item.documentKind,
+        size!,
+        confirmed: hasApprovedCrop(asset),
+      ),
+    );
   }
 
   /// Turns a document on the sheet by 90° (clockwise).

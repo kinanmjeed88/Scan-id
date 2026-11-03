@@ -387,6 +387,25 @@ QuadGeometryIssue? unorderedQuadIssue(List<Point2> points) {
   return null;
 }
 
+/// Whether [corners] are exactly the four corners of the unrotated picture.
+///
+/// Adjustment, rotation and enhancement revisions store the full-frame geometry
+/// in `ImageAsset.crop` without any user decision, so this predicate separates
+/// a stored full frame from an approved crop (F-K).
+bool isFullFrameCorners(List<Point2> corners) {
+  const eps = 1e-6;
+  final targets = [
+    for (final (x, y) in const [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+      (x, y),
+  ];
+  return corners.length == 4 &&
+      targets.every(
+        (t) => corners.any(
+          (p) => (p.x - t.$1).abs() <= eps && (p.y - t.$2).abs() <= eps,
+        ),
+      );
+}
+
 class CropGeometry {
   CropGeometry({
     required List<Point2> corners,

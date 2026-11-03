@@ -11,6 +11,7 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -280,6 +281,48 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
       expect(previewButton(tester).onPressed, isNotNull);
+    });
+
+    // F-K: an adjustment stores the full frame in `crop` without a decision.
+    // That is not a saved crop, so the base frame is still gated.
+    testWidgets('an adjusted full frame is not a saved crop', (tester) async {
+      final asset = project.assets.single;
+      final adjusted = await service.createImageRevision(
+        project,
+        asset,
+        ImageEditRecipe(
+          CropGeometry(
+            corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+            outputWidth: asset.width,
+            outputHeight: asset.height,
+          ),
+          ImageAdjustments(sharpness: .3),
+        ),
+      );
+      expect(adjusted.crop, isNotNull);
+      expect(adjusted.hasApprovedCrop, isFalse);
+      project = project.copyWith(assets: [adjusted]);
+      await pumpScreen(tester);
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
+    });
+
+    // C1/F-K: restoring the original full frame is an unapproved state, so it
+    // is gated again, as Undo to the starting frame is.
+    testWidgets('restoring the full frame re-gates Preview and Accept', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      await tapFourCorners(tester);
+      expect(previewButton(tester).onPressed, isNotNull);
+
+      await tester.ensureVisible(find.text('إعادة ضبط إلى الأصل'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إعادة ضبط إلى الأصل'));
+      await tester.pumpAndSettle();
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
     });
 
     // C2: only a valid suggestion lifts the gate.

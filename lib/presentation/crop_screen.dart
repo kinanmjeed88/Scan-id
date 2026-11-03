@@ -419,7 +419,8 @@ class _CropScreenState extends State<CropScreen> {
         cancellation: cancellation,
       );
       if (!_isCurrentOperation(operation)) return;
-      final crop = extractDerived ? null : asset.crop;
+      // A stored full frame from an adjustment is not a saved crop (F-K).
+      final crop = extractDerived || !asset.hasApprovedCrop ? null : asset.crop;
       // A category/print size is not permission to reshape pixels. Only an
       // explicit shape choice in this session (or a preserved saved recipe)
       // imposes an aspect; a new draft keeps the measured quadrilateral.
@@ -1318,16 +1319,26 @@ class _CropScreenState extends State<CropScreen> {
                             ],
                           );
                         }
-                        return ListView(
+                        // The canvas stays mounted and fixed. A lazy list
+                        // culled it once the tools were scrolled into view,
+                        // which lost the canvas context, the selection, and
+                        // the corner finders. Only the tools scroll (F-N).
+                        final preferred = math.max(
+                          240.0,
+                          math.min(440.0, constraints.maxHeight * .52),
+                        );
+                        return Column(
                           children: [
                             SizedBox(
-                              height: math.max(
-                                240,
-                                math.min(440, constraints.maxHeight * .52),
+                              height: math.min(
+                                preferred,
+                                constraints.maxHeight,
                               ),
                               child: _imageArea(),
                             ),
-                            _tools(),
+                            Expanded(
+                              child: SingleChildScrollView(child: _tools()),
+                            ),
                           ],
                         );
                       },
@@ -1925,13 +1936,16 @@ class _CropScreenState extends State<CropScreen> {
                       selectedKind: _initialKind,
                       customWidthText: _initialWidthText,
                       customHeightText: _initialHeightText,
-                      manualRequired: _manualRequired,
+                      // Restoring the full frame is an unapproved state, the
+                      // same as Undo to the starting frame (C1). It needs four
+                      // taps, a valid suggestion, or a corner edit before Preview.
+                      manualRequired: true,
                     ),
                   ),
             child: const Text('إعادة ضبط إلى الأصل'),
           ),
           if (!widget.extractDerived &&
-              widget.asset.crop != null &&
+              widget.asset.hasApprovedCrop &&
               !widget.asset.hasScaledLargeSource)
             TextButton(
               key: const Key('crop-revert-original'),

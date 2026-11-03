@@ -1089,7 +1089,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       onPressed:
                           busy ||
                               widget.service.imageEditor == null ||
-                              asset.crop == null ||
+                              !asset.hasApprovedCrop ||
                               asset.hasScaledLargeSource
                           ? null
                           : c.resetCropToOriginal,

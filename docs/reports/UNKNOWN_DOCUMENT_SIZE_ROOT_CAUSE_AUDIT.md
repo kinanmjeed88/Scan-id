@@ -920,3 +920,30 @@ Result of the change (push run `41668904144`, SHA `d2f3c89`): all four jobs succ
 - `Android debug/diagnostic differential`: success. `windows / windows`: success (`+3: All tests passed!`). `Android 16 startup evidence`: success (3 reports, first home frame reached on API 36, x86_64).
 
 The 0dc9d07 failure did not recur on the same product code. The cause is still not proven. The ERR trap did not fire on `d2f3c89`, so there is no new evidence about the 255 command.
+
+### 14.12 Update 2026-11-03: merge, and runs on `c3617f3` and `3fbeedb`
+
+Merge state (read from GitHub, not changed by this session): PR #39 was **merged** by `kinanmjeed88` at 2026-11-03 22:02:32Z. The PR head at merge time was `c3617f3`; the merge commit on `searchidf` is `79a5031`. The recorded verdict at that time was NOT READY. This session did not merge or close the PR. No new PR was opened: `pull_request` runs do not start for a merged PR, so no pull-request run exists for `3fbeedb`. That absence is observed, not a GitHub refusal. `3fbeedb` is not in `searchidf`.
+
+| Commit | Run | Result |
+|---|---|---|
+| `c3617f3` (disk reclaim; bounded instrumentation commands) | push `41721716806` | cancelled. `android` `126215911405`: step 39 ran 21:39:21 → 22:15:55 (36 min), then cancelled at the 50-minute job limit. differential and windows passed; Android 16 skipped. |
+| `c3617f3` | PR `41721727011` | **all four passed.** `android` `126215946747`: step 39 21:39:10 → 21:44:46 (5.6 min). differential `126215947371`, windows `126215947143`, Android 16 `126225980026`. |
+| `3fbeedb` (`timeout -k 60`; named timeout annotations) | push `41729414798` | **all four passed.** `android` `126242548961`, differential `126242548129`, windows `126242548891`, Android 16 `126252121950`. |
+
+What the evidence shows and does not show:
+
+- Disk: after the reclaim step, the root disk showed `145G 52G 93G 36%` (93 GB free), against 5.8 GB free on `cd8ec1d`. The free space changed (VERIFIED). That does not prove disk exhaustion caused the 7-second failure on `cd8ec1d` (NOT PROVEN).
+- Host memory at the start of step 39 on `41721716806`: `memAvailableMiB=4005`. Not linked to the stall.
+- The step 39 stall on `41721716806` began after the host notice (the script started). The bounded commands were `timeout 1200` (Gradle) and `timeout 900` (DocQuad). `timeout` without `-k` sends only TERM, so a JVM that ignores TERM would keep the step open. `3fbeedb` adds `-k 60`. Which command stalled is NOT PROVEN: the job log and the artifact `scan-id-android-crop-instrumentation` from that run could not be read (artifact download failed with EOF on the blob host).
+- The same SHA `c3617f3` passed step 39 in 5.6 minutes on its pull-request run. The failure and the stall are intermittent; the cause is NOT PROVEN.
+
+Status after this update:
+
+- `android` instrumentation stall/failure: NEEDS INVESTIGATION (cause not proven; bounded, not fixed).
+- Disk free-space change: VERIFIED; causation NOT PROVEN.
+- `3fbeedb` timeout hardening: VERIFIED by CI on the push run; NOT MERGED to `searchidf`.
+- Android 16 collector race (fixed 12-second wait): OPEN, MEDIUM. Not changed in this update.
+- Items still NEEDS PRODUCT DECISION: D2, D7, unknown-kind placement, explicit category overwrite (F-C). F-E on real images: BLOCKED.
+
+Verdict: **NOT READY** (unchanged). The merge happened before these open items were closed, and that is recorded as the user's decision.

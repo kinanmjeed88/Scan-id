@@ -293,23 +293,18 @@ void main() {
     );
   });
 
-  test('a missing asset is never treated as confirmed', () {
-    final p = projectFixture(
-      items: [
-        DocumentItem(
-          id: 'doc',
-          assetId: 'missing',
-          x: 10,
-          y: 10,
-          width: 85.6,
-          height: 54,
-        ),
-      ],
+  test('a missing asset cannot hold an item: Project refuses it', () {
+    final orphan = DocumentItem(
+      id: 'doc',
+      assetId: 'missing',
+      x: 10,
+      y: 10,
+      width: 85.6,
+      height: 54,
     );
-    expect(p.items.single.sizeConfirmed, isFalse);
     expect(
-      autoLayoutStatus(p, p.items.single),
-      AutoLayoutStatus.sizeUnconfirmed,
+      () => projectFixture(items: [orphan]),
+      throwsA(isA<ValidationException>()),
     );
   });
 }

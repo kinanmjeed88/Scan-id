@@ -88,7 +88,10 @@ void main() {
     // Scroll the tools to the bottom and back up.
     await _scrollTools(tester, toggle, const Offset(0, -600));
     expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
-    expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+    // Four taps finish tap mode (as in the C3 lifecycle test), so the surface
+    // is closed. The canvas and corner handles that hold the selection stay.
+    expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+    expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
     await _scrollTools(tester, toggle, const Offset(0, 600));
     expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
 

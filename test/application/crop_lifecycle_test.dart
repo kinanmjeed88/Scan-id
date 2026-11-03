@@ -17,6 +17,7 @@ import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
+import '../presentation/crop_tap_helpers.dart';
 
 class _DelayedEditor implements ImageEditor {
   _DelayedEditor(this._inner);
@@ -24,6 +25,8 @@ class _DelayedEditor implements ImageEditor {
   final openedTokens = <CancellationToken?>[];
   final previewTokens = <CancellationToken?>[];
   Completer<void>? blockPreview;
+  // What a Suggest tap returns. Null means no detection result.
+  List<Point2>? suggestion;
 
   @override
   Future<EditorSource> open(
@@ -35,7 +38,7 @@ class _DelayedEditor implements ImageEditor {
   }
 
   @override
-  Future<List<Point2>?> suggest(Uint8List preview) async => null;
+  Future<List<Point2>?> suggest(Uint8List preview) async => suggestion;
 
   @override
   Future<Uint8List> preview(
@@ -183,6 +186,33 @@ void main() {
       expect(find.byKey(const Key('crop-aspect')), findsOneWidget);
     }
 
+    ButtonStyleButton previewButton(WidgetTester tester) =>
+        tester.widget<ButtonStyleButton>(
+          find.ancestor(
+            of: find.text('معاينة التصحيح'),
+            matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          ),
+        );
+
+    ButtonStyleButton acceptButton(WidgetTester tester) =>
+        tester.widget<ButtonStyleButton>(find.byKey(const Key('accept-crop')));
+
+    Future<void> tapFourCorners(WidgetTester tester) async {
+      await ensureCropTapMode(tester);
+      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      for (final (fx, fy) in const [
+        (0.2, 0.2),
+        (0.8, 0.2),
+        (0.8, 0.8),
+        (0.2, 0.8),
+      ]) {
+        await tester.tapAt(
+          Offset(rect.left + rect.width * fx, rect.top + rect.height * fy),
+        );
+        await tester.pumpAndSettle();
+      }
+    }
+
     testWidgets('known category does not silently reshape a new manual draft', (
       tester,
     ) async {
@@ -192,6 +222,144 @@ void main() {
       );
       expect(aspect.value, isNull, reason: 'measured corners are the default');
       expect(editor.openedTokens.single, isNotNull);
+    });
+
+    // C3: no usable boundary means an unapproved full frame, gated until four
+    // valid taps. The gate is the state, not a screen variable.
+    testWidgets('no candidate starts gated; four taps lift the gate', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      // The gate blocks Preview and Accept but does not change the input mode:
+      // corners stay draggable, and tap mode opens through its toggle.
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+
+      await tapFourCorners(tester);
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(previewButton(tester).onPressed, isNotNull);
+      // Accept still needs a current preview of the completed quadrilateral.
+      expect(acceptButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('an invalid saved suggestion starts gated with its reason', (
+      tester,
+    ) async {
+      final bowTie = [Point2(0, 0), Point2(1, 1), Point2(1, 0), Point2(0, 1)];
+      project = project.copyWith(
+        assets: [project.assets.single.withSuggestedCrop(bowTie)],
+      );
+      await pumpScreen(tester);
+      expect(find.textContaining('الحدود المحفوظة غير صالحة'), findsWidgets);
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
+      expect(previewButton(tester).onPressed, isNull);
+    });
+
+    // C1: undo and redo restore the gate with the frame they restore.
+    testWidgets('undo after fallback never restores an ungated full frame', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      await tapFourCorners(tester);
+      expect(previewButton(tester).onPressed, isNotNull);
+
+      await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      // Undo returns to the gated frame: corners draggable, tap mode off.
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
+
+      await tester.tap(find.byTooltip('إعادة'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(previewButton(tester).onPressed, isNotNull);
+    });
+
+    // F-K: an adjustment stores the full frame in `crop` without a decision.
+    // That is not a saved crop, so the base frame is still gated.
+    testWidgets('an adjusted full frame is not a saved crop', (tester) async {
+      final asset = project.assets.single;
+      final stored = ImageAsset(
+        id: asset.id,
+        name: asset.name,
+        originalPath: asset.originalPath,
+        workingPath: asset.workingPath,
+        thumbnailPath: asset.thumbnailPath,
+        width: asset.width,
+        height: asset.height,
+        crop: CropGeometry(
+          corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+          outputWidth: asset.width,
+          outputHeight: asset.height,
+        ),
+      );
+      expect(stored.hasApprovedCrop, isFalse);
+      project = project.copyWith(assets: [stored]);
+      await pumpScreen(tester);
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+    });
+
+    // C1/F-K: restoring the original full frame is an unapproved state, so it
+    // is gated again, as Undo to the starting frame is.
+    testWidgets('restoring the full frame re-gates Preview and Accept', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      await tapFourCorners(tester);
+      expect(previewButton(tester).onPressed, isNotNull);
+
+      await tester.ensureVisible(find.text('إعادة ضبط إلى الأصل'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إعادة ضبط إلى الأصل'));
+      await tester.pumpAndSettle();
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+    });
+
+    // C2: only a valid suggestion lifts the gate.
+    testWidgets('a valid suggestion after fallback lifts the gate', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      editor.suggestion = [
+        Point2(.1, .1),
+        Point2(.9, .1),
+        Point2(.9, .9),
+        Point2(.1, .9),
+      ];
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+      expect(previewButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a malformed suggestion after fallback keeps the gate', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      editor.suggestion = [
+        Point2(0, 0),
+        Point2(1, 1),
+        Point2(1, 0),
+        Point2(0, 1),
+      ];
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      expect(previewButton(tester).onPressed, isNull);
+      expect(acceptButton(tester).onPressed, isNull);
+      expect(
+        find.textContaining('لا يحتوي على أربع زوايا صالحة'),
+        findsWidgets,
+      );
     });
   });
 }

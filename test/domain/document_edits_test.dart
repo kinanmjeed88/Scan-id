@@ -25,8 +25,34 @@ Project _project({bool locked = false}) => projectFixture(
   ],
 );
 
+ImageAsset _croppedAsset() {
+  final base = assetFixture();
+  return ImageAsset(
+    id: base.id,
+    name: base.name,
+    originalPath: base.originalPath,
+    workingPath: base.workingPath,
+    thumbnailPath: base.thumbnailPath,
+    width: base.width,
+    height: base.height,
+    crop: CropGeometry(
+      corners: [
+        Point2(.05, .05),
+        Point2(.95, .05),
+        Point2(.95, .95),
+        Point2(.05, .95),
+      ],
+      outputWidth: 400,
+      outputHeight: 250,
+    ),
+    userAuthoredCrop: true,
+  );
+}
+
 void main() {
-  test('choosing a category applies its catalog size immediately', () {
+  // Spec change (PR #39, F-C): choosing a category no longer confirms the
+  // physical size by itself. Confirmation needs an approved crop.
+  test('choosing a category without a crop applies the catalog size only', () {
     final p = DocumentEdits.setKind(
       _project(),
       'doc',
@@ -34,11 +60,12 @@ void main() {
     );
     final item = PageLayout.item(p, 'doc');
     expect([item.width, item.height], [85.6, 53.98]);
-    expect(item.sizeConfirmed, isTrue);
+    expect(item.sizeConfirmed, isFalse);
+    expect(item.pageIndex, isNull);
     expect(item.documentKind, DocumentKind.unifiedNationalId);
   });
 
-  test('selecting a document kind preserves unconfirmed crop geometry', () {
+  test('a suggested quadrilateral is not an approved crop', () {
     final corners = [
       Point2(.08, .12),
       Point2(.91, .14),
@@ -54,9 +81,60 @@ void main() {
       DocumentKind.unifiedNationalId,
     );
 
+    expect(DocumentEdits.hasApprovedCrop(selected.assets.single), isFalse);
     expect(selected.assets.single.crop, isNull);
     expect(selected.assets.single.suggestedCrop, corners);
-    expect(PageLayout.item(selected, 'doc').sizeConfirmed, isTrue);
+    expect(PageLayout.item(selected, 'doc').sizeConfirmed, isFalse);
+  });
+
+  test('a category with an approved crop confirms the catalog size', () {
+    final project = _project().copyWith(assets: [_croppedAsset()]);
+    final selected = DocumentEdits.setKind(
+      project,
+      'doc',
+      DocumentKind.unifiedNationalId,
+    );
+    final item = PageLayout.item(selected, 'doc');
+    expect(DocumentEdits.hasApprovedCrop(selected.assets.single), isTrue);
+    expect([item.width, item.height], [85.6, 53.98]);
+    expect(item.sizeConfirmed, isTrue);
+  });
+
+  test('a category change takes a confirmed uncropped item off the sheet', () {
+    final typed = DocumentEdits.resize(_project(), 'doc', width: 90);
+    final placed = typed.copyWith(
+      items: [
+        PageLayout.item(typed, 'doc').copyWith(pageIndex: 0, x: 10, y: 10),
+      ],
+    );
+    final c = DocumentEdits.setKind(placed, 'doc', DocumentKind.passport);
+    final changed = PageLayout.item(c, 'doc');
+    expect(changed.sizeConfirmed, isFalse);
+    expect(changed.pageIndex, isNull);
+  });
+
+  test('other without a confirmed size stays unconfirmed', () {
+    final other = DocumentEdits.setKind(_project(), 'doc', DocumentKind.other);
+    final item = PageLayout.item(other, 'doc');
+    expect(item.sizeConfirmed, isFalse);
+    expect(item.pageIndex, isNull);
+  });
+
+  test('refreshProvisionalSize re-orients only unconfirmed catalog sizes', () {
+    // A portrait provisional size on a landscape picture must lie down.
+    final base = PageLayout.item(_project(), 'doc');
+    final passport = base.copyWith(documentKind: DocumentKind.passport);
+    final portraitItem = passport.copyWith(width: 88, height: 125);
+    final portrait = _project().copyWith(items: [portraitItem]);
+    final refreshedDoc = DocumentEdits.refreshProvisionalSize(portrait, 'doc');
+    final refreshed = PageLayout.item(refreshedDoc, 'doc');
+    expect([refreshed.width, refreshed.height], [125, 88]);
+    expect(refreshed.sizeConfirmed, isFalse);
+
+    final typed = DocumentEdits.resize(_project(), 'doc', width: 90);
+    final kept = DocumentEdits.refreshProvisionalSize(typed, 'doc');
+    expect(PageLayout.item(kept, 'doc').width, 90);
+    expect(PageLayout.item(kept, 'doc').sizeConfirmed, isTrue);
   });
 
   test('the catalog size follows the picture orientation', () {
@@ -67,23 +145,14 @@ void main() {
   });
 
   test('"unknown" takes the document off the sheet, "other" keeps it', () {
-    final placed =
-        DocumentEdits.setKind(
-          _project(),
-          'doc',
-          DocumentKind.passport,
-        ).copyWith(
-          items: [
-            PageLayout.item(
-              DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport),
-              'doc',
-            ).copyWith(pageIndex: 0, x: 10, y: 10),
-          ],
-        );
-    final unknown = PageLayout.item(
-      DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown),
-      'doc',
-    );
+    // A typed size is an explicit confirmation; it keeps "other" on the sheet.
+    final p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport);
+    final typed = DocumentEdits.resize(p, 'doc', width: 125);
+    final item = PageLayout.item(typed, 'doc');
+    final onSheet = item.copyWith(pageIndex: 0, x: 10, y: 10);
+    final placed = typed.copyWith(items: [onSheet]);
+    final u = DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown);
+    final unknown = PageLayout.item(u, 'doc');
     expect(unknown.pageIndex, isNull);
     expect(unknown.sizeConfirmed, isFalse);
     final other = PageLayout.item(

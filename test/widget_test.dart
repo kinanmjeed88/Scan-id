@@ -23,6 +23,7 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
+import 'presentation/crop_tap_helpers.dart';
 
 void main() {
   WidgetController.hitTestWarningShouldBeFatal = true;
@@ -187,6 +188,107 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('tap mode: four taps in any order become canonical handles', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final editor = _TestEditor();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()]),
+    );
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      imageEditor: editor,
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () {
+                Navigator.of(context).push<Project>(
+                  MaterialPageRoute(
+                    builder: (_) => CropScreen(
+                      project: project,
+                      asset: project.assets.single,
+                      service: service,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('فتح القص'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('فتح القص'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('crop-tap-mode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('crop-tap-mode')));
+    await tester.pumpAndSettle();
+    // The canvas rect is measured again before every tap: the error banner
+    // raised by the duplicate tap moves the canvas down until a valid tap.
+    Offset at(double fx, double fy) {
+      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    }
+
+    // Two taps: partial selection, no handles yet.
+    await tester.tapAt(at(.2, .2));
+    await tester.pumpAndSettle();
+    // 16 px is outside the 12 px marker radius but inside the 20 px minimum.
+    await tester.tapAt(at(.2, .2) + const Offset(16, 0));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('قريبة'), findsWidgets);
+    await tester.tapAt(at(.8, .2));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('crop-tap-0')), findsOneWidget);
+    expect(find.byKey(const Key('crop-tap-1')), findsOneWidget);
+    expect(find.byKey(const Key('crop-corner-0')), findsNothing);
+
+    // Taps 3 and 4 arrive in a non-canonical order (bottom-left first).
+    await tester.tapAt(at(.2, .8));
+    await tester.pumpAndSettle();
+    await tester.tapAt(at(.8, .8));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('crop-tap-mode')), findsOneWidget);
+    expect(find.byKey(const Key('crop-tap-0')), findsNothing);
+    for (var i = 0; i < 4; i++) {
+      expect(find.byKey(Key('crop-corner-$i')), findsOneWidget);
+    }
+    // Handle 1 is top-left, 2 top-right, 3 bottom-right, 4 bottom-left.
+    // Measured at rest, after the fourth tap: the status line leaves then and
+    // the canvas moves, so a rectangle taken before the taps would be stale.
+    // The handles sit on the source image.
+    final rest = tester.getRect(find.byKey(const Key('crop-source-image')));
+    Offset atRest(double fx, double fy) {
+      return Offset(rest.left + rest.width * fx, rest.top + rest.height * fy);
+    }
+
+    final corners = [
+      atRest(.2, .2),
+      atRest(.8, .2),
+      atRest(.8, .8),
+      atRest(.2, .8),
+    ];
+    for (var i = 0; i < 4; i++) {
+      final centre = tester.getCenter(find.byKey(Key('crop-corner-$i')));
+      expect(
+        (centre - corners[i]).distance,
+        lessThan(1),
+        reason: 'corner $i must sit on its canonical position',
+      );
+    }
+  });
+
   testWidgets(
     'crop proposal can be undone; only a reviewed preview can be committed',
     (tester) async {
@@ -236,10 +338,13 @@ void main() {
         final corner = find.byKey(Key('crop-corner-$i'));
         final before = tester.getCenter(corner);
         // Send multiple move events beyond pan slop, as a real finger does.
+        // Handles are visual only (P6): the crop hit layer beneath them
+        // receives the pointer, so the handle is not the hit target itself.
         await tester.timedDrag(
           corner,
           Offset(i == 0 || i == 3 ? 60 : -60, i < 2 ? 40 : -40),
           const Duration(milliseconds: 300),
+          warnIfMissed: false,
         );
         await tester.pumpAndSettle();
         expect(
@@ -265,12 +370,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      // Let the real four-second feedback snackbar expire before tapping
+      // Let the real six-second feedback snackbar expire before tapping
       // controls underneath it. pumpAndSettle does not advance idle timers.
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(repository.values[project.id]!.revision, 0);
       await tester.tap(find.byTooltip('تراجع'));
+      await tester.pumpAndSettle();
+      // The Suggest feedback is a six-second snackbar (showMessage). Five
+      // seconds of it have passed, and it can still cover the toggle below,
+      // so let it expire before controls underneath it are tapped.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -278,6 +388,37 @@ void main() {
             .onPressed,
         isNull,
       );
+      // Spec change (PR #39, C1): Undo restores the untouched full frame as an
+      // unapproved frame, so Preview stays blocked until four valid taps.
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'معاينة التصحيح'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(find.byKey(const Key('crop-tap-mode')))
+            .onPressed,
+        isNotNull,
+      );
+      await ensureCropTapMode(tester);
+      final surface = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      Offset at(double fx, double fy) => Offset(
+        surface.left + surface.width * fx,
+        surface.top + surface.height * fy,
+      );
+      for (final (fx, fy) in const [
+        (0.2, 0.2),
+        (0.8, 0.2),
+        (0.8, 0.8),
+        (0.2, 0.8),
+      ]) {
+        await tester.tapAt(at(fx, fy));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -286,8 +427,8 @@ void main() {
       expect(editor.previewCount, 1);
       expect(
         editor.lastRecipe!.geometry.corners.first.x,
-        0,
-        reason: 'Rejecting proposal restored the original corner',
+        closeTo(.2, .01),
+        reason: 'The preview shows the four tapped corners, not the frame',
       );
       expect(repository.values[project.id]!.revision, 0);
       await tester.ensureVisible(find.byKey(const Key('crop-brightness')));
@@ -365,7 +506,13 @@ void main() {
       await tester.pumpAndSettle();
       final start = tester.getCenter(find.byKey(const Key('crop-corner-0')));
       final end = tester.getCenter(find.byKey(const Key('crop-corner-2')));
-      await tester.dragFrom(start, end - start);
+      // Multi-step, like a finger: a single jump does not move a handle here.
+      await tester.timedDrag(
+        find.byKey(const Key('crop-corner-0')),
+        end - start,
+        const Duration(milliseconds: 300),
+        warnIfMissed: false,
+      );
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
@@ -716,6 +863,92 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('auto-to-manual: a failed detection blocks preview and accept', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemoryProjects();
+    final project = await repository.create(
+      projectFixture(assets: [assetFixture()]),
+    );
+    final service = ProjectService(
+      repository,
+      _NoAssets(),
+      imageEditor: _NoSuggestionEditor(),
+    );
+    await tester.pumpWidget(
+      AppShell(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () {
+                Navigator.of(context).push<Project>(
+                  MaterialPageRoute(
+                    builder: (_) => CropScreen(
+                      project: project,
+                      asset: project.assets.single,
+                      service: service,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('فتح القص'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('فتح القص'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('اقتراح حدود المستمسك'));
+    await tester.pumpAndSettle();
+
+    // The failed detection on the untouched full frame enters tap mode.
+    expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+    expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
+    final previewButton = find.ancestor(
+      of: find.text('معاينة التصحيح'),
+      matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+    );
+    ButtonStyleButton acceptButton() {
+      return tester.widget<ButtonStyleButton>(
+        find.byKey(const Key('accept-crop')),
+      );
+    }
+
+    expect(tester.widget<ButtonStyleButton>(previewButton).onPressed, isNull);
+    expect(acceptButton().onPressed, isNull);
+
+    // Four separated taps complete the quadrilateral and lift the block.
+    Offset at(double fx, double fy) {
+      final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+      return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
+    }
+
+    for (final point in const [
+      (0.2, 0.2),
+      (0.8, 0.2),
+      (0.8, 0.8),
+      (0.2, 0.8),
+    ]) {
+      await tester.tapAt(at(point.$1, point.$2));
+      await tester.pumpAndSettle();
+    }
+    expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
+    expect(
+      tester.widget<ButtonStyleButton>(previewButton).onPressed,
+      isNotNull,
+    );
+    // Accept still needs a current preview of the new quadrilateral.
+    expect(acceptButton().onPressed, isNull);
+  });
+
   testWidgets('the A4 editor has no overflow on narrow phones', (tester) async {
     for (final size in const [Size(320, 640), Size(360, 780)]) {
       await EditorHarness.pump(tester, size: size);
@@ -886,6 +1119,11 @@ class _NoAssets implements AssetRepository {
   Future<File> resolve(String relativePath) => Future.error(
     StateError('No asset operation expected in this widget test'),
   );
+}
+
+class _NoSuggestionEditor extends _TestEditor {
+  @override
+  Future<List<Point2>?> suggest(Uint8List preview) async => null;
 }
 
 class _TestEditor implements ImageEditor {

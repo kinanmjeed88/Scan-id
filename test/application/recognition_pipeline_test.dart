@@ -289,6 +289,50 @@ void main() {
     },
   );
 
+  test(
+    'D9: a segment review demand reaches BoundaryProposal and blocks auto-accept',
+    () async {
+      // Confidence is well above the candidate's own threshold, so the only
+      // thing that can hold this boundary back is the forwarded review demand.
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) => fail('measured region must not fall back'),
+        segment: (bytes) async => SegmentationResult(
+          multi: false,
+          candidates: [
+            SegmentCandidate(
+              region: const [.1, .15, .9, .95],
+              corners: _quad(),
+              detectionConfidence: .99,
+              producer: BoundaryProducer.learnedModel,
+              minAutoAcceptConfidence: .55,
+              requiresReview: true,
+              reason: 'synthetic-d9-review-demand',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+      final detection = analysis.detections.single;
+      final decision = detection.boundaryDecision!;
+
+      // The demand is present on the proposal the pipeline built ...
+      expect(decision.proposal.forceReview, isTrue);
+      // ... no specific reason was attached by the segmenter, so the legacy
+      // multi-scene reason stands in for it (never a silent drop) ...
+      expect(decision.proposal.forceReviewReason, isNull);
+      expect(
+        decision.verification.reasons,
+        contains(BoundaryReviewReason.multiSceneNotCorroborated),
+      );
+      // ... and the decision is review-only: no automatic crop authority.
+      expect(decision.kind, BoundaryDecisionKind.needsReview);
+      expect(detection.corners, isNull);
+      expect(detection.cropAuthorization, isNull);
+      expect(detection.needsManualBoundary, isTrue);
+    },
+  );
+
   test('a cornerless candidate is an explicit issue, not a guess', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),

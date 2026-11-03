@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'geometry.dart';
 import 'image_adjustments.dart';
 import 'image_limits.dart';
+import 'physical_aspect.dart';
 import 'validation.dart';
 
 class ImageEditRecipe {
@@ -90,6 +91,22 @@ class CropDraft {
         width = height * aspectRatio!;
       } else {
         height = width / aspectRatio!;
+      }
+    } else {
+      // Free crop: rectify to the recovered physical ratio when the four
+      // corners determine it (see physical_aspect.dart). The area of the
+      // averaged-edge estimate is kept, so the pixel budget and the downscale
+      // rule below are unchanged. When the ratio is not determinable, the
+      // averaged-edge shape stays as it was.
+      final physical = estimatePhysicalAspect(
+        corners,
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+      );
+      if (physical != null) {
+        final area = width * height;
+        width = math.sqrt(area * physical.aspect);
+        height = math.sqrt(area / physical.aspect);
       }
     }
     require(width.isFinite && height.isFinite, 'أبعاد القص غير صالحة.');

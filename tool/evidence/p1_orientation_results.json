@@ -1,0 +1,18 @@
+{
+ "abs_theta_30_to_45": {
+  "n": 20026,
+  "weight115_wrong": 804,
+  "pureCos_wrong": 1113,
+  "rules_disagree": 873,
+  "weight115_wrong_perspective": 804,
+  "perspective_n": 6582
+ },
+ "abs_theta_le_30": {
+  "n": 39974,
+  "weight115_wrong": 46,
+  "pureCos_wrong": 3,
+  "rules_disagree": 49,
+  "weight115_wrong_perspective": 46,
+  "perspective_n": 13419
+ }
+}

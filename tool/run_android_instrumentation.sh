@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# An unguarded failure in the emulator phase used to end the step with only the
+# script's status (run 41617672661 on 0dc9d07: exit 255, no reason). This trap
+# names the failing command and line. It only reports: the exit status is the
+# one the failing command returned, and no failure is hidden or retried here.
+on_unexpected_failure() {
+  local status=$?
+  # Captured failures inside `set +e` regions are handled by the script itself.
+  [[ $- == *e* ]] || return 0
+  local command
+  command="$(printf '%s' "$2" | tr '\n' ' ' | sed -e 's/%/%25/g')"
+  echo "::error title=android-instrumentation-script::exit $status at line $1: $command"
+}
+trap 'on_unexpected_failure "$LINENO" "$BASH_COMMAND"' ERR
+
 mkdir -p diagnostics/android-instrumentation
+# Host headroom at the start of the step, so a disk or memory shortage can be
+# checked against the failing run instead of inferred.
+echo "::notice title=android-instrumentation-host::$(df -Pk / | tail -n 1 | awk '{printf "rootFreeKiB=%s ", $4}') $(free -m | awk '/^Mem:/ {printf "memAvailableMiB=%s", $7}')"
 if [[ ! -x android/gradlew ]]; then
   echo "Flutter's Android build did not provide executable android/gradlew." \
     | tee diagnostics/android-instrumentation/connected-debug-android-test.log
@@ -16,13 +33,15 @@ if [[ ! -f android/gradle/wrapper/gradle-wrapper.jar ]]; then
 fi
 
 set +e
-(cd android && ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
+# A bounded run: a hung emulator becomes a named timeout (exit 124) with the
+# phase, instead of a cancellation at the job limit. No retry, no masking.
+(cd android && timeout 1200 ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
   2>&1 | tee diagnostics/android-instrumentation/connected-debug-android-test.log
 gradle_status=${PIPESTATUS[0]}
 set -e
 
 set +e
-flutter test integration_test/docquad_inference_test.dart \
+timeout 900 flutter test integration_test/docquad_inference_test.dart \
   -d "${ANDROID_SERIAL:-emulator-5554}" --flavor scanid --reporter expanded \
   2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
 docquad_status=${PIPESTATUS[0]}

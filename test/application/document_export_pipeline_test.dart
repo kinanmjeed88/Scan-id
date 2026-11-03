@@ -105,10 +105,12 @@ void main() {
       expect(manuallyCropped.assets.single.crop, isNotNull);
       final acceptedGeometry = manuallyCropped.assets.single.crop!;
 
-      final manuallySelected = DocumentEdits.setKind(
+      // Spec change (PR #39, F-C): the approved crop does not confirm the size
+      // by choosing "other". The explicit confirmation is the typed size.
+      final manuallySelected = DocumentEdits.resize(
         manuallyCropped,
         manuallyCropped.items.single.id,
-        DocumentKind.other,
+        width: manuallyCropped.items.single.width,
       );
       final arranged = arrangeDocuments(manuallySelected).result;
       final project = await projects.save(arranged);

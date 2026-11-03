@@ -563,12 +563,10 @@ Project revertManualCropOnProject(
   if (itemsChanged) {
     next = next.copyWith(items: refreshedItems);
   }
+  // Reverting a crop must not confirm a size. Only provisional catalog sizes
+  // are re-derived; a confirmed size keeps its value and its confirmation.
   for (final id in catalogRefreshIds) {
-    next = DocumentEdits.setKind(
-      next,
-      id,
-      next.items.firstWhere((e) => e.id == id).documentKind,
-    );
+    next = DocumentEdits.refreshProvisionalSize(next, id);
   }
   if (itemsChanged || catalogRefreshIds.isNotEmpty) {
     next = _relayoutProject(next);

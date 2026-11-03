@@ -724,6 +724,11 @@ class ProjectService {
                 modelConfidence: rawProposal?.modelConfidence,
                 minAutoAcceptConfidence: rawProposal?.minAutoAcceptConfidence,
                 touchesFrameEdge: rawProposal?.touchesFrameEdge ?? false,
+                // Keep the proposer's review demand (for example
+                // modelDisagreement). Dropping it would let a disputed proposal
+                // look like an ordinary one on this path.
+                forceReview: rawProposal?.forceReview ?? false,
+                forceReviewReason: rawProposal?.forceReviewReason,
               ),
               sourceWidth: source.width,
               sourceHeight: source.height,

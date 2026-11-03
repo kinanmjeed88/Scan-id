@@ -856,25 +856,24 @@ class LayoutEditorController extends ChangeNotifier {
         .where((a) => a.id == assetId)
         .firstOrNull;
     if (updatedAsset != null) {
+      // Only provisional catalog sizes follow the new picture orientation.
+      // Confirmed sizes (catalog or typed) are never changed by a crop save.
+      // A changed aspect is reported through the export warning instead.
       final assetLandscape = updatedAsset.width >= updatedAsset.height;
       final staleIds = <String>[
         for (final item in session.current.items)
           if (item.assetId == assetId &&
               !item.locked &&
+              !item.sizeConfirmed &&
               session.current.catalog.natural(item.documentKind) != null &&
-              ((item.width >= item.height) != assetLandscape ||
-                  (item.sizeConfirmed && item.pageIndex == null)))
+              (item.width >= item.height) != assetLandscape)
             item.id,
       ];
       if (staleIds.isNotEmpty) {
         await edit((p) {
           var next = p;
           for (final id in staleIds) {
-            next = DocumentEdits.setKind(
-              next,
-              id,
-              PageLayout.item(next, id).documentKind,
-            );
+            next = DocumentEdits.refreshProvisionalSize(next, id);
           }
           return next;
         });
@@ -899,7 +898,7 @@ class LayoutEditorController extends ChangeNotifier {
   /// copy as one undoable step.
   Future<void> resetCropToOriginal() async {
     final asset = activeAsset;
-    if (asset == null || asset.crop == null) return;
+    if (asset == null || !asset.hasApprovedCrop) return;
     Project? saved;
     final ok = await run(() async {
       final fresh = session.current.assets

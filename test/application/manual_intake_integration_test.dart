@@ -25,6 +25,7 @@ import 'package:scan_id/presentation/crop_screen.dart';
 
 import '../fixtures.dart';
 import '../presentation/editor_harness.dart';
+import '../presentation/crop_tap_helpers.dart';
 
 class _UncertainBoundaryEditor implements BoundaryProposalImageEditor {
   _UncertainBoundaryEditor(this._inner, this._proposal);
@@ -106,6 +107,9 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
   BoundaryProposal? proposal;
   Object? refreshError;
   Completer<BoundaryProposal?>? pendingRefresh;
+  // T-stale: completers served in call order; the test decides the order in
+  // which they complete, so results can arrive out of order.
+  final List<Completer<BoundaryProposal?>> queuedRefreshes = [];
   int refreshCount = 0;
 
   @override
@@ -117,6 +121,7 @@ class _ControlledBoundaryEditor extends _TrackingFakeEditor
     CancellationToken? cancellation,
   }) {
     refreshCount++;
+    if (queuedRefreshes.isNotEmpty) return queuedRefreshes.removeAt(0).future;
     final pending = pendingRefresh;
     if (pending != null) return pending.future;
     final error = refreshError;
@@ -132,6 +137,30 @@ class _InvalidPreviewEditor extends FakeImageEditor {
     ImageEditRecipe recipe, {
     CancellationToken? cancellation,
   }) async => Uint8List.fromList([0x01, 0x02, 0x03]);
+}
+
+bool _acceptEnabled(WidgetTester tester) {
+  final accept = find.byKey(const Key('accept-crop'));
+  return tester.widget<FilledButton>(accept).onPressed != null;
+}
+
+/// Places four valid corners by taps on the tap surface (at 20 % and 80 % of
+/// its width and height). This is how a user lifts the fallback gate after a
+/// failed detection, so a preview is then a preview of a real boundary.
+Future<void> tapFourCorners(WidgetTester tester) async {
+  await ensureCropTapMode(tester);
+  final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+  for (final (fx, fy) in const [
+    (0.2, 0.2),
+    (0.8, 0.2),
+    (0.8, 0.8),
+    (0.2, 0.8),
+  ]) {
+    await tester.tapAt(
+      Offset(rect.left + rect.width * fx, rect.top + rect.height * fy),
+    );
+    await tester.pumpAndSettle();
+  }
 }
 
 void main() {
@@ -230,6 +259,50 @@ void main() {
     expect(result.cropped, 0);
     expect(result.warnings.join(' '), contains('اقتراح حدود هندسي محلي'));
     expect(saved.items.single.documentKind, DocumentKind.unknown);
+  });
+
+  test('legacy import keeps a proposer forceReview demand (D9)', () async {
+    final tempDir = await Directory.systemTemp.createTemp('scanid_d9_');
+    addTearDown(() async {
+      if (await tempDir.exists()) await tempDir.delete(recursive: true);
+    });
+    final files = SafeFiles(tempDir);
+    final assets = LocalAssetRepository(files);
+    final projects = await LocalProjectRepository.open(tempDir);
+    addTearDown(projects.close);
+    final editor = _UncertainBoundaryEditor(
+      LocalImageEditor(files),
+      BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: [
+          Point2(.12, .13),
+          Point2(.88, .13),
+          Point2(.88, .87),
+          Point2(.12, .87),
+        ],
+        forceReview: true,
+        forceReviewReason: BoundaryReviewReason.modelDisagreement,
+      ),
+    );
+    final service = ProjectService(projects, assets, imageEditor: editor);
+    final bytes = File('test/fixtures/synthetic_card.png').readAsBytesSync();
+    var project = await service.create('مراجعة إجبارية');
+    project = (await service.importImages(project, [
+      ImportSource('synthetic.png', () => Stream.value(bytes)),
+    ])).project;
+    final result = await service.arrangeImportedImages(project, [
+      project.assets.single.id,
+    ]);
+    final saved = await projects.get(result.project.id);
+
+    expect(result.cropped, 0);
+    expect(saved.assets.single.crop, isNull);
+    expect(
+      result.warnings.join(' '),
+      contains(
+        boundaryReviewReasonMessage(BoundaryReviewReason.modelDisagreement),
+      ),
+    );
   });
 
   test(
@@ -428,13 +501,16 @@ void main() {
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
-
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      await tester.pumpAndSettle();
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      // Spec change (PR #39, C1): Undo restores the untouched full frame as an
+      // unapproved frame, so Preview stays blocked until a boundary is set.
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'معاينة التصحيح'),
+            )
+            .onPressed,
+        isNull,
+      );
 
       // Redo restores proposed quad, then preview and accept manual crop.
       await tester.tap(find.byTooltip('إعادة'));
@@ -702,36 +778,29 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('لا يحتوي على أربع زوايا صالحة'),
-        findsOneWidget,
+      // Spec change (auto-to-manual fallback, 2026-11-02): a malformed
+      // suggestion on the untouched frame enters four-tap mode. Preview and
+      // accept stay blocked, so the full frame is never previewed or accepted
+      // as a detected crop. The old expectation (a full-frame preview after a
+      // failed suggestion) is intentionally replaced.
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      final previewButton = find.widgetWithText(
+        OutlinedButton,
+        'معاينة التصحيح',
       );
-
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      await tester.pumpAndSettle();
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(tester.widget<OutlinedButton>(previewButton).onPressed, isNull);
+      expect(editor.lastPreviewRecipe, isNull);
 
       editor.proposal = null;
       await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('لا يتوفر اقتراح تلقائي في هذا الإصدار'),
-        findsOneWidget,
-      );
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
-      expect(
-        tester
-            .widget<FilledButton>(find.byKey(const Key('accept-crop')))
-            .onPressed,
-        isNotNull,
-        reason:
-            'the still-current valid preview remains available after an empty refresh',
-      );
+      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsOneWidget);
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(previewButton).onPressed, isNull);
+      expect(editor.lastPreviewRecipe, isNull);
       expect(tester.takeException(), isNull);
     },
   );
@@ -759,6 +828,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // Spec change (PR #39, C3): the untouched frame is gated, so the preview
+    // of this invalid-preview probe needs four valid taps first.
+    await tapFourCorners(tester);
     await tester.ensureVisible(find.text('معاينة التصحيح'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('معاينة التصحيح'));
@@ -855,13 +927,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('crop-proposed-banner')), findsNothing);
 
+      // Spec change (PR #39, C3): the second asset has no boundary, so its
+      // preview needs four valid taps. The preview then shows those corners.
+      await tapFourCorners(tester);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
       await pumpCropPreviewResult(tester);
       await tester.pumpAndSettle();
       expect(editor.lastPreviewAssetId, secondAsset.id);
-      expect(editor.lastPreviewRecipe!.geometry.corners.first.x, 0);
+      expect(
+        editor.lastPreviewRecipe!.geometry.corners.first.x,
+        closeTo(.2, .01),
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -1029,4 +1107,292 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  // ---- T-stale: a late suggestion must never overwrite a newer frame ----
+  Future<void> pumpStaleCrop(
+    WidgetTester tester,
+    _ControlledBoundaryEditor editor,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = MemoryProjects();
+    final asset = assetFixture(id: 'asset-stale-suggestion');
+    final project = await repository.create(projectFixture(assets: [asset]));
+    final service = ProjectService(repository, NoAssets(), imageEditor: editor);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: CropScreen(project: project, asset: asset, service: service),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Rect staleCanvas(WidgetTester tester) =>
+      tester.getRect(find.byKey(const Key('crop-source-image')));
+
+  Offset staleNormalized(WidgetTester tester, int i) {
+    final r = staleCanvas(tester);
+    final c = tester.getCenter(find.byKey(Key('crop-corner-$i')));
+    return Offset((c.dx - r.left) / r.width, (c.dy - r.top) / r.height);
+  }
+
+  // Corner 1 is dragged first so the draft is dirty: cancelling a suggestion
+  // then keeps the screen open instead of popping it.
+  // Pointer moves are split into steps, as a finger sends them; a single jump
+  // did not move a corner through the hit layer (CI run 41448139242).
+  Future<void> dragInSteps(
+    WidgetTester tester,
+    Offset start,
+    Offset delta,
+  ) async {
+    final gesture = await tester.startGesture(start);
+    for (var step = 0; step < 10; step++) {
+      await gesture.moveBy(delta / 10);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.up();
+    await tester.pump();
+  }
+
+  Future<void> dirtyDraft(WidgetTester tester) async {
+    final r = staleCanvas(tester);
+    await dragInSteps(
+      tester,
+      tester.getCenter(find.byKey(const Key('crop-corner-1'))),
+      Offset(-0.2 * r.width, 0),
+    );
+    // Two frames, not pumpAndSettle: a suggestion may still be pending (its
+    // progress indicator never settles). The status line leaves with the gate,
+    // and the handle wrappers follow the canvas one frame later.
+    await tester.pump();
+    await tester.pump();
+  }
+
+  Future<void> cancelSuggestionAndKeepEditing(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('إلغاء العملية والخروج'));
+    await tester.pump();
+    await tester.tap(find.text('متابعة التحرير'));
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+
+  final quadA = [
+    Point2(.12, .12),
+    Point2(.88, .12),
+    Point2(.88, .88),
+    Point2(.12, .88),
+  ];
+  final quadB = [
+    Point2(.2, .15),
+    Point2(.85, .2),
+    Point2(.8, .85),
+    Point2(.15, .8),
+  ];
+  BoundaryProposal proposalOf(List<Point2> corners) {
+    return BoundaryProposal(
+      producer: BoundaryProducer.learnedModel,
+      corners: corners,
+      modelConfidence: 0.42,
+      minAutoAcceptConfidence: 0.55,
+    );
+  }
+
+  // Expected frames are exact up to the handle-centre offset (<= 0.5 px).
+  void expectFrame(WidgetTester tester, List<Point2> frame, Rect r) {
+    for (var i = 0; i < 4; i++) {
+      final n = staleNormalized(tester, i);
+      expect(n.dx, closeTo(frame[i].x, 0.5 / r.width), reason: 'x$i');
+      expect(n.dy, closeTo(frame[i].y, 0.5 / r.height), reason: 'y$i');
+    }
+  }
+
+  // A preview of the current frame. The Recipe it builds is read back from the
+  // editor, so a stale frame would show up as the wrong corners.
+  Future<void> previewFrame(WidgetTester tester) async {
+    await tester.ensureVisible(find.text('معاينة التصحيح'));
+    await tester.tap(find.text('معاينة التصحيح'));
+    await tester.pump();
+    await pumpCropPreviewResult(tester);
+  }
+
+  void expectRecipeCorners(
+    _TrackingFakeEditor editor,
+    List<Point2> expected,
+    Rect r,
+  ) {
+    final corners = editor.lastPreviewRecipe!.geometry.corners;
+    for (var i = 0; i < 4; i++) {
+      expect(
+        corners[i].x,
+        closeTo(expected[i].x, 0.5 / r.width),
+        reason: 'x$i',
+      );
+      expect(
+        corners[i].y,
+        closeTo(expected[i].y, 0.5 / r.height),
+        reason: 'y$i',
+      );
+    }
+  }
+
+  testWidgets('T-stale: late result after cancel is dropped', (tester) async {
+    final editor = _ControlledBoundaryEditor();
+    final late = Completer<BoundaryProposal?>();
+    editor.queuedRefreshes.add(late);
+    await pumpStaleCrop(tester, editor);
+
+    await dirtyDraft(tester);
+    final r = staleCanvas(tester);
+    // The dirty step moved corner 1 by -0.2 in x, from (1, 0) to (0.8, 0).
+    expectFrame(tester, [
+      Point2(0, 0),
+      Point2(0.8, 0),
+      Point2(1, 1),
+      Point2(0, 1),
+    ], r);
+
+    await tester.tap(find.text('اقتراح حدود المستمسك'));
+    await tester.pump();
+    expect(editor.refreshCount, 1);
+
+    await cancelSuggestionAndKeepEditing(tester);
+
+    // Newest user edit while the cancelled request is still outstanding:
+    // corner 2 moves by (-0.1, -0.1) from (1, 1) to (0.9, 0.9).
+    await dragInSteps(
+      tester,
+      tester.getCenter(find.byKey(const Key('crop-corner-2'))),
+      Offset(-0.1 * r.width, -0.1 * r.height),
+    );
+    await tester.pump();
+    final frame = [
+      Point2(0, 0),
+      Point2(0.8, 0),
+      Point2(0.9, 0.9),
+      Point2(0, 1),
+    ];
+    expectFrame(tester, frame, r);
+
+    late.complete(proposalOf(quadA));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // The late result is dropped: the user's frame is still in place.
+    expectFrame(tester, frame, r);
+    expect(find.textContaining('اقتراح جديد'), findsNothing);
+    // A preview of the current frame carries the user's corners, not quadA.
+    await previewFrame(tester);
+    expectRecipeCorners(editor, frame, r);
+  });
+
+  testWidgets('T-stale: reversed completion keeps newest', (tester) async {
+    final editor = _ControlledBoundaryEditor();
+    final first = Completer<BoundaryProposal?>();
+    final second = Completer<BoundaryProposal?>();
+    editor.queuedRefreshes.add(first);
+    editor.queuedRefreshes.add(second);
+    await pumpStaleCrop(tester, editor);
+
+    await dirtyDraft(tester);
+    await tester.tap(find.text('اقتراح حدود المستمسك'));
+    await tester.pump();
+    await cancelSuggestionAndKeepEditing(tester);
+
+    await tester.tap(find.text('اقتراح حدود المستمسك'));
+    await tester.pump();
+    expect(editor.refreshCount, 2);
+
+    // Newest completes first, then the superseded request completes.
+    final r = staleCanvas(tester);
+    second.complete(proposalOf(quadB));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expectFrame(tester, quadB, r);
+
+    first.complete(proposalOf(quadA));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    // The superseded result is dropped: corners stay on the newest frame.
+    expectFrame(tester, quadB, r);
+    expect(find.textContaining('اقتراح جديد'), findsOneWidget);
+    await previewFrame(tester);
+    expectRecipeCorners(editor, quadB, r);
+  });
+
+  testWidgets('D9 UI: forced review blocks accept', (tester) async {
+    tester.view.physicalSize = const Size(1100, 820);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    // A proposer's review demand, through the real arrange path (the same
+    // path as the D9 data test above).
+    final proposal = BoundaryProposal(
+      producer: BoundaryProducer.detector,
+      corners: quadA,
+      modelConfidence: 0.42,
+      minAutoAcceptConfidence: 0.55,
+      forceReview: true,
+      forceReviewReason: BoundaryReviewReason.modelDisagreement,
+    );
+    final editor = _RefreshingFakeEditor(proposal);
+    final repository = MemoryProjects();
+    final asset = assetFixture(id: 'asset-d9-ui');
+    final project = await repository.create(projectFixture(assets: [asset]));
+    final service = ProjectService(repository, NoAssets(), imageEditor: editor);
+
+    // The demand stops the automatic crop and leaves the proposal as a
+    // review-only suggestion on the asset.
+    final arranged = await service.arrangeImportedImages(project, [asset.id]);
+    final reviewed = arranged.project.assets.single;
+    expect(arranged.cropped, 0);
+    expect(reviewed.crop, isNull);
+    expect(reviewed.suggestedCrop, isNotNull);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: CropScreen(
+            project: arranged.project,
+            asset: reviewed,
+            service: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The proposal opens as an editable draft, not as an accepted crop.
+    final r = staleCanvas(tester);
+    expectFrame(tester, quadA, r);
+    expect(editor.lastPreviewRecipe, isNull);
+    expect(_acceptEnabled(tester), isFalse);
+
+    // Accept needs a preview of this exact frame.
+    await previewFrame(tester);
+    expect(_acceptEnabled(tester), isTrue);
+
+    // Editing needs the corner view: a preview replaces the handles with the
+    // result image. Switch back, then edit the reviewed frame.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(SegmentedButton<bool>),
+        matching: find.text('الزوايا'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Any edit of the reviewed frame invalidates that preview.
+    await dragInSteps(
+      tester,
+      tester.getCenter(find.byKey(const Key('crop-corner-2'))),
+      Offset(-0.05 * r.width, 0),
+    );
+    await tester.pump();
+    expect(_acceptEnabled(tester), isFalse);
+  });
 }

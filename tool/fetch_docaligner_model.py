@@ -27,10 +27,15 @@ API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{RELEASE_TAG
 
 
 def request(url: str, *, accept: str = "application/vnd.github+json"):
-    req = urllib.request.Request(
-        url,
-        headers={"Accept": accept, "User-Agent": "Scan-id-pinned-model-fetch/1.0"},
-    )
+    headers = {"Accept": accept, "User-Agent": "Scan-id-pinned-model-fetch/1.0"}
+    # Unauthenticated API calls share a small per-IP quota on shared CI runners.
+    # A token only raises that quota for the public release metadata. It is
+    # sent to api.github.com alone, never to the download host the API redirects
+    # to, and it is never printed.
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     return urllib.request.urlopen(req, timeout=60)
 
 
@@ -107,7 +112,10 @@ def main() -> int:
                 pass
         return 0
     except Exception as error:  # CI needs a concise non-secret failure reason.
-        print(f"DocAligner model preparation failed: {error}", file=sys.stderr)
+        reason = " ".join(str(error).split())[:500]
+        print(f"DocAligner model preparation failed: {reason}", file=sys.stderr)
+        # Annotation channel: the job log is not always reachable, the annotation is.
+        print(f"::error title=docaligner-model::{reason}")
         return 1
 
 

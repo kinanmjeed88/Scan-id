@@ -11,6 +11,7 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/presentation/app.dart';
+import 'crop_tap_helpers.dart';
 import 'package:scan_id/presentation/layout_screen.dart';
 
 import '../fixtures.dart';
@@ -93,6 +94,24 @@ DocumentRecord _unresolvedRecord(String docId, String assetId) =>
       ),
     );
 
+/// Places four valid corners on the tap surface, the way a user lifts the
+/// fallback gate of an untouched frame.
+Future<void> tapFourCorners(WidgetTester tester) async {
+  await ensureCropTapMode(tester);
+  final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
+  for (final (fx, fy) in const [
+    (0.2, 0.2),
+    (0.8, 0.2),
+    (0.8, 0.8),
+    (0.2, 0.8),
+  ]) {
+    await tester.tapAt(
+      Offset(rect.left + rect.width * fx, rect.top + rect.height * fy),
+    );
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
   testWidgets(
     'Path B UI: tapping «ضبط الحدود» on an unconfirmed off-sheet item opens full-image 4-corner CropScreen, confirms kind, places item on A4 immediately, and supports 1-step undo',
@@ -142,6 +161,9 @@ void main() {
       await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
       await tester.pumpAndSettle();
 
+      // Spec change (PR #39, C3): the untouched frame is gated, so four valid
+      // taps come before the preview.
+      await tapFourCorners(tester);
       // Preview and accept.
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
@@ -468,6 +490,9 @@ void main() {
 
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
+      // Spec change (PR #39, C1): Undo restores the untouched frame as an
+      // unapproved frame, so its preview needs four valid taps again.
+      await tapFourCorners(tester);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -596,6 +621,8 @@ void main() {
       await tapKey(tester, const Key('crop-document-kind'));
       await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
       await tester.pumpAndSettle();
+      // Spec change (PR #39, C3): the unresolved back side has no boundary yet.
+      await tapFourCorners(tester);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));

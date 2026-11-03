@@ -54,12 +54,22 @@ jobs:
       # executionHistory.bin ... No space left on device"): one debug APK is
       # 329 MB and this job keeps several build outputs plus the NDK and the
       # Gradle caches. These toolchains are used by no step in this workflow.
+      # Five APK builds, the Gradle and Flutter caches, and the emulator image
+      # share one root disk. On a 92%-full runner (5.8 GB free after the builds,
+      # run 41713911630) the emulator step failed within seconds, and an earlier
+      # run ended with "No space left on device" (41616261291). This step frees
+      # preinstalled tooling this job never uses. It keeps the Android SDK, the
+      # Flutter and Python toolcache, and the Gradle caches.
       - name: Reclaim runner disk for the APK builds
         shell: bash
         run: |
           set -euo pipefail
           df -h / | tail -n 1
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          sudo rm -rf /usr/share/swift /usr/local/.ghcup /usr/local/share/powershell \
+            /usr/local/share/chromium /usr/share/miniconda /opt/az \
+            /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
           df -h / | tail -n 1
 
       - uses: actions/setup-java@v5
@@ -100,6 +110,8 @@ jobs:
 
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4; do
             echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
@@ -185,6 +197,21 @@ jobs:
         run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
       - name: Flutter tests
         run: python tool/ci_gate.py test flutter test --reporter expanded
+      # Full expanded test log (exception text, stack traces) for failed runs.
+      # Annotations keep only the tail, so this artifact is the diagnostic record.
+      - name: Upload Flutter test log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-flutter-test-log
+          path: diagnostics/test.log
+          if-no-files-found: warn
+      # Diagnostic only: the export tests alone, so a load- or order-dependent
+      # failure can be told apart from a deterministic one. It does not gate.
+      - name: Export tests in isolation (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: python tool/ci_gate.py export-isolation flutter test test/export/document_exporter_test.dart --reporter expanded
       # The build below MUST fail, and only the signing guard may be the reason.
       # A repository outage must not read as "the release build no longer
       # enforces signing" (that is what a red gate on a good revision looks
@@ -630,6 +657,8 @@ jobs:
           key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4; do
             echo "Preparing pinned DocAligner asset (attempt $attempt/4)"

@@ -143,6 +143,69 @@ class RectMm {
 /// A convex clockwise quadrilateral is required; a crossed or degenerate
 /// polygon can never become a processing request.
 /// Why a normalized crop ring cannot be used by a perspective renderer.
+/// Canonical corner order TL, TR, BR, BL (the [CropGeometry] convention).
+///
+/// The result depends only on point positions, not on tap or detection order,
+/// so a corner keeps a stable identity while it is dragged. The rule is the
+/// detector's rule, moved here unchanged so that manual taps and automatic
+/// detection share one implementation:
+/// - angle-sort about the centroid, with a positive shoelace area;
+/// - the start edge maximises `dx + 1.15 * len / maxLen` over edges with
+///   `dx > 0` (a heading term plus a relative-length tie-break, so severe
+///   foreshortening and tilts near 45° do not flip a landscape document by 90°).
+///   The 1.15 weight is inherited from the existing detector; its origin is not
+///   documented in the repository and it is not tuned here.
+///
+/// Throws [ValidationException] unless exactly four points are given.
+List<Point2> canonicalQuadCorners(List<Point2> points) {
+  require(points.length == 4, 'يجب تحديد أربع زوايا.');
+  double mean(Iterable<double> values) {
+    var total = 0.0;
+    var count = 0;
+    for (final v in values) {
+      total += v;
+      count++;
+    }
+    return total / count;
+  }
+
+  final cx = mean(points.map((p) => p.x));
+  final cy = mean(points.map((p) => p.y));
+  final sorted = [...points]
+    ..sort(
+      (a, b) => math
+          .atan2(a.y - cy, a.x - cx)
+          .compareTo(math.atan2(b.y - cy, b.x - cx)),
+    );
+  var twiceArea = 0.0;
+  for (var i = 0; i < 4; i++) {
+    final a = sorted[i], b = sorted[(i + 1) % 4];
+    twiceArea += a.x * b.y - b.x * a.y;
+  }
+  final ordered = twiceArea < 0 ? sorted.reversed.toList() : sorted;
+  double edgeLength(Point2 a, Point2 b) =>
+      math.sqrt(math.pow(b.x - a.x, 2) + math.pow(b.y - a.y, 2)).toDouble();
+  final lengths = [
+    for (var i = 0; i < 4; i++) edgeLength(ordered[i], ordered[(i + 1) % 4]),
+  ];
+  final maxLen = math.max(1e-6, lengths.reduce(math.max));
+  var start = 0;
+  var bestScore = double.negativeInfinity;
+  for (var i = 0; i < 4; i++) {
+    final a = ordered[i], b = ordered[(i + 1) % 4];
+    final len = lengths[i];
+    if (len <= 0) continue;
+    final dx = (b.x - a.x) / len;
+    if (dx <= 0) continue;
+    final score = dx + 1.15 * (len / maxLen);
+    if (score > bestScore) {
+      bestScore = score;
+      start = i;
+    }
+  }
+  return [for (var i = 0; i < 4; i++) ordered[(start + i) % 4]];
+}
+
 enum QuadGeometryIssue {
   wrongPointCount,
   nonFiniteCoordinates,
@@ -254,6 +317,95 @@ QuadGeometryIssue? normalizedQuadIssue(List<Point2> corners) {
   return null;
 }
 
+double _orientation(Point2 a, Point2 b, Point2 c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+int _sideOf(double value) {
+  if (value > 1e-12) return 1;
+  if (value < -1e-12) return -1;
+  return 0;
+}
+
+/// True when segments ab and cd cross at a point interior to both.
+bool _properCrossing(Point2 a, Point2 b, Point2 c, Point2 d) {
+  final cdSideOfA = _sideOf(_orientation(a, b, c));
+  final cdSideOfB = _sideOf(_orientation(a, b, d));
+  final abSideOfC = _sideOf(_orientation(c, d, a));
+  final abSideOfD = _sideOf(_orientation(c, d, b));
+  return cdSideOfA * cdSideOfB < 0 && abSideOfC * abSideOfD < 0;
+}
+
+/// True when two opposite edges of the ring cross at an interior point of both.
+///
+/// Touching, shared endpoints and collinear contact are NOT crossings; those
+/// shapes are rejected by [normalizedQuadIssue] instead. Used as a drag-time
+/// gate so that a pointer move cannot turn the ring into a bow-tie.
+bool quadEdgesCross(List<Point2> ring) {
+  if (ring.length != 4) return false;
+  final first = _properCrossing(ring[0], ring[1], ring[2], ring[3]);
+  final second = _properCrossing(ring[1], ring[2], ring[3], ring[0]);
+  return first || second;
+}
+
+/// True when [p] lies inside or on the triangle a-b-c (no strictly opposite
+/// side signs against the three edges).
+bool _insideOrOnTriangle(Point2 p, Point2 a, Point2 b, Point2 c) {
+  final s1 = _sideOf(_orientation(a, b, p));
+  final s2 = _sideOf(_orientation(b, c, p));
+  final s3 = _sideOf(_orientation(c, a, p));
+  final hasNegative = s1 < 0 || s2 < 0 || s3 < 0;
+  final hasPositive = s1 > 0 || s2 > 0 || s3 > 0;
+  return !(hasNegative && hasPositive);
+}
+
+/// Validity of four points taken as an UNORDERED set (tap input), before any
+/// canonical ordering is applied.
+///
+/// Convex position is a property of the set, not of the tap sequence: a point
+/// lying inside or on the triangle of the other three makes no convex ring.
+/// Checking it here means ordering can never hide that defect. Area and
+/// perspective checks still run on the ordered ring in [normalizedQuadIssue].
+QuadGeometryIssue? unorderedQuadIssue(List<Point2> points) {
+  if (points.length != 4) return QuadGeometryIssue.wrongPointCount;
+  if (points.any((p) => !p.x.isFinite || !p.y.isFinite)) {
+    return QuadGeometryIssue.nonFiniteCoordinates;
+  }
+  if (points.any((p) => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) {
+    return QuadGeometryIssue.outOfBounds;
+  }
+  for (var i = 0; i < 4; i++) {
+    final others = [
+      points[(i + 1) % 4],
+      points[(i + 2) % 4],
+      points[(i + 3) % 4],
+    ];
+    if (_insideOrOnTriangle(points[i], others[0], others[1], others[2])) {
+      return QuadGeometryIssue.notConvex;
+    }
+  }
+  return null;
+}
+
+/// Whether [corners] are exactly the four corners of the unrotated picture.
+///
+/// Adjustment, rotation and enhancement revisions store the full-frame geometry
+/// in `ImageAsset.crop` without any user decision, so this predicate separates
+/// a stored full frame from an approved crop (F-K).
+bool isFullFrameCorners(List<Point2> corners) {
+  const eps = 1e-6;
+  final targets = [
+    for (final (x, y) in const [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+      (x, y),
+  ];
+  return corners.length == 4 &&
+      targets.every(
+        (t) => corners.any(
+          (p) => (p.x - t.$1).abs() <= eps && (p.y - t.$2).abs() <= eps,
+        ),
+      );
+}
+
 class CropGeometry {
   CropGeometry({
     required List<Point2> corners,
@@ -295,4 +447,30 @@ class CropGeometry {
       outputHeight: integer(map['outputHeight'], 'outputHeight'),
     );
   }
+}
+
+/// Index of the corner nearest to [point], or null when no corner lies within
+/// [maxDistance] (inclusive). Equal distances resolve to the lowest index, so
+/// the choice never depends on pointer order or floating-point luck.
+int? nearestCornerIndex(
+  List<Point2> corners,
+  Point2 point,
+  double maxDistance,
+) {
+  require(
+    maxDistance.isFinite && maxDistance >= 0,
+    'مسافة الالتقاط غير صالحة.',
+  );
+  int? best;
+  var bestDistance = double.infinity;
+  for (var i = 0; i < corners.length; i++) {
+    final dx = corners[i].x - point.x;
+    final dy = corners[i].y - point.y;
+    final distance = math.sqrt(dx * dx + dy * dy);
+    if (distance <= maxDistance && distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }

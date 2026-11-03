@@ -33,19 +33,26 @@ if [[ ! -f android/gradle/wrapper/gradle-wrapper.jar ]]; then
 fi
 
 set +e
-# A bounded run: a hung emulator becomes a named timeout (exit 124) with the
-# phase, instead of a cancellation at the job limit. No retry, no masking.
-(cd android && timeout 1200 ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
+# A bounded run: a hang becomes a named timeout (exit 124) with the phase, instead
+# of a cancellation at the job limit. `-k 60` sends KILL if TERM is ignored; without
+# it a JVM that ignores TERM keeps the step open. No retry, no masking.
+(cd android && timeout -k 60 1200 ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
   2>&1 | tee diagnostics/android-instrumentation/connected-debug-android-test.log
 gradle_status=${PIPESTATUS[0]}
 set -e
+if (( gradle_status == 124 )); then
+  echo "::error title=android-gradle-timeout::connectedScanidDebugAndroidTest exceeded 1200 s and was stopped (no retry)"
+fi
 
 set +e
-timeout 900 flutter test integration_test/docquad_inference_test.dart \
+timeout -k 60 900 flutter test integration_test/docquad_inference_test.dart \
   -d "${ANDROID_SERIAL:-emulator-5554}" --flavor scanid --reporter expanded \
   2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
 docquad_status=${PIPESTATUS[0]}
 set -e
+if (( docquad_status == 124 )); then
+  echo "::error title=docquad-flutter-timeout::DocQuad inference test exceeded 900 s and was stopped (no retry)"
+fi
 
 # The staged copy is the package that gets published; the build path is only a
 # fallback for running this script by hand.

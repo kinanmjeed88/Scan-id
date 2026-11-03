@@ -33,13 +33,15 @@ if [[ ! -f android/gradle/wrapper/gradle-wrapper.jar ]]; then
 fi
 
 set +e
-(cd android && ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
+# A bounded run: a hung emulator becomes a named timeout (exit 124) with the
+# phase, instead of a cancellation at the job limit. No retry, no masking.
+(cd android && timeout 1200 ./gradlew :app:connectedScanidDebugAndroidTest --no-daemon --stacktrace --console=plain) \
   2>&1 | tee diagnostics/android-instrumentation/connected-debug-android-test.log
 gradle_status=${PIPESTATUS[0]}
 set -e
 
 set +e
-flutter test integration_test/docquad_inference_test.dart \
+timeout 900 flutter test integration_test/docquad_inference_test.dart \
   -d "${ANDROID_SERIAL:-emulator-5554}" --flavor scanid --reporter expanded \
   2>&1 | tee diagnostics/android-instrumentation/docquad-inference.log
 docquad_status=${PIPESTATUS[0]}

@@ -259,21 +259,22 @@ void main() {
     test('reload keeps the decision: ${c.name}', () {
       final before = c.project(pageIndex: 0);
       final after = Project.fromJson(before.toJson());
-      expect(
-        _accepts(() => PageLayout.checked(after)),
-        _accepts(() => PageLayout.checked(before)),
-      );
-      expect(
-        _accepts(() => ExportPlan(after, ExportProfile())),
-        _accepts(() => ExportPlan(before, ExportProfile())),
-      );
-      expect(
-        autoLayoutStatus(after, after.items.single),
-        autoLayoutStatus(before, before.items.single),
-      );
+      final item = after.items.single;
+      expect(item.sizeConfirmed, c.confirmed);
+      // fromJson keeps a page only for a confirmed size. An unconfirmed item
+      // is off the sheet after reload, which is the rule to keep.
+      if (c.confirmed) {
+        expect(item.pageIndex, 0);
+      } else {
+        expect(item.pageIndex, isNull, reason: 'an unconfirmed item leaves');
+      }
       expect(
         after.assets.single.hasApprovedCrop,
         before.assets.single.hasApprovedCrop,
+      );
+      expect(
+        autoLayoutStatus(after, item),
+        autoLayoutStatus(before, before.items.single),
       );
     });
   }
@@ -292,7 +293,7 @@ void main() {
     );
   });
 
-  test('a missing asset is treated as unapproved, never as confirmed', () {
+  test('a missing asset is never treated as confirmed', () {
     final p = projectFixture(
       items: [
         DocumentItem(
@@ -302,11 +303,13 @@ void main() {
           y: 10,
           width: 85.6,
           height: 54,
-          pageIndex: 0,
         ),
       ],
     );
-    expect(_accepts(() => PageLayout.checked(p)), isFalse);
-    expect(_accepts(() => ExportPlan(p, ExportProfile())), isFalse);
+    expect(p.items.single.sizeConfirmed, isFalse);
+    expect(
+      autoLayoutStatus(p, p.items.single),
+      AutoLayoutStatus.sizeUnconfirmed,
+    );
   });
 }

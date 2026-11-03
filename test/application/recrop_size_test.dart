@@ -43,13 +43,13 @@ DocumentItem _doc() {
 }
 
 class _Harness {
+  _Harness() {
+    service = ProjectService(repo, NoAssets(), imageEditor: editor);
+  }
+
   final MemoryProjects repo = MemoryProjects();
   final FakeImageEditor editor = FakeImageEditor();
-  late final ProjectService service = ProjectService(
-    repo,
-    NoAssets(),
-    imageEditor: editor,
-  );
+  late ProjectService service;
 
   Future<Project> start() {
     final project = projectFixture(
@@ -70,10 +70,11 @@ class _Harness {
   }
 
   Future<Project> recropTurned(Project p, CropGeometry geometry) {
+    final turned = ImageAdjustments().copyWith(quarterTurns: 1);
     return service.applyManualCrop(
       p,
       p.assets.single,
-      ImageEditRecipe(geometry, ImageAdjustments().copyWith(quarterTurns: 1)),
+      ImageEditRecipe(geometry, turned),
       sourceWidth: 400,
       sourceHeight: 250,
     );
@@ -94,6 +95,14 @@ Project _placed(Project p) {
 bool _warns(Project p) {
   final warnings = ExportPlan(_placed(p), ExportProfile()).warnings;
   return warnings.any((w) => w.contains(_mismatch));
+}
+
+void _expectPassportOnSheet(Project reloaded) {
+  final item = PageLayout.item(reloaded, 'doc');
+  expect([item.width, item.height], [125, 88]);
+  expect(item.sizeConfirmed, isTrue);
+  expect(item.pageIndex, 0);
+  expect(_warns(reloaded), isTrue);
 }
 
 void main() {
@@ -158,13 +167,7 @@ void main() {
     final stored = await h.repo.save(_placed(p));
 
     final reopened = await h.repo.get(stored.id);
-    final fromJson = Project.fromJson(reopened.toJson());
-    for (final reloaded in [reopened, fromJson]) {
-      final item = PageLayout.item(reloaded, 'doc');
-      expect([item.width, item.height], [125, 88]);
-      expect(item.sizeConfirmed, isTrue);
-      expect(item.pageIndex, 0);
-      expect(_warns(reloaded), isTrue);
-    }
+    _expectPassportOnSheet(reopened);
+    _expectPassportOnSheet(Project.fromJson(reopened.toJson()));
   });
 }

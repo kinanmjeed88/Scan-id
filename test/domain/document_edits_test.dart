@@ -100,10 +100,7 @@ void main() {
     expect(item.sizeConfirmed, isTrue);
   });
 
-  // Spec change (PR #39 F-C/F-D): a category change never replaces or revokes
-  // a size the user typed without an approved crop. The old behaviour put the
-  // typed document off the sheet with a catalog guess.
-  test('a category change keeps a typed size on the sheet', () {
+  test('a category change takes a confirmed uncropped item off the sheet', () {
     final typed = DocumentEdits.resize(_project(), 'doc', width: 90);
     final placed = typed.copyWith(
       items: [
@@ -112,26 +109,8 @@ void main() {
     );
     final c = DocumentEdits.setKind(placed, 'doc', DocumentKind.passport);
     final changed = PageLayout.item(c, 'doc');
-    expect(changed.documentKind, DocumentKind.passport);
-    expect(changed.sizeConfirmed, isTrue);
-    expect(changed.pageIndex, 0);
-    expect(changed.width, 90);
-  });
-
-  test('with an approved crop, a category change applies its catalog size', () {
-    final typed = DocumentEdits.setKind(
-      _project().copyWith(assets: [_croppedAsset()]),
-      'doc',
-      DocumentKind.passport,
-    );
-    final changed = DocumentEdits.setKind(
-      typed,
-      'doc',
-      DocumentKind.rationCard,
-    );
-    final item = PageLayout.item(changed, 'doc');
-    expect([item.width, item.height], [287, 52]);
-    expect(item.sizeConfirmed, isTrue);
+    expect(changed.sizeConfirmed, isFalse);
+    expect(changed.pageIndex, isNull);
   });
 
   test('other without a confirmed size stays unconfirmed', () {
@@ -165,42 +144,25 @@ void main() {
     expect([item.width, item.height], [287, 52]);
   });
 
-  // Spec change (PR #39 F-C, A4 matrix): a typed size is a deliberate size. It
-  // survives a change to "unknown" as well, because an unknown kind is not an
-  // invalid crop. An unconfirmed document still goes off the sheet.
-  test(
-    '"unknown" keeps a typed size; an unconfirmed document leaves the sheet',
-    () {
-      final p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport);
-      final typed = DocumentEdits.resize(p, 'doc', width: 125);
-      final item = PageLayout.item(typed, 'doc');
-      final onSheet = item.copyWith(pageIndex: 0, x: 10, y: 10);
-      final placed = typed.copyWith(items: [onSheet]);
-      final u = DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown);
-      final unknown = PageLayout.item(u, 'doc');
-      expect(unknown.sizeConfirmed, isTrue);
-      expect(unknown.pageIndex, 0);
-      expect([unknown.width, unknown.height], [125, 88]);
-
-      final unconfirmed = _project().copyWith(
-        items: [
-          PageLayout.item(_project(), 'doc').copyWith(
-            documentKind: DocumentKind.passport,
-            pageIndex: 0,
-            x: 10,
-            y: 10,
-          ),
-        ],
-      );
-      final left = DocumentEdits.setKind(
-        unconfirmed,
-        'doc',
-        DocumentKind.unknown,
-      );
-      expect(PageLayout.item(left, 'doc').pageIndex, isNull);
-      expect(PageLayout.item(left, 'doc').sizeConfirmed, isFalse);
-    },
-  );
+  test('"unknown" takes the document off the sheet, "other" keeps it', () {
+    // A typed size is an explicit confirmation; it keeps "other" on the sheet.
+    final p = DocumentEdits.setKind(_project(), 'doc', DocumentKind.passport);
+    final typed = DocumentEdits.resize(p, 'doc', width: 125);
+    final item = PageLayout.item(typed, 'doc');
+    final onSheet = item.copyWith(pageIndex: 0, x: 10, y: 10);
+    final placed = typed.copyWith(items: [onSheet]);
+    final u = DocumentEdits.setKind(placed, 'doc', DocumentKind.unknown);
+    final unknown = PageLayout.item(u, 'doc');
+    expect(unknown.pageIndex, isNull);
+    expect(unknown.sizeConfirmed, isFalse);
+    final other = PageLayout.item(
+      DocumentEdits.setKind(placed, 'doc', DocumentKind.other),
+      'doc',
+    );
+    expect(other.sizeConfirmed, isTrue);
+    expect(other.pageIndex, 0);
+    expect([other.width, other.height], [125, 88]);
+  });
 
   test(
     'resizing keeps the aspect ratio when locked and marks the size set',

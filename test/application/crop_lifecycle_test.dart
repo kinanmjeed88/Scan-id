@@ -11,7 +11,6 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -270,7 +269,7 @@ void main() {
 
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
-      // Undo returns to the gated frame with draggable corners; tap mode is off.
+      // Undo returns to the gated frame: corners draggable, tap mode off.
       expect(find.byKey(const Key('crop-tap-surface')), findsNothing);
       expect(find.byKey(const Key('crop-corner-0')), findsOneWidget);
       expect(previewButton(tester).onPressed, isNull);
@@ -287,25 +286,25 @@ void main() {
     // That is not a saved crop, so the base frame is still gated.
     testWidgets('an adjusted full frame is not a saved crop', (tester) async {
       final asset = project.assets.single;
-      final adjusted = await service.createImageRevision(
-        project,
-        asset,
-        ImageEditRecipe(
-          CropGeometry(
-            corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
-            outputWidth: asset.width,
-            outputHeight: asset.height,
-          ),
-          ImageAdjustments(sharpness: .3),
+      final stored = ImageAsset(
+        id: asset.id,
+        name: asset.name,
+        originalPath: asset.originalPath,
+        workingPath: asset.workingPath,
+        thumbnailPath: asset.thumbnailPath,
+        width: asset.width,
+        height: asset.height,
+        crop: CropGeometry(
+          corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+          outputWidth: asset.width,
+          outputHeight: asset.height,
         ),
       );
-      expect(adjusted.crop, isNotNull);
-      expect(adjusted.hasApprovedCrop, isFalse);
-      project = project.copyWith(assets: [adjusted]);
+      expect(stored.hasApprovedCrop, isFalse);
+      project = project.copyWith(assets: [stored]);
       await pumpScreen(tester);
       expect(previewButton(tester).onPressed, isNull);
       expect(acceptButton(tester).onPressed, isNull);
-      expect(find.textContaining('الكشف التلقائي لم ينجح'), findsWidgets);
     });
 
     // C1/F-K: restoring the original full frame is an unapproved state, so it

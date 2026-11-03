@@ -73,10 +73,10 @@ void main() {
 
     final rect = tester.getRect(find.byKey(const Key('crop-tap-surface')));
     for (final (fx, fy) in const [
-      (0.2, 0.2),
-      (0.8, 0.2),
-      (0.8, 0.8),
-      (0.2, 0.8),
+      (0.35, 0.35),
+      (0.65, 0.35),
+      (0.65, 0.65),
+      (0.35, 0.65),
     ]) {
       await tester.tapAt(
         Offset(rect.left + rect.width * fx, rect.top + rect.height * fy),

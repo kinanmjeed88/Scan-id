@@ -17,12 +17,7 @@ import '../presentation/editor_harness.dart';
 // conflict is reported by the existing export warning, not a second one.
 
 final _landscape = CropGeometry(
-  corners: [
-    Point2(.05, .1),
-    Point2(.95, .1),
-    Point2(.95, .9),
-    Point2(.05, .9),
-  ],
+  corners: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .7), Point2(.1, .7)],
   outputWidth: 400,
   outputHeight: 250,
 );

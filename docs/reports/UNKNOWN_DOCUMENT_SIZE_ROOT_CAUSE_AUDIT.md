@@ -913,3 +913,10 @@ Change (no product change, no exit status changed):
 Test: the trap was checked with local bash only (not CI). The workflow file is unchanged; `tool/check_source.py` and `tool/check_workflow_permissions.py` pass; `verify.yml` parses as YAML with the four jobs.
 
 Status: the root cause is **not proven**. The trap is the fix for the observability gap; the next failing run will name the command.
+
+Result of the change (push run `41668904144`, SHA `d2f3c89`): all four jobs succeeded.
+
+- `android`: `+959: All tests passed!`; format `226 files (0 changed)`; source audit PASS; `androidTests=4 failures=0 skipped=0`; DocQuad exit 0. The host notice at the start of the instrumentation step reported `rootFreeKiB=70034236`, `memAvailableMiB=3976`. The signing guard: attempt 1 of 2 failed with the guard message, as required.
+- `Android debug/diagnostic differential`: success. `windows / windows`: success (`+3: All tests passed!`). `Android 16 startup evidence`: success (3 reports, first home frame reached on API 36, x86_64).
+
+The 0dc9d07 failure did not recur on the same product code. The cause is still not proven. The ERR trap did not fire on `d2f3c89`, so there is no new evidence about the 255 command.

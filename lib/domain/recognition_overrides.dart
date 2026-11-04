@@ -292,6 +292,7 @@ DocumentItem _withoutGroup(DocumentItem item) => DocumentItem(
   documentKind: item.documentKind,
   recognitionConfidence: item.recognitionConfidence,
   sizeConfirmed: item.sizeConfirmed,
+  userSelectedKind: item.userSelectedKind,
   documentId: item.documentId,
   sideId: item.sideId,
   presetSnapshot: item.presetSnapshot,

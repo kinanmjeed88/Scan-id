@@ -57,7 +57,7 @@ class ClassificationOutcome {
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'explicit-evidence-1';
+const classifierVersion = 'explicit-evidence-2';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];
@@ -77,7 +77,8 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
         source: EvidenceSource.ocr,
         kind: 'ocr-keyword',
         score: keyword.score,
-        reason: keyword.kind.name,
+        reason:
+            '${keyword.kind.name}:anchor-groups=${keyword.matchedAnchorGroups}',
       ),
     );
     vote(keyword.kind, EvidenceSource.ocr, keyword.score);

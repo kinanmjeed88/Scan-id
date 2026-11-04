@@ -83,6 +83,42 @@ void main() {
       },
     );
 
+    test('civil-status identity needs a typed physical size', () {
+      final corners = [
+        Point2(.1, .1),
+        Point2(.9, .1),
+        Point2(.9, .8),
+        Point2(.1, .8),
+      ];
+      final withoutMeasurement = validateManualBoundary(
+        corners: corners,
+        sourceWidth: 800,
+        sourceHeight: 600,
+        documentKind: DocumentKind.civilStatusId,
+        requireConfirmedSize: true,
+      );
+      expect(withoutMeasurement.isValid, isFalse);
+      expect(
+        withoutMeasurement.rejection,
+        ManualBoundaryRejection.unconfirmedDocumentSize,
+      );
+
+      final measured = validateManualBoundary(
+        corners: corners,
+        sourceWidth: 800,
+        sourceHeight: 600,
+        documentKind: DocumentKind.civilStatusId,
+        customSizeMm: const PhysicalSizeMm(88, 56),
+        requireConfirmedSize: true,
+      );
+      expect(measured.isValid, isTrue);
+      expect(measured.confirmedKind, DocumentKind.civilStatusId);
+      expect(
+        measured.confirmedSizeMm!.sameAs(const PhysicalSizeMm(88, 56)),
+        isTrue,
+      );
+    });
+
     test(
       'rejects wrong point count, non-finite, out-of-bounds, crossed, concave, tiny, and unconfirmed size',
       () {

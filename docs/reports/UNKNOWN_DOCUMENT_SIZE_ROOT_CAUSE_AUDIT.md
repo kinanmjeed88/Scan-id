@@ -1,8 +1,12 @@
 # Unknown Document Size & A4 Placement — Root-Cause Audit
 
-Date: 2026-11-02 (Asia/Baghdad)
-Branch: `arena/9c08ad5c-scan-id` (PR #39, OPEN, not merged)
-Mode of the audit phase: read-only. The implementation batch that followed is recorded in §13; this line does not describe it. No commit, push, merge, close, or force push was performed.
+> **تحديث الحالة 2026-11-04:** الأقسام أدناه سجل تاريخي لتدقيق بدأ في 2026-11-02 على الفرع `arena/9c08ad5c-scan-id`. كانت عبارة «PR #39 مفتوح» صحيحة وقت ذلك التدقيق فقط؛ تحققت الحالة لاحقاً في GitHub وهي **MERGED منذ 2026-11-03**. لا تحاول إعادة فتحه أو تغيير حالته. هذا التقرير التاريخي لا يصف الفرع الحالي `arena/4ffb2204-scan-id` ولا نتائج بواباته. متابعة السبب الجذري ومسارات القياس اليدوي وOCR الصناعي وA4 في [`تقرير تكامل 2026-11-04`](OCR_CLASSIFICATION_A4_INTEGRATION_2026-11-04.md)؛ لم يُشغّل محرك OCR إنتاجي، ولا تُنسب نتائج CI من SHA سابق إلى التغييرات الحالية.
+
+---
+
+Historical audit date: 2026-11-02 (Asia/Baghdad)
+Historical branch: `arena/9c08ad5c-scan-id` (PR #39 was OPEN at the time)
+Audit phase mode: read-only. The implementation batch that followed is recorded in §13; this line does not describe it. No commit, push, merge, close, or force push was performed during that read-only phase.
 
 ## 0. Summary (العربية)
 

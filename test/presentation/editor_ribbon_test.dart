@@ -136,6 +136,31 @@ void main() {
     },
   );
 
+  testWidgets('civil-status type stays off A4 until its size is entered', (
+    tester,
+  ) async {
+    final editor = await EditorHarness.pump(tester);
+    await tapKey(tester, const Key('offsheet-unknown'));
+    await tapKey(tester, const Key('ribbon-tab-home'));
+    await tapKey(tester, const Key('rb-kind-civilStatusId'));
+
+    var item = itemIn(editor.saved, 'unknown');
+    expect(item.documentKind, DocumentKind.civilStatusId);
+    expect(editor.saved.catalog.natural(DocumentKind.civilStatusId), isNull);
+    expect(item.sizeConfirmed, isFalse);
+    expect(item.pageIndex, isNull);
+    expect(() => PageLayout.checked(editor.saved), returnsNormally);
+
+    await tapKey(tester, const Key('ribbon-tab-document'));
+    await _enter(tester, const Key('rb-width'), '88');
+    item = itemIn(editor.saved, 'unknown');
+    expect(item.documentKind, DocumentKind.civilStatusId);
+    expect(item.width, 88);
+    expect(item.sizeConfirmed, isTrue);
+    expect(item.pageIndex, isNotNull);
+    expect(() => PageLayout.checked(editor.saved), returnsNormally);
+  });
+
   testWidgets('home: undo, redo, duplicate, delete and select all', (
     tester,
   ) async {

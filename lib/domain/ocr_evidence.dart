@@ -6,6 +6,8 @@
 /// `RecognitionEvidence`.
 library;
 
+import 'dart:math' as math;
+
 import 'document_kind.dart';
 import 'geometry.dart';
 import 'validation.dart';
@@ -70,68 +72,208 @@ class OcrTextResult {
   }
 }
 
-/// A document-kind keyword hit derived from OCR text. Carries the kind and a
-/// score only — the matched text never leaves the pipeline run.
+/// A document-kind keyword hit derived from OCR text. Carries the kind, the
+/// conservative score of a two-line/two-group anchor match, and the number of
+/// distinct anchor groups seen. The matched text never leaves the pipeline run.
 class OcrKeywordEvidence {
-  OcrKeywordEvidence({required this.kind, required this.score}) {
+  OcrKeywordEvidence({
+    required this.kind,
+    required this.score,
+    required this.matchedAnchorGroups,
+  }) {
     require(
       score.isFinite && score >= 0 && score <= 1,
       'درجة دليل OCR يجب أن تكون بين 0 و1.',
     );
+    require(
+      matchedAnchorGroups >= 2,
+      'يتطلب دليل OCR مجموعتي مراسي متميزتين على سطرين مختلفين.',
+    );
   }
   final DocumentKind kind;
   final double score;
+  final int matchedAnchorGroups;
 }
 
-/// Keyword anchors for Iraqi document kinds. Normalization mirrors the
-/// filename matcher in `document_kind.dart` (diacritics, ة/ه, ى/ي, spacing).
-const _ocrAnchors = {
+/// One lexicon group: several spelling/recognition variants of the same
+/// semantic anchor. A type requires its primary group plus at least one
+/// different corroborating group on a different OCR line.
+class _OcrAnchorGroup {
+  const _OcrAnchorGroup(this.id, this.phrases, {this.primary = false});
+
+  final String id;
+  final List<String> phrases;
+  final bool primary;
+}
+
+/// Conservative Iraqi-document text anchors. Issuer names and generic country
+/// names are never sufficient alone. These rules are lexicon unit tests, not
+/// an OCR engine or a measured field-accuracy claim.
+const _ocrAnchors = <DocumentKind, List<_OcrAnchorGroup>>{
   DocumentKind.unifiedNationalId: [
-    'البطاقهالوطنيه',
-    'بطاقهوطنيه',
-    'وزارهالداخليه',
-    'مديريهالاحوالالمدنيه',
-    'nationalcard',
-    'nationalid',
+    _OcrAnchorGroup('title', [
+      'البطاقهالوطنيهالموحده',
+      'البطاقهالوطنيه',
+      'بطاقهوطنيه',
+      'nationalcard',
+      'nationalid',
+    ], primary: true),
+    _OcrAnchorGroup('identifier', [
+      'الرقمالوطني',
+      'رقمالبطاقه',
+      'nationalnumber',
+      'idnumber',
+    ]),
+    _OcrAnchorGroup('issuer', ['وزارهالداخليه', 'مديريهشؤونالبطاقهالوطنيه']),
+  ],
+  DocumentKind.civilStatusId: [
+    _OcrAnchorGroup('title', [
+      'هويهالاحوالالمدنيه',
+      'بطاقهالاحوالالمدنيه',
+      'هويهالجنسيه',
+      'civilstatusidentity',
+    ], primary: true),
+    _OcrAnchorGroup('registry', [
+      'سجلالنفوس',
+      'رقمالسجل',
+      'رقمالصحيفه',
+      'civilregistry',
+    ]),
+    _OcrAnchorGroup('citizenship', ['الجنسيه', 'nationality']),
+  ],
+  DocumentKind.residenceCard: [
+    _OcrAnchorGroup('title', [
+      'بطاقهالسكن',
+      'هويهالسكن',
+      'بطاقهسكن',
+      'residencecard',
+    ], primary: true),
+    _OcrAnchorGroup('address', [
+      'المحله',
+      'الزقاق',
+      'رقمالدار',
+      'رقمالعقار',
+      'residentialaddress',
+    ]),
+    _OcrAnchorGroup('issuer', ['مديريهالبلديه', 'بلديه']),
+  ],
+  DocumentKind.rationCard: [
+    _OcrAnchorGroup('title', [
+      'البطاقهالتموينيه',
+      'بطاقهتموينيه',
+      'rationcard',
+    ], primary: true),
+    _OcrAnchorGroup('issuer', ['وزارهالتجاره', 'ministryoftrade']),
+    _OcrAnchorGroup('rationDetails', [
+      'الوكيلالتمويني',
+      'المركزالتمويني',
+      'الحصهالتموينيه',
+      'rationcenter',
+    ]),
   ],
   DocumentKind.passport: [
-    'جوازسفر',
-    'جمهوريهالعراق',
-    'passport',
-    'republicofiraq',
+    _OcrAnchorGroup('title', [
+      'جوازالسفر',
+      'جوازسفر',
+      'passport',
+    ], primary: true),
+    _OcrAnchorGroup('documentNumber', ['رقمالجواز', 'passportno']),
+    _OcrAnchorGroup('personalDataLabels', ['dateofbirth', 'nationality']),
   ],
-  DocumentKind.residenceCard: ['بطاقهالسكن', 'بطاقهسكن', 'residencecard'],
-  DocumentKind.rationCard: ['البطاقهالتموينيه', 'بطاقهتموينيه', 'rationcard'],
 };
 
 String _normalize(String value) => value
     .toLowerCase()
-    .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+    .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u0640]'), '')
+    .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+    .replaceAll('ؤ', 'و')
+    .replaceAll('ئ', 'ي')
     .replaceAll('ة', 'ه')
     .replaceAll('ى', 'ي')
-    .replaceAll(RegExp(r'[\s_\-.]+'), '');
+    .replaceAll('ک', 'ك')
+    .replaceAll('ی', 'ي')
+    .replaceAll(
+      RegExp(r'[^a-z0-9\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]'),
+      '',
+    );
 
-/// Derives keyword evidence from [result]. Scores are the confidences of the
-/// lines that contained an anchor (best line per kind); the text itself is
-/// discarded here and never stored.
+class _AnchorHit {
+  const _AnchorHit(this.lineIndex, this.confidence);
+
+  final int lineIndex;
+  final double confidence;
+}
+
+List<_AnchorHit> _hits(
+  OcrTextResult result,
+  List<String> normalizedLines,
+  _OcrAnchorGroup group,
+) {
+  final hits = <_AnchorHit>[];
+  for (var index = 0; index < result.lines.length; index++) {
+    final line = normalizedLines[index];
+    if (line.isEmpty || !group.phrases.any(line.contains)) continue;
+    hits.add(_AnchorHit(index, result.lines[index].confidence));
+  }
+  return hits;
+}
+
+/// Derives keyword evidence from [result] only when a distinctive document
+/// title and an independent corroborating anchor occur on separate lines. The
+/// score is the lower OCR-line confidence of that pair; it is not a calibrated
+/// probability that the document kind is correct. The recognized text itself
+/// is discarded and never stored.
 List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   if (!result.isAvailable) return const [];
-  final best = <DocumentKind, double>{};
-  for (final line in result.lines) {
-    final normalized = _normalize(line.text);
-    if (normalized.isEmpty) continue;
-    for (final entry in _ocrAnchors.entries) {
-      if (entry.value.any(normalized.contains)) {
-        final previous = best[entry.key];
-        if (previous == null || line.confidence > previous) {
-          best[entry.key] = line.confidence;
+  final normalizedLines = [
+    for (final line in result.lines) _normalize(line.text),
+  ];
+  final evidence = <OcrKeywordEvidence>[];
+  final kinds = _ocrAnchors.keys.toList()
+    ..sort((a, b) => a.index.compareTo(b.index));
+
+  for (final kind in kinds) {
+    final groups = _ocrAnchors[kind]!;
+    final primary = groups.singleWhere((group) => group.primary);
+    final primaryHits = _hits(result, normalizedLines, primary);
+    if (primaryHits.isEmpty) continue;
+
+    double? bestScore;
+    var bestGroupCount = 0;
+    for (final primaryHit in primaryHits) {
+      final supportingGroups = <String>{};
+      var bestSupportConfidence = 0.0;
+      for (final group in groups.where((entry) => !entry.primary)) {
+        final support = _hits(
+          result,
+          normalizedLines,
+          group,
+        ).where((hit) => hit.lineIndex != primaryHit.lineIndex).toList();
+        if (support.isEmpty) continue;
+        supportingGroups.add(group.id);
+        for (final hit in support) {
+          if (hit.confidence > bestSupportConfidence) {
+            bestSupportConfidence = hit.confidence;
+          }
         }
       }
+      if (supportingGroups.isEmpty) continue;
+      final score = math
+          .min(primaryHit.confidence, bestSupportConfidence)
+          .toDouble();
+      if (bestScore == null || score > bestScore) {
+        bestScore = score;
+        bestGroupCount = 1 + supportingGroups.length;
+      }
     }
+    if (bestScore == null) continue;
+    evidence.add(
+      OcrKeywordEvidence(
+        kind: kind,
+        score: bestScore,
+        matchedAnchorGroups: bestGroupCount,
+      ),
+    );
   }
-  final kinds = best.keys.toList()..sort((a, b) => a.index.compareTo(b.index));
-  return List.unmodifiable([
-    for (final kind in kinds)
-      OcrKeywordEvidence(kind: kind, score: best[kind]!),
-  ]);
+  return List.unmodifiable(evidence);
 }

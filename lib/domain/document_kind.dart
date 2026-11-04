@@ -7,13 +7,15 @@ import 'validation.dart';
 /// The automated classifier needs independent evidence; filenames, image
 /// dimensions, and boundary proportions never create a category. Until such
 /// evidence is available, recognition remains [unknown]. The user can choose a
-/// category explicitly, which applies its catalog size immediately.
+/// category explicitly; a size is applied only when that kind has a catalog
+/// entry (civil-status identity currently requires a manual measurement).
 enum DocumentKind {
   unknown,
   unifiedNationalId,
   residenceCard,
   passport,
   rationCard,
+  civilStatusId,
   other,
 }
 
@@ -190,15 +192,17 @@ PresetStatus presetStatusFor(DocumentKind kind) => switch (kind) {
   DocumentKind.passport => PresetStatus.standard,
   DocumentKind.residenceCard ||
   DocumentKind.rationCard => PresetStatus.estimated,
-  DocumentKind.unknown || DocumentKind.other => PresetStatus.unknown,
+  DocumentKind.unknown ||
+  DocumentKind.civilStatusId ||
+  DocumentKind.other => PresetStatus.unknown,
 };
 
 /// Printed sizes per document category.
 ///
-/// The unified national card (ISO/IEC 7810 ID-1) and the passport data page
-/// (ICAO Doc 9303 TD3) have official, fixed dimensions. No official outer size
-/// is published for the residence card or the paper ration card, so their
-/// sizes are editable defaults stored with each project.
+/// The unified national card and passport data page have project catalog
+/// entries; the residence and paper ration-card values are editable estimates,
+/// not official dimensions. No verified physical-size entry exists for the
+/// civil-status identity, so it must be measured by the user before A4 layout.
 class DocumentSizeCatalog {
   const DocumentSizeCatalog({
     this.residenceCard = defaultResidenceCard,
@@ -232,7 +236,9 @@ class DocumentSizeCatalog {
     DocumentKind.residenceCard => residenceCard,
     DocumentKind.passport => passport,
     DocumentKind.rationCard => rationCard,
-    DocumentKind.unknown || DocumentKind.other => null,
+    DocumentKind.unknown ||
+    DocumentKind.civilStatusId ||
+    DocumentKind.other => null,
   };
 
   /// Size turned to the orientation of the cropped image.
@@ -316,18 +322,20 @@ extension DocumentKindDetails on DocumentKind {
     DocumentKind.residenceCard => 'بطاقة السكن',
     DocumentKind.passport => 'جواز السفر',
     DocumentKind.rationCard => 'البطاقة التموينية',
+    DocumentKind.civilStatusId => 'هوية الأحوال المدنية',
     DocumentKind.other => 'مستمسك آخر',
   };
 
-  /// Sheet order: unified card, residence card, passport, ration card, then
-  /// everything else.
+  /// Sheet order: the existing four catalog categories retain their order;
+  /// categories without a verified preset follow them, then unknown and other.
   int get order => switch (this) {
     DocumentKind.unifiedNationalId => 0,
     DocumentKind.residenceCard => 1,
     DocumentKind.passport => 2,
     DocumentKind.rationCard => 3,
-    DocumentKind.unknown => 4,
-    DocumentKind.other => 5,
+    DocumentKind.civilStatusId => 4,
+    DocumentKind.unknown => 5,
+    DocumentKind.other => 6,
   };
 
   /// Only standardised dimensions are described as official.
@@ -345,6 +353,8 @@ extension DocumentKindDetails on DocumentKind {
       'مقاس رسمي ثابت لصفحة بيانات الجواز (ICAO 9303 TD3): ${catalog.natural(this)}',
     DocumentKind.residenceCard || DocumentKind.rationCard =>
       'مقاس افتراضي قابل للتعديل: ${catalog.natural(this)}',
+    DocumentKind.civilStatusId =>
+      'لا يوجد مقاس موثق في الكتالوج؛ قِس النسخة وأدخل العرض والارتفاع يدوياً.',
     DocumentKind.unknown =>
       'اختر نوع المستمسك ليُطبَّق مقاسه ويُرتَّب على الورقة.',
     DocumentKind.other => 'مقاس يدوي؛ عدّل العرض والارتفاع من الشريط.',

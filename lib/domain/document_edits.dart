@@ -27,38 +27,83 @@ class DocumentEdits {
   /// category confirms its catalog size only when the picture has an approved
   /// crop. Otherwise the item keeps the catalog size as a provisional size,
   /// stays unconfirmed, and is taken off the sheet until the crop is approved
-  /// or a size is typed. "Other" keeps the current size and its confirmation.
-  /// "Unknown" takes the document off the sheet until a category is chosen.
-  static Project setKind(Project project, String itemId, DocumentKind kind) {
+  /// or a size is typed. Re-selecting the current category preserves a manually
+  /// confirmed footprint; categories without a catalog size also preserve an
+  /// existing manual measurement. "Other" keeps the current size and its
+  /// confirmation. "Unknown" takes the document off the sheet until a category
+  /// is chosen.
+  static Project setKind(
+    Project project,
+    String itemId,
+    DocumentKind kind, {
+    bool preserveManualSizeOnReselect = true,
+  }) {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
     final asset = project.assets.firstWhere((a) => a.id == item.assetId);
     final size = catalogSize(project, asset, kind);
     final DocumentItem next;
     if (size != null) {
-      final confirmed = hasApprovedCrop(asset);
+      final preserveManualSize =
+          preserveManualSizeOnReselect &&
+          item.documentKind == kind &&
+          item.hasUserConfirmedSize;
+      final width = preserveManualSize ? item.width : size.width;
+      final height = preserveManualSize ? item.height : size.height;
+      final confirmed = preserveManualSize || hasApprovedCrop(asset);
       next = item.copyWith(
         documentKind: kind,
-        width: size.width,
-        height: size.height,
+        userSelectedKind: true,
+        width: width,
+        height: height,
         recognitionConfidence: 0,
         sizeConfirmed: confirmed,
-        keepAspectRatio: true,
+        keepAspectRatio: preserveManualSize ? item.keepAspectRatio : true,
         unplaced: !confirmed,
+        presetSnapshot: PresetSnapshot(
+          variantId: preserveManualSize ? null : builtinVariantId(kind),
+          widthMm: width,
+          heightMm: height,
+          status: PresetStatus.user,
+        ),
       );
     } else if (kind == DocumentKind.other) {
       next = item.copyWith(
         documentKind: kind,
+        userSelectedKind: true,
         recognitionConfidence: 0,
         sizeConfirmed: item.sizeConfirmed,
         unplaced: !item.sizeConfirmed,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: item.width,
+          heightMm: item.height,
+          status: PresetStatus.user,
+        ),
       );
-    } else {
+    } else if (kind == DocumentKind.unknown) {
       next = item.copyWith(
         documentKind: kind,
+        userSelectedKind: false,
         recognitionConfidence: 0,
         sizeConfirmed: false,
         unplaced: true,
+        clearPresetSnapshot: true,
+      );
+    } else {
+      final preserveManualSize = item.hasUserConfirmedSize;
+      next = item.copyWith(
+        documentKind: kind,
+        userSelectedKind: true,
+        recognitionConfidence: 0,
+        sizeConfirmed: preserveManualSize,
+        unplaced: !preserveManualSize,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: item.width,
+          heightMm: item.height,
+          status: PresetStatus.user,
+        ),
       );
     }
     return _replace(project, next);
@@ -101,13 +146,19 @@ class DocumentEdits {
               : item.copyWith(width: h * ratio, height: h))
         : item.copyWith(width: w, height: h);
     validDocumentSize(PhysicalSizeMm(next.width, next.height));
+    final kindWasUnknown = next.documentKind == DocumentKind.unknown;
     return _replace(
       project,
       next.copyWith(
-        documentKind: next.documentKind == DocumentKind.unknown
-            ? DocumentKind.other
-            : next.documentKind,
+        documentKind: kindWasUnknown ? DocumentKind.other : next.documentKind,
+        userSelectedKind: next.userSelectedKind || kindWasUnknown,
         sizeConfirmed: true,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: next.width,
+          heightMm: next.height,
+          status: PresetStatus.user,
+        ),
       ),
     );
   }
@@ -119,7 +170,12 @@ class DocumentEdits {
       project.catalog.natural(item.documentKind) != null,
       'لا يوجد مقاس محفوظ لهذا النوع؛ أدخل العرض والارتفاع يدوياً.',
     );
-    return setKind(project, itemId, item.documentKind);
+    return setKind(
+      project,
+      itemId,
+      item.documentKind,
+      preserveManualSizeOnReselect: false,
+    );
   }
 
   /// Turns a document on the sheet by 90° (clockwise).

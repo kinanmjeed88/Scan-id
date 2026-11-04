@@ -527,6 +527,15 @@ Project revertManualCropOnProject(
       final revertedKind = linkedRecord != null
           ? effectiveKind(linkedRecord)
           : DocumentKind.unknown;
+      final kindWasExplicitlyOverridden =
+          linkedRecord?.overrides.any(
+            (override) => override.documentKind != null,
+          ) ??
+          false;
+      final kindWasUserSelected =
+          revertedKind != DocumentKind.unknown &&
+          (kindWasExplicitlyOverridden ||
+              (item.userSelectedKind && item.documentKind == revertedKind));
       final prov = provisionalSize(
         width: cleanedAsset.width,
         height: cleanedAsset.height,
@@ -547,6 +556,7 @@ Project revertManualCropOnProject(
           documentKind: revertedKind,
           recognitionConfidence: item.recognitionConfidence,
           sizeConfirmed: false,
+          userSelectedKind: kindWasUserSelected,
           documentId: item.documentId,
           sideId: item.sideId,
           groupId: item.groupId,
@@ -700,6 +710,7 @@ Project applyManualConfirmationToProject(
       documentKind: documentKind,
       recognitionConfidence: 0,
       sizeConfirmed: true,
+      userSelectedKind: true,
       documentId: manualRecord.id,
       sideId: manualRecord.sides.single.id,
       presetSnapshot: snapshot,
@@ -720,6 +731,7 @@ Project applyManualConfirmationToProject(
         updatedItems.add(
           item.copyWith(
             documentKind: documentKind,
+            userSelectedKind: true,
             width: sizeMm.width,
             height: sizeMm.height,
             sizeConfirmed: true,
@@ -732,6 +744,7 @@ Project applyManualConfirmationToProject(
         updatedItems.add(
           item.copyWith(
             documentKind: documentKind,
+            userSelectedKind: true,
             width: sizeMm.width,
             height: sizeMm.height,
             sizeConfirmed: true,
@@ -892,6 +905,7 @@ Project appendManualDerivedDocumentToProject(
     documentKind: documentKind,
     recognitionConfidence: 0,
     sizeConfirmed: true,
+    userSelectedKind: true,
     documentId: record.id,
     sideId: side.id,
     presetSnapshot: snapshot,

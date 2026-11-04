@@ -1376,6 +1376,7 @@ const _galleryKinds = [
   DocumentKind.residenceCard,
   DocumentKind.passport,
   DocumentKind.rationCard,
+  DocumentKind.civilStatusId,
 ];
 
 const _menuKinds = [
@@ -1383,6 +1384,7 @@ const _menuKinds = [
   DocumentKind.residenceCard,
   DocumentKind.passport,
   DocumentKind.rationCard,
+  DocumentKind.civilStatusId,
   DocumentKind.other,
   DocumentKind.unknown,
 ];
@@ -1392,6 +1394,7 @@ IconData _kindIcon(DocumentKind kind) => switch (kind) {
   DocumentKind.residenceCard => Icons.home_work_outlined,
   DocumentKind.passport => Icons.menu_book_outlined,
   DocumentKind.rationCard => Icons.receipt_long_outlined,
+  DocumentKind.civilStatusId => Icons.assignment_ind_outlined,
   DocumentKind.other => Icons.description_outlined,
   DocumentKind.unknown => Icons.help_outline,
 };
@@ -1587,6 +1590,11 @@ class _CatalogDialogState extends State<CatalogDialog> {
             ),
             _row(DocumentKind.residenceCard.label, 'residence'),
             _row(DocumentKind.rationCard.label, 'ration'),
+            const Divider(height: 24),
+            Text(
+              '${DocumentKind.civilStatusId.label}: لا يوجد مقاس موثق؛ '
+              'أدخل قياس النسخة يدوياً لكل مستند قبل وضعه على A4.',
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),

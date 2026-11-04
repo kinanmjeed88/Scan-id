@@ -538,6 +538,7 @@ class DocumentItem {
     this.documentKind = DocumentKind.unknown,
     this.recognitionConfidence = 0,
     this.sizeConfirmed = false,
+    this.userSelectedKind = false,
     this.documentId,
     this.sideId,
     this.presetSnapshot,
@@ -590,6 +591,27 @@ class DocumentItem {
   final double recognitionConfidence;
   final bool sizeConfirmed;
 
+  /// Separate from size provenance: a manually measured size does not imply a
+  /// manually chosen category. A recognition refresh may add evidence, but it
+  /// must not replace an explicit kind choice.
+  final bool userSelectedKind;
+
+  bool get hasUserSelectedKind =>
+      userSelectedKind && documentKind != DocumentKind.unknown;
+
+  /// True when a confirmed footprint is user-authored, predates preset
+  /// provenance, comes from a non-standard preset, or differs from its frozen
+  /// snapshot. Reprocessing must not replace this size.
+  bool get hasUserConfirmedSize {
+    if (!sizeConfirmed) return false;
+    final snapshot = presetSnapshot;
+    if (snapshot == null || snapshot.status != PresetStatus.standard) {
+      return true;
+    }
+    return (width - snapshot.widthMm).abs() > 1e-6 ||
+        (height - snapshot.heightMm).abs() > 1e-6;
+  }
+
   /// v5 link to the recognition/provenance truth (a [DocumentRecord]); null for
   /// a pure manual item. See docs/DESIGN_LOCK.md §1.
   final String? documentId;
@@ -622,9 +644,11 @@ class DocumentItem {
     DocumentKind? documentKind,
     double? recognitionConfidence,
     bool? sizeConfirmed,
+    bool? userSelectedKind,
     String? documentId,
     String? sideId,
     PresetSnapshot? presetSnapshot,
+    bool clearPresetSnapshot = false,
     String? groupId,
     bool clearGroupId = false,
   }) => DocumentItem(
@@ -642,9 +666,12 @@ class DocumentItem {
     documentKind: documentKind ?? this.documentKind,
     recognitionConfidence: recognitionConfidence ?? this.recognitionConfidence,
     sizeConfirmed: sizeConfirmed ?? this.sizeConfirmed,
+    userSelectedKind: userSelectedKind ?? this.userSelectedKind,
     documentId: documentId ?? this.documentId,
     sideId: sideId ?? this.sideId,
-    presetSnapshot: presetSnapshot ?? this.presetSnapshot,
+    presetSnapshot: clearPresetSnapshot
+        ? null
+        : (presetSnapshot ?? this.presetSnapshot),
     groupId: clearGroupId ? null : (groupId ?? this.groupId),
   );
 
@@ -663,6 +690,7 @@ class DocumentItem {
     'documentKind': documentKind.name,
     'recognitionConfidence': recognitionConfidence,
     'sizeConfirmed': sizeConfirmed,
+    if (userSelectedKind) 'userSelectedKind': true,
     'documentId': documentId,
     'sideId': sideId,
     'presetSnapshot': presetSnapshot?.toJson(),
@@ -699,6 +727,9 @@ class DocumentItem {
           ? 0
           : finiteNumber(m['recognitionConfidence'], 'recognitionConfidence'),
       sizeConfirmed: sizeConfirmed,
+      userSelectedKind: m['userSelectedKind'] == null
+          ? false
+          : boolean(m['userSelectedKind'], 'userSelectedKind'),
       documentId: m['documentId'] == null
           ? null
           : text(m['documentId'], 'documentId'),

@@ -14,11 +14,16 @@ import 'package:scan_id/imaging/document_segmenter.dart';
 
 final _bytes = Uint8List.fromList([1, 2, 3]);
 
-PipelineImageInput _input({String assetId = 'asset1'}) => PipelineImageInput(
+PipelineImageInput _input({
+  String assetId = 'asset1',
+  Uint8List? previewBytes,
+  int sourceWidth = 1600,
+  int sourceHeight = 1000,
+}) => PipelineImageInput(
   assetId: assetId,
-  previewBytes: _bytes,
-  sourceWidth: 1600,
-  sourceHeight: 1000,
+  previewBytes: previewBytes ?? _bytes,
+  sourceWidth: sourceWidth,
+  sourceHeight: sourceHeight,
   importIndex: 0,
 );
 
@@ -84,6 +89,28 @@ Uint8List _rectangleAndRoundRegions() {
   return Uint8List.fromList(img.encodePng(image));
 }
 
+Uint8List _twoColoredDocumentRegions() {
+  final image = img.Image(width: 200, height: 120);
+  img.fill(image, color: img.ColorRgb8(20, 20, 20));
+  img.fillRect(
+    image,
+    x1: 10,
+    y1: 10,
+    x2: 89,
+    y2: 109,
+    color: img.ColorRgb8(230, 25, 25),
+  );
+  img.fillRect(
+    image,
+    x1: 110,
+    y1: 10,
+    x2: 189,
+    y2: 109,
+    color: img.ColorRgb8(25, 25, 230),
+  );
+  return Uint8List.fromList(img.encodePng(image));
+}
+
 Future<SegmentationResult> _noMulti(Uint8List bytes) async =>
     const SegmentationResult(candidates: [], multi: false);
 
@@ -91,10 +118,45 @@ class _ThrowingOcr implements OcrEngine {
   @override
   String get version => 'broken-ocr-1';
   @override
+  bool get isEnabled => true;
+  @override
   Future<OcrTextResult> recognize(
     Uint8List imageBytes, {
     CancellationToken? token,
   }) async => throw StateError('engine crashed');
+}
+
+class _RecordingOcr implements OcrEngine {
+  final crops = <img.Image>[];
+
+  @override
+  String get version => 'recording-ocr-1';
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async {
+    token?.throwIfCancelled();
+    final image = img.decodeImage(imageBytes)!;
+    crops.add(image);
+    final center = image.getPixel(image.width ~/ 2, image.height ~/ 2);
+    // Synthetic image-dependent fixture only: color selects prewritten OCR
+    // lines so this test covers crop-to-classifier plumbing, not OCR accuracy.
+    final lines = center.rNormalized > center.bNormalized
+        ? [
+            OcrLine(text: 'البطاقة الوطنية الموحدة', confidence: .96),
+            OcrLine(text: 'الرقم الوطني', confidence: .94),
+          ]
+        : [
+            OcrLine(text: 'بطاقة السكن', confidence: .96),
+            OcrLine(text: 'المحلة', confidence: .94),
+          ];
+    return OcrTextResult.available(lines: lines, engineVersion: version);
+  }
 }
 
 void main() {
@@ -119,6 +181,85 @@ void main() {
         detection.detectionConfidence,
         isNull,
         reason: 'the single detector has no calibrated score',
+      );
+    },
+  );
+
+  test(
+    'OCR receives one image-isolated crop per measured document region',
+    () async {
+      final source = _twoColoredDocumentRegions();
+      final ocr = _RecordingOcr();
+      final left = [
+        Point2(.05, .08),
+        Point2(.45, .08),
+        Point2(.45, .92),
+        Point2(.05, .92),
+      ];
+      final right = [
+        Point2(.55, .08),
+        Point2(.95, .08),
+        Point2(.95, .92),
+        Point2(.55, .92),
+      ];
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async =>
+            fail('a measured multi-image skips single'),
+        segment: (bytes) async => SegmentationResult(
+          multi: true,
+          candidates: [
+            SegmentCandidate(
+              region: const [.05, .08, .45, .92],
+              corners: left,
+              detectionConfidence: .9,
+              reason: 'component-support',
+            ),
+            SegmentCandidate(
+              region: const [.55, .08, .95, .92],
+              corners: right,
+              detectionConfidence: .9,
+              reason: 'component-support',
+            ),
+          ],
+        ),
+        ocr: ocr,
+      );
+
+      final analysis = await pipeline.analyze(
+        PipelineImageInput(
+          assetId: 'two-docs',
+          previewBytes: source,
+          sourceWidth: 200,
+          sourceHeight: 120,
+          importIndex: 0,
+        ),
+      );
+
+      expect(analysis.allRegions, hasLength(2));
+      expect(ocr.crops, hasLength(2));
+      final leftCrop = ocr.crops[0];
+      final leftCenter = leftCrop.getPixel(
+        leftCrop.width ~/ 2,
+        leftCrop.height ~/ 2,
+      );
+      expect(leftCrop.width, lessThan(200));
+      expect(leftCrop.height, lessThan(120));
+      expect(leftCenter.rNormalized, greaterThan(.7));
+      expect(leftCenter.bNormalized, lessThan(.2));
+
+      final rightCrop = ocr.crops[1];
+      final rightCenter = rightCrop.getPixel(
+        rightCrop.width ~/ 2,
+        rightCrop.height ~/ 2,
+      );
+      expect(rightCrop.width, lessThan(200));
+      expect(rightCrop.height, lessThan(120));
+      expect(rightCenter.bNormalized, greaterThan(.7));
+      expect(rightCenter.rNormalized, lessThan(.2));
+      expect(
+        analysis.allRegions.map((d) => d.classification.kind),
+        [DocumentKind.unifiedNationalId, DocumentKind.residenceCard],
+        reason: 'only the synthetic OCR output, not geometry, labels the types',
       );
     },
   );
@@ -807,7 +948,13 @@ void main() {
       segment: _noMulti,
       ocr: _ThrowingOcr(),
     );
-    final analysis = await pipeline.analyze(_input());
+    final analysis = await pipeline.analyze(
+      _input(
+        previewBytes: _twoColoredDocumentRegions(),
+        sourceWidth: 200,
+        sourceHeight: 120,
+      ),
+    );
     expect(
       analysis.issues.map((i) => i.category),
       contains(RecognitionErrorCategory.ocrFailure),
@@ -822,6 +969,7 @@ void main() {
     'the shipped default OCR engine reports honest unavailability',
     () async {
       const engine = UnavailableOcrEngine();
+      expect(engine.isEnabled, isFalse);
       final result = await engine.recognize(_bytes);
       expect(result.isAvailable, isFalse);
       expect(result.unavailableReason, 'no-offline-engine-packaged');

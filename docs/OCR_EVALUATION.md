@@ -1,8 +1,8 @@
 # OCR evaluation — Scan ID
 
-**Status (2026-10-26): no OCR engine ships in this build. This document records
-why, and what would have to be true before one can.**
-**Source revision audited:** `d142e85ab927e7c5503c61c9b105216409d1e69a` on `arena/84234269-scan-id`; GitHub Actions run `40335966175` built/tested Android and Windows successfully, but contains no OCR runtime or CER/WER test.
+**Status (2026-11-04): no OCR engine ships in this build.** The current code adds a disabled-by-default `OcrEngine` seam, per-region in-memory cropping, and conservative multi-anchor OCR evidence. Synthetic fixed-string tests exercise those contracts only; they do not execute OCR, measure CER/WER, or establish Iraqi-document accuracy. This document records why no engine was selected and what must be true before one can be.
+
+**Historical source revision audited:** `d142e85ab927e7c5503c61c9b105216409d1e69a` on `arena/84234269-scan-id`; GitHub Actions run `40335966175` built/tested Android and Windows successfully, but contains no OCR runtime or CER/WER test. Those historical results do not validate the current branch.
 
 The current classifier does not infer document kind from filenames, paths,
 image dimensions, or boundary aspect. With `UnavailableOcrEngine`, it receives
@@ -23,7 +23,7 @@ first).
 
 | Requirement | Why |
 |---|---|
-| Arabic text recognition | Iraqi national ID, residence card, ration card and passport are Arabic-first documents |
+| Arabic text recognition | Iraqi national ID, civil-status identity, residence card, ration card and passport are Arabic-first documents |
 | Android (arm64, and armv7 while it is still shipped) | primary target |
 | Windows x64 | primary target |
 | Fully offline execution | ADR-005; the release Android manifest declares no INTERNET permission |
@@ -145,6 +145,10 @@ A second local screen on 2026-10-26 processed the same 19 still images for
 boundary behavior only: zero decode/inference errors, no OCR engine call, and no
 text read or saved. It is not an OCR evaluation; the aggregate boundary results
 and limits are in [`MODEL_EVALUATION.md`](reports/MODEL_EVALUATION.md).
+
+**Current checkout note (2026-11-04):** `Mostmskat/` is absent from this
+worktree. The older local-screen summaries above are historical only; no image
+corpus or real OCR input was used by the current changes or their tests.
 
 The existing OCR-evidence unit tests use synthetic fixed strings only to test
 normalization and keyword-rule behavior. They are not image-derived transcripts,

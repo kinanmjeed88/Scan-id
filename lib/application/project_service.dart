@@ -21,6 +21,7 @@ import 'project_recovery.dart';
 import 'ids.dart';
 import 'image_reader.dart';
 import 'full_resolution_jpeg_cropper.dart';
+import 'ocr_engine.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 import 'smart_recognition.dart';
@@ -198,6 +199,7 @@ class ProjectService {
     this.recovery,
     this.maintenance,
     this.segmenter,
+    this.ocr = const UnavailableOcrEngine(),
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.smartRecognitionEnabled =
         smart_recognition_flag.smartRecognitionEnabled,
@@ -215,6 +217,10 @@ class ProjectService {
   /// Optional seam for a separately qualified region detector. Null uses the
   /// safe empty default; it never invokes the legacy classical segmenter.
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
+
+  /// Local OCR backend seam. Production remains explicitly unavailable until
+  /// a qualified offline engine is selected and packaged for both platforms.
+  final OcrEngine ocr;
 
   /// Extracts a measured region from a sampled JPEG's immutable original at
   /// native density. Kept injectable because a real platform channel is not
@@ -286,6 +292,7 @@ class ProjectService {
       assets: assets,
       editor: smartEditor,
       segment: segmenter ?? defaultSegment,
+      ocr: ocr,
       fullResolutionJpegCropper: fullResolutionJpegCropper,
     ).reprocess(
       project,
@@ -413,6 +420,7 @@ class ProjectService {
         assets: assets,
         editor: smartEditor,
         segment: segmenter ?? defaultSegment,
+        ocr: ocr,
         fullResolutionJpegCropper: fullResolutionJpegCropper,
       ).run(
         project,
@@ -462,8 +470,9 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
-    // This intake route has no independent visual/OCR kind classifier, so its
-    // recognized-category count remains zero until such evidence is added.
+    // SmartIntake may count text-derived suggestions when an enabled OCR engine
+    // is injected; the shipped engine is disabled, so production defaults stay
+    // at zero recognized categories until qualified evidence is packaged.
     var recognized = 0;
     var needsReview = 0;
     var boundaryNeedsReview = 0;
@@ -546,6 +555,7 @@ class ProjectService {
               assets: assets,
               editor: editor,
               segment: (_) async => segmentation,
+              ocr: ocr,
               fullResolutionJpegCropper: fullResolutionJpegCropper,
             ).run(
               current,

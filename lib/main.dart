@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'application/full_resolution_jpeg_cropper.dart';
 import 'application/project_service.dart';
+import 'application/smart_recognition_flag.dart';
 import 'application/startup_diagnostics.dart';
 import 'application/native_documents.dart';
 import 'application/camera_capture.dart';
@@ -133,6 +134,10 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
     recovery: LocalProjectRecovery(repository, editor),
     backups: LocalProjectBackups(repository, repository.files),
     maintenance: maintenance,
+    // The shipped policy enables the full pipeline: acquisition → quality →
+    // boundary review → PP-OCRv5 text → multi-evidence kind → catalog size →
+    // A4 eligibility. Nothing is placed without human confirmation.
+    smartRecognitionEnabled: appSmartRecognitionEnabled,
     // The on-device PP-OCRv5 engine: detection + Arabic recognition through ONNX
     // Runtime. Sessions are created on first use, so construction stays cheap and
     // a missing model reports an explicit unavailable state instead of crashing

@@ -2,20 +2,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/multi_document_segmentation_flag.dart';
 import 'package:scan_id/application/smart_recognition_flag.dart';
 
-/// Smart Recognition remains opt-in and OFF in the shipping configuration;
-/// its flag stays app-level and never enters project persistence.
+/// The shipped app runs the pipeline; a host that says nothing keeps the
+/// legacy intake. The flag stays app-level and never enters project storage.
 void main() {
-  test('Smart Recognition feature flag is OFF by default', () {
-    expect(smartRecognitionEnabled, isFalse);
-  });
-
-  test('the disabled app-level flag denies both request states', () {
+  test('the shipped application enables smart recognition', () {
+    expect(appSmartRecognitionEnabled, isTrue);
+    expect(smartRecognitionAllows(true), isTrue);
     expect(smartRecognitionAllows(false), isFalse);
-    expect(smartRecognitionAllows(true), isFalse);
   });
 
-  test('automatic segmentation is disabled without a qualified detector', () {
-    expect(multiDocumentSegmentationEnabled, isFalse);
+  test('a host that says nothing keeps the legacy intake', () {
     expect(smartRecognitionEnabled, isFalse);
+    expect(smartRecognitionEnabled && appSmartRecognitionEnabled, isFalse);
+  });
+
+  test('automatic segmentation is still disabled', () {
+    expect(multiDocumentSegmentationEnabled, isFalse);
   });
 }

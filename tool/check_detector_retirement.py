@@ -299,6 +299,8 @@ def verify() -> list[str]:
     main_source = (ROOT / "lib/main.dart").read_text(encoding="utf-8")
     if "createPlatformOcrEngine()" not in main_source:
         errors.append("the production project service is not wired to the OCR engine")
+    if "smartRecognitionEnabled: appSmartRecognitionEnabled" not in main_source:
+        errors.append("the shipped app does not enable the recognition pipeline")
 
     windows_workflow = (ROOT / ".github/workflows/windows-release.yml").read_text(
         encoding="utf-8"

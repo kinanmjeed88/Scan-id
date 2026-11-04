@@ -4,17 +4,29 @@
 /// only records whether recognition was applied, by the presence of
 /// `documents`).
 ///
-/// It is OFF by default in this build. While OFF, a single-document import
-/// stays on the legacy intake and does not create recognition records.
-/// Multi-document segmentation is a separate flag and still runs; when it
-/// finds more than one region it hands that source to SmartIntake. The v4→v5
-/// migration is independent of this flag (legacy inline recognition is always
-/// migrated on save), and manual workflows remain available. Enabling the
-/// pipeline requires an explicit build-level change and owner approval.
+/// There are two distinct values on purpose:
+///
+/// * [smartRecognitionEnabled] is the default a host gets when it says nothing.
+///   It stays `false`, so a test, a script or an embedding that constructs
+///   `ProjectService` without an opinion keeps the legacy, recognition-free
+///   intake it was written against.
+/// * [appSmartRecognitionEnabled] is the policy the shipped application
+///   applies at its single composition root (`lib/main.dart`). The PP-OCRv5
+///   engine, the multi-evidence classifier and the A4 eligibility path are
+///   implemented and verified, so the app runs them; an import still needs
+///   human confirmation before anything reaches the sheet.
+///
+/// Multi-document segmentation is a separate flag and stays disabled. The
+/// v4→v5 migration is independent of both flags (legacy inline recognition is
+/// always migrated on save), and manual workflows remain available either way.
 library;
 
-/// Whether the Smart Recognition pipeline may run.
+/// Default for hosts that do not opt in: the legacy intake path.
 const bool smartRecognitionEnabled = false;
 
+/// The policy the released application applies at its composition root.
+const bool appSmartRecognitionEnabled = true;
+
 /// Convenience accessor so call sites have a single, testable seam.
-bool smartRecognitionAllows(bool flag) => flag && smartRecognitionEnabled;
+bool smartRecognitionAllows(bool requested) =>
+    requested && appSmartRecognitionEnabled;

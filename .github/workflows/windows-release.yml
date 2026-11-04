@@ -41,6 +41,34 @@ jobs:
         with:
           path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
           key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+      # The OCR graphs are 12.8 MiB of Apache-2.0 weights, git-ignored and
+      # fetched from their pinned upstream revisions. The fetch verifies the byte
+      # size and SHA-256 before the files are used, so a substituted or truncated
+      # model cannot reach a build; a restored cache entry is re-hashed rather
+      # than trusted.
+      - name: Restore the pinned PP-OCRv5 models
+        id: ocr-models-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: |
+            assets/models/ppocrv5_mobile_det.onnx
+            assets/models/ppocrv5_arabic_mobile_rec.onnx
+          key: ocr-models-ppocrv5-a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d-799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110
+
+      - name: Prepare verified PP-OCRv5 models
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned PP-OCRv5 models (attempt $attempt/4)"
+            if python tool/fetch_ocr_models.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
         run: |
@@ -65,6 +93,11 @@ jobs:
         run: python tool/ci_gate.py windows-scaler-test ctest --test-dir build/windows/x64 -C Release --output-on-failure -R large_jpeg_scaler_windows
       - name: Run bundled DocQuad ONNX Runtime inference on Windows
         run: python tool/ci_gate.py docquad-windows flutter test integration_test/docquad_inference_test.dart -d windows --reporter expanded
+      # Real inference of both OCR graphs on the host platform: detection,
+      # tensor layout, dictionary mapping and CTC decoding are exercised against
+      # platform-rendered Latin/Arabic pages, not mocked.
+      - name: Run bundled PP-OCRv5 inference on Windows
+        run: python tool/ci_gate.py ocr-windows flutter test integration_test/ocr_inference_test.dart -d windows --reporter expanded
       - name: Create Windows portable ZIP
         shell: pwsh
         run: |

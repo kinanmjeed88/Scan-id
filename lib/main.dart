@@ -15,6 +15,7 @@ import 'application/native_documents.dart';
 import 'application/camera_capture.dart';
 import 'application/native_camera.dart';
 import 'application/ota_update.dart';
+import 'application/paddle_ocr_engine.dart';
 import 'application/update_setup.dart';
 import 'imaging/boundary_proposal_cascade.dart';
 import 'imaging/docquad_model.dart';
@@ -55,6 +56,12 @@ void main() {
     yield LicenseEntryWithLineBreaks([
       'ONNX Runtime',
     ], await rootBundle.loadString('assets/legal/onnxruntime-LICENSE.txt'));
+    yield LicenseEntryWithLineBreaks(
+      ['PaddleOCR / PP-OCRv5 detection and Arabic recognition models'],
+      await rootBundle.loadString(
+        'assets/legal/paddleocr-apache-2.0-LICENSE.txt',
+      ),
+    );
   });
   StartupDiagnostics.mark('licenses.lazy_callback.registered');
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,6 +133,11 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
     recovery: LocalProjectRecovery(repository, editor),
     backups: LocalProjectBackups(repository, repository.files),
     maintenance: maintenance,
+    // The on-device PP-OCRv5 engine: detection + Arabic recognition through ONNX
+    // Runtime. Sessions are created on first use, so construction stays cheap and
+    // a missing model reports an explicit unavailable state instead of crashing
+    // the startup path.
+    ocr: createPlatformOcrEngine(),
   );
   StartupDiagnostics.mark('services.construct.complete');
   StartupDiagnostics.mark('storage.open.complete');

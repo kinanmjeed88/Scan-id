@@ -63,7 +63,12 @@ if code:
     for line in lines:
         if not line.startswith(('::error', '::warning')):
             continue
-        _, _, message = line.partition('::')
+        # "::error title=...::message" -- the message is everything after the
+        # second separator, so the nested title does not leak into the text.
+        fields = line.split('::', 2)
+        if len(fields) < 3:
+            continue
+        message = fields[2]
         decoded = (
             message.replace('%0A', '\n')
             .replace('%0D', '\r')

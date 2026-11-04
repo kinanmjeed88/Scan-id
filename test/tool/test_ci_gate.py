@@ -38,7 +38,12 @@ class CiGateTest(unittest.TestCase):
         self.assertIn("title=demo exit=1", result.stdout)
         self.assertIn("line one", result.stdout)
         self.assertIn("line two", result.stdout)
-        self.assertNotIn("%250A", result.stdout)
+        # The dedicated summary chunk carries the decoded message and is escaped
+        # exactly once; only the raw log tail may still hold the nested escapes.
+        summary = result.stdout.split("part=summary::", 1)[1].split("\n", 1)[0]
+        self.assertIn("line one%0Aline two", summary)
+        self.assertNotIn("%250A", summary)
+        self.assertNotIn("title=inner", summary)
 
     def test_success_is_reported_as_a_notice(self):
         with tempfile.TemporaryDirectory() as directory:

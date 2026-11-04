@@ -32,7 +32,12 @@ class DocumentEdits {
   /// existing manual measurement. "Other" keeps the current size and its
   /// confirmation. "Unknown" takes the document off the sheet until a category
   /// is chosen.
-  static Project setKind(Project project, String itemId, DocumentKind kind) {
+  static Project setKind(
+    Project project,
+    String itemId,
+    DocumentKind kind, {
+    bool preserveManualSizeOnReselect = true,
+  }) {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
     final asset = project.assets.firstWhere((a) => a.id == item.assetId);
@@ -40,7 +45,9 @@ class DocumentEdits {
     final DocumentItem next;
     if (size != null) {
       final preserveManualSize =
-          item.documentKind == kind && item.hasUserConfirmedSize;
+          preserveManualSizeOnReselect &&
+          item.documentKind == kind &&
+          item.hasUserConfirmedSize;
       final width = preserveManualSize ? item.width : size.width;
       final height = preserveManualSize ? item.height : size.height;
       final confirmed = preserveManualSize || hasApprovedCrop(asset);
@@ -163,7 +170,12 @@ class DocumentEdits {
       project.catalog.natural(item.documentKind) != null,
       'لا يوجد مقاس محفوظ لهذا النوع؛ أدخل العرض والارتفاع يدوياً.',
     );
-    return setKind(project, itemId, item.documentKind);
+    return setKind(
+      project,
+      itemId,
+      item.documentKind,
+      preserveManualSizeOnReselect: false,
+    );
   }
 
   /// Turns a document on the sheet by 90° (clockwise).

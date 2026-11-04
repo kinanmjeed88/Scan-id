@@ -293,7 +293,8 @@ class _CropScreenState extends State<CropScreen> {
         resolvedH = _formatMillimeters(targetItem.height);
       }
     }
-    if (_requiresManualSize(resolvedKind) && !_initialSizeWasUserAuthored) {
+    if (resolvedKind == DocumentKind.civilStatusId &&
+        !_initialSizeWasUserAuthored) {
       resolvedW = '';
       resolvedH = '';
     }
@@ -831,7 +832,7 @@ class _CropScreenState extends State<CropScreen> {
         (current.customWidthText != _initialWidthText ||
             current.customHeightText != _initialHeightText);
     final clearUnconfirmedManualSize =
-        _requiresManualSize(kind) &&
+        kind == DocumentKind.civilStatusId &&
         !_initialSizeWasUserAuthored &&
         !editedManualSize;
     final widthText = clearUnconfirmedManualSize ? '' : current.customWidthText;

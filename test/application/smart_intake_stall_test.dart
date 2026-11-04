@@ -185,6 +185,52 @@ void main() {
     expect(report.warnings, isNotEmpty);
   });
 
+  test('importing again after a timed-out image stays independent', () async {
+    // The field pattern: one image times out, the user imports again, twice.
+    // Each run must reach its own total and add exactly one item, and the later
+    // runs must not inherit the earlier stall.
+    final (_, project, assetsInProject) = await seed(3);
+    final editor = _SelectiveEditor(
+      LocalImageEditor(projects.files),
+      stalledAssetId: assetsInProject.first.id,
+    );
+    final intake = SmartIntake(
+      projects: projects,
+      assets: assets,
+      editor: editor,
+      segment: (_) async =>
+          const SegmentationResult(multi: false, candidates: []),
+      analysisBudget: const Duration(milliseconds: 80),
+    );
+
+    var current = project;
+    final completedPerRun = <int>[];
+    final itemCounts = <int>[];
+    for (final asset in assetsInProject) {
+      BatchProgress? last;
+      final report = await intake.run(current, [
+        asset.id,
+      ], onProgress: (progress) => last = progress);
+      expect(last, isNotNull);
+      expect(last!.total, 1);
+      completedPerRun.add(last!.completed);
+      current = report.project;
+      itemCounts.add(current.items.length);
+    }
+
+    expect(
+      completedPerRun,
+      [1, 1, 1],
+      reason: 'every run finishes, including the stalled one',
+    );
+    expect(
+      itemCounts,
+      [1, 2, 3],
+      reason: 'each run adds exactly one item, so nothing accumulates twice',
+    );
+    expect(editor.stalls, 1, reason: 'only the first image ever stalled');
+  });
+
   test('cancelling a stalled import returns instead of hanging', () async {
     final (_, project, assetsInProject) = await seed(2);
     final token = CancellationToken();

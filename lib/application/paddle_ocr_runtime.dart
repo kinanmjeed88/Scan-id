@@ -16,6 +16,16 @@ import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
 import '../imaging/ocr_tensor.dart';
 import 'ocr_model_assets.dart';
+import 'stage_budget.dart';
+
+/// How long shutdown waits for a session that may still be in flight.
+///
+/// A native call that never answered must not hold `close()` open: whatever
+/// arrives later is closed by then, and the caller keeps control.
+const Duration defaultSessionCloseBudget = Duration(seconds: 5);
+
+/// The two graphs, so a stalled stage releases only its own session.
+enum PpocrGraph { detection, recognition }
 
 /// Detection probability map returned by the detector graph.
 class OcrDetOutput {
@@ -53,14 +63,16 @@ abstract interface class PpocrRuntime {
 
   Future<void> close();
 
-  /// Drops references to sessions whose creation or inference never answered.
+  /// Drops the [graph] whose creation or inference never answered.
   ///
   /// A native call that fails inside the plugin's platform thread never replies,
   /// so the memoised future stays pending forever and every later attempt would
   /// await the same dead future. Abandoning it lets a retry start a fresh
   /// session; a session that arrives after the deadline is closed instead of
-  /// leaked. This never awaits the stalled call itself.
-  void abandonStalledSessions();
+  /// leaked. This never awaits the stalled call itself, and it leaves the other
+  /// graph alone: a healthy detection session must not be torn down because one
+  /// recognition row stalled.
+  void abandonStalledSessions(PpocrGraph graph);
 }
 
 /// ONNX Runtime implementation, created lazily on first use.
@@ -71,17 +83,47 @@ class OrtPpocrRuntime implements PpocrRuntime {
   Future<OrtSession>? _detection;
   Future<OrtSession>? _recognition;
 
-  Future<OrtSession> _detectionSession() =>
-      _detection ??= _runtime.createSessionFromAsset(
-        ocrDetectionAssetPath,
-        options: OrtSessionOptions(intraOpNumThreads: 2),
-      );
+  Future<OrtSession> _detectionSession() => _createOnce(
+    () => _detection,
+    (created) => _detection = created,
+    () => _runtime.createSessionFromAsset(
+      ocrDetectionAssetPath,
+      options: OrtSessionOptions(intraOpNumThreads: 2),
+    ),
+  );
 
-  Future<OrtSession> _recognitionSession() =>
-      _recognition ??= _runtime.createSessionFromAsset(
-        ocrRecognizerAssetPath,
-        options: OrtSessionOptions(intraOpNumThreads: 2),
-      );
+  Future<OrtSession> _recognitionSession() => _createOnce(
+    () => _recognition,
+    (created) => _recognition = created,
+    () => _runtime.createSessionFromAsset(
+      ocrRecognizerAssetPath,
+      options: OrtSessionOptions(intraOpNumThreads: 2),
+    ),
+  );
+
+  /// Memoises one session creation, and forgets it again if it failed.
+  ///
+  /// A failed creation must not be memoised: reusing a permanently failed future
+  /// would make one transient failure (a memory spike on a small phone) last for
+  /// the rest of the process. The failure is still reported to this caller, and
+  /// only the attempt that is still current is cleared.
+  Future<OrtSession> _createOnce(
+    Future<OrtSession>? Function() read,
+    void Function(Future<OrtSession>? created) write,
+    Future<OrtSession> Function() create,
+  ) {
+    final current = read();
+    if (current != null) return current;
+    final created = create();
+    write(created);
+    created.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        if (identical(read(), created)) write(null);
+      },
+    );
+    return created;
+  }
 
   @override
   Future<OcrDetOutput> runDetection(OcrDetInput input) async {
@@ -123,19 +165,43 @@ class OrtPpocrRuntime implements PpocrRuntime {
     final recognition = _recognition;
     _detection = null;
     _recognition = null;
-    if (detection != null) await (await detection).close();
-    if (recognition != null) await (await recognition).close();
+    await _release(detection);
+    await _release(recognition);
   }
 
   @override
-  void abandonStalledSessions() {
-    final detection = _detection;
-    final recognition = _recognition;
-    _detection = null;
-    _recognition = null;
-    // Release a session that only arrives after its caller gave up on it.
-    _closeWhenSettled(detection);
-    _closeWhenSettled(recognition);
+  void abandonStalledSessions(PpocrGraph graph) {
+    switch (graph) {
+      case PpocrGraph.detection:
+        final stalled = _detection;
+        _detection = null;
+        _closeWhenSettled(stalled);
+      case PpocrGraph.recognition:
+        final stalled = _recognition;
+        _recognition = null;
+        _closeWhenSettled(stalled);
+    }
+  }
+
+  /// Closes a session that already arrived, and bounds how long shutdown waits.
+  ///
+  /// A session whose creation never answered must not hold `close()` open — the
+  /// same hang this release removes from the import path, one layer down. The
+  /// late session is closed whenever it settles; a failed creation has nothing
+  /// to release, and its error is already reported to the caller that awaited it.
+  Future<void> _release(Future<OrtSession>? session) async {
+    if (session == null) return;
+    final outcome = await runStageWithin<OrtSession>(
+      () => session,
+      budget: defaultSessionCloseBudget,
+      name: 'ocr-close',
+    );
+    final arrived = outcome.value;
+    if (arrived != null) {
+      await arrived.close();
+    } else if (outcome.didTimeOut) {
+      _closeWhenSettled(session);
+    }
   }
 
   static void _closeWhenSettled(Future<OrtSession>? session) {

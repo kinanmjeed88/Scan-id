@@ -103,6 +103,24 @@ void main() {
     expect(observed, isA<StateError>());
   });
 
+  test('a late release that throws is contained, not unhandled', () async {
+    // The release runs after the caller moved on, so an exception there has no
+    // caller to catch it. flutter_test fails a test on an unhandled async error,
+    // so reaching the end of this test proves containment.
+    final late = Completer<int>();
+
+    final outcome = await runStageWithin(
+      () => late.future,
+      budget: const Duration(milliseconds: 20),
+      name: 'unit-late-throw',
+      onLateValue: (_) => throw StateError('release failed'),
+    );
+    expect(outcome.didTimeOut, isTrue);
+
+    late.complete(7);
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+  });
+
   test('a typed timeout is thrown for the caller', () async {
     await expectLater(
       requireStageWithin(

@@ -188,7 +188,8 @@ class PaddleOcrEngine implements OcrEngine {
         cancellation: token,
       );
       if (detectionOutcome.didTimeOut) {
-        _runtime.abandonStalledSessions();
+        // Only the detector stalled; the recogniser session may be healthy.
+        _runtime.abandonStalledSessions(PpocrGraph.detection);
         return OcrTextResult.unavailable(
           unavailableReason: 'time-budget-exceeded',
           engineVersion: version,
@@ -250,7 +251,8 @@ class PaddleOcrEngine implements OcrEngine {
           // Keep the lines already decoded: a partial transcript is honest
           // evidence, and the caller still learns the budget was hit.
           budgetExhausted = true;
-          _runtime.abandonStalledSessions();
+          // One stalled row must not tear down the healthy detector session.
+          _runtime.abandonStalledSessions(PpocrGraph.recognition);
           break;
         }
         final recognitionError = recognitionOutcome.error;

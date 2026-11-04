@@ -111,7 +111,18 @@ Future<StageOutcome<T>> runStageWithin<T>(
           'stage completed after its budget name=$name',
           name: 'scan_id.stage',
         );
-        onLateValue?.call(value);
+        // A release callback must never become an unhandled asynchronous error:
+        // it runs after the caller moved on, so nobody is left to catch it.
+        try {
+          onLateValue?.call(value);
+        } catch (error, stackTrace) {
+          developer.log(
+            'late value release failed name=$name error=${error.runtimeType}',
+            name: 'scan_id.stage',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
       },
       onError: (Object error, StackTrace stackTrace) {
         if (!expired) return;
@@ -119,7 +130,15 @@ Future<StageOutcome<T>> runStageWithin<T>(
           'stage failed after its budget name=$name error=${error.runtimeType}',
           name: 'scan_id.stage',
         );
-        onLateError?.call(error, stackTrace);
+        try {
+          onLateError?.call(error, stackTrace);
+        } catch (observerError) {
+          developer.log(
+            'late error observer failed name=$name '
+            'error=${observerError.runtimeType}',
+            name: 'scan_id.stage',
+          );
+        }
       },
     ),
   );
@@ -127,11 +146,15 @@ Future<StageOutcome<T>> runStageWithin<T>(
   try {
     final value = await started.timeout(
       budget,
-      onTimeout: () => throw const _StageExpired(),
+      onTimeout: () {
+        // Mark first: a value delivered in this same turn is then released by
+        // the observer instead of being dropped on the floor.
+        expired = true;
+        throw const _StageExpired();
+      },
     );
     return StageOutcome<T>.completed(value);
   } on _StageExpired {
-    expired = true;
     developer.log(
       'stage expired name=$name budgetMs=${budget.inMilliseconds}',
       name: 'scan_id.stage',

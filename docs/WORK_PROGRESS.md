@@ -19,6 +19,14 @@
 - **الوثائق:** `docs/ANDROID_IMPORT_FAILURE_AUDIT.md` (§5–§9)،而这个 الملف.
 - **الحالة المطلوبة بعد الدفع:** تشغيل `format` + `analyze` + كل الاختبارات + بناء Android/Windows على SHA الجديد، ثم تسجيل النتيجة هنا.
 
+## 2026-11-04 — وحدة العمل 3: الدفع وتشغيل البوابات
+
+- **الفرع:** `arena/ded7f232-scan-id`.
+- **SHA المدقوع:** `a011b88` (فوق `7330def`).
+- **فحوص محلية قبل الدفع:** `tool/check_source.py` (1032 اختبارًا مصرّحًا)، `tool/check_detector_retirement.py` PASS، `tool/check_workflow_permissions.py` PASS، اختبارات أدوات CI (`test.tool.*`) OK.
+- **حالة CI:** في قائمة الانتظار (queued) على `a011b88` — لم تبدأ بعد؛ لا نتيجة.
+- **الخطوة التالية:** متابعة Actions حتى النجاح، ثم تسجيل النتيجة النهائية هنا.
+
 ## الخطوة التالية الدقيقة
 
 1. `python3 tool/check_source.py` و`tool/check_detector_retirement.py` و`tool/check_workflow_permissions.py` (فحوص المستودع المحلية).

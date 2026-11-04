@@ -38,7 +38,10 @@ Future<Uint8List> _renderPage(
                 ),
               )
               ..pushStyle(
-                ui.TextStyle(color: const Color(0xFF000000), fontSize: fontSize),
+                ui.TextStyle(
+                  color: const Color(0xFF000000),
+                  fontSize: fontSize,
+                ),
               )
               ..addText(line))
             .build()
@@ -77,10 +80,10 @@ void main() {
   ) async {
     final engine = PaddleOcrEngine();
     try {
-      final bytes = await _renderPage(
-        ['SCAN ID 1234567890', 'DATE 2026 11 04'],
-        direction: TextDirection.ltr,
-      );
+      final bytes = await _renderPage([
+        'SCAN ID 1234567890',
+        'DATE 2026 11 04',
+      ], direction: TextDirection.ltr);
 
       final result = await engine.recognize(bytes);
 
@@ -108,10 +111,10 @@ void main() {
   ) async {
     final engine = PaddleOcrEngine();
     try {
-      final bytes = await _renderPage(
-        ['وزارة الداخلية', 'البطاقة الوطنية الموحدة'],
-        direction: TextDirection.rtl,
-      );
+      final bytes = await _renderPage([
+        'وزارة الداخلية',
+        'البطاقة الوطنية الموحدة',
+      ], direction: TextDirection.rtl);
 
       final result = await engine.recognize(bytes);
 
@@ -156,10 +159,9 @@ void main() {
   testWidgets('two runs over the same page agree', (tester) async {
     final engine = PaddleOcrEngine();
     try {
-      final bytes = await _renderPage(
-        ['SCAN ID 1234567890'],
-        direction: TextDirection.ltr,
-      );
+      final bytes = await _renderPage([
+        'SCAN ID 1234567890',
+      ], direction: TextDirection.ltr);
 
       final first = await engine.recognize(bytes);
       final second = await engine.recognize(bytes);

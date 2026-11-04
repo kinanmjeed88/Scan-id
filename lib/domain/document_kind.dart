@@ -267,8 +267,7 @@ const Map<DocumentKind, DocumentSizeRecord> documentSizeRecords = {
     kind: DocumentKind.passport,
     provenance: SizeProvenance.documented,
     standard: 'ICAO Doc 9303 TD3',
-    reference:
-        'ICAO Doc 9303 Part 3, TD3 size: 125 mm × 88 mm (data page).',
+    reference: 'ICAO Doc 9303 Part 3, TD3 size: 125 mm × 88 mm (data page).',
     verifiedOn: '2026-11-04',
     note: 'صفحة بيانات جواز السفر بصيغة TD3.',
   ),

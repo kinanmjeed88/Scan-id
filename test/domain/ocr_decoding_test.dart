@@ -53,10 +53,7 @@ void main() {
     });
 
     test('rejects an empty or implausibly small dictionary', () {
-      expect(
-        () => parseOcrDictionary(''),
-        throwsA(isA<ValidationException>()),
-      );
+      expect(() => parseOcrDictionary(''), throwsA(isA<ValidationException>()));
       expect(
         () => parseOcrDictionary('a\nb\nc'),
         throwsA(isA<ValidationException>()),

@@ -77,10 +77,7 @@ void main() {
   });
 
   test('the two target card sizes that are estimates say so', () {
-    for (final kind in [
-      DocumentKind.residenceCard,
-      DocumentKind.rationCard,
-    ]) {
+    for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
       expect(
         documentSizeRecordFor(kind).provenance,
         SizeProvenance.estimated,

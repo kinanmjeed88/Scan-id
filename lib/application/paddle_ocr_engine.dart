@@ -135,7 +135,9 @@ class PaddleOcrEngine implements OcrEngine {
     token?.throwIfCancelled();
     final stopwatch = Stopwatch()..start();
     try {
-      final detection = await Isolate.run(() => prepareOcrDetection(imageBytes));
+      final detection = await Isolate.run(
+        () => prepareOcrDetection(imageBytes),
+      );
       token?.throwIfCancelled();
       final map = await _runtime.runDetection(detection);
       token?.throwIfCancelled();
@@ -144,16 +146,11 @@ class PaddleOcrEngine implements OcrEngine {
       );
       token?.throwIfCancelled();
       if (located.isEmpty) {
-        return OcrTextResult.available(
-          lines: const [],
-          engineVersion: version,
-        );
+        return OcrTextResult.available(lines: const [], engineVersion: version);
       }
       final alphabet = await _loadAlphabet();
       token?.throwIfCancelled();
-      final quads = [
-        for (final box in located.take(maxLines)) box.corners,
-      ];
+      final quads = [for (final box in located.take(maxLines)) box.corners];
       final inputs = await Isolate.run(
         () => prepareOcrLineInputs(imageBytes, quads),
       );
@@ -221,8 +218,7 @@ class PaddleOcrEngine implements OcrEngine {
   /// Releases the native sessions.
   Future<void> close() => _runtime.close();
 
-  Future<List<String>> _loadAlphabet() =>
-      _alphabet ??= _readAlphabet();
+  Future<List<String>> _loadAlphabet() => _alphabet ??= _readAlphabet();
 
   Future<List<String>> _readAlphabet() async {
     final source = await _loadDictionary(ocrDictionaryAssetPath);

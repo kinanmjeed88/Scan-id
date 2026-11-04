@@ -283,12 +283,7 @@ List<Point2> _cornersOf(
     return Point2(clampedX * scaleX, clampedY * scaleY);
   }
 
-  return [
-    corner(-1, -1),
-    corner(1, -1),
-    corner(1, 1),
-    corner(-1, 1),
-  ];
+  return [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
 }
 
 /// Minimum-area rectangle of [points]: convex hull, then one pass of rotating

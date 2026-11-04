@@ -10,11 +10,16 @@ import 'package:scan_id/application/paddle_ocr_runtime.dart';
 import 'package:scan_id/domain/ocr_decoding.dart';
 import 'package:scan_id/imaging/ocr_tensor.dart';
 
+const String _dictionaryAsset = 'assets/ocr/ppocrv5_arabic_dict.txt';
+
 /// 120 Arabic code points, one per line: the shape of the shipped dictionary.
-String _dictionary() => [
-  for (var index = 0; index < 120; index++)
-    String.fromCharCode(0x0627 + index % 20),
-].join('\n');
+String _dictionary() {
+  final characters = <String>[];
+  for (var index = 0; index < 120; index++) {
+    characters.add(String.fromCharCode(0x0627 + index % 20));
+  }
+  return characters.join('\n');
+}
 
 /// Alphabet = blank + 120 dictionary entries + space.
 const int _classes = 122;
@@ -40,11 +45,7 @@ OcrDetOutput _detectionWithBands(OcrDetInput input, int count) {
       }
     }
   }
-  return OcrDetOutput(
-    values: values,
-    width: input.width,
-    height: input.height,
-  );
+  return OcrDetOutput(values: values, width: input.width, height: input.height);
 }
 
 /// A recognition row whose best class is [index] at [probability].
@@ -83,16 +84,16 @@ class _FakeRuntime implements PpocrRuntime {
   Future<void> close() async {}
 }
 
-PaddleOcrEngine _engine(PpocrRuntime runtime, {int maxLines = 32}) =>
-    PaddleOcrEngine(
-      runtime: runtime,
-      dictionaryLoader: (assetKey) async => _dictionary(),
-      maxLines: maxLines,
-    );
+PaddleOcrEngine _engine(PpocrRuntime runtime, {int maxLines = 32}) {
+  return PaddleOcrEngine(
+    runtime: runtime,
+    dictionaryLoader: (assetKey) async => _dictionary(),
+    maxLines: maxLines,
+  );
+}
 
 void main() {
-  test('a detected line reaches the result with text, bounds and confidence',
-      () async {
+  test('a detected line keeps text, bounds and confidence', () async {
     final runtime = _FakeRuntime(
       detection: (input) => _detectionWithBands(input, 1),
       recognition: (call) => _row(1),
@@ -113,7 +114,7 @@ void main() {
     expect(result.engineVersion, isNotEmpty);
   });
 
-  test('a blank map is an available run with no lines, not a failure', () async {
+  test('a blank map is an available run with no lines', () async {
     final runtime = _FakeRuntime(
       detection: (input) => _detectionWithBands(input, 0),
       recognition: (call) => _row(1),
@@ -139,11 +140,8 @@ void main() {
     expect(result.lines, isEmpty);
   });
 
-  test('a missing model is reported as unavailable, never as no text',
-      () async {
-    final runtime = _FakeRuntime(
-      recognition: (call) => _row(1),
-    );
+  test('a missing model is unavailable, never empty text', () async {
+    final runtime = _FakeRuntime(recognition: (call) => _row(1));
 
     final result = await _engine(runtime).recognize(_documentPng());
 
@@ -169,8 +167,9 @@ void main() {
       detection: (input) => _detectionWithBands(input, 5),
       recognition: (call) => _row(1),
     );
+    final engine = _engine(runtime, maxLines: 2);
 
-    final result = await _engine(runtime, maxLines: 2).recognize(_documentPng());
+    final result = await engine.recognize(_documentPng());
 
     expect(runtime.recognitionCalls, hasLength(2));
     expect(result.lines, hasLength(2));
@@ -198,9 +197,7 @@ void main() {
   });
 
   test('the shipped dictionary parses to the pinned alphabet size', () async {
-    final source = await File('assets/ocr/ppocrv5_arabic_dict.txt')
-        .readAsString();
-
+    final source = await File(_dictionaryAsset).readAsString();
     final dictionary = parseOcrDictionary(source);
 
     expect(dictionary, hasLength(747));

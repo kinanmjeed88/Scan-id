@@ -62,14 +62,14 @@ class OrtPpocrRuntime implements PpocrRuntime {
   Future<OrtSession>? _detection;
   Future<OrtSession>? _recognition;
 
-  Future<OrtSession> _detectionSession() => _detection ??=
-      _runtime.createSessionFromAsset(
+  Future<OrtSession> _detectionSession() =>
+      _detection ??= _runtime.createSessionFromAsset(
         ocrDetectionAssetPath,
         options: OrtSessionOptions(intraOpNumThreads: 2),
       );
 
-  Future<OrtSession> _recognitionSession() => _recognition ??=
-      _runtime.createSessionFromAsset(
+  Future<OrtSession> _recognitionSession() =>
+      _recognition ??= _runtime.createSessionFromAsset(
         ocrRecognizerAssetPath,
         options: OrtSessionOptions(intraOpNumThreads: 2),
       );
@@ -77,12 +77,12 @@ class OrtPpocrRuntime implements PpocrRuntime {
   @override
   Future<OcrDetOutput> runDetection(OcrDetInput input) async {
     final session = await _detectionSession();
-    final values = await _run(
-      session,
-      input.values,
-      [1, 3, input.height, input.width],
-      expectRank: 4,
-    );
+    final values = await _run(session, input.values, [
+      1,
+      3,
+      input.height,
+      input.width,
+    ], expectRank: 4);
     final shape = values.shape;
     return OcrDetOutput(
       values: values.values,
@@ -94,12 +94,12 @@ class OrtPpocrRuntime implements PpocrRuntime {
   @override
   Future<OcrRecOutput> runRecognition(OcrLineInput input) async {
     final session = await _recognitionSession();
-    final values = await _run(
-      session,
-      input.values,
-      [1, 3, input.height, input.width],
-      expectRank: 3,
-    );
+    final values = await _run(session, input.values, [
+      1,
+      3,
+      input.height,
+      input.width,
+    ], expectRank: 3);
     final shape = values.shape;
     return OcrRecOutput(
       values: values.values,

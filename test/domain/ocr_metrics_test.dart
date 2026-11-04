@@ -70,7 +70,11 @@ void main() {
       final value = report();
 
       expect(value.sampleCount, 5);
-      expect(value.unknownCount, 2, reason: 'one predicted unknown, one actual');
+      expect(
+        value.unknownCount,
+        2,
+        reason: 'one predicted unknown, one actual',
+      );
       expect(value.reviewRate, .4);
       expect(value.accuracy, .6);
     });

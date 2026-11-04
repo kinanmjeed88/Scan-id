@@ -110,8 +110,7 @@ OcrDetInput buildOcrDetInput(img.Image source) {
     for (var x = 0; x < width; x++) {
       final pixel = resized.getPixel(x, y);
       final index = row + x;
-      values[index] =
-          (pixel.b.toDouble() / 255 - _detMeanBlue) / _detStdBlue;
+      values[index] = (pixel.b.toDouble() / 255 - _detMeanBlue) / _detStdBlue;
       values[plane + index] =
           (pixel.g.toDouble() / 255 - _detMeanGreen) / _detStdGreen;
       values[2 * plane + index] =
@@ -169,11 +168,11 @@ OcrLineInput buildOcrLineInput(img.Image source, List<Point2> corners) {
 
 /// Recognition width for a quad: its own aspect ratio, aligned and bounded.
 int _recognitionWidth(List<Point2> corners) {
-  final horizontal = (_distance(corners[0], corners[1]) +
-          _distance(corners[3], corners[2])) /
+  final horizontal =
+      (_distance(corners[0], corners[1]) + _distance(corners[3], corners[2])) /
       2;
-  final vertical = (_distance(corners[0], corners[3]) +
-          _distance(corners[1], corners[2])) /
+  final vertical =
+      (_distance(corners[0], corners[3]) + _distance(corners[1], corners[2])) /
       2;
   if (!horizontal.isFinite || !vertical.isFinite || horizontal <= 0) {
     return ocrRecStride * 4;
@@ -238,11 +237,7 @@ _Triple _sample(img.Image source, double x, double y) {
 
 /// One sampled pixel, kept in floating point until it is normalised.
 class _Triple {
-  const _Triple({
-    required this.red,
-    required this.green,
-    required this.blue,
-  });
+  const _Triple({required this.red, required this.green, required this.blue});
 
   final double red;
   final double green;

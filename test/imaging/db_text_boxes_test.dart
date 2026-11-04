@@ -99,8 +99,24 @@ void main() {
     const height = 64;
     final map = _filled(width, height, 0);
     _blob(map, width: width, left: 2, top: 2, right: 14, bottom: 8, value: .7);
-    _blob(map, width: width, left: 2, top: 20, right: 14, bottom: 26, value: .8);
-    _blob(map, width: width, left: 2, top: 40, right: 14, bottom: 46, value: .9);
+    _blob(
+      map,
+      width: width,
+      left: 2,
+      top: 20,
+      right: 14,
+      bottom: 26,
+      value: .8,
+    );
+    _blob(
+      map,
+      width: width,
+      left: 2,
+      top: 40,
+      right: 14,
+      bottom: 46,
+      value: .9,
+    );
 
     final boxes = decodeTextBoxes(
       map,

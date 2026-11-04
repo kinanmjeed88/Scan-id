@@ -29,8 +29,6 @@
 library;
 
 import 'dart:isolate';
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 import '../domain/geometry.dart';

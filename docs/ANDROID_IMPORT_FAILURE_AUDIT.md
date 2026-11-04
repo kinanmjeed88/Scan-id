@@ -155,3 +155,11 @@ PR [#42](https://github.com/kinanmjeed88/Scan-id/pull/42) — مفتوح، بل�
 | `paddle_ocr_engine_test: a stalled recognition graph keeps the lines already decoded` (موسَّع) | تعليق صف تعرّف يُسقط جلسة التعرّف فقط، ويُبقي الأسطر المفكوكة |
 | `stage_budget_test: a late release that throws is contained, not unhandled` | استثناء داخل تحرير القيمة المتأخرة لا يتحول إلى خطأ غير مُعالج |
 | `smart_intake_stall_test: importing again after a timed-out image stays independent` | ثلاث عمليات استيراد متتالية على نفس الخدمة بعد انتهاء مهلة الأولى: كل واحدة تُكمل عدّادها (`1/1`×3)، والعناصر `1,2,3` بلا تراكم مضاعف، والتعليق لا يتكرر |
+
+## 11. اعتماد المراجعة النهائية (SHA `b36f0ef`)
+
+- **CI:** تشغيل 41910252026 — نجاح المهام الأربع؛ و`gh pr checks 42` = pass.
+- **خطوات `android` التي تُعد دليلًا مباشرًا على سلامة الحزمة:** فحص المكتبات الأصلية حسب ABI،
+  التحقق من محاذاة 16KB، ورفض بناء Release عند غياب التوقيع، كلها success على هذا SHA.
+- **حدود الدليل:** لم أفتح الـAPK بنفسي (لا Android SDK/apkanalyzer في البيئة، وتنزيل الحزم محجوب)،
+  ولم يُبنَ Release APK أصلًا. أحجام الحزم مأخوذة من بيانات GitHub فقط.

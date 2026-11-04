@@ -47,6 +47,20 @@
   والتنسورات؛ ونقل استدعاء سلسلة الحدود المعلّمة إلى `_boundedCascade` في `local_image_editor.dart`
   لأن نطاقها نفسه فيه `runCancellableIsolate` (الكاشف الكلاسيكي).
 
+## 2026-11-04 — وحدة العمل 5: تشغيل CI أخضر على آخر SHA
+
+- **SHA:** `9f72a69` (وسابقاته في الفرع: `739cca2`, `5eeef7e`, `99aa2ad`, `1fd0bf8`, `2b1c9e9`, `a011b88`, كلها فوق `7330def`).
+- **التشغيل:** 41890797505 — **النتيجة: success** لكل المهام:
+  - `android`: success (بوابة `dart format`، `flutter analyze`، **1054 اختبارًا** بلا إخفاق، تدقيق التصدير).
+  - `windows / windows`: success، **بما فيه `Run bundled PP-OCRv5 inference on Windows`** — أي أن التعرّف الحقيقي
+    على ONNX ما زال يقرأ نصًا فعليًا بعد إحاطة المراحل بميزانية.
+  - `Android debug/diagnostic differential`: success.
+  - `Android 16 startup evidence`: success.
+- **الاختبارات الجديدة التي جرت فعليًا في هذه البوابة:** `stage_budget_test` (8)، `recognition_pipeline_timeout_test` (2)،
+  `smart_intake_stall_test` (3)، واختباران جديدان في `paddle_ocr_engine_test` — أي 15 اختبارًا جديدًا كلها ضمن الـ1054.
+- **ما تبقّى:** اختبار الاستيراد على **Android Release وجهاز حقيقي** — غير ممكن في هذه البيئة (لا جهاز ولا Flutter/Java)،
+  ولم يُنفَّذ، ولا يوجد ادعاء بنجاحه.
+
 ## الخطوة التالية الدقيقة
 
 1. `python3 tool/check_source.py` و`tool/check_detector_retirement.py` و`tool/check_workflow_permissions.py` (فحوص المستودع المحلية).

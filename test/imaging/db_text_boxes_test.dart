@@ -65,7 +65,8 @@ void main() {
       final previous = boxes[index - 1];
       final current = boxes[index];
       final sameRow = previous.top == current.top;
-      final ordered = previous.top < current.top ||
+      final ordered =
+          previous.top < current.top ||
           (sameRow && previous.left <= current.left);
       expect(ordered, isTrue, reason: 'reading order was $order');
     }

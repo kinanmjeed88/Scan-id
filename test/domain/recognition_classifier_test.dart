@@ -27,7 +27,11 @@ void main() {
     final outcome = classifyDocument(
       ClassificationInput(
         ocrKeywords: [
-          OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+          OcrKeywordEvidence(
+            kind: DocumentKind.unifiedNationalId,
+            score: .8,
+            matchedAnchorGroups: 2,
+          ),
         ],
         ocrConfidence: .8,
       ),
@@ -37,6 +41,53 @@ void main() {
     expect(outcome.confidences.ocr?.value, .8);
     expect(outcome.confidences.classification?.value, .8);
     expect(outcome.routing.band, isNot(RecognitionBand.autoCandidate));
+  });
+
+  test('OCR alone never authorizes automatic size or A4 placement', () {
+    for (final kind in const [
+      DocumentKind.unifiedNationalId,
+      DocumentKind.civilStatusId,
+      DocumentKind.residenceCard,
+      DocumentKind.rationCard,
+    ]) {
+      final outcome = classifyDocument(
+        ClassificationInput(
+          ocrKeywords: [
+            OcrKeywordEvidence(
+              kind: kind,
+              score: .99,
+              matchedAnchorGroups: 2,
+            ),
+          ],
+          ocrConfidence: .99,
+          geometryConfidence: .99,
+          detectionConfidence: .99,
+        ),
+      );
+      expect(outcome.kind, kind);
+      expect(outcome.status, RecognitionStatus.recognized);
+      expect(outcome.routing.band, RecognitionBand.review);
+      expect(outcome.routing.reasons, contains('R1:insufficient-sources'));
+    }
+  });
+
+  test('weak text evidence below the classification floor stays unknown', () {
+    final outcome = classifyDocument(
+      ClassificationInput(
+        ocrKeywords: [
+          OcrKeywordEvidence(
+            kind: DocumentKind.civilStatusId,
+            score: .4,
+            matchedAnchorGroups: 2,
+          ),
+        ],
+      ),
+    );
+    expect(outcome.kind, DocumentKind.unknown);
+    expect(outcome.status, RecognitionStatus.unknown);
+    expect(outcome.evidence, hasLength(1));
+    expect(outcome.candidates, [DocumentKind.civilStatusId]);
+    expect(outcome.routing.band, RecognitionBand.unresolved);
   });
 
   test('no evidence at all stays unknown with empty evidence', () {
@@ -52,13 +103,17 @@ void main() {
     final outcome = classifyDocument(
       ClassificationInput(
         ocrKeywords: [
-          OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+          OcrKeywordEvidence(
+            kind: DocumentKind.unifiedNationalId,
+            score: .8,
+            matchedAnchorGroups: 2,
+          ),
         ],
         ocrConfidence: .8,
       ),
     );
     for (final evidence in outcome.evidence) {
-      expect(evidence.reason, 'unifiedNationalId');
+      expect(evidence.reason, 'unifiedNationalId:anchor-groups=2');
       expect(evidence.kind, 'ocr-keyword');
     }
     expect(outcome.confidences.ocr?.value, .8);
@@ -68,8 +123,16 @@ void main() {
     final outcome = classifyDocument(
       ClassificationInput(
         ocrKeywords: [
-          OcrKeywordEvidence(kind: DocumentKind.passport, score: .82),
-          OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+          OcrKeywordEvidence(
+            kind: DocumentKind.passport,
+            score: .82,
+            matchedAnchorGroups: 2,
+          ),
+          OcrKeywordEvidence(
+            kind: DocumentKind.unifiedNationalId,
+            score: .8,
+            matchedAnchorGroups: 2,
+          ),
         ],
         ocrConfidence: .81,
       ),
@@ -83,8 +146,16 @@ void main() {
     final outcome = classifyDocument(
       ClassificationInput(
         ocrKeywords: [
-          OcrKeywordEvidence(kind: DocumentKind.rationCard, score: .4),
-          OcrKeywordEvidence(kind: DocumentKind.passport, score: .7),
+          OcrKeywordEvidence(
+            kind: DocumentKind.rationCard,
+            score: .4,
+            matchedAnchorGroups: 2,
+          ),
+          OcrKeywordEvidence(
+            kind: DocumentKind.passport,
+            score: .7,
+            matchedAnchorGroups: 2,
+          ),
         ],
       ),
     );
@@ -98,7 +169,11 @@ void main() {
       detectionConfidence: .8,
       geometryConfidence: .9,
       ocrKeywords: [
-        OcrKeywordEvidence(kind: DocumentKind.residenceCard, score: .78),
+        OcrKeywordEvidence(
+          kind: DocumentKind.residenceCard,
+          score: .78,
+          matchedAnchorGroups: 2,
+        ),
       ],
       ocrConfidence: .81,
     );
@@ -114,7 +189,11 @@ void main() {
 
   test('final confidence fuses only available independent components', () {
     final evidence = [
-      OcrKeywordEvidence(kind: DocumentKind.unifiedNationalId, score: .8),
+      OcrKeywordEvidence(
+        kind: DocumentKind.unifiedNationalId,
+        score: .8,
+        matchedAnchorGroups: 2,
+      ),
     ];
     final withUpstream = classifyDocument(
       ClassificationInput(

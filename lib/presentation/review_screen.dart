@@ -22,6 +22,7 @@ const List<DocumentKind> reviewKindChoices = [
   DocumentKind.residenceCard,
   DocumentKind.passport,
   DocumentKind.rationCard,
+  DocumentKind.civilStatusId,
   DocumentKind.other,
 ];
 

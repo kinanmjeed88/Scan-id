@@ -7,13 +7,14 @@
 /// The full option evaluation — ML Kit, Tesseract 5, PaddleOCR PP-OCRv5
 /// Arabic, ONNX Runtime, Windows.Media.Ocr — with licences, model sizes and
 /// what must be measured before any engine is adopted, is recorded in
-/// `docs/OCR_EVALUATION.md` (summary in `docs/RECOGNITION.md` §6). The
+/// `docs/OCR_EVALUATION.md` (summary in `docs/RECOGNITION.md`). The
 /// leading research candidate, PaddleOCR PP-OCRv5 Arabic mobile
 /// (`arabic_PP-OCRv5_mobile_rec`), has not been proven as a shippable local
-/// model/runtime pair here. A small unlabelled local-only sample exists under
-/// `Mostmskat/`, but it has no reviewed OCR transcriptions or independent split
-/// and cannot support an Arabic accuracy claim. The sample is excluded from
-/// CI checkouts and is not used to train or validate OCR.
+/// model/runtime pair here. Historical local-screen reports refer to an
+/// unlabelled sample; `Mostmskat/` is absent from the current checkout. No
+/// reviewed OCR transcriptions or independent split are available, so no Arabic
+/// accuracy claim is supported. Private image data is excluded from CI and is
+/// not used to train or validate OCR.
 ///
 /// Rather than compromise the Windows target or bundle an unverified native
 /// dependency, the production pipeline runs against this abstraction with
@@ -31,9 +32,14 @@ abstract interface class OcrEngine {
   /// Stable engine identifier recorded in provenance/model versions.
   String get version;
 
-  /// Recognizes text on a processed document image. Must never throw for
-  /// ordinary recognition failure — it reports an unavailable/empty result;
-  /// only [OperationCancelled] propagates.
+  /// Whether a local OCR backend is configured. False lets the pipeline avoid
+  /// decoding/cropping another image only to report unavailability.
+  bool get isEnabled;
+
+  /// Recognizes text from the bytes provided by the pipeline (an isolated crop
+  /// when safe, or the full preview for a single-image fallback). Ordinary
+  /// recognition failure is reported as an unavailable/empty result; only
+  /// [OperationCancelled] propagates. Callers must not persist recognized text.
   Future<OcrTextResult> recognize(
     Uint8List imageBytes, {
     CancellationToken? token,
@@ -47,6 +53,9 @@ class UnavailableOcrEngine implements OcrEngine {
 
   @override
   String get version => 'ocr-unavailable-1';
+
+  @override
+  bool get isEnabled => false;
 
   @override
   Future<OcrTextResult> recognize(

@@ -27,8 +27,11 @@ class DocumentEdits {
   /// category confirms its catalog size only when the picture has an approved
   /// crop. Otherwise the item keeps the catalog size as a provisional size,
   /// stays unconfirmed, and is taken off the sheet until the crop is approved
-  /// or a size is typed. "Other" keeps the current size and its confirmation.
-  /// "Unknown" takes the document off the sheet until a category is chosen.
+  /// or a size is typed. Re-selecting the current category preserves a manually
+  /// confirmed footprint; categories without a catalog size also preserve an
+  /// existing manual measurement. "Other" keeps the current size and its
+  /// confirmation. "Unknown" takes the document off the sheet until a category
+  /// is chosen.
   static Project setKind(Project project, String itemId, DocumentKind kind) {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
@@ -36,29 +39,64 @@ class DocumentEdits {
     final size = catalogSize(project, asset, kind);
     final DocumentItem next;
     if (size != null) {
-      final confirmed = hasApprovedCrop(asset);
+      final preserveManualSize =
+          item.documentKind == kind && item.hasUserConfirmedSize;
+      final width = preserveManualSize ? item.width : size.width;
+      final height = preserveManualSize ? item.height : size.height;
+      final confirmed = preserveManualSize || hasApprovedCrop(asset);
       next = item.copyWith(
         documentKind: kind,
-        width: size.width,
-        height: size.height,
+        userSelectedKind: true,
+        width: width,
+        height: height,
         recognitionConfidence: 0,
         sizeConfirmed: confirmed,
-        keepAspectRatio: true,
+        keepAspectRatio: preserveManualSize ? item.keepAspectRatio : true,
         unplaced: !confirmed,
+        presetSnapshot: PresetSnapshot(
+          variantId: preserveManualSize ? null : builtinVariantId(kind),
+          widthMm: width,
+          heightMm: height,
+          status: PresetStatus.user,
+        ),
       );
     } else if (kind == DocumentKind.other) {
       next = item.copyWith(
         documentKind: kind,
+        userSelectedKind: true,
         recognitionConfidence: 0,
         sizeConfirmed: item.sizeConfirmed,
         unplaced: !item.sizeConfirmed,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: item.width,
+          heightMm: item.height,
+          status: PresetStatus.user,
+        ),
       );
-    } else {
+    } else if (kind == DocumentKind.unknown) {
       next = item.copyWith(
         documentKind: kind,
+        userSelectedKind: false,
         recognitionConfidence: 0,
         sizeConfirmed: false,
         unplaced: true,
+        clearPresetSnapshot: true,
+      );
+    } else {
+      final preserveManualSize = item.hasUserConfirmedSize;
+      next = item.copyWith(
+        documentKind: kind,
+        userSelectedKind: true,
+        recognitionConfidence: 0,
+        sizeConfirmed: preserveManualSize,
+        unplaced: !preserveManualSize,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: item.width,
+          heightMm: item.height,
+          status: PresetStatus.user,
+        ),
       );
     }
     return _replace(project, next);
@@ -101,13 +139,19 @@ class DocumentEdits {
               : item.copyWith(width: h * ratio, height: h))
         : item.copyWith(width: w, height: h);
     validDocumentSize(PhysicalSizeMm(next.width, next.height));
+    final kindWasUnknown = next.documentKind == DocumentKind.unknown;
     return _replace(
       project,
       next.copyWith(
-        documentKind: next.documentKind == DocumentKind.unknown
-            ? DocumentKind.other
-            : next.documentKind,
+        documentKind: kindWasUnknown ? DocumentKind.other : next.documentKind,
+        userSelectedKind: next.userSelectedKind || kindWasUnknown,
         sizeConfirmed: true,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: next.width,
+          heightMm: next.height,
+          status: PresetStatus.user,
+        ),
       ),
     );
   }
@@ -166,6 +210,11 @@ class DocumentEdits {
       project.copyWith(
         items: [
           for (final item in project.items) item.id == value.id ? value : item,
+        ],
+      );
+}
+
+id == value.id ? value : item,
         ],
       );
 }

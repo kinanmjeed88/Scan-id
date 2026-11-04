@@ -19,12 +19,13 @@ import '../domain/quad_assessment.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
 import '../imaging/document_segmenter.dart';
+import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
 import 'ocr_engine.dart';
 import 'recognition_worker.dart';
 
 /// Version of the analysis pipeline, recorded in provenance.
-const recognitionPipelineVersion = 'smart-2';
+const recognitionPipelineVersion = 'smart-3';
 
 /// Everything the pipeline needs about one imported image.
 class PipelineImageInput {
@@ -304,6 +305,7 @@ class RecognitionPipeline {
               forceReview: candidate.requiresReview,
               region: candidate.region,
               regionIndex: regionIndex,
+              isolatedRegion: true,
               issues: issues,
               token: token,
             ),
@@ -322,6 +324,7 @@ class RecognitionPipeline {
             forceReview: candidate.requiresReview,
             region: candidate.region,
             regionIndex: regionIndex,
+            isolatedRegion: true,
             issues: issues,
             token: token,
           ),
@@ -402,6 +405,7 @@ class RecognitionPipeline {
     bool forceReview = false,
     List<double>? region,
     int regionIndex = 0,
+    bool isolatedRegion = false,
   }) async {
     QuadAssessment? assessment;
     var usableCorners = corners;
@@ -429,24 +433,6 @@ class RecognitionPipeline {
       }
     }
 
-    // OCR is optional evidence: unavailability or failure never aborts.
-    var ocrResult = OcrTextResult.unavailable(
-      unavailableReason: 'skipped',
-      engineVersion: ocr.version,
-    );
-    try {
-      ocrResult = await ocr.recognize(input.previewBytes, token: token);
-    } on OperationCancelled {
-      rethrow;
-    } catch (_) {
-      issues.add(
-        const BatchItemFailure(
-          category: RecognitionErrorCategory.ocrFailure,
-          message: 'فشل OCR؛ استمر تحليل الحدود وبقي النوع غير محدد.',
-        ),
-      );
-    }
-
     final quadAspect = usableCorners == null ? null : assessment?.aspect;
     // Keep the crop's measured orientation for the separate orientation stage.
     // Aspect is not a document-kind vote or a catalog-size claim.
@@ -468,16 +454,6 @@ class RecognitionPipeline {
           ? 1.0
           : input.sourceWidth / input.sourceHeight;
     }
-
-    final classification = classifyDocument(
-      ClassificationInput(
-        detectionConfidence: detectionConfidence,
-        geometryConfidence: assessment?.geometryConfidence,
-        ocrKeywords: ocrKeywordEvidence(ocrResult),
-        ocrConfidence: ocrResult.confidence,
-        thresholds: thresholds,
-      ),
-    );
 
     // Boundary authorization is independent of document kind, OCR and catalog
     // dimensions. It verifies measured geometry/region and the detector's own
@@ -526,6 +502,61 @@ class RecognitionPipeline {
       }
     }
 
+    // OCR is optional evidence: it only sees this document's authorized quad or
+    // its measured segmentation region. A segment without either measurement
+    // is skipped rather than leaking text from sibling documents in the frame.
+    var ocrResult = OcrTextResult.unavailable(
+      unavailableReason: 'skipped',
+      engineVersion: ocr.version,
+    );
+    if (ocr.isEnabled) {
+      final authorizedCorners = decision.cropAuthorization?.corners;
+      final List<Point2>? ocrCorners;
+      if (authorizedCorners != null) {
+        ocrCorners = authorizedCorners;
+      } else if (assessment?.acceptable == true && corners != null) {
+        // A geometrically valid proposal may provide OCR evidence even when
+        // boundary policy still requires review. It never authorizes a crop or
+        // a physical-size confirmation by itself.
+        ocrCorners = corners;
+      } else {
+        ocrCorners = null;
+      }
+      if (isolatedRegion && ocrCorners == null && region == null) {
+        ocrResult = OcrTextResult.unavailable(
+          unavailableReason: 'no-safe-region-for-ocr',
+          engineVersion: ocr.version,
+        );
+      } else {
+        try {
+          final ocrBytes = prepareOcrRegion(
+            input.previewBytes,
+            corners: ocrCorners,
+            region: ocrCorners == null ? region : null,
+          );
+          ocrResult = await ocr.recognize(ocrBytes, token: token);
+        } on OperationCancelled {
+          rethrow;
+        } catch (_) {
+          issues.add(
+            const BatchItemFailure(
+              category: RecognitionErrorCategory.ocrFailure,
+              message: 'فشل OCR؛ استمر تحليل الحدود وبقي النوع غير محدد.',
+            ),
+          );
+        }
+      }
+    }
+
+    final classification = classifyDocument(
+      ClassificationInput(
+        detectionConfidence: detectionConfidence,
+        geometryConfidence: assessment?.geometryConfidence,
+        ocrKeywords: ocrKeywordEvidence(ocrResult),
+        ocrConfidence: ocrResult.confidence,
+        thresholds: thresholds,
+      ),
+    );
     final natural = catalog.natural(classification.kind);
     final orientation = estimateOrientation(
       pixelAspect: heldAspect,

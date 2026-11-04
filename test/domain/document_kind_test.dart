@@ -34,6 +34,7 @@ void main() {
         [52, 287],
       );
       expect(catalog.natural(DocumentKind.unknown), isNull);
+      expect(catalog.natural(DocumentKind.civilStatusId), isNull);
       expect(catalog.natural(DocumentKind.other), isNull);
     });
 
@@ -70,6 +71,12 @@ void main() {
         DocumentKind.unifiedNationalId.sizeNote(catalog),
         contains('رسمي'),
       );
+      expect(DocumentKind.civilStatusId.hasOfficialSize, isFalse);
+      expect(DocumentKind.civilStatusId.hasEditableSize, isFalse);
+      expect(
+        DocumentKind.civilStatusId.sizeNote(catalog),
+        allOf(contains('لا يوجد مقاس موثق'), isNot(contains('رسمي'))),
+      );
     });
 
     test('editable sizes round-trip and missing entries use defaults', () {
@@ -100,6 +107,7 @@ void main() {
         DocumentKind.passport,
         DocumentKind.rationCard,
       ]);
+      expect(sorted[4], DocumentKind.civilStatusId);
     });
   });
 

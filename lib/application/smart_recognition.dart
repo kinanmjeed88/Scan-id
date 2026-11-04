@@ -921,13 +921,13 @@ class SmartIntake {
       warped: output.trustworthy,
       landscape: derived.width >= derived.height,
     );
-    if (output.trustworthy &&
-        catalogSize == null &&
-        kind != DocumentKind.unknown) {
-      warnings.add(
-        '${sourceAsset.name} (مستند $position): '
-        '${catalogShapeUnconfirmedMessage()}',
-      );
+    final sizeReason = _sizeConfirmationWarning(
+      current,
+      detection,
+      warped: output.trustworthy,
+    );
+    if (sizeReason != null) {
+      warnings.add('${sourceAsset.name} (مستند $position): $sizeReason');
     }
     final itemSize =
         catalogSize ??
@@ -1023,10 +1023,21 @@ class SmartIntake {
     final confidence =
         detection.classification.confidences.finalConfidence?.value ??
         item.recognitionConfidence;
+    if (item.hasUserSelectedKind || item.hasUserConfirmedSize) {
+      return item.copyWith(recognitionConfidence: confidence);
+    }
     if (item.pageIndex != null) {
-      if (catalogSize != null &&
-          (item.width != catalogSize.width ||
-              item.height != catalogSize.height)) {
+      if (catalogSize == null) {
+        if (kind != DocumentKind.unknown && kind != item.documentKind) {
+          onPlacedSizeKept(
+            '${asset.name}: النوع المقترح بلا مقاس كتالوج موثق؛ '
+            'بقي النوع والمقاس والموضع الحالي للمراجعة اليدوية.',
+          );
+        }
+        return item.copyWith(recognitionConfidence: confidence);
+      }
+      if (item.width != catalogSize.width ||
+          item.height != catalogSize.height) {
         onPlacedSizeKept(
           '${asset.name}: تغيّر الحجم المتعرّف عليه؛ '
           'بقي المستند بموضعه وحجمه الحالي لتفادي إفساد ترتيب الورقة. '
@@ -1044,17 +1055,41 @@ class SmartIntake {
       );
     }
     if (catalogSize == null) {
-      if (!_shapeUnconfirmed(current, detection)) return item;
-      final provisional = provisionalSize(
-        width: asset.width,
-        height: asset.height,
-      );
+      if (kind == DocumentKind.unknown &&
+          !_shapeUnconfirmed(current, detection)) {
+        return item;
+      }
+      if (_shapeUnconfirmed(current, detection)) {
+        final provisional = provisionalSize(
+          width: asset.width,
+          height: asset.height,
+        );
+        return item.copyWith(
+          width: provisional.width,
+          height: provisional.height,
+          documentKind: kind,
+          sizeConfirmed: false,
+          unplaced: true,
+          recognitionConfidence: confidence,
+          presetSnapshot: PresetSnapshot(
+            variantId: null,
+            widthMm: provisional.width,
+            heightMm: provisional.height,
+            status: PresetStatus.unknown,
+          ),
+        );
+      }
       return item.copyWith(
-        width: provisional.width,
-        height: provisional.height,
         documentKind: kind,
         sizeConfirmed: false,
+        unplaced: true,
         recognitionConfidence: confidence,
+        presetSnapshot: PresetSnapshot(
+          variantId: null,
+          widthMm: item.width,
+          heightMm: item.height,
+          status: PresetStatus.unknown,
+        ),
       );
     }
     return item.copyWith(
@@ -1063,6 +1098,12 @@ class SmartIntake {
       documentKind: kind,
       sizeConfirmed: true,
       recognitionConfidence: confidence,
+      presetSnapshot: PresetSnapshot(
+        variantId: builtinVariantId(kind),
+        widthMm: catalogSize.width,
+        heightMm: catalogSize.height,
+        status: presetStatusFor(kind),
+      ),
     );
   }
 
@@ -1284,16 +1325,18 @@ class SmartIntake {
     // A catalog slot requires both an independent kind claim and a trustworthy
     // accepted warp whose measured shape validates that slot. A filename,
     // missing boundary or OCR kind alone cannot confirm physical dimensions.
-    final shapeUnconfirmed = _shapeUnconfirmed(current, detection);
-    if (shapeUnconfirmed) {
-      warnings.add('${asset.name}: ${catalogShapeUnconfirmedMessage()}');
-    }
     final catalogSize = _confirmedCatalogSize(
       current,
       detection,
       warped: automaticRecipe != null,
       landscape: asset.width >= asset.height,
     );
+    final sizeReason = _sizeConfirmationWarning(
+      current,
+      detection,
+      warped: automaticRecipe != null,
+    );
+    if (sizeReason != null) warnings.add('${asset.name}: $sizeReason');
     final size =
         catalogSize ??
         provisionalSize(width: asset.width, height: asset.height);
@@ -1423,12 +1466,14 @@ class SmartIntake {
           warped: output.trustworthy,
           landscape: derived.width >= derived.height,
         );
-        if (output.trustworthy &&
-            catalogSize == null &&
-            kind != DocumentKind.unknown) {
+        final sizeReason = _sizeConfirmationWarning(
+          current,
+          detection,
+          warped: output.trustworthy,
+        );
+        if (sizeReason != null) {
           warnings.add(
-            '${sourceAsset.name} (مستند ${position + 1}): '
-            '${catalogShapeUnconfirmedMessage()}',
+            '${sourceAsset.name} (مستند ${position + 1}): $sizeReason',
           );
         }
         final itemSize =
@@ -1781,9 +1826,20 @@ class SmartIntake {
     required bool warped,
     required bool landscape,
   }) {
-    if (!warped || !_catalogShapeMatches(current, detection)) return null;
+    final classification = detection.classification;
+    final sizeStatus = presetStatusFor(classification.kind);
+    if (classification.status != RecognitionStatus.recognized ||
+        classification.routing.band != RecognitionBand.autoCandidate ||
+        classification.candidates.length != 1 ||
+        classification.kind == DocumentKind.unknown ||
+        (sizeStatus != PresetStatus.standard &&
+            sizeStatus != PresetStatus.measured) ||
+        !warped ||
+        !_catalogShapeMatches(current, detection)) {
+      return null;
+    }
     return current.catalog.sizeFor(
-      detection.classification.kind,
+      classification.kind,
       landscape: landscape,
     );
   }
@@ -1804,6 +1860,34 @@ class SmartIntake {
       current.catalog.natural(detection.classification.kind) != null &&
       detection.boundaryDecision?.kind == BoundaryDecisionKind.accepted &&
       !_catalogShapeMatches(current, detection);
+
+  String? _sizeConfirmationWarning(
+    Project current,
+    DetectionAnalysis detection, {
+    required bool warped,
+  }) {
+    final kind = detection.classification.kind;
+    if (kind == DocumentKind.unknown) return null;
+    if (current.catalog.natural(kind) == null) {
+      return '${kind.label}: لا يوجد مقاس موثق في الكتالوج؛ '
+          'أدخل قياس النسخة يدوياً قبل وضعها على A4.';
+    }
+    if (presetStatusFor(kind) == PresetStatus.estimated) {
+      return '${kind.label}: مقاس الكتالوج تقديري وليس قياساً موثقاً؛ '
+          'راجعه وأكّده يدوياً قبل وضعه على A4.';
+    }
+    final classification = detection.classification;
+    if (classification.status != RecognitionStatus.recognized ||
+        classification.routing.band != RecognitionBand.autoCandidate ||
+        classification.candidates.length != 1) {
+      return '${kind.label}: دليل التصنيف غير كافٍ للتأكيد الآلي؛ '
+          'راجعه يدوياً قبل اعتماد المقاس.';
+    }
+    if (warped && !_catalogShapeMatches(current, detection)) {
+      return catalogShapeUnconfirmedMessage();
+    }
+    return null;
+  }
 
   /// Automatic perspective recipe, or null when the shared decision did not
   /// accept the claim. The output keeps the measured aspect. A catalog size

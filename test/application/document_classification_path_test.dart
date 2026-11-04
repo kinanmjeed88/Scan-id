@@ -1,14 +1,15 @@
 /// The document-kind classification path, kept SEPARATE from the question of
 /// whether a region is a usable document candidate.
 ///
-/// These tests separate the catalog's physical-size presets from document-kind
-/// classification. Image dimensions and boundary aspect can validate a size
-/// only after an independent kind is known; neither can create a kind. With no
-/// OCR/visual classifier in this build, automated results remain `unknown` and
-/// retain a measured, editable size.
+/// These tests separate physical-size presets from document-kind evidence.
+/// Image dimensions and boundary aspect may validate a size only after an
+/// independent kind is known; neither can create a kind. The shipped OCR engine
+/// is unavailable and there is no visual classifier, so only explicitly
+/// injected synthetic OCR fixtures produce a text-derived suggestion here.
+/// Those fixtures test contracts, not real OCR accuracy.
 ///
-/// The segmenter is injected here on purpose: these tests are about
-/// classification and size confirmation, not about segmentation. Segmenter
+/// The segmenter is injected here on purpose: these tests exercise the
+/// classification/size-confirmation path, not detector quality. Segmenter
 /// behaviour over real pixels is covered by
 /// `test/imaging/document_segmenter_gate_test.dart` and
 /// `test/application/false_positive_document_test.dart`.
@@ -19,13 +20,20 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:scan_id/application/cancellation.dart';
+import 'package:scan_id/application/ocr_engine.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/domain/arrangement.dart';
+import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/ocr_evidence.dart';
+import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/quad_assessment.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
+import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -144,6 +152,27 @@ Future<SegmentationResult> _twoShapeFixtures(Uint8List bytes) async =>
         ]),
       ],
     );
+
+class _FixedOcr implements OcrEngine {
+  const _FixedOcr(this.lines);
+
+  final List<OcrLine> lines;
+
+  @override
+  String get version => 'synthetic-ocr-contract-test-1';
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async {
+    token?.throwIfCancelled();
+    return OcrTextResult.available(lines: lines, engineVersion: version);
+  }
+}
 
 void main() {
   group('catalog dimensions and orientation semantics', () {
@@ -357,13 +386,15 @@ void main() {
     });
 
     ProjectService service(
-      Future<SegmentationResult> Function(Uint8List bytes) segmenter,
-    ) => ProjectService(
+      Future<SegmentationResult> Function(Uint8List bytes) segmenter, {
+      OcrEngine ocr = const UnavailableOcrEngine(),
+    }) => ProjectService(
       projects,
       assets,
       imageEditor: LocalImageEditor(projects.files),
       smartRecognitionEnabled: true,
       segmenter: segmenter,
+      ocr: ocr,
     );
 
     /// Imports one synthetic photo under [name] and arranges it. Names are
@@ -421,6 +452,179 @@ void main() {
             closeTo(asset.width / asset.height, 1e-3),
           );
         }
+      },
+    );
+
+    test(
+      'OCR-only evidence for every supported Iraqi type stays off A4',
+      () async {
+        final cases = [
+          (
+            kind: DocumentKind.unifiedNationalId,
+            name: 'national-id-neutral.png',
+            lines: [
+              OcrLine(text: 'البطاقة الوطنية الموحدة', confidence: .96),
+              OcrLine(text: 'الرقم الوطني', confidence: .94),
+            ],
+          ),
+          (
+            kind: DocumentKind.civilStatusId,
+            name: 'civil-status-neutral.png',
+            lines: [
+              OcrLine(text: 'هوية الأحوال المدنية', confidence: .96),
+              OcrLine(text: 'رقم السجل', confidence: .94),
+            ],
+          ),
+          (
+            kind: DocumentKind.residenceCard,
+            name: 'residence-neutral.png',
+            lines: [
+              OcrLine(text: 'بطاقة السكن', confidence: .96),
+              OcrLine(text: 'المحلة', confidence: .94),
+            ],
+          ),
+          (
+            kind: DocumentKind.rationCard,
+            name: 'ration-neutral.png',
+            lines: [
+              OcrLine(text: 'البطاقة التموينية', confidence: .96),
+              OcrLine(text: 'وزارة التجارة', confidence: .94),
+            ],
+          ),
+        ];
+
+        for (final entry in cases) {
+          final report = await run(
+            service(
+              _twoQuads(firstResolved: true),
+              ocr: _FixedOcr(entry.lines),
+            ),
+            entry.name,
+            const [tallRect, wideRect],
+          );
+
+          expect(
+            report.project.documents,
+            hasLength(2),
+            reason: entry.kind.name,
+          );
+          for (final record in report.project.documents) {
+            final result = record.recognition!;
+            expect(result.documentKind, entry.kind);
+            expect(result.status, RecognitionStatus.recognized);
+            expect(result.evidence, hasLength(1));
+            expect(result.evidence.single.source, EvidenceSource.ocr);
+            expect(result.evidence.single.reason, contains('anchor-groups=2'));
+
+            final item = itemForRecord(report, record);
+            expect(item.documentKind, entry.kind);
+            expect(item.sizeConfirmed, isFalse);
+            expect(item.pageIndex, isNull);
+            expect(recordNeedsReview(record), isTrue);
+          }
+          // Follow candidates through the real arranger and checked-layout
+          // contract: OCR alone cannot confirm even an official catalog size.
+          final awaiting = arrangeDocuments(report.project);
+          expect(
+            awaiting.awaitingSize,
+            unorderedEquals(report.project.items.map((item) => item.id)),
+          );
+          expect(
+            awaiting.result.items.every((item) => item.pageIndex == null),
+            isTrue,
+          );
+          expect(() => PageLayout.checked(awaiting.result), returnsNormally);
+          final first = report.project.items.first;
+          final invalidPlacement = report.project.copyWith(
+            items: [
+              first.copyWith(pageIndex: 0),
+              ...report.project.items.skip(1),
+            ],
+          );
+          expect(
+            () => PageLayout.checked(invalidPlacement),
+            throwsA(isA<ValidationException>()),
+          );
+        }
+      },
+    );
+
+    test(
+      'manual civil size enters A4 and survives OCR reclassification',
+      () async {
+        final first = await run(
+          service(_twoQuads(firstResolved: true)),
+          'manual-size-source.png',
+          const [tallRect, wideRect],
+        );
+        final target = first.project.items.first;
+        var edited = DocumentEdits.setKind(
+          first.project,
+          target.id,
+          DocumentKind.civilStatusId,
+        );
+        final awaitingManualSize = edited.items.firstWhere(
+          (item) => item.id == target.id,
+        );
+        expect(awaitingManualSize.documentKind, DocumentKind.civilStatusId);
+        expect(awaitingManualSize.sizeConfirmed, isFalse);
+        expect(awaitingManualSize.pageIndex, isNull);
+        expect(() => PageLayout.checked(edited), returnsNormally);
+        edited = edited.copyWith(
+          items: [
+            for (final item in edited.items)
+              if (item.id == target.id)
+                item.copyWith(keepAspectRatio: false)
+              else
+                item,
+          ],
+        );
+        edited = DocumentEdits.resize(
+          edited,
+          target.id,
+          width: 88,
+          height: 56,
+        );
+        final placed = arrangeDocuments(edited).result;
+        final measured = await projects.save(placed);
+        final before = measured.items.firstWhere(
+          (item) => item.id == target.id,
+        );
+        expect(before.documentKind, DocumentKind.civilStatusId);
+        expect(before.sizeConfirmed, isTrue);
+        expect(before.presetSnapshot?.status, PresetStatus.user);
+        expect(before.pageIndex, isNotNull);
+        expect(() => PageLayout.checked(measured), returnsNormally);
+
+        final sourceId = measured.assets
+            .firstWhere((asset) => asset.derivedFrom == null)
+            .id;
+        final refreshed = await service(
+          _twoQuads(firstResolved: true),
+          ocr: _FixedOcr([
+            OcrLine(text: 'البطاقة الوطنية الموحدة', confidence: .96),
+            OcrLine(text: 'الرقم الوطني', confidence: .94),
+          ]),
+        ).reprocessImages(measured, [sourceId]);
+        final targetDocumentId = target.documentId!;
+        final refreshedProject = refreshed!.project;
+        final after = refreshedProject.items.firstWhere(
+          (item) => item.id == target.id,
+        );
+        final updatedRecord = refreshedProject.documents.firstWhere(
+          (record) => record.id == targetDocumentId,
+        );
+        expect(
+          updatedRecord.recognition!.documentKind,
+          DocumentKind.unifiedNationalId,
+        );
+        expect(after.documentKind, DocumentKind.civilStatusId);
+        expect(after.hasUserSelectedKind, isTrue);
+        expect(after.hasUserConfirmedSize, isTrue);
+        expect(after.width, 88);
+        expect(after.height, 56);
+        expect(after.pageIndex, before.pageIndex);
+        expect(() => PageLayout.checked(refreshedProject), returnsNormally);
       },
     );
 

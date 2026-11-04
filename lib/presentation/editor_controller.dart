@@ -1157,7 +1157,17 @@ class LayoutEditorController extends ChangeNotifier {
         items: [
           for (final e in p.items)
             e.id == moved.id
-                ? (drag.resize ? moved.copyWith(sizeConfirmed: true) : moved)
+                ? (drag.resize
+                      ? moved.copyWith(
+                          sizeConfirmed: true,
+                          presetSnapshot: PresetSnapshot(
+                            variantId: null,
+                            widthMm: moved.width,
+                            heightMm: moved.height,
+                            status: PresetStatus.user,
+                          ),
+                        )
+                      : moved)
                 : e,
         ],
       ),

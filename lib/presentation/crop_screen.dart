@@ -255,6 +255,8 @@ class _CropScreenState extends State<CropScreen> {
   late DocumentKind _initialKind;
   late String _initialWidthText;
   late String _initialHeightText;
+  bool _initialSizeWasUserAuthored = false;
+  bool _sizeTextEdited = false;
 
   CropDraft? get _draft => _state?.draft;
   DocumentKind get _selectedKind => _state?.selectedKind ?? _initialKind;
@@ -270,6 +272,8 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   void _initializeInitialMetadata() {
+    _initialSizeWasUserAuthored = false;
+    _sizeTextEdited = false;
     var resolvedKind = widget.documentKind;
     var resolvedW = '85.6';
     var resolvedH = '54.0';
@@ -283,10 +287,16 @@ class _CropScreenState extends State<CropScreen> {
           targetItem.documentKind != DocumentKind.unknown) {
         resolvedKind = targetItem.documentKind;
       }
+      _initialSizeWasUserAuthored = targetItem.hasUserConfirmedSize;
       if (targetItem.sizeConfirmed) {
         resolvedW = _formatMillimeters(targetItem.width);
         resolvedH = _formatMillimeters(targetItem.height);
       }
+    }
+    if (_requiresManualSize(resolvedKind) &&
+        !_initialSizeWasUserAuthored) {
+      resolvedW = '';
+      resolvedH = '';
     }
     _initialKind = resolvedKind;
     _initialWidthText = resolvedW;
@@ -731,9 +741,10 @@ class _CropScreenState extends State<CropScreen> {
         ? current.customWidthText
         : current.customHeightText;
     if (value == previous) return;
+    _sizeTextEdited = true;
     final nextW = isWidth ? value : current.customWidthText;
     final nextH = isWidth ? current.customHeightText : value;
-    final ratio = current.selectedKind == DocumentKind.other
+    final ratio = _requiresManualSize(current.selectedKind)
         ? _tryParseCustomRatio(nextW, nextH)
         : null;
     final nextDraft = ratio != null && ratio != current.draft.aspectRatio
@@ -792,8 +803,12 @@ class _CropScreenState extends State<CropScreen> {
     return validation.recipe!;
   }
 
+  bool _requiresManualSize(DocumentKind kind) =>
+      kind != DocumentKind.unknown &&
+      widget.project.catalog.natural(kind) == null;
+
   PhysicalSizeMm? _parseCustomSize() {
-    if (_selectedKind != DocumentKind.other) return null;
+    if (!_requiresManualSize(_selectedKind)) return null;
     final w = double.tryParse(
       _state!.customWidthText.trim().replaceAll(',', '.'),
     );
@@ -810,18 +825,29 @@ class _CropScreenState extends State<CropScreen> {
 
   void _selectDocumentKind(DocumentKind? kind) {
     if (kind == null || kind == _selectedKind) return;
+    final current = _state!;
     final natural = widget.project.catalog.natural(kind);
+    final editedManualSize =
+        _sizeTextEdited &&
+        (current.customWidthText != _initialWidthText ||
+            current.customHeightText != _initialHeightText);
+    final clearUnconfirmedManualSize =
+        _requiresManualSize(kind) &&
+        !_initialSizeWasUserAuthored &&
+        !editedManualSize;
+    final widthText = clearUnconfirmedManualSize
+        ? ''
+        : current.customWidthText;
+    final heightText = clearUnconfirmedManualSize
+        ? ''
+        : current.customHeightText;
     final double? nextRatio;
     if (natural != null) {
       final oriented = natural.oriented(landscape: _draftLandscape);
       nextRatio = oriented.width / oriented.height;
-    } else if (kind == DocumentKind.other) {
+    } else if (_requiresManualSize(kind)) {
       nextRatio =
-          _tryParseCustomRatio(
-            _state!.customWidthText,
-            _state!.customHeightText,
-          ) ??
-          _draft!.aspectRatio;
+          _tryParseCustomRatio(widthText, heightText) ?? _draft!.aspectRatio;
     } else {
       nextRatio = null;
     }
@@ -832,7 +858,14 @@ class _CropScreenState extends State<CropScreen> {
             adjustments: _draft!.adjustments,
             aspectRatio: nextRatio,
           );
-    _commitState(_state!.copyWith(draft: nextDraft, selectedKind: kind));
+    _commitState(
+      current.copyWith(
+        draft: nextDraft,
+        selectedKind: kind,
+        customWidthText: widthText,
+        customHeightText: heightText,
+      ),
+    );
   }
 
   Future<void> _revertSavedCrop() async {
@@ -1074,7 +1107,7 @@ class _CropScreenState extends State<CropScreen> {
       final kindOrSizeChanged =
           (selectedKind != initialKind &&
               selectedKind != DocumentKind.unknown) ||
-          (selectedKind == DocumentKind.other &&
+          (_requiresManualSize(selectedKind) &&
               (_state!.customWidthText != initialWidthText ||
                   _state!.customHeightText != initialHeightText));
       final Project saved;
@@ -1758,6 +1791,7 @@ class _CropScreenState extends State<CropScreen> {
                 DocumentKind.residenceCard,
                 DocumentKind.passport,
                 DocumentKind.rationCard,
+                DocumentKind.civilStatusId,
               ])
                 DropdownMenuItem(
                   value: kind,
@@ -1770,7 +1804,15 @@ class _CropScreenState extends State<CropScreen> {
             ],
             onChanged: _busy ? null : _selectDocumentKind,
           ),
-          if (_selectedKind == DocumentKind.other) ...[
+          if (_selectedKind == DocumentKind.civilStatusId)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _selectedKind.sizeNote(widget.project.catalog),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (_requiresManualSize(_selectedKind)) ...[
             const SizedBox(height: 8),
             Row(
               children: [

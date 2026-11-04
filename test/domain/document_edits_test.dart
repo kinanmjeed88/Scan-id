@@ -63,6 +63,7 @@ void main() {
     expect(item.sizeConfirmed, isFalse);
     expect(item.pageIndex, isNull);
     expect(item.documentKind, DocumentKind.unifiedNationalId);
+    expect(item.hasUserSelectedKind, isTrue);
   });
 
   test('a suggested quadrilateral is not an approved crop', () {
@@ -87,6 +88,24 @@ void main() {
     expect(PageLayout.item(selected, 'doc').sizeConfirmed, isFalse);
   });
 
+  test('choosing unknown clears the previous manual-kind marker', () {
+    final selected = DocumentEdits.setKind(
+      _project(),
+      'doc',
+      DocumentKind.unifiedNationalId,
+    );
+    expect(PageLayout.item(selected, 'doc').hasUserSelectedKind, isTrue);
+    final reset = DocumentEdits.setKind(
+      selected,
+      'doc',
+      DocumentKind.unknown,
+    );
+    final item = PageLayout.item(reset, 'doc');
+    expect(item.documentKind, DocumentKind.unknown);
+    expect(item.hasUserSelectedKind, isFalse);
+    expect(item.presetSnapshot, isNull);
+  });
+
   test('a category with an approved crop confirms the catalog size', () {
     final project = _project().copyWith(assets: [_croppedAsset()]);
     final selected = DocumentEdits.setKind(
@@ -98,6 +117,117 @@ void main() {
     expect(DocumentEdits.hasApprovedCrop(selected.assets.single), isTrue);
     expect([item.width, item.height], [85.6, 53.98]);
     expect(item.sizeConfirmed, isTrue);
+    expect(item.presetSnapshot?.status, PresetStatus.user);
+    expect(item.hasUserConfirmedSize, isTrue);
+  });
+
+  test('reselecting a catalog type preserves its manual footprint', () {
+    final cropped = _project().copyWith(assets: [_croppedAsset()]);
+    final selected = DocumentEdits.setKind(
+      cropped,
+      'doc',
+      DocumentKind.unifiedNationalId,
+    );
+    final measured = DocumentEdits.resize(selected, 'doc', width: 90);
+    final reselected = DocumentEdits.setKind(
+      measured,
+      'doc',
+      DocumentKind.unifiedNationalId,
+    );
+    final item = PageLayout.item(reselected, 'doc');
+    expect(item.width, 90);
+    expect(item.height, closeTo(90 * 53.98 / 85.6, 1e-9));
+    expect(item.sizeConfirmed, isTrue);
+    expect(item.hasUserConfirmedSize, isTrue);
+    expect(item.presetSnapshot?.status, PresetStatus.user);
+  });
+
+  test('civil-status identity requires a manually measured size', () {
+    final selected = DocumentEdits.setKind(
+      _project(),
+      'doc',
+      DocumentKind.civilStatusId,
+    );
+    final awaiting = PageLayout.item(selected, 'doc');
+    expect(awaiting.documentKind, DocumentKind.civilStatusId);
+    expect(awaiting.sizeConfirmed, isFalse);
+    expect(awaiting.pageIndex, isNull);
+    expect(awaiting.hasUserSelectedKind, isTrue);
+    expect(selected.catalog.natural(DocumentKind.civilStatusId), isNull);
+
+    final measured = DocumentEdits.resize(selected, 'doc', width: 88);
+    final item = PageLayout.item(measured, 'doc');
+    expect(item.documentKind, DocumentKind.civilStatusId);
+    expect(item.width, 88);
+    expect(item.height, closeTo(55, 1e-9));
+    expect(item.sizeConfirmed, isTrue);
+    expect(item.presetSnapshot?.status, PresetStatus.user);
+    expect(item.hasUserConfirmedSize, isTrue);
+
+    final reselected = DocumentEdits.setKind(
+      measured,
+      'doc',
+      DocumentKind.civilStatusId,
+    );
+    final retained = PageLayout.item(reselected, 'doc');
+    expect(retained.sizeConfirmed, isTrue);
+    expect(retained.width, 88);
+    expect(retained.height, closeTo(55, 1e-9));
+
+    final changedFromOther = DocumentEdits.setKind(
+      DocumentEdits.resize(_project(), 'doc', width: 88),
+      'doc',
+      DocumentKind.civilStatusId,
+    );
+    final retainedOtherMeasurement = PageLayout.item(changedFromOther, 'doc');
+    expect(retainedOtherMeasurement.documentKind, DocumentKind.civilStatusId);
+    expect(retainedOtherMeasurement.sizeConfirmed, isTrue);
+    expect(retainedOtherMeasurement.width, 88);
+    expect(retainedOtherMeasurement.height, closeTo(55, 1e-9));
+
+    final restoredProject = Project.fromJson(measured.toJson());
+    final restored = PageLayout.item(restoredProject, 'doc');
+    expect(restored.documentKind, DocumentKind.civilStatusId);
+    expect(restored.hasUserSelectedKind, isTrue);
+    expect(restored.hasUserConfirmedSize, isTrue);
+    expect(restored.sizeConfirmed, isTrue);
+  });
+
+  test('manual size provenance is separate from category selection', () {
+    final project = _project();
+    final natural = DocumentSizeCatalog.unifiedNationalId;
+    final automatic = PageLayout.item(project, 'doc').copyWith(
+      documentKind: DocumentKind.unifiedNationalId,
+      width: natural.width,
+      height: natural.height,
+      sizeConfirmed: true,
+      presetSnapshot: PresetSnapshot(
+        variantId: builtinVariantId(DocumentKind.unifiedNationalId),
+        widthMm: natural.width,
+        heightMm: natural.height,
+        status: PresetStatus.standard,
+      ),
+    );
+    final measuredProject = DocumentEdits.resize(
+      project.copyWith(items: [automatic]),
+      'doc',
+      width: 90,
+    );
+    final measured = PageLayout.item(measuredProject, 'doc');
+    expect(measured.width, 90);
+    expect(measured.userSelectedKind, isFalse);
+    expect(measured.hasUserSelectedKind, isFalse);
+    expect(measured.hasUserConfirmedSize, isTrue);
+
+    final restored = DocumentItem.fromJson(measured.toJson());
+    expect(restored.userSelectedKind, isFalse);
+    expect(restored.hasUserSelectedKind, isFalse);
+    final legacyJson = Map<String, Object?>.from(measured.toJson())
+      ..remove('userSelectedKind');
+    expect(
+      DocumentItem.fromJson(legacyJson).hasUserSelectedKind,
+      isFalse,
+    );
   });
 
   test('a category change takes a confirmed uncropped item off the sheet', () {

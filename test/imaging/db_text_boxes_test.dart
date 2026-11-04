@@ -58,15 +58,15 @@ void main() {
     final boxes = decodeTextBoxes(map, width: width, height: height);
 
     expect(boxes, hasLength(3));
-    final order = [
-      for (final box in boxes) '${box.top.toStringAsFixed(2)}/${box.left
-          .toStringAsFixed(2)}',
+    final order = <String>[
+      for (final box in boxes) '${box.top}/${box.left}',
     ].join(' ');
     for (var index = 1; index < boxes.length; index++) {
       final previous = boxes[index - 1];
       final current = boxes[index];
+      final sameRow = previous.top == current.top;
       final ordered = previous.top < current.top ||
-          (previous.top == current.top && previous.left <= current.left);
+          (sameRow && previous.left <= current.left);
       expect(ordered, isTrue, reason: 'reading order was $order');
     }
   });

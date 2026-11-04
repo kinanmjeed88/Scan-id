@@ -95,11 +95,7 @@ void main() {
       DocumentKind.unifiedNationalId,
     );
     expect(PageLayout.item(selected, 'doc').hasUserSelectedKind, isTrue);
-    final reset = DocumentEdits.setKind(
-      selected,
-      'doc',
-      DocumentKind.unknown,
-    );
+    final reset = DocumentEdits.setKind(selected, 'doc', DocumentKind.unknown);
     final item = PageLayout.item(reset, 'doc');
     expect(item.documentKind, DocumentKind.unknown);
     expect(item.hasUserSelectedKind, isFalse);
@@ -224,10 +220,7 @@ void main() {
     expect(restored.hasUserSelectedKind, isFalse);
     final legacyJson = Map<String, Object?>.from(measured.toJson())
       ..remove('userSelectedKind');
-    expect(
-      DocumentItem.fromJson(legacyJson).hasUserSelectedKind,
-      isFalse,
-    );
+    expect(DocumentItem.fromJson(legacyJson).hasUserSelectedKind, isFalse);
   });
 
   test('a category change takes a confirmed uncropped item off the sheet', () {

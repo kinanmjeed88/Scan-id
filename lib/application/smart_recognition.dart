@@ -1838,10 +1838,7 @@ class SmartIntake {
         !_catalogShapeMatches(current, detection)) {
       return null;
     }
-    return current.catalog.sizeFor(
-      classification.kind,
-      landscape: landscape,
-    );
+    return current.catalog.sizeFor(classification.kind, landscape: landscape);
   }
 
   bool _catalogShapeMatches(Project current, DetectionAnalysis detection) {

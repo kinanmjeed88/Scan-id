@@ -53,11 +53,7 @@ void main() {
       final outcome = classifyDocument(
         ClassificationInput(
           ocrKeywords: [
-            OcrKeywordEvidence(
-              kind: kind,
-              score: .99,
-              matchedAnchorGroups: 2,
-            ),
+            OcrKeywordEvidence(kind: kind, score: .99, matchedAnchorGroups: 2),
           ],
           ocrConfidence: .99,
           geometryConfidence: .99,

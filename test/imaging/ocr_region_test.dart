@@ -22,7 +22,10 @@ Uint8List _source() {
 
 void main() {
   test('measured region crop excludes surrounding pixels', () {
-    final bytes = prepareOcrRegion(_source(), region: const [.25, .25, .75, .75]);
+    final bytes = prepareOcrRegion(
+      _source(),
+      region: const [.25, .25, .75, .75],
+    );
     final crop = img.decodeImage(bytes)!;
     expect(crop.width, 50);
     expect(crop.height, 50);

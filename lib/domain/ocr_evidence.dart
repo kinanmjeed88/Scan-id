@@ -99,11 +99,7 @@ class OcrKeywordEvidence {
 /// semantic anchor. A type requires its primary group plus at least one
 /// different corroborating group on a different OCR line.
 class _OcrAnchorGroup {
-  const _OcrAnchorGroup(
-    this.id,
-    this.phrases, {
-    this.primary = false,
-  });
+  const _OcrAnchorGroup(this.id, this.phrases, {this.primary = false});
 
   final String id;
   final List<String> phrases;
@@ -128,10 +124,7 @@ const _ocrAnchors = <DocumentKind, List<_OcrAnchorGroup>>{
       'nationalnumber',
       'idnumber',
     ]),
-    _OcrAnchorGroup('issuer', [
-      'وزارهالداخليه',
-      'مديريهشؤونالبطاقهالوطنيه',
-    ]),
+    _OcrAnchorGroup('issuer', ['وزارهالداخليه', 'مديريهشؤونالبطاقهالوطنيه']),
   ],
   DocumentKind.civilStatusId: [
     _OcrAnchorGroup('title', [
@@ -179,11 +172,11 @@ const _ocrAnchors = <DocumentKind, List<_OcrAnchorGroup>>{
     ]),
   ],
   DocumentKind.passport: [
-    _OcrAnchorGroup(
-      'title',
-      ['جوازالسفر', 'جوازسفر', 'passport'],
-      primary: true,
-    ),
+    _OcrAnchorGroup('title', [
+      'جوازالسفر',
+      'جوازسفر',
+      'passport',
+    ], primary: true),
     _OcrAnchorGroup('documentNumber', ['رقمالجواز', 'passportno']),
     _OcrAnchorGroup('personalDataLabels', ['dateofbirth', 'nationality']),
   ],
@@ -251,9 +244,11 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
       final supportingGroups = <String>{};
       var bestSupportConfidence = 0.0;
       for (final group in groups.where((entry) => !entry.primary)) {
-        final support = _hits(result, normalizedLines, group)
-            .where((hit) => hit.lineIndex != primaryHit.lineIndex)
-            .toList();
+        final support = _hits(
+          result,
+          normalizedLines,
+          group,
+        ).where((hit) => hit.lineIndex != primaryHit.lineIndex).toList();
         if (support.isEmpty) continue;
         supportingGroups.add(group.id);
         for (final hit in support) {

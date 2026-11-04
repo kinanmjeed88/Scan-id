@@ -213,8 +213,3 @@ class DocumentEdits {
         ],
       );
 }
-
-id == value.id ? value : item,
-        ],
-      );
-}

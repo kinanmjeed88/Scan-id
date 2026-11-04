@@ -30,10 +30,9 @@ Uint8List prepareOcrRegion(
     'معاينة OCR تتجاوز حد المعالجة الآمن.',
   );
   if (corners != null) {
-    final recipe = CropDraft(corners: corners).toRecipe(
-      header.width,
-      header.height,
-    );
+    final recipe = CropDraft(
+      corners: corners,
+    ).toRecipe(header.width, header.height);
     return renderPerspective(
       previewBytes,
       recipe,

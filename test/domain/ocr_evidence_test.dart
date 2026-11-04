@@ -46,11 +46,7 @@ void main() {
           title: 'البطاقة التموينية',
           support: 'وزارة التجارة',
         ),
-        (
-          kind: DocumentKind.passport,
-          title: 'جواز سفر',
-          support: 'رقم الجواز',
-        ),
+        (kind: DocumentKind.passport, title: 'جواز سفر', support: 'رقم الجواز'),
       ];
 
       for (final entry in cases) {
@@ -86,8 +82,7 @@ void main() {
       ]) {
         final result = OcrTextResult.available(
           lines: [
-            for (final text in lines)
-              OcrLine(text: text, confidence: .99),
+            for (final text in lines) OcrLine(text: text, confidence: .99),
           ],
           engineVersion: 'lexicon-test-1',
         );

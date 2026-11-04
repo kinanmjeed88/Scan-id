@@ -579,12 +579,7 @@ void main() {
                 item,
           ],
         );
-        edited = DocumentEdits.resize(
-          edited,
-          target.id,
-          width: 88,
-          height: 56,
-        );
+        edited = DocumentEdits.resize(edited, target.id, width: 88, height: 56);
         final placed = arrangeDocuments(edited).result;
         final measured = await projects.save(placed);
         final before = measured.items.firstWhere(

@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -9,6 +10,7 @@ import '../application/cancellation.dart';
 import '../application/contracts.dart';
 import '../domain/boundary_decision.dart';
 import '../application/ids.dart';
+import '../application/stage_budget.dart';
 import '../application/image_reader.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
@@ -39,12 +41,21 @@ typedef FullResolutionRegionReader =
       required double bottom,
     });
 
+/// Hard limit on the learned boundary cascade for one preview.
+///
+/// DocQuadNet and DocAligner both run inside the ONNX Runtime plugin. A native
+/// call that never answers used to leave the import waiting with no result at
+/// all; expiring the stage falls through to the independent classical detector,
+/// which is exactly the next cascade stage and needs no native code.
+const Duration defaultBoundaryProposalBudget = Duration(seconds: 45);
+
 class LocalImageEditor
     implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor {
   const LocalImageEditor(
     this.files, {
     this.readFullResolutionRegion,
     this.boundaryProposer,
+    this.boundaryBudget = defaultBoundaryProposalBudget,
   });
   final SafeFiles files;
 
@@ -55,6 +66,9 @@ class LocalImageEditor
   /// Optional offline learned proposer. Missing/failed/invalid model results
   /// fall through to the local classical detector and remain review-only.
   final BoundaryProposalModel? boundaryProposer;
+
+  /// Upper bound on the learned cascade before the classical fallback runs.
+  final Duration boundaryBudget;
 
   Future<Uint8List> _source(ImageAsset asset) async => readBoundedImage(
     (await files.existingFile(asset.processingInputPath)).openRead(),
@@ -102,18 +116,30 @@ class LocalImageEditor
     cancellation?.throwIfCancelled();
     final learned = boundaryProposer;
     if (learned != null) {
-      try {
-        final proposal = await learned.suggestProposal(
-          preview,
-          cancellation: cancellation,
+      final outcome = await runStageWithin(
+        () => learned.suggestProposal(preview, cancellation: cancellation),
+        budget: boundaryBudget,
+        name: 'boundary-cascade',
+        cancellation: cancellation,
+      );
+      if (outcome.wasCancelled) throw const OperationCancelled();
+      if (outcome.didTimeOut) {
+        // A stuck native call must not hold the import: the classical detector
+        // below is independent of the plugin and stays review-only.
+        developer.log(
+          'learned boundary stage expired; using the classical proposal',
+          name: 'scan_id.boundary',
         );
-        cancellation?.throwIfCancelled();
-        if (proposal != null) return proposal;
-      } on OperationCancelled {
-        rethrow;
-      } on Object {
-        // Model load/inference is optional. The independent local detector is
-        // the next cascade stage, not a swallowed failure or network retry.
+      } else {
+        if (outcome.error != null) {
+          developer.log(
+            'learned boundary stage failed; using the classical proposal',
+            name: 'scan_id.boundary',
+            error: outcome.error,
+          );
+        } else if (outcome.value != null) {
+          return outcome.value;
+        }
       }
     }
     final measured = await runCancellableIsolate(

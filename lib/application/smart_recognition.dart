@@ -42,6 +42,7 @@ import 'ocr_engine.dart';
 import 'project_service.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
+import 'stage_budget.dart';
 
 int _boundaryReviewCount(Iterable<DocumentRecord> records) => records
     .where(
@@ -118,6 +119,12 @@ class _RegionOutput {
   final ImageEditRecipe? recipe;
 }
 
+/// Upper bound for analysing one imported image.
+///
+/// Generous for a slow phone (boundary models plus OCR on a 1200 px preview)
+/// while still finite: the batch must always reach the next image.
+const Duration defaultImageAnalysisBudget = Duration(minutes: 2);
+
 class SmartIntake {
   const SmartIntake({
     required this.projects,
@@ -130,6 +137,7 @@ class SmartIntake {
     this.cropRegion = defaultRegionCrop,
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.thresholds = defaultThresholds,
+    this.analysisBudget = defaultImageAnalysisBudget,
   });
 
   final ProjectRepository projects;
@@ -153,6 +161,16 @@ class SmartIntake {
   /// import because their JPEG raster exceeded the Dart image budget.
   final FullResolutionJpegCropper fullResolutionJpegCropper;
   final RecognitionThresholds thresholds;
+
+  /// Hard per-image limit for the analysis lane.
+  ///
+  /// Each native stage inside the pipeline has its own budget, but a lane must
+  /// also be bounded as a whole: this is the guarantee that the batch always
+  /// advances to the next image — and that the dialog never sits at `0 / 1`
+  /// forever. An expired lane is recorded as a per-image failure, so the batch
+  /// keeps the original and offers it for a manual crop (the legacy fallback)
+  /// instead of losing the import.
+  final Duration analysisBudget;
 
   Future<AutomaticLayoutReport> run(
     Project project,
@@ -227,20 +245,25 @@ class SmartIntake {
       var imageNotDetected = 0;
       var imageMulti = 0;
       try {
-        current = await _applyImage(
-          current,
-          analyzed,
-          newItems: imageItems,
-          newDocuments: imageDocuments,
-          newAssets: imageAssets,
-          replacedAssets: imageReplacements,
-          warnings: warnings,
-          onCropped: () => imageCropped++,
-          onNotDetected: () => imageNotDetected++,
-          onMulti: () => imageMulti++,
-          // Refusals describe the ANALYSIS, which already happened, so they are
-          // reported even if this image later fails.
-          onRejected: refusedRegions.addAll,
+        current = await requireStageWithin(
+          () => _applyImage(
+            current,
+            analyzed,
+            newItems: imageItems,
+            newDocuments: imageDocuments,
+            newAssets: imageAssets,
+            replacedAssets: imageReplacements,
+            warnings: warnings,
+            onCropped: () => imageCropped++,
+            onNotDetected: () => imageNotDetected++,
+            onMulti: () => imageMulti++,
+            // Refusals describe the ANALYSIS, which already happened, so they
+            // are reported even if this image later fails.
+            onRejected: refusedRegions.addAll,
+            cancellation: cancellation,
+          ),
+          budget: analysisBudget,
+          name: 'image-apply',
           cancellation: cancellation,
         );
         newItems.addAll(imageItems);
@@ -255,6 +278,16 @@ class SmartIntake {
       } on OperationCancelled {
         warnings.add('أُلغيت العملية؛ لم تُعالج الصور المتبقية.');
         break;
+      } on StageTimeout {
+        // The native stage never answered within the budget. The original is
+        // already saved; keep it as a manual item so nothing is lost and the
+        // batch continues with the next image.
+        notDetected++;
+        newItems.add(_fallbackItem(current, sourceAsset, newItems));
+        warnings.add(
+          '${analyzed.asset.name}: تجاوزت المعالجة المهلة الزمنية على هذا '
+          'الجهاز؛ بقيت الصورة الأصلية ويمكن قصّها يدوياً.',
+        );
       } catch (error) {
         notDetected++;
         warnings.add(
@@ -377,27 +410,49 @@ class SmartIntake {
     final outcomes = await worker.run<ImageAsset, _Analyzed>(
       pending,
       (asset) async {
-        final source = await editor.open(asset);
-        final analysis = await pipeline.analyze(
-          PipelineImageInput(
-            assetId: asset.id,
-            previewBytes: source.preview,
-            sourceWidth: source.width,
-            sourceHeight: source.height,
-            importIndex: pending.indexOf(asset),
-            captureId: asset.captureId,
-          ),
-          token: cancellation,
+        // Opening the preview AND analysing it are bounded together: the whole
+        // analysis of ONE image must end. Without this a stage that never
+        // answers leaves every later image untouched and the dialog open with
+        // no result at all.
+        return requireStageWithin(
+          () async {
+            final source = await editor.open(asset);
+            final analysis = await pipeline.analyze(
+              PipelineImageInput(
+                assetId: asset.id,
+                previewBytes: source.preview,
+                sourceWidth: source.width,
+                sourceHeight: source.height,
+                importIndex: pending.indexOf(asset),
+                captureId: asset.captureId,
+              ),
+              token: cancellation,
+            );
+            return _Analyzed(asset, analysis, source.width, source.height);
+          },
+          budget: analysisBudget,
+          name: 'image-analysis',
+          cancellation: cancellation,
         );
-        return _Analyzed(asset, analysis, source.width, source.height);
       },
       token: cancellation,
       onProgress: onProgress,
       stage: 'تحليل الصور',
-      categorize: (error) => BatchItemFailure(
-        category: RecognitionErrorCategory.decodeFailure,
-        message: userError(error),
-      ),
+      // `defaultSegment` returns no candidates, so the analysis stage is the
+      // only one that can expire here; report it as a resource limit so the
+      // user learns the truth (the device was too slow) instead of being told
+      // the image was undecodable.
+      categorize: (error) => error is StageTimeout
+          ? BatchItemFailure(
+              category: RecognitionErrorCategory.resourceLimit,
+              message:
+                  'تجاوز تحليل هذه الصورة المهلة الزمنية على هذا الجهاز؛ '
+                  'حُفظ الأصل ويمكن قصّه يدوياً.',
+            )
+          : BatchItemFailure(
+              category: RecognitionErrorCategory.decodeFailure,
+              message: userError(error),
+            ),
     );
     return _Analysis(pending, outcomes);
   }

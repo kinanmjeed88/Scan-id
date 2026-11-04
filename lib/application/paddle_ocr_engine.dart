@@ -42,6 +42,7 @@ import 'cancellation.dart';
 import 'ocr_engine.dart';
 import 'ocr_model_assets.dart';
 import 'paddle_ocr_runtime.dart';
+import 'stage_budget.dart';
 
 /// Most text lines recognised per document. A card carries far fewer; the cap
 /// bounds memory and time for a dense page or a misdetected region.
@@ -132,12 +133,41 @@ class PaddleOcrEngine implements OcrEngine {
   }) async {
     token?.throwIfCancelled();
     final stopwatch = Stopwatch()..start();
+    // The budget covers EVERY native stage, not just the recognition loop. A
+    // session that never answers used to leave this future pending forever,
+    // which in the UI is an import dialog stuck at 0 / 1. Each native call is
+    // therefore bounded by what is left of the budget and an expired stage is
+    // reported as an explicit unavailable result.
+    Duration remaining() {
+      final left = timeBudget - stopwatch.elapsed;
+      if (left < const Duration(seconds: 1)) return const Duration(seconds: 1);
+      return left;
+    }
+
     try {
       final detection = await Isolate.run(
         () => prepareOcrDetection(imageBytes),
       );
       token?.throwIfCancelled();
-      final map = await _runtime.runDetection(detection);
+      final detectionOutcome = await runStageWithin(
+        () => _runtime.runDetection(detection),
+        budget: remaining(),
+        name: 'ocr-detection',
+        cancellation: token,
+      );
+      if (detectionOutcome.wasCancelled) throw const OperationCancelled();
+      if (detectionOutcome.didTimeOut) {
+        _runtime.abandonStalledSessions();
+        return OcrTextResult.unavailable(
+          unavailableReason: 'time-budget-exceeded',
+          engineVersion: version,
+        );
+      }
+      final detectionError = detectionOutcome.error;
+      if (detectionError != null) {
+        Error.throwWithStackTrace(detectionError, detectionOutcome.stackTrace!);
+      }
+      final map = detectionOutcome.value!;
       token?.throwIfCancelled();
       final located = await Isolate.run(
         () => locateOcrLines(map: map, detection: detection),
@@ -146,7 +176,24 @@ class PaddleOcrEngine implements OcrEngine {
       if (located.isEmpty) {
         return OcrTextResult.available(lines: const [], engineVersion: version);
       }
-      final alphabet = await _loadAlphabet();
+      final alphabetOutcome = await runStageWithin(
+        _loadAlphabet,
+        budget: remaining(),
+        name: 'ocr-alphabet',
+        cancellation: token,
+      );
+      if (alphabetOutcome.wasCancelled) throw const OperationCancelled();
+      if (alphabetOutcome.didTimeOut) {
+        return OcrTextResult.unavailable(
+          unavailableReason: 'time-budget-exceeded',
+          engineVersion: version,
+        );
+      }
+      final alphabetError = alphabetOutcome.error;
+      if (alphabetError != null) {
+        Error.throwWithStackTrace(alphabetError, alphabetOutcome.stackTrace!);
+      }
+      final alphabet = alphabetOutcome.value!;
       token?.throwIfCancelled();
       final quads = [for (final box in located.take(maxLines)) box.corners];
       final inputs = await Isolate.run(
@@ -162,7 +209,28 @@ class PaddleOcrEngine implements OcrEngine {
           budgetExhausted = true;
           break;
         }
-        final output = await _runtime.runRecognition(inputs[index]);
+        final recognitionOutcome = await runStageWithin(
+          () => _runtime.runRecognition(inputs[index]),
+          budget: remaining(),
+          name: 'ocr-recognition',
+          cancellation: token,
+        );
+        if (recognitionOutcome.wasCancelled) throw const OperationCancelled();
+        if (recognitionOutcome.didTimeOut) {
+          // Keep the lines already decoded: a partial transcript is honest
+          // evidence, and the caller still learns the budget was hit.
+          budgetExhausted = true;
+          _runtime.abandonStalledSessions();
+          break;
+        }
+        final recognitionError = recognitionOutcome.error;
+        if (recognitionError != null) {
+          Error.throwWithStackTrace(
+            recognitionError,
+            recognitionOutcome.stackTrace!,
+          );
+        }
+        final output = recognitionOutcome.value!;
         final decoded = decodeCtcLine(
           values: output.values,
           timeSteps: output.timeSteps,

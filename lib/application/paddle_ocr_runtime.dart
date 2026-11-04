@@ -52,6 +52,15 @@ abstract interface class PpocrRuntime {
   Future<OcrRecOutput> runRecognition(OcrLineInput input);
 
   Future<void> close();
+
+  /// Drops references to sessions whose creation or inference never answered.
+  ///
+  /// A native call that fails inside the plugin's platform thread never replies,
+  /// so the memoised future stays pending forever and every later attempt would
+  /// await the same dead future. Abandoning it lets a retry start a fresh
+  /// session; a session that arrives after the deadline is closed instead of
+  /// leaked. This never awaits the stalled call itself.
+  void abandonStalledSessions();
 }
 
 /// ONNX Runtime implementation, created lazily on first use.
@@ -116,6 +125,25 @@ class OrtPpocrRuntime implements PpocrRuntime {
     _recognition = null;
     if (detection != null) await (await detection).close();
     if (recognition != null) await (await recognition).close();
+  }
+
+  @override
+  void abandonStalledSessions() {
+    final detection = _detection;
+    final recognition = _recognition;
+    _detection = null;
+    _recognition = null;
+    // Release a session that only arrives after its caller gave up on it.
+    _closeWhenSettled(detection);
+    _closeWhenSettled(recognition);
+  }
+
+  static void _closeWhenSettled(Future<OrtSession>? session) {
+    if (session == null) return;
+    session.then<void>(
+      (value) => value.close(),
+      onError: (Object _, StackTrace _) {},
+    );
   }
 
   /// Runs one graph and returns its single expected float output.

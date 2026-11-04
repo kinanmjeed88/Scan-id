@@ -22,6 +22,7 @@ import '../imaging/document_segmenter.dart';
 import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
 import 'ocr_engine.dart';
+import 'stage_budget.dart';
 import 'recognition_worker.dart';
 
 /// Version of the analysis pipeline, recorded in provenance.
@@ -219,6 +220,14 @@ Future<SegmentationResult> defaultSegment(Uint8List _) async =>
 String regionDetectionId(String assetId, int regionIndex) =>
     '$assetId-d$regionIndex';
 
+/// Hard limit on one document's OCR stage.
+///
+/// The engine has its own budget; this is the pipeline's guarantee that an
+/// engine — any engine — cannot hold the import open. Expiry is reported as an
+/// issue and the analysis continues without text, which keeps the kind `unknown`
+/// instead of stalling the batch.
+const Duration defaultPipelineOcrBudget = Duration(seconds: 40);
+
 class RecognitionPipeline {
   const RecognitionPipeline({
     required this.suggestSingle,
@@ -227,6 +236,7 @@ class RecognitionPipeline {
     this.ocr = const UnavailableOcrEngine(),
     this.catalog = const DocumentSizeCatalog(),
     this.thresholds = defaultThresholds,
+    this.ocrBudget = defaultPipelineOcrBudget,
   });
 
   /// The existing precise single-document detector seam
@@ -242,6 +252,10 @@ class RecognitionPipeline {
   final OcrEngine ocr;
   final DocumentSizeCatalog catalog;
   final RecognitionThresholds thresholds;
+
+  /// Upper bound on the OCR stage of one document (see
+  /// [defaultPipelineOcrBudget]).
+  final Duration ocrBudget;
 
   Future<ImageAnalysis> analyze(
     PipelineImageInput input, {
@@ -534,7 +548,33 @@ class RecognitionPipeline {
             corners: ocrCorners,
             region: ocrCorners == null ? region : null,
           );
-          ocrResult = await ocr.recognize(ocrBytes, token: token);
+          final ocrOutcome = await runStageWithin(
+            () => ocr.recognize(ocrBytes, token: token),
+            budget: ocrBudget,
+            name: 'pipeline-ocr',
+            cancellation: token,
+          );
+          if (ocrOutcome.wasCancelled) throw const OperationCancelled();
+          if (ocrOutcome.didTimeOut) {
+            issues.add(
+              const BatchItemFailure(
+                category: RecognitionErrorCategory.ocrFailure,
+                message:
+                    'تجاوزت قراءة النص المهلة على هذا الجهاز؛ استمر تحليل '
+                    'الحدود وبقي النوع غير محدد.',
+              ),
+            );
+            ocrResult = OcrTextResult.unavailable(
+              unavailableReason: 'time-budget-exceeded',
+              engineVersion: ocr.version,
+            );
+          } else {
+            final ocrError = ocrOutcome.error;
+            if (ocrError != null) {
+              Error.throwWithStackTrace(ocrError, ocrOutcome.stackTrace!);
+            }
+            ocrResult = ocrOutcome.value!;
+          }
         } on OperationCancelled {
           rethrow;
         } catch (_) {

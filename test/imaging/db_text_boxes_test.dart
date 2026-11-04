@@ -67,15 +67,7 @@ void main() {
     const width = 32;
     const height = 16;
     final map = _filled(width, height, 0);
-    _blob(
-      map,
-      width: width,
-      left: 4,
-      top: 4,
-      right: 24,
-      bottom: 10,
-      value: .4,
-    );
+    _blob(map, width: width, left: 4, top: 4, right: 24, bottom: 10, value: .4);
 
     expect(decodeTextBoxes(map, width: width, height: height), isEmpty);
   });

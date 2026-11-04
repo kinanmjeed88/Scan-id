@@ -143,10 +143,12 @@ void main() {
       returnsNormally,
     );
     expect(
-      () => buildOcrLineInput(
-        img.Image(width: 1, height: 1),
-        [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
-      ),
+      () => buildOcrLineInput(img.Image(width: 1, height: 1), [
+        Point2(0, 0),
+        Point2(1, 0),
+        Point2(1, 1),
+        Point2(0, 1),
+      ]),
       returnsNormally,
     );
   });

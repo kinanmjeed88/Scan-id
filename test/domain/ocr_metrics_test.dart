@@ -107,19 +107,14 @@ void main() {
     test('confusion counts every pair and sums to the sample count', () {
       final confusion = report().confusion;
 
-      expect(
-        confusion[DocumentKind.unifiedNationalId]![
-            DocumentKind.unifiedNationalId],
-        2,
-      );
+      final nationalRow = confusion[DocumentKind.unifiedNationalId]!;
+
+      expect(nationalRow[DocumentKind.unifiedNationalId], 2);
       expect(
         confusion[DocumentKind.civilStatusId]![DocumentKind.residenceCard],
         1,
       );
-      expect(
-        confusion[DocumentKind.rationCard]![DocumentKind.unknown],
-        1,
-      );
+      expect(confusion[DocumentKind.rationCard]![DocumentKind.unknown], 1);
       var total = 0;
       for (final row in confusion.values) {
         for (final count in row.values) {

@@ -41,7 +41,7 @@
   حول المراحل داخل `recognize` أدخلت `Stopwatch` وكائنات غير قابلة للإرسال في نطاق الدالة نفسه الذي
   تُنشأ فيه closures الخاصة بـ `Isolate.run`. `Isolate.run` يرسل الـ closure مع سياق نطاقه، فصار
   إرسال الرسالة يفشل بـ `ArgumentError: Illegal argument in isolate message`، فيرجع كل استدعاء
-  `engine-failure` بلا أي تعرّف. لم يكن هذا线与 Android خاصًا: أسقط أيضًا اختبارات المحرك الأربعة على المضيف.
+  `engine-failure` بلا أي تعرّف. لم يكن هذا العيب خاصًا بـ Android: أسقط أيضًا اختبارات المحرك الأربعة على المضيف.
 - **الإصلاح:** نقل تسليمات الـ isolate إلى دوال عليا مستقلة (`prepareOcrDetectionIsolated`,
   `locateOcrLinesIsolated`, `prepareOcrLineInputsIsolated`) بحيث لا يحمل سياقها إلا البايتات
   والتنسورات؛ ونقل استدعاء سلسلة الحدود المعلّمة إلى `_boundedCascade` في `local_image_editor.dart`

@@ -137,7 +137,7 @@ void main() {
     expect(report.warnings, isNotEmpty);
     expect(
       report.warnings.join(' '),
-      contains('تجاوزت المعالجة المهلة'),
+      allOf(contains('المهلة الزمنية'), contains('هذا الجهاز')),
       reason: 'the device timed out; the image is not blamed',
     );
     expect(report.project.items, hasLength(1));

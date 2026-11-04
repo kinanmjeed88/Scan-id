@@ -42,3 +42,7 @@ flutter:
     - assets/legal/onnxruntime-LICENSE.txt
     - assets/models/docquadnet256_trained_opset17.ort
     - assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+    - assets/models/ppocrv5_mobile_det.onnx
+    - assets/models/ppocrv5_arabic_mobile_rec.onnx
+    - assets/ocr/ppocrv5_arabic_dict.txt
+    - assets/legal/paddleocr-apache-2.0-LICENSE.txt

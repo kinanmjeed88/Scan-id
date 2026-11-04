@@ -440,6 +440,34 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      # The OCR graphs are 12.8 MiB of Apache-2.0 weights, git-ignored and
+      # fetched from their pinned upstream revisions. The fetch verifies the byte
+      # size and SHA-256 before the files are used, so a substituted or truncated
+      # model cannot reach a build; a restored cache entry is re-hashed rather
+      # than trusted.
+      - name: Restore the pinned PP-OCRv5 models
+        id: ocr-models-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: |
+            assets/models/ppocrv5_mobile_det.onnx
+            assets/models/ppocrv5_arabic_mobile_rec.onnx
+          key: ocr-models-ppocrv5-a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d-799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110
+
+      - name: Prepare verified PP-OCRv5 models
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned PP-OCRv5 models (attempt $attempt/4)"
+            if python tool/fetch_ocr_models.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
@@ -612,6 +640,34 @@ jobs:
           channel: stable
           cache: true
 
+      # The OCR graphs are 12.8 MiB of Apache-2.0 weights, git-ignored and
+      # fetched from their pinned upstream revisions. The fetch verifies the byte
+      # size and SHA-256 before the files are used, so a substituted or truncated
+      # model cannot reach a build; a restored cache entry is re-hashed rather
+      # than trusted.
+      - name: Restore the pinned PP-OCRv5 models
+        id: ocr-models-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: |
+            assets/models/ppocrv5_mobile_det.onnx
+            assets/models/ppocrv5_arabic_mobile_rec.onnx
+          key: ocr-models-ppocrv5-a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d-799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110
+
+      - name: Prepare verified PP-OCRv5 models
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned PP-OCRv5 models (attempt $attempt/4)"
+            if python tool/fetch_ocr_models.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh

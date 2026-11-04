@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/ocr_decoding.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
 
 void main() {
@@ -188,6 +189,37 @@ void main() {
       lines: [OcrLine(text: 'مرحبا بالعالم', confidence: .99)],
       engineVersion: 'test-1',
     );
+    expect(ocrKeywordEvidence(result), isEmpty);
+  });
+
+  test('visual-order (right-to-left) recognition still anchors a type', () {
+    // The same two anchors, emitted by an export that writes the line in visual
+    // order: the text is reversed, the document is the same document.
+    final result = OcrTextResult.available(
+      lines: [
+        OcrLine(text: reversedRunes('البطاقة الوطنية الموحدة'), confidence: .8),
+        OcrLine(text: reversedRunes('الرقم الوطني'), confidence: .9),
+      ],
+      engineVersion: 'rtl-test-1',
+    );
+
+    final evidence = ocrKeywordEvidence(result);
+
+    expect(evidence, hasLength(1));
+    expect(evidence.single.kind, DocumentKind.unifiedNationalId);
+    expect(evidence.single.score, .8);
+  });
+
+  test('a two-character phrase can never act as an anchor', () {
+    expect(minAnchorLength, greaterThanOrEqualTo(3));
+    final result = OcrTextResult.available(
+      lines: [
+        OcrLine(text: 'اب', confidence: .99),
+        OcrLine(text: 'ج د', confidence: .99),
+      ],
+      engineVersion: 'short-anchor-test',
+    );
+
     expect(ocrKeywordEvidence(result), isEmpty);
   });
 }

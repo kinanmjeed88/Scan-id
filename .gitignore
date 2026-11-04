@@ -28,6 +28,11 @@ diagnostics/
 # DocAligner is fetched from its pinned upstream release during CI/build preparation.
 # Do not commit a second copy of the 83 MB ONNX weight.
 /assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+# The PP-OCRv5 detection and Arabic recognition graphs are fetched -- and
+# SHA-256 verified -- from their pinned upstream revisions by
+# tool/fetch_ocr_models.py during build/CI preparation. Do not commit them.
+/assets/models/ppocrv5_mobile_det.onnx
+/assets/models/ppocrv5_arabic_mobile_rec.onnx
 # User-owned document corpus: keep local, never commit or send to CI.
 /Mostmskat/
 __pycache__/

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -36,6 +38,62 @@ class FormatReportTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("no files were staged, rewritten, committed, or pushed", output.getvalue())
         run_mock.assert_called_once()
+
+    @patch("tool.format_report.subprocess.run")
+    def test_changed_prefix_still_reaches_the_diff_reporter(self, run_mock):
+        # The gate used to string-match the raw "Changed <path>" line, so the
+        # path never resolved and the reported diff was always empty.
+        run_mock.side_effect = [
+            SimpleNamespace(
+                returncode=1,
+                stdout="Changed lib/sample.dart\nFormatted 1 files (1 changed).\n",
+                stderr="",
+            ),
+            SimpleNamespace(returncode=0, stdout="void main() {}\n", stderr=""),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "lib").mkdir()
+            (Path(directory) / "lib" / "sample.dart").write_text(
+                "void  main() {}\n", encoding="utf-8"
+            )
+            output = io.StringIO()
+            with contextlib.chdir(directory), contextlib.redirect_stdout(output):
+                result = format_report.main()
+        self.assertEqual(result, 1)
+        self.assertIn("dart format would rewrite lib/sample.dart", output.getvalue())
+
+    @patch("tool.format_report.subprocess.run")
+    def test_formatter_diff_is_published_as_an_annotation(self, run_mock):
+        # A CI log can be unreachable; the diff must therefore travel with the
+        # check run, newline-escaped, so the author can see the exact rewrite.
+        run_mock.return_value = SimpleNamespace(
+            returncode=0, stdout="void main() {}\n", stderr=""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.dart"
+            path.write_text("void  main() {}\n", encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                format_report.report_diff(path)
+        text = output.getvalue()
+        self.assertIn("dart format would rewrite", text)
+        self.assertIn(
+            f"::error title=dart-format-diff {path.as_posix()} part 1", text
+        )
+        self.assertIn("%0A", text, "annotation messages must not carry raw newlines")
+
+    @patch("tool.format_report.subprocess.run")
+    def test_identical_file_publishes_nothing(self, run_mock):
+        run_mock.return_value = SimpleNamespace(
+            returncode=0, stdout="void main() {}\n", stderr=""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.dart"
+            path.write_text("void main() {}\n", encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                format_report.report_diff(path)
+        self.assertEqual(output.getvalue(), "")
 
 
 if __name__ == "__main__":

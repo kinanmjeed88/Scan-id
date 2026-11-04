@@ -55,6 +55,28 @@ if code:
     lines = text.splitlines()
     marks = []
     seen = set()
+    # A nested gate publishes its own annotations (::error/::warning with a
+    # title and an escaped message). They are the most specific, most compact
+    # evidence in the log -- a formatter or linter diff, for instance -- and the
+    # outer budget must not bury them behind the heuristics below. The message
+    # is decoded here so it is re-escaped exactly once when this gate prints it.
+    for line in lines:
+        if not line.startswith(('::error', '::warning')):
+            continue
+        # "::error title=...::message" -- the message is everything after the
+        # second separator, so the nested title does not leak into the text.
+        fields = line.split('::', 2)
+        if len(fields) < 3:
+            continue
+        message = fields[2]
+        decoded = (
+            message.replace('%0A', '\n')
+            .replace('%0D', '\r')
+            .replace('%25', '%')
+            .strip()
+        )
+        if decoded:
+            marks.append(decoded)
     # A widget-test exception is printed in a framed block ("EXCEPTION CAUGHT
     # BY ...") and the reporter's own `[E]` line then says only "Test failed.
     # See exception logs above." The block is ABOVE that line, and because

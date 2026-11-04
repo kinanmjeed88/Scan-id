@@ -9,6 +9,7 @@ library;
 import 'dart:math' as math;
 
 import 'document_kind.dart';
+import 'ocr_decoding.dart';
 import 'geometry.dart';
 import 'validation.dart';
 
@@ -204,15 +205,37 @@ class _AnchorHit {
   final double confidence;
 }
 
+/// Shortest phrase that may act as an anchor, in normalised characters.
+///
+/// A two-letter fragment matches inside unrelated words, so an anchor must be a
+/// recognisable word or phrase; the shipped lexicons are all far longer, and the
+/// floor exists to stop a future short entry from turning into a false anchor.
+const int minAnchorLength = 3;
+
 List<_AnchorHit> _hits(
   OcrTextResult result,
   List<String> normalizedLines,
+  List<String> reversedLines,
   _OcrAnchorGroup group,
 ) {
   final hits = <_AnchorHit>[];
   for (var index = 0; index < result.lines.length; index++) {
     final line = normalizedLines[index];
-    if (line.isEmpty || !group.phrases.any(line.contains)) continue;
+    if (line.isEmpty) continue;
+    // Arabic is read right-to-left and the exports differ in whether they emit
+    // logical or visual order. Matching both orders costs one reversed string
+    // per line and cannot invent a match: it only stops a correct recognition
+    // from being discarded because the text arrived the other way round.
+    final reversed = reversedLines[index];
+    var matched = false;
+    for (final phrase in group.phrases) {
+      if (phrase.length < minAnchorLength) continue;
+      if (line.contains(phrase) || reversed.contains(phrase)) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) continue;
     hits.add(_AnchorHit(index, result.lines[index].confidence));
   }
   return hits;
@@ -228,6 +251,9 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   final normalizedLines = [
     for (final line in result.lines) _normalize(line.text),
   ];
+  final reversedLines = [
+    for (final line in normalizedLines) reversedRunes(line),
+  ];
   final evidence = <OcrKeywordEvidence>[];
   final kinds = _ocrAnchors.keys.toList()
     ..sort((a, b) => a.index.compareTo(b.index));
@@ -235,7 +261,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   for (final kind in kinds) {
     final groups = _ocrAnchors[kind]!;
     final primary = groups.singleWhere((group) => group.primary);
-    final primaryHits = _hits(result, normalizedLines, primary);
+    final primaryHits = _hits(result, normalizedLines, reversedLines, primary);
     if (primaryHits.isEmpty) continue;
 
     double? bestScore;
@@ -247,6 +273,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
         final support = _hits(
           result,
           normalizedLines,
+          reversedLines,
           group,
         ).where((hit) => hit.lineIndex != primaryHit.lineIndex).toList();
         if (support.isEmpty) continue;

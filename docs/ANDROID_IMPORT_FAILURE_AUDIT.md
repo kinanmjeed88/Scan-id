@@ -119,6 +119,11 @@ presentation/intake.dart  runIntakeWithProgress → IntakeRunner.run(onProgress:
   المنصة؛ و`developer.log` لا يظهر في تعليقات CI، لذا صار التشخيص يُمرَّر في نص سبب الفشل
   (`lastFailureDiagnostic`) ليكون مرئيًا في أي تقرير ميداني.
 
+## 8.2 طلب السحب
+
+PR [#42](https://github.com/kinanmjeed88/Scan-id/pull/42) — مفتوح، بلا دمج، بلا Release. آخر SHA للكود `9f72a69`،
+وطبقتا التحقق (`push` و`pull_request`) نجحتا على `9e875c8`.
+
 ## 9. ما لم يُحل / الخطوة التالية الدقيقة
 
 1. **تحديد الاستدعاء الأصلي العالق بدقة** يحتاج سجلًّا من الجهاز:

@@ -61,6 +61,17 @@
 - **ما تبقّى:** اختبار الاستيراد على **Android Release وجهاز حقيقي** — غير ممكن في هذه البيئة (لا جهاز ولا Flutter/Java)،
   ولم يُنفَّذ، ولا يوجد ادعاء بنجاحه.
 
+## 2026-11-04 — وحدة العمل 6: طلب السحب والسجل النهائي للبوابات
+
+- **PR:** [#42](https://github.com/kinanmjeed88/Scan-id/pull/42) — `arena/ded7f232-scan-id` → `searchidf`، **بلا دمج وبلا إصدار**.
+- **آخر SHA للكود:** `9f72a69` (و`9e875c8` يضيف الوثائق فقط).
+- **تشغيلان أخضران على `9e875c8`** (وهو نفس شجرة الكود):
+  - push: 41895243161 — success (`android`, `windows`, `Android debug/diagnostic differential`, `Android 16 startup evidence`).
+  - pull_request: 41895267684 — success، و`gh pr checks 42` يظهر **pass** للمهام الأربع.
+- **ما جرى فعليًا:** `dart format` (قراءة فقط) + `flutter analyze` + **1054 اختبارًا** + تدقيق التصدير المستقل،
+  واستدلال PP-OCRv5 الحقيقي على Windows (نص لاتيني وعربي فعلي من صفحة مرسومة)، وبناء Android debug وWindows.
+- **ما لم يُجرَّب:** استيراد صورة/مجموعة صور على **Android Release وجهاز حقيقي** — لا جهاز ولا Flutter/Java في البيئة.
+
 ## الخطوة التالية الدقيقة
 
 1. `python3 tool/check_source.py` و`tool/check_detector_retirement.py` و`tool/check_workflow_permissions.py` (فحوص المستودع المحلية).

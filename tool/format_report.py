@@ -95,6 +95,11 @@ def main() -> int:
     if result.returncode:
         for raw in result.stdout.splitlines():
             name = raw.strip()
+            # `dart format --output=none` prefixes each affected path with
+            # "Changed "; the prefix is not part of the path, and keeping it
+            # made every path fail is_file() so the diff report never ran.
+            if name.startswith("Changed "):
+                name = name[len("Changed ") :].strip()
             if not name.endswith(".dart"):
                 continue
             path = Path(name)

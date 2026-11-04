@@ -188,13 +188,14 @@ void main() {
   test('cancelling a stalled import returns instead of hanging', () async {
     final (_, project, assetsInProject) = await seed(2);
     final token = CancellationToken();
+    final editor = _SelectiveEditor(
+      LocalImageEditor(projects.files),
+      stalledAssetId: assetsInProject.first.id,
+    );
     final intake = SmartIntake(
       projects: projects,
       assets: assets,
-      editor: _SelectiveEditor(
-        LocalImageEditor(projects.files),
-        stalledAssetId: assetsInProject.first.id,
-      ),
+      editor: editor,
       segment: (_) async =>
           const SegmentationResult(multi: false, candidates: []),
       // The stalled native wait ends at the budget; the cancel request then

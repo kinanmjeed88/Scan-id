@@ -127,6 +127,12 @@ class PaddleOcrEngine implements OcrEngine {
   @override
   bool get isEnabled => true;
 
+  /// Stage and error class of the last failure, for field diagnosis.
+  ///
+  /// Never carries image bytes or recognised text: a report needs to say which
+  /// native stage failed and with what error class, nothing else.
+  String? lastFailureDiagnostic;
+
   @override
   Future<OcrTextResult> recognize(
     Uint8List imageBytes, {
@@ -285,6 +291,7 @@ class PaddleOcrEngine implements OcrEngine {
         name: 'scan_id.ocr',
         error: error,
       );
+      lastFailureDiagnostic = 'stage=$stage type=${error.runtimeType} $error';
       return OcrTextResult.unavailable(
         unavailableReason: 'engine-failure',
         engineVersion: version,

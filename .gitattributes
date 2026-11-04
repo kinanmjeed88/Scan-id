@@ -1,0 +1,8 @@
+# The OCR dictionary is pinned by SHA-256 and read back at build time.
+# Windows checkouts default to core.autocrlf=true, which would rewrite its
+# line endings and break both the pin and the byte-for-byte audit.
+assets/ocr/** -text
+
+# Model weights are opaque binaries; never apply text conversion to them.
+assets/models/*.onnx binary
+assets/models/*.ort binary

@@ -71,16 +71,35 @@ def verify() -> list[str]:
         if (ROOT / rel).exists():
             errors.append(f"retired model artifact or implementation still exists: {rel}")
 
-    allowed_docaligner = ROOT / "assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx"
+    # Every ONNX weight that may sit under assets/ is listed with its exact byte
+    # length and SHA-256. A new model therefore cannot be dropped into the app
+    # without being reviewed and pinned here, and a substituted or truncated file
+    # is caught by digest rather than trusted because it happens to be present.
+    allowed_onnx = {
+        "assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx": (
+            83_084_930,
+            "7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc",
+        ),
+        "assets/models/ppocrv5_mobile_det.onnx": (
+            4_826_518,
+            "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+        ),
+        "assets/models/ppocrv5_arabic_mobile_rec.onnx": (
+            7_998_947,
+            "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110",
+        ),
+    }
     for path in (ROOT / "assets").rglob("*.onnx"):
-        if path != allowed_docaligner:
-            errors.append(f"unreviewed ONNX model remains packaged under assets: {path.relative_to(ROOT)}")
-    if allowed_docaligner.exists():
-        docaligner_sha = "7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc"
-        if allowed_docaligner.stat().st_size != 83_084_930:
-            errors.append("DocAligner ONNX asset has an unexpected byte length")
-        elif hashlib.sha256(allowed_docaligner.read_bytes()).hexdigest() != docaligner_sha:
-            errors.append("DocAligner ONNX asset SHA-256 does not match the pinned upstream digest")
+        relative = path.relative_to(ROOT).as_posix()
+        pin = allowed_onnx.get(relative)
+        if pin is None:
+            errors.append(f"unreviewed ONNX model remains packaged under assets: {relative}")
+            continue
+        expected_size, expected_sha = pin
+        if path.stat().st_size != expected_size:
+            errors.append(f"{relative} has an unexpected byte length")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha:
+            errors.append(f"{relative} SHA-256 does not match the pinned upstream digest")
 
     for path in production_files():
         try:
@@ -122,6 +141,19 @@ def verify() -> list[str]:
     project = (ROOT / "lib/domain/project.dart").read_text(encoding="utf-8")
     if not re.search(r"static\s+const\s+schemaVersion\s*=\s*5\s*;", project):
         errors.append("Project.schemaVersion must remain 5")
+
+    alphabet = ROOT / "assets/ocr/ppocrv5_arabic_dict.txt"
+    if not alphabet.is_file():
+        errors.append("committed OCR alphabet is missing")
+    else:
+        alphabet_sha = (
+            "7f92f7dbb9b75a4787a83bfb4f6d14a8ab515525130c9d40a9036f61cf6999e9"
+        )
+        alphabet_bytes = alphabet.read_bytes().replace(b"\r\n", b"\n")
+        if hashlib.sha256(alphabet_bytes).hexdigest() != alphabet_sha:
+            errors.append("OCR alphabet SHA-256 does not match the pinned digest")
+        if len(alphabet.read_text(encoding="utf-8").splitlines()) != 747:
+            errors.append("OCR alphabet must keep all 747 characters")
 
     annotation_schema = ROOT / "tool/schemas/local_reference_dataset_v2.schema.json"
     if not annotation_schema.is_file() or '"scan-id-local-annotations-v2"' not in annotation_schema.read_text(
@@ -224,6 +256,55 @@ def verify() -> list[str]:
         for token in ("docAlignerExpectedBytes", "docAlignerExpectedSha256", "inferenceRuns", "lastOutputShape"):
             if token not in integration_source:
                 errors.append(f"real DocAligner inference evidence is missing: {token}")
+
+    ocr_fetcher = ROOT / "tool/fetch_ocr_models.py"
+    if not ocr_fetcher.is_file():
+        errors.append("verified OCR model fetch tool is missing")
+    else:
+        ocr_fetcher_source = ocr_fetcher.read_text(encoding="utf-8")
+        for token in (
+            "4_826_518",
+            "7_998_947",
+            "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+            "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110",
+            "temporary_path.replace(",
+        ):
+            if token not in ocr_fetcher_source:
+                errors.append(f"OCR source/weight verification is missing: {token}")
+
+    for relative in ("lib/application/paddle_ocr_engine.dart", "lib/application/paddle_ocr_runtime.dart"):
+        adapter = ROOT / relative
+        if not adapter.is_file():
+            errors.append(f"OCR runtime adapter is missing: {relative}")
+            continue
+        adapter_source = adapter.read_text(encoding="utf-8")
+        if "http://" in adapter_source or "https://" in adapter_source:
+            errors.append(f"OCR inference must not call a remote service: {relative}")
+        if "download" in adapter_source.lower():
+            errors.append(f"OCR inference must not download weights: {relative}")
+
+    engine = ROOT / "lib/application/paddle_ocr_engine.dart"
+    if engine.is_file():
+        engine_source = engine.read_text(encoding="utf-8")
+        for token in (
+            "Isolate.run(",
+            "decodeTextBoxes(",
+            "decodeCtcLine(",
+            "OperationCancelled",
+            "OcrTextResult.unavailable(",
+        ):
+            if token not in engine_source:
+                errors.append(f"OCR engine contract is missing: {token}")
+
+    main_source = (ROOT / "lib/main.dart").read_text(encoding="utf-8")
+    if "createPlatformOcrEngine()" not in main_source:
+        errors.append("the production project service is not wired to the OCR engine")
+
+    windows_workflow = (ROOT / ".github/workflows/windows-release.yml").read_text(
+        encoding="utf-8"
+    )
+    if "integration_test/ocr_inference_test.dart" not in windows_workflow:
+        errors.append("real OCR inference is not executed in CI")
 
     pubspec = (ROOT / "pubspec.yaml").read_text(encoding="utf-8")
     for token in (

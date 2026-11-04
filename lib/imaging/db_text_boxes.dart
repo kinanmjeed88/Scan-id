@@ -382,7 +382,7 @@ _OrientedRect _axisAlignedRect(List<Point2> points) {
     if (point.y > maxY) maxY = point.y;
   }
   if (!minX.isFinite || !maxX.isFinite || !minY.isFinite || !maxY.isFinite) {
-    return const _OrientedRect(
+    return _OrientedRect(
       center: Point2(.5, .5),
       axisU: Point2(1, 0),
       axisV: Point2(0, 1),

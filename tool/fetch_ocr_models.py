@@ -81,10 +81,23 @@ def digest(path: Path) -> tuple[int, str]:
     return size, sha.hexdigest()
 
 
+def normalized_digest(path: Path) -> tuple[int, str]:
+    """Digest of the file with CRLF folded to LF.
+
+    The dictionary is committed with LF endings and marked `-text` in
+    .gitattributes, so a normal checkout is byte-identical. A Windows checkout
+    that rewrote the endings would otherwise fail the pin for a reason that has
+    nothing to do with the content; folding CRLF keeps the check about the
+    characters while the file itself stays untouched.
+    """
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    return len(data), hashlib.sha256(data).hexdigest()
+
+
 def verify_dictionary() -> None:
     if not DICTIONARY.is_file():
         raise RuntimeError(f"missing committed OCR dictionary {DICTIONARY}")
-    size, sha = digest(DICTIONARY)
+    size, sha = normalized_digest(DICTIONARY)
     if sha != DICTIONARY_SHA256:
         raise RuntimeError(
             f"OCR dictionary digest changed: {sha} (expected {DICTIONARY_SHA256})"

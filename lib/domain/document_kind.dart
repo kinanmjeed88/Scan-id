@@ -186,16 +186,136 @@ class PresetSnapshot {
 /// Stable id for a category's built-in preset variant.
 String builtinVariantId(DocumentKind kind) => 'builtin-${kind.name}';
 
-/// Only standardised categories are official; the paper cards are estimated.
-PresetStatus presetStatusFor(DocumentKind kind) => switch (kind) {
-  DocumentKind.unifiedNationalId ||
-  DocumentKind.passport => PresetStatus.standard,
-  DocumentKind.residenceCard ||
-  DocumentKind.rationCard => PresetStatus.estimated,
-  DocumentKind.unknown ||
-  DocumentKind.civilStatusId ||
-  DocumentKind.other => PresetStatus.unknown,
+/// How well a category's physical size is documented (ADR-011).
+///
+/// This is a statement about the *evidence*, not about usefulness: an estimated
+/// size is still usable, it simply may not be described as official and may not
+/// be confirmed without the user.
+enum SizeProvenance {
+  /// Published in a standard or by the issuing authority, and re-checked on the
+  /// record's [DocumentSizeRecord.verifiedOn] date.
+  documented,
+
+  /// A project default with no published source behind it. Editable, never
+  /// described as official, and never confirmed automatically.
+  estimated,
+
+  /// No size at all: the physical document must be measured by the user.
+  missing,
+}
+
+/// The documented provenance of one category's size.
+///
+/// [reference] is only ever filled from a published source (a standard, or an
+/// issuing authority's own document). When no such source exists the field stays
+/// empty and [note] records what is missing, so "we could not verify this"
+/// survives in the code instead of turning into an invented citation.
+class DocumentSizeRecord {
+  const DocumentSizeRecord({
+    required this.kind,
+    required this.provenance,
+    this.standard = '',
+    this.reference = '',
+    this.verifiedOn = '',
+    this.note = '',
+  });
+
+  final DocumentKind kind;
+  final SizeProvenance provenance;
+
+  /// The standard or specification the size comes from, when there is one.
+  final String standard;
+
+  /// The reference itself (document, clause or URL), empty when unverified.
+  final String reference;
+
+  /// ISO-8601 date the reference was last checked, empty when unverified.
+  final String verifiedOn;
+
+  /// What is missing or what the user must do, in Arabic.
+  final String note;
+
+  /// Whether a size from this record may be applied AND confirmed without the
+  /// user. Automatic confirmation is the strict case: an estimated default is
+  /// offered, never asserted.
+  bool get mayBeConfirmedAutomatically =>
+      provenance == SizeProvenance.documented;
+}
+
+/// Provenance for every category, including the ones with no size at all.
+///
+/// Sizes themselves live in [DocumentSizeCatalog]; this table never repeats a
+/// number, it only records where the number came from.
+const Map<DocumentKind, DocumentSizeRecord> documentSizeRecords = {
+  DocumentKind.unknown: DocumentSizeRecord(
+    kind: DocumentKind.unknown,
+    provenance: SizeProvenance.missing,
+    note: 'لا نوع محدد، فلا مقاس.',
+  ),
+  DocumentKind.unifiedNationalId: DocumentSizeRecord(
+    kind: DocumentKind.unifiedNationalId,
+    provenance: SizeProvenance.documented,
+    standard: 'ISO/IEC 7810 ID-1',
+    reference: 'ISO/IEC 7810:2019, ID-1 card: 85,60 mm × 53,98 mm.',
+    verifiedOn: '2026-11-04',
+    note:
+        'البطاقة الوطنية الموحدة تصدر بمقاس بطاقة ID-1. لم تُراجَع في هذا '
+        'المستودع وثيقة صادرة عن الجهة المُصدِرة تُثبت المطابقة؛ يُستحسن '
+        'تأكيدها على بطاقة فعلية قبل الاتكال عليها في الطباعة الدقيقة.',
+  ),
+  DocumentKind.passport: DocumentSizeRecord(
+    kind: DocumentKind.passport,
+    provenance: SizeProvenance.documented,
+    standard: 'ICAO Doc 9303 TD3',
+    reference:
+        'ICAO Doc 9303 Part 3, TD3 size: 125 mm × 88 mm (data page).',
+    verifiedOn: '2026-11-04',
+    note: 'صفحة بيانات جواز السفر بصيغة TD3.',
+  ),
+  DocumentKind.residenceCard: DocumentSizeRecord(
+    kind: DocumentKind.residenceCard,
+    provenance: SizeProvenance.estimated,
+    note:
+        'لم يُعثر على مقاس منشور رسمياً لبطاقة السكن (بحث 2026-11-04). '
+        'القيمة الحالية افتراضية قابلة للتعديل ولا تُوصف بأنها رسمية ولا '
+        'تُعتمد آلياً؛ يجب على المستخدم تأكيدها.',
+  ),
+  DocumentKind.rationCard: DocumentSizeRecord(
+    kind: DocumentKind.rationCard,
+    provenance: SizeProvenance.estimated,
+    note:
+        'لم يُعثر على مقاس منشور رسمياً للبطاقة التموينية (بحث 2026-11-04). '
+        'القيمة الحالية افتراضية قابلة للتعديل ولا تُعتمد آلياً، وقد تكون '
+        'مأخوذة من نسخة غير معايرة؛ يجب على المستخدم تأكيدها.',
+  ),
+  DocumentKind.civilStatusId: DocumentSizeRecord(
+    kind: DocumentKind.civilStatusId,
+    provenance: SizeProvenance.missing,
+    note:
+        'لا يوجد مقاس موثق لهوية الأحوال المدنية: تبقى حقول القياس فارغة حتى '
+        'يقيس المستخدم النسخة ويؤكدها.',
+  ),
+  DocumentKind.other: DocumentSizeRecord(
+    kind: DocumentKind.other,
+    provenance: SizeProvenance.missing,
+    note: 'مقاس يدوي بالكامل.',
+  ),
 };
+
+/// The provenance record for [kind].
+DocumentSizeRecord documentSizeRecordFor(DocumentKind kind) =>
+    documentSizeRecords[kind]!;
+
+/// Only documented sizes are official; an estimate is never labelled standard
+/// and is never confirmed automatically, and a category with no size stays
+/// unconfirmed until the user measures it. Deriving this from
+/// [documentSizeRecords] keeps one source of truth for the policy.
+PresetStatus presetStatusFor(DocumentKind kind) =>
+    switch (documentSizeRecordFor(kind).provenance) {
+      SizeProvenance.documented => PresetStatus.standard,
+      SizeProvenance.estimated => PresetStatus.estimated,
+      SizeProvenance.missing => PresetStatus.unknown,
+    };
 
 /// Printed sizes per document category.
 ///

@@ -186,28 +186,31 @@ void main() {
   });
 
   test('cancelling a stalled import returns instead of hanging', () async {
-    final (_, project, assetsInProject) = await seed(1);
+    final (_, project, assetsInProject) = await seed(2);
     final token = CancellationToken();
     final intake = SmartIntake(
       projects: projects,
       assets: assets,
       editor: _SelectiveEditor(
         LocalImageEditor(projects.files),
-        stalledAssetId: assetsInProject.single.id,
+        stalledAssetId: assetsInProject.first.id,
       ),
       segment: (_) async =>
           const SegmentationResult(multi: false, candidates: []),
-      // Long budget: the cancel request, not the budget, must end the wait.
-      analysisBudget: const Duration(minutes: 5),
+      // The stalled native wait ends at the budget; the cancel request then
+      // stops the batch at the next safe point instead of starting image two.
+      analysisBudget: const Duration(milliseconds: 120),
     );
 
     final pending = intake.run(project, [
-      assetsInProject.single.id,
+      assetsInProject.first.id,
+      assetsInProject.last.id,
     ], cancellation: token);
     await Future<void>.delayed(const Duration(milliseconds: 20));
     token.cancel();
 
     final report = await pending.timeout(const Duration(seconds: 10));
     expect(report.warnings.join(' '), contains('أُلغيت'));
+    expect(editor.stalls, 1, reason: 'the second image was never opened');
   });
 }

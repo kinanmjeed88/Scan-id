@@ -47,19 +47,23 @@ void main() {
     expect(outcome.value, isNull);
   });
 
-  test('cancellation ends the wait even while the stage is stuck', () async {
-    final token = CancellationToken();
-    final pending = runStageWithin(
-      () => Completer<int>().future,
-      budget: const Duration(minutes: 5),
-      name: 'unit-cancelled',
-      cancellation: token,
+  test('a cancelled token stops the stage from starting at all', () async {
+    final token = CancellationToken()..cancel();
+    var started = false;
+
+    await expectLater(
+      runStageWithin(
+        () async {
+          started = true;
+          return 1;
+        },
+        budget: const Duration(seconds: 5),
+        name: 'unit-cancelled-before',
+        cancellation: token,
+      ),
+      throwsA(isA<OperationCancelled>()),
     );
-    token.cancel();
-
-    final outcome = await pending;
-
-    expect(outcome.wasCancelled, isTrue);
+    expect(started, isFalse, reason: 'no work starts after a cancel request');
   });
 
   test('a late value is released instead of leaked', () async {

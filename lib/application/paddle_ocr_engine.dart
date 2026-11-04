@@ -28,6 +28,7 @@
 /// the sampling; the ONNX calls themselves are already asynchronous.
 library;
 
+import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'package:flutter/services.dart';
 
@@ -144,6 +145,9 @@ class PaddleOcrEngine implements OcrEngine {
       return left;
     }
 
+    // Named so a device log can say which native stage failed, without ever
+    // recording image bytes or recognised text.
+    var stage = 'ocr-detection';
     try {
       final detection = await Isolate.run(
         () => prepareOcrDetection(imageBytes),
@@ -155,7 +159,6 @@ class PaddleOcrEngine implements OcrEngine {
         name: 'ocr-detection',
         cancellation: token,
       );
-      if (detectionOutcome.wasCancelled) throw const OperationCancelled();
       if (detectionOutcome.didTimeOut) {
         _runtime.abandonStalledSessions();
         return OcrTextResult.unavailable(
@@ -176,13 +179,13 @@ class PaddleOcrEngine implements OcrEngine {
       if (located.isEmpty) {
         return OcrTextResult.available(lines: const [], engineVersion: version);
       }
+      stage = 'ocr-alphabet';
       final alphabetOutcome = await runStageWithin(
         _loadAlphabet,
         budget: remaining(),
         name: 'ocr-alphabet',
         cancellation: token,
       );
-      if (alphabetOutcome.wasCancelled) throw const OperationCancelled();
       if (alphabetOutcome.didTimeOut) {
         return OcrTextResult.unavailable(
           unavailableReason: 'time-budget-exceeded',
@@ -199,6 +202,7 @@ class PaddleOcrEngine implements OcrEngine {
       final inputs = await Isolate.run(
         () => prepareOcrLineInputs(imageBytes, quads),
       );
+      stage = 'ocr-recognition';
       final sourceWidth = detection.width * detection.scaleX;
       final sourceHeight = detection.height * detection.scaleY;
       final lines = <OcrLine>[];
@@ -215,7 +219,6 @@ class PaddleOcrEngine implements OcrEngine {
           name: 'ocr-recognition',
           cancellation: token,
         );
-        if (recognitionOutcome.wasCancelled) throw const OperationCancelled();
         if (recognitionOutcome.didTimeOut) {
           // Keep the lines already decoded: a partial transcript is honest
           // evidence, and the caller still learns the budget was hit.
@@ -273,7 +276,15 @@ class PaddleOcrEngine implements OcrEngine {
         unavailableReason: 'model-unavailable',
         engineVersion: version,
       );
-    } catch (_) {
+    } catch (error) {
+      // Report the failure class, never the image or the text: a field report
+      // has to distinguish "the graph threw" from "the plugin never answered".
+      developer.log(
+        'ocr engine failure stage=$stage error=${error.runtimeType} '
+        'version=$version',
+        name: 'scan_id.ocr',
+        error: error,
+      );
       return OcrTextResult.unavailable(
         unavailableReason: 'engine-failure',
         engineVersion: version,

@@ -239,7 +239,7 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
     final minutes = _elapsed.inMinutes;
     final seconds = _elapsed.inSeconds % 60;
     return minutes == 0
-        ? '${seconds}ث'
+        ? '$seconds ث'
         : '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 

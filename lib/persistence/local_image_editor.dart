@@ -122,7 +122,6 @@ class LocalImageEditor
         name: 'boundary-cascade',
         cancellation: cancellation,
       );
-      if (outcome.wasCancelled) throw const OperationCancelled();
       if (outcome.didTimeOut) {
         // A stuck native call must not hold the import: the classical detector
         // below is independent of the plugin and stays review-only.

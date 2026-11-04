@@ -223,7 +223,7 @@ void main() {
 
   test('a stalled recognition graph keeps the lines already decoded', () async {
     final runtime = _SlowRecognitionRuntime(
-      detection: (input) => _detectionWithBands(input, 2),
+      slowDetection: (input) => _detectionWithBands(input, 2),
     );
     final engine = PaddleOcrEngine(
       runtime: runtime,

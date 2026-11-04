@@ -554,7 +554,6 @@ class RecognitionPipeline {
             name: 'pipeline-ocr',
             cancellation: token,
           );
-          if (ocrOutcome.wasCancelled) throw const OperationCancelled();
           if (ocrOutcome.didTimeOut) {
             issues.add(
               const BatchItemFailure(

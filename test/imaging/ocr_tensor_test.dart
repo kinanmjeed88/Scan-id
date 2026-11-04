@@ -39,7 +39,7 @@ void main() {
 
     expect(input.width, ocrDetLongSide);
     expect(input.height, ocrDetLongSide);
-    expect(input.scaleX, closeTo(.01, 1e-9));
+    expect(input.scaleX, closeTo(10 / ocrDetLongSide, 1e-9));
   });
 
   test('a wide card keeps its orientation in the detection tensor', () {

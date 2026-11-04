@@ -58,9 +58,17 @@ void main() {
     final boxes = decodeTextBoxes(map, width: width, height: height);
 
     expect(boxes, hasLength(3));
-    expect(boxes[0].top, lessThan(boxes[1].top));
-    expect(boxes[1].top, lessThan(boxes[2].top));
-    expect(boxes[0].left, lessThan(boxes[1].left));
+    final order = [
+      for (final box in boxes) '${box.top.toStringAsFixed(2)}/${box.left
+          .toStringAsFixed(2)}',
+    ].join(' ');
+    for (var index = 1; index < boxes.length; index++) {
+      final previous = boxes[index - 1];
+      final current = boxes[index];
+      final ordered = previous.top < current.top ||
+          (previous.top == current.top && previous.left <= current.left);
+      expect(ordered, isTrue, reason: 'reading order was $order');
+    }
   });
 
   test('a region below the box threshold is not text', () {

@@ -106,7 +106,7 @@ void main() {
     });
 
     test('logits are converted with a per-row softmax', () {
-      final values = Float32List.fromList([0, 0, 1, 1]);
+      final values = Float32List.fromList([0, 0, 0, 1]);
 
       final probabilities = probabilitiesFromLogits(
         values,

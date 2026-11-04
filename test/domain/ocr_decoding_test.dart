@@ -116,8 +116,8 @@ void main() {
 
       expect(probabilities[0], closeTo(.5, 1e-6));
       expect(probabilities[1], closeTo(.5, 1e-6));
-      expect(probabilities[2], closeTo(.7310585, 1e-6));
-      expect(probabilities[3], closeTo(.2689414, 1e-6));
+      expect(probabilities[2], closeTo(.2689414, 1e-6));
+      expect(probabilities[3], closeTo(.7310585, 1e-6));
     });
   });
 

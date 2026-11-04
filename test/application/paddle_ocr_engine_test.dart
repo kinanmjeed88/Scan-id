@@ -269,7 +269,11 @@ void main() {
 
     final second = await engine.recognize(_documentPng());
 
-    expect(second.isAvailable, isTrue, reason: 'the retry is not stuck on 0 / 1');
+    expect(
+      second.isAvailable,
+      isTrue,
+      reason: 'the retry is not stuck on 0 / 1',
+    );
     expect(second.lines, isNotEmpty);
     expect(runtime.detectionCalls, 2, reason: 'the second call ran detection');
   });

@@ -218,11 +218,11 @@ void main() {
       itemCounts.add(current.items.length);
     }
 
-    expect(
-      completedPerRun,
-      [1, 1, 1],
-      reason: 'every run finishes, including the stalled one',
-    );
+    expect(completedPerRun, [
+      1,
+      1,
+      1,
+    ], reason: 'every run finishes, including the stalled one');
     expect(
       itemCounts,
       [1, 2, 3],

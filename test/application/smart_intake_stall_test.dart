@@ -70,10 +70,8 @@ class _SelectiveEditor implements ImageEditor {
   }) => inner.preview(asset, recipe, cancellation: cancellation);
 
   @override
-  Future<ImageAsset> createRevision(
-    ImageAsset asset,
-    ImageEditRecipe recipe,
-  ) => inner.createRevision(asset, recipe);
+  Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
+      inner.createRevision(asset, recipe);
 }
 
 void main() {
@@ -125,11 +123,9 @@ void main() {
     );
     BatchProgress? last;
 
-    final report = await intake.run(
-      project,
-      [assetId],
-      onProgress: (progress) => last = progress,
-    );
+    final report = await intake.run(project, [
+      assetId,
+    ], onProgress: (progress) => last = progress);
 
     expect(last, isNotNull);
     expect(
@@ -174,19 +170,18 @@ void main() {
     );
     BatchProgress? last;
 
-    final report = await intake.run(
-      project,
-      [stalled, assetsInProject.last.id],
-      onProgress: (progress) => last = progress,
-    );
+    final report = await intake.run(project, [
+      stalled,
+      assetsInProject.last.id,
+    ], onProgress: (progress) => last = progress);
 
     expect(editor.stalls, 1);
     expect(last!.completed, 2, reason: 'both images reached a final outcome');
     expect(report.project.items, hasLength(2));
-    expect(
-      report.project.items.map((item) => item.assetId).toSet(),
-      {stalled, assetsInProject.last.id},
-    );
+    expect(report.project.items.map((item) => item.assetId).toSet(), {
+      stalled,
+      assetsInProject.last.id,
+    });
     expect(report.warnings, isNotEmpty);
   });
 
@@ -206,11 +201,9 @@ void main() {
       analysisBudget: const Duration(minutes: 5),
     );
 
-    final pending = intake.run(
-      project,
-      [assetsInProject.single.id],
-      cancellation: token,
-    );
+    final pending = intake.run(project, [
+      assetsInProject.single.id,
+    ], cancellation: token);
     await Future<void>.delayed(const Duration(milliseconds: 20));
     token.cancel();
 

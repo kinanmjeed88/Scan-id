@@ -1,6 +1,15 @@
 # OCR evaluation — Scan ID
 
-**Status (2026-11-04): no OCR engine ships in this build.** The current code adds a disabled-by-default `OcrEngine` seam, per-region in-memory cropping, and conservative multi-anchor OCR evidence. Synthetic fixed-string tests exercise those contracts only; they do not execute OCR, measure CER/WER, or establish Iraqi-document accuracy. This document records why no engine was selected and what must be true before one can be.
+**Status superseded (2026-11-04): an OCR engine now ships.** The decision below
+was reversed after the official ONNX exports of PP-OCRv5 became available: the
+shipped engine, its tensors, dictionary, licences, limits and verification status
+are documented in [`OCR_ENGINE.md`](OCR_ENGINE.md). What follows is kept as the
+record of the options evaluation that led to shipping nothing at the time — the
+reasons for rejecting ML Kit, Tesseract and Windows.Media.Ocr still hold, and the
+"PaddleOCR as a research candidate only" section is the path that was eventually
+taken with a pinned export rather than an unverified third-party artifact.
+
+**Previous status (2026-11-04): no OCR engine ships in this build.** The current code adds a disabled-by-default `OcrEngine` seam, per-region in-memory cropping, and conservative multi-anchor OCR evidence. Synthetic fixed-string tests exercise those contracts only; they do not execute OCR, measure CER/WER, or establish Iraqi-document accuracy. This document records why no engine was selected and what must be true before one can be.
 
 **Historical source revision audited:** `d142e85ab927e7c5503c61c9b105216409d1e69a` on `arena/84234269-scan-id`; GitHub Actions run `40335966175` built/tested Android and Windows successfully, but contains no OCR runtime or CER/WER test. Those historical results do not validate the current branch.
 
@@ -97,9 +106,13 @@ Supports Arabic through a language pack, offline, with zero added app size.
 would mean two engines with two accuracy profiles for the same Iraqi document —
 which is worse for the user than having no OCR and saying so.
 
-## Decision
+## Decision (superseded — see OCR_ENGINE.md)
 
-**No OCR engine is integrated or selected.** ONNX Runtime plus a PP-OCRv5
+**No OCR engine is integrated or selected.** *(This was the decision at the time
+of writing; it was superseded by the shipped PP-OCRv5 engine documented in
+[`OCR_ENGINE.md`](OCR_ENGINE.md), whose weights are pinned by size and SHA-256 and
+whose real inference now runs in CI. No Arabic accuracy figure is claimed for it:
+the gap described in point 1 below is still open.)* ONNX Runtime plus a PP-OCRv5
 Arabic detection/recognition export is one research route behind the existing
 `OcrEngine` interface; the approximately 12.2 MiB size is a third-party report,
 not a verified project artifact. It is not shippable on the evidence available

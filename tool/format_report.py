@@ -22,6 +22,11 @@ from pathlib import Path
 COMMAND = ["dart", "format", "--output=none", "--set-exit-if-changed", "."]
 SHOW_COMMAND = ["dart", "format", "--output=show"]
 MAX_DIFF_LINES_PER_FILE = 400
+# A CI log is not always reachable (GitHub serves it from object storage, which
+# some network policies block). Annotations travel with the check run itself, so
+# the same diff is also published there, chunked to stay well inside the limit.
+ANNOTATION_CHUNK_CHARS = 3_500
+MAX_ANNOTATIONS_PER_FILE = 4
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:
@@ -32,6 +37,15 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
         encoding="utf-8",
         errors="replace",
         check=False,
+    )
+
+
+def emit_annotation(message: str, *, path: Path, part: int) -> None:
+    """Publish one chunk of the formatter diff as a workflow annotation."""
+    escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(
+        f"::error title=dart-format-diff {path.as_posix()} part {part} "
+        f"file={path.as_posix()}::{escaped}"
     )
 
 
@@ -62,6 +76,14 @@ def report_diff(path: Path) -> None:
         print(line.rstrip("\n"))
     if len(diff) > MAX_DIFF_LINES_PER_FILE:
         print(f"... {len(diff) - MAX_DIFF_LINES_PER_FILE} more diff lines")
+    text = "\n".join(line.rstrip("\n") for line in diff[:MAX_DIFF_LINES_PER_FILE])
+    for part, start in enumerate(
+        range(0, len(text), ANNOTATION_CHUNK_CHARS), start=1
+    ):
+        if part > MAX_ANNOTATIONS_PER_FILE:
+            print(f"... {path.as_posix()}: annotation budget exhausted")
+            break
+        emit_annotation(text[start : start + ANNOTATION_CHUNK_CHARS], path=path, part=part)
 
 
 def main() -> int:

@@ -100,6 +100,21 @@ presentation/intake.dart  runIntakeWithProgress → IntakeRunner.run(onProgress:
 - **Windows:** الاختبارات الجديدة تعمل على مضيف الاختبار (Dart VM)، وبناء Windows يجري في CI.
 - بوابات CI على آخر SHA: تُسجَّل في `docs/WORK_PROGRESS.md` بعد تشغيلها.
 
+## 8.1 نتيجة CI الأولى (تشغيل 41886170937 على `5eeef7e`) وما كشفته
+
+- `android`: التحليل الثابت نجح، و**1054 اختبارًا جرت فعليًا** بـ 5 إخفاقات، منها ثلاثة اختبارات محرك
+  كانت ناجحة قبل التغيير.
+- `windows`: كل استدعاء تعرّف رجع `engine-failure`، والسبب المطبوع من التشخيص:
+  `stage=ocr-detection type=ArgumentError Invalid argument(s): Illegal ...` أي
+  **`Illegal argument in isolate message`**.
+- **السبب:** إضافة دالة محلية للميزانية (`remaining()` مع `Stopwatch`) في نطاق `recognize` جعلت
+  closures الخاصة بـ `Isolate.run` تُرسَل مع سياق يحمل كائنًا غير قابل للإرسال، ففشل إنشاء الرسالة
+  قبل أي استدعاء ONNX. هذا عيب في الإصلاح نفسه وليس في التطبيق الأصلي، وقد صُحّح بنقل تسليمات
+  الـ isolate إلى دوال مستقلة، وبفصل استدعاء سلسلة الحدود عن مسار `runCancellableIsolate`.
+- **الدروس المثبتة:** أي closure يُرسَل إلى isolate يجب ألا يشارك نطاقًا يحتوي `Stopwatch` أو كائنات
+  المنصة؛ و`developer.log` لا يظهر في تعليقات CI، لذا صار التشخيص يُمرَّر في نص سبب الفشل
+  (`lastFailureDiagnostic`) ليكون مرئيًا في أي تقرير ميداني.
+
 ## 9. ما لم يُحل / الخطوة التالية الدقيقة
 
 1. **تحديد الاستدعاء الأصلي العالق بدقة** يحتاج سجلًّا من الجهاز:

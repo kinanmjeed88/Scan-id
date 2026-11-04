@@ -27,6 +27,26 @@
 - **حالة CI:** في قائمة الانتظار (queued) على `a011b88` — لم تبدأ بعد؛ لا نتيجة.
 - **الخطوة التالية:** متابعة Actions حتى النجاح، ثم تسجيل النتيجة النهائية هنا.
 
+## 2026-11-04 — وحدة العمل 4: أول نتيجة CI حقيقية وإصلاح السبب الذي كشفته
+
+- **SHA المدفوع:** `5eeef7e` (بعد `99aa2ad`، `1fd0bf8`، `2b1c9e9`، `a011b88`).
+- **نتائج التشغيل 41886170937 على `5eeef7e` (فشل):**
+  - `android`: `Flutter analyze` نجح هذه المرة، والاختبارات جرت فعليًا: **1054 اختبارًا، 5 إخفاقات**:
+    `smart_intake_stall_test: one stalled image still completes the import`، وأربعة من `paddle_ocr_engine_test`
+    (منها ثلاثة كانت ناجحة قبل هذا التغيير).
+  - `windows`: خطوة `Run bundled PP-OCRv5 inference on Windows` فشلت في كل استدعاء، والسبب المطبوع:
+    `unavailable: engine-failure stage=ocr-detection type=ArgumentError Invalid argument(s): Illegal ...`
+  - `Android debug/diagnostic differential` و`android` و`windows` كلها فاشلة، `Android 16 startup evidence` متخطّى.
+- **السبب الجذري المكتشف (مثبت من رسالة CI، لا تخمين):** إضافة `remaining()` (دالة محلية) والالتفافات
+  حول المراحل داخل `recognize` أدخلت `Stopwatch` وكائنات غير قابلة للإرسال في نطاق الدالة نفسه الذي
+  تُنشأ فيه closures الخاصة بـ `Isolate.run`. `Isolate.run` يرسل الـ closure مع سياق نطاقه، فصار
+  إرسال الرسالة يفشل بـ `ArgumentError: Illegal argument in isolate message`، فيرجع كل استدعاء
+  `engine-failure` بلا أي تعرّف. لم يكن هذا线与 Android خاصًا: أسقط أيضًا اختبارات المحرك الأربعة على المضيف.
+- **الإصلاح:** نقل تسليمات الـ isolate إلى دوال عليا مستقلة (`prepareOcrDetectionIsolated`,
+  `locateOcrLinesIsolated`, `prepareOcrLineInputsIsolated`) بحيث لا يحمل سياقها إلا البايتات
+  والتنسورات؛ ونقل استدعاء سلسلة الحدود المعلّمة إلى `_boundedCascade` في `local_image_editor.dart`
+  لأن نطاقها نفسه فيه `runCancellableIsolate` (الكاشف الكلاسيكي).
+
 ## الخطوة التالية الدقيقة
 
 1. `python3 tool/check_source.py` و`tool/check_detector_retirement.py` و`tool/check_workflow_permissions.py` (فحوص المستودع المحلية).

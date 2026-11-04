@@ -116,12 +116,7 @@ class LocalImageEditor
     cancellation?.throwIfCancelled();
     final learned = boundaryProposer;
     if (learned != null) {
-      final outcome = await runStageWithin(
-        () => learned.suggestProposal(preview, cancellation: cancellation),
-        budget: boundaryBudget,
-        name: 'boundary-cascade',
-        cancellation: cancellation,
-      );
+      final outcome = await _boundedCascade(learned, preview, cancellation);
       if (outcome.didTimeOut) {
         // A stuck native call must not hold the import: the classical detector
         // below is independent of the plugin and stays review-only.
@@ -169,6 +164,25 @@ class LocalImageEditor
       // producer to manual review pending local calibration data.
     );
   }
+
+  /// Runs the offline cascade in its own scope.
+  ///
+  /// The classical detector below hands a closure to `runCancellableIsolate`,
+  /// and that message may carry the preview bytes only. Creating the cascade
+  /// closure here — in a scope that holds nothing else — keeps the two hand-offs
+  /// apart: while they shared a scope, the isolate message also carried the
+  /// cascade object, so the classical fallback failed with
+  /// `ArgumentError: Illegal argument in isolate message`.
+  Future<StageOutcome<BoundaryProposal?>> _boundedCascade(
+    BoundaryProposalModel learned,
+    Uint8List preview,
+    CancellationToken? cancellation,
+  ) => runStageWithin<BoundaryProposal?>(
+    () => learned.suggestProposal(preview, cancellation: cancellation),
+    budget: boundaryBudget,
+    name: 'boundary-cascade',
+    cancellation: cancellation,
+  );
 
   @override
   Future<List<Point2>?> suggest(Uint8List preview) async =>

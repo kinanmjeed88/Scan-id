@@ -93,6 +93,30 @@ List<OcrLineInput> prepareOcrLineInputs(
   return [for (final quad in quads) buildOcrLineInput(image, quad)];
 }
 
+/// Isolate hand-offs live in their own top-level functions on purpose.
+///
+/// `Isolate.run` sends the closure together with the variables its enclosing
+/// scope captured. When these closures shared `recognize`'s scope with the stage
+/// budget (a `Stopwatch`) and the stage closures, the message carried an
+/// unsendable object and every call failed with `ArgumentError: Illegal
+/// argument in isolate message`, which surfaced as `engine-failure` for every
+/// page. Keeping the hand-off alone in its own scope means the message carries
+/// only the bytes and the tensors.
+Future<OcrDetInput> prepareOcrDetectionIsolated(Uint8List imageBytes) =>
+    Isolate.run(() => prepareOcrDetection(imageBytes));
+
+/// Maps a probability map onto source pixels without capturing the caller scope.
+Future<List<TextLineBox>> locateOcrLinesIsolated({
+  required OcrDetOutput map,
+  required OcrDetInput detection,
+}) => Isolate.run(() => locateOcrLines(map: map, detection: detection));
+
+/// Builds the recognition tensors without capturing the caller scope.
+Future<List<OcrLineInput>> prepareOcrLineInputsIsolated(
+  Uint8List imageBytes,
+  List<List<Point2>> quads,
+) => Isolate.run(() => prepareOcrLineInputs(imageBytes, quads));
+
 class PaddleOcrEngine implements OcrEngine {
   PaddleOcrEngine({
     PpocrRuntime? runtime,
@@ -155,9 +179,7 @@ class PaddleOcrEngine implements OcrEngine {
     // recording image bytes or recognised text.
     var stage = 'ocr-detection';
     try {
-      final detection = await Isolate.run(
-        () => prepareOcrDetection(imageBytes),
-      );
+      final detection = await prepareOcrDetectionIsolated(imageBytes);
       token?.throwIfCancelled();
       final detectionOutcome = await runStageWithin(
         () => _runtime.runDetection(detection),
@@ -178,8 +200,9 @@ class PaddleOcrEngine implements OcrEngine {
       }
       final map = detectionOutcome.value!;
       token?.throwIfCancelled();
-      final located = await Isolate.run(
-        () => locateOcrLines(map: map, detection: detection),
+      final located = await locateOcrLinesIsolated(
+        map: map,
+        detection: detection,
       );
       token?.throwIfCancelled();
       if (located.isEmpty) {
@@ -205,9 +228,7 @@ class PaddleOcrEngine implements OcrEngine {
       final alphabet = alphabetOutcome.value!;
       token?.throwIfCancelled();
       final quads = [for (final box in located.take(maxLines)) box.corners];
-      final inputs = await Isolate.run(
-        () => prepareOcrLineInputs(imageBytes, quads),
-      );
+      final inputs = await prepareOcrLineInputsIsolated(imageBytes, quads);
       stage = 'ocr-recognition';
       final sourceWidth = detection.width * detection.scaleX;
       final sourceHeight = detection.height * detection.scaleY;

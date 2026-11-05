@@ -34,6 +34,10 @@ fingerprint="$(keytool -list -v -keystore "$keystore" -storepass "$password" \
 }
 
 timeout 60 adb -s "$serial" wait-for-device
+# The preceding instrumentation step may have installed a debug-signed package
+# with the same applicationId. Remove it so the disposable test signature can be
+# installed cleanly; this emulator is disposable and holds no user data.
+adb -s "$serial" uninstall iq.scanid.scan_id >/dev/null 2>&1 || true
 adb -s "$serial" logcat -c
 set +e
 KEYSTORE_BASE64="$(base64 -w 0 "$keystore")" \

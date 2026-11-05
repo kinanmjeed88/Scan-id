@@ -23,30 +23,11 @@ if (localSigningPropertiesFile.isFile) {
     }
 }
 
-// CI-only R8/AOT regression. Flutter's host-driven integration tests need a VM
-// service, which release mode does not expose, so the regression runs profile
-// AOT with the same R8 transformation and the same app keep rules. This property
-// is never set by the production release workflows.
-val r8ProfileRequested = providers.gradleProperty("scanIdR8Profile")
+// CI-only selector for the native Release intake regression. Ordinary debug
+// instrumentation and every production build keep the default debug test APK.
+val releaseIntakeTestRequested = providers.gradleProperty("scanIdReleaseIntakeTest")
     .orNull
     ?.equals("true", ignoreCase = true) == true
-val flutterProguardRulesForProfile = if (r8ProfileRequested) {
-    val flutterLocalProperties = Properties()
-    val flutterLocalPropertiesFile = rootProject.file("local.properties")
-    if (!flutterLocalPropertiesFile.isFile) {
-        throw GradleException("scanIdR8Profile requires Flutter's generated android/local.properties.")
-    }
-    flutterLocalPropertiesFile.inputStream().use(flutterLocalProperties::load)
-    val flutterSdkPath = flutterLocalProperties.getProperty("flutter.sdk")
-        ?: throw GradleException("scanIdR8Profile requires flutter.sdk in android/local.properties.")
-    val rules = File(flutterSdkPath, "packages/flutter_tools/gradle/flutter_proguard_rules.pro")
-    if (!rules.isFile) {
-        throw GradleException("Flutter SDK ProGuard rules are missing: ${rules.absolutePath}")
-    }
-    rules
-} else {
-    null
-}
 
 // Environment variables take precedence; key.properties is a git-ignored local fallback.
 val keyStoreBase64 = providers.environmentVariable("KEYSTORE_BASE64").orNull
@@ -266,6 +247,7 @@ android {
     namespace = "iq.scanid.scan_id"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+    testBuildType = if (releaseIntakeTestRequested) "release" else "debug"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -374,40 +356,11 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
-        if (r8ProfileRequested) {
-            getByName("profile") {
-                isMinifyEnabled = true
-                isShrinkResources = true
-                proguardFiles(
-                    getDefaultProguardFile("proguard-android-optimize.txt"),
-                    flutterProguardRulesForProfile!!,
-                    "proguard-rules.pro",
-                )
-                if (releaseKeyStoreFile != null) {
-                    signingConfig = signingConfigs.getByName("release")
-                }
-            }
-        }
     }
 }
 
 flutter {
     source = "../.."
-}
-
-// CI-only profile R8: AGP 8.9 can schedule a plugin library's minifyProfileWithR8
-// before :app:extractProguardFiles even though it consumes the extracted default
-// ProGuard file. Declare the missing dependency explicitly for this test-only
-// transformation; production release task wiring is unchanged.
-if (r8ProfileRequested) {
-    gradle.projectsEvaluated {
-        val extractProguardFiles = rootProject.project(":app").tasks.named("extractProguardFiles")
-        rootProject.allprojects {
-            tasks.matching { it.name == "minifyProfileWithR8" }.configureEach {
-                dependsOn(extractProguardFiles)
-            }
-        }
-    }
 }
 
 // Apache-2.0 AndroidX FileProvider; scoped camera URI grants, no storage permission.

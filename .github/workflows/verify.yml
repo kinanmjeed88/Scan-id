@@ -548,14 +548,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # The user-visible crash appeared only after R8/AOT packaging. Debug
-      # inference cannot reproduce that transformation. Flutter host-driven
-      # integration tests need a VM service, so this uses profile AOT with R8
-      # explicitly enabled; the keep rules are the same ones release loads.
-      # The test package is signed with a disposable local key (never a
-      # repository secret), runs the real four-model intake, and is NOT uploaded
-      # as an application APK.
-      - name: Android R8/AOT intake regression (disposable test key)
+      # The user-visible crash appeared only in the signed Release package.
+      # Android instrumentation drives the actual Release Dart entrypoint over
+      # a test-only MethodChannel: no VM service or Profile substitute. The APK
+      # uses a disposable local key, never production secrets, and is not uploaded.
+      - name: Android signed Release R8 intake regression (disposable test key)
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
@@ -572,7 +569,10 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-r8-release-evidence
-          path: diagnostics/android-release/
+          path: |
+            diagnostics/android-release/
+            build/app/reports/androidTests/connected/
+            build/app/outputs/androidTest-results/connected/
           if-no-files-found: warn
           retention-days: 7
 

@@ -395,6 +395,21 @@ flutter {
     source = "../.."
 }
 
+// CI-only profile R8: AGP 8.9 can schedule a plugin library's minifyProfileWithR8
+// before :app:extractProguardFiles even though it consumes the extracted default
+// ProGuard file. Declare the missing dependency explicitly for this test-only
+// transformation; production release task wiring is unchanged.
+if (r8ProfileRequested) {
+    gradle.projectsEvaluated {
+        val extractProguardFiles = rootProject.project(":app").tasks.named("extractProguardFiles")
+        rootProject.allprojects {
+            tasks.matching { it.name == "minifyProfileWithR8" }.configureEach {
+                dependsOn(extractProguardFiles)
+            }
+        }
+    }
+}
+
 // Apache-2.0 AndroidX FileProvider; scoped camera URI grants, no storage permission.
 dependencies {
     implementation("androidx.core:core:1.13.1")

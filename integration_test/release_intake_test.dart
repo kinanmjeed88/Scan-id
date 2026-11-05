@@ -66,7 +66,8 @@ void main() {
       expect(
         const bool.fromEnvironment('dart.vm.product'),
         isTrue,
-        reason: 'This regression must run in an AOT release package, not Debug.',
+        reason:
+            'This regression must run in an AOT release package, not Debug.',
       );
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       final photo = await _syntheticPage();
@@ -102,13 +103,14 @@ void main() {
         );
         final project = await service.create('اختبار التحليل في Release');
         final progress = <BatchProgress>[];
-        final run = await IntakeRunner(
-          service: service,
-          project: project,
-          onTrace: events.add,
-        ).run([
-          ImportSource('synthetic.png', () => Stream.value(photo)),
-        ], onProgress: progress.add);
+        final run =
+            await IntakeRunner(
+              service: service,
+              project: project,
+              onTrace: events.add,
+            ).run([
+              ImportSource('synthetic.png', () => Stream.value(photo)),
+            ], onProgress: progress.add);
 
         expect(run.error, isNull);
         expect(run.importedCount, 1);
@@ -120,7 +122,10 @@ void main() {
         final asset = run.project.assets.single;
         expect(run.project.items.single.assetId, asset.id);
         final original = await assets.resolve(asset.originalPath);
-        expect(sha256.convert(await original.readAsBytes()).toString(), originalHash);
+        expect(
+          sha256.convert(await original.readAsBytes()).toString(),
+          originalHash,
+        );
 
         // The cascade/OCR deliberately catch failures for manual fallback.
         // A completed dialog alone would therefore hide the original defect.
@@ -128,7 +133,8 @@ void main() {
         for (final phase in nativePhases) {
           expect(
             events.where(
-              (event) => event.phase == phase && event.event == 'native_completed',
+              (event) =>
+                  event.phase == phase && event.event == 'native_completed',
             ),
             isNotEmpty,
             reason: 'Release JNI inference did not complete: $phase',
@@ -172,11 +178,9 @@ void main() {
           ocr: ocr,
         );
         final retryProgress = <BatchProgress>[];
-        final retry = await retryService.reprocessImages(
-          reopened,
-          [asset.id],
-          onProgress: retryProgress.add,
-        );
+        final retry = await retryService.reprocessImages(reopened, [
+          asset.id,
+        ], onProgress: retryProgress.add);
         expect(retry, isNotNull);
         expect(
           retry!.warnings.where(

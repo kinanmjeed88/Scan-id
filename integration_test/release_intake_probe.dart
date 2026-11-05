@@ -49,8 +49,9 @@ Future<Uint8List> _syntheticPage() async {
   final image = await recorder.endRecording().toImage(1000, 700);
   final data = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
-  if (data == null)
+  if (data == null) {
     throw StateError('Synthetic page encoding returned no PNG.');
+  }
   return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 }
 

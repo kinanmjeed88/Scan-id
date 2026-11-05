@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:isolate';
 
 import '../domain/validation.dart';
+import 'import_trace.dart';
 
 /// Thrown by [CancellationToken.throwIfCancelled]. Not an error: callers
 /// treat it as a clean early stop and report partial results.
@@ -87,12 +88,17 @@ Future<T> runCancellableIsolate<T>(
   String? debugName,
 }) async {
   cancellation?.throwIfCancelled();
+  final trace = ImportTrace.current;
+  final traceOperation = trace?.nextOperation();
+  trace?.emit('isolate_started', phase: debugName ?? 'read-only',
+      operationId: traceOperation);
   final results = ReceivePort();
-  final exits = ReceivePort();
   final completer = Completer<T>();
+  // Cancellation can happen while spawn is still pending. Observe the error
+  // immediately rather than waiting until spawn returns to attach a handler.
+  unawaited(completer.future.then<void>((_) {}, onError: (Object _, StackTrace __) {}));
   Isolate? worker;
   var done = false;
-  var resultReceived = false;
 
   void Function()? onCancel;
   void finish() {
@@ -102,11 +108,12 @@ Future<T> runCancellableIsolate<T>(
     if (listener != null) cancellation?.removeListener(listener);
     worker?.kill(priority: Isolate.immediate);
     results.close();
-    exits.close();
   }
 
   void cancel() {
     if (!completer.isCompleted) {
+      trace?.emit('isolate_cancelled', phase: debugName ?? 'read-only',
+          operationId: traceOperation);
       completer.completeError(const OperationCancelled());
     }
     finish();
@@ -114,21 +121,27 @@ Future<T> runCancellableIsolate<T>(
 
   onCancel = cancel;
   cancellation?.addListener(cancel);
-  final exitSubscription = exits.listen((_) {
-    if (!done && !resultReceived && !completer.isCompleted) {
+  // Result and exit use the same port: separate ports can deliver the exit
+  // notification before an already-sent result, producing a false failure.
+  final subscription = results.listen((Object? message) {
+    if (done || completer.isCompleted) return;
+    if (message == null) {
+      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
+          operationId: traceOperation);
       completer.completeError(
         const ValidationException('توقفت معالجة الصورة قبل إكمال المعاينة.'),
       );
+      finish();
+      return;
     }
-    finish();
-  });
-  final subscription = results.listen((Object? message) {
-    if (done || completer.isCompleted) return;
-    resultReceived = true;
     final result = message as (T?, Object?, StackTrace?);
     if (result.$2 != null) {
+      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
+          operationId: traceOperation, error: result.$2);
       completer.completeError(result.$2!, result.$3);
     } else {
+      trace?.emit('isolate_completed', phase: debugName ?? 'read-only',
+          operationId: traceOperation);
       completer.complete(result.$1 as T);
     }
     finish();
@@ -138,17 +151,25 @@ Future<T> runCancellableIsolate<T>(
       _runCancellableIsolate<T>,
       _CancellableIsolateRequest(results.sendPort, computation),
       debugName: debugName ?? 'scan-id-read-only',
-      onExit: exits.sendPort,
+      onExit: results.sendPort,
       errorsAreFatal: true,
     );
-    if (done) worker.kill(priority: Isolate.immediate);
+    if (done) {
+      worker.kill(priority: Isolate.immediate);
+    } else {
+      trace?.emit('isolate_spawned', phase: debugName ?? 'read-only',
+          operationId: traceOperation);
+    }
     return await completer.future;
-  } catch (_) {
+  } catch (error) {
+    if (!done) {
+      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
+          operationId: traceOperation, error: error);
+    }
     finish();
     rethrow;
   } finally {
     await subscription.cancel();
-    await exitSubscription.cancel();
   }
 }
 

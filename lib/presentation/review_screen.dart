@@ -151,6 +151,10 @@ class _ReviewDialog extends StatelessWidget {
               ],
             ),
           ),
+        if (kind != DocumentKind.unknown &&
+            !isUserResolved(record) &&
+            !record.overrides.any((override) => override.documentKind != null))
+          const Text('النوع المقترح يحتاج تأكيداً أو تصحيحاً.'),
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Wrap(

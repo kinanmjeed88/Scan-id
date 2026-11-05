@@ -111,6 +111,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       final latest = run.project;
       final automatic = run.layout;
       setState(() => _project = latest);
+      run.markUiStateApplied();
       final failure = run.error;
       if (failure != null && mounted) {
         showMessage(context, userError(failure));

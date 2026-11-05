@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 import 'dart:typed_data';
 
 import '../application/cancellation.dart';
+import '../application/import_trace.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import 'docquad_model.dart';
@@ -38,7 +39,10 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
     CancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
-    final source = decodeForProcessing(preview);
+    final (sourceWidth, sourceHeight) = await ImportTrace.stage(
+      'preprocessing', () => _previewDimensions(preview, cancellation),
+      phase: 'boundary-preview',
+    );
     final first = await _attempt(primary, preview, cancellation);
     cancellation?.throwIfCancelled();
     // Always execute the second AI detector: current confidence scores are not
@@ -47,14 +51,14 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
     final second = await _attempt(secondary, preview, cancellation);
     cancellation?.throwIfCancelled();
 
-    final firstValid = _usable(first, source.width, source.height);
-    final secondValid = _usable(second, source.width, source.height);
+    final firstValid = _usable(first, sourceWidth, sourceHeight);
+    final secondValid = _usable(second, sourceWidth, sourceHeight);
     if (firstValid && secondValid) {
       if (_materiallyDisagrees(
         first!.corners!,
         second!.corners!,
-        source.width,
-        source.height,
+        sourceWidth,
+        sourceHeight,
       )) {
         return BoundaryProposal(
           producer: first.producer,
@@ -86,14 +90,13 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
       return await model.suggestProposal(preview, cancellation: cancellation);
     } on OperationCancelled {
       rethrow;
-    } on Object catch (error, stackTrace) {
-      // Preserve a local diagnostic without exposing image bytes or blocking
-      // the next independent model/fallback stage.
+    } on Object catch (error) {
+      // Exception messages may contain paths or document content. Retain only
+      // the fixed model id and error type while continuing to the fallback.
       developer.log(
-        'Boundary detector ${model.modelId} failed; continuing cascade.',
+        'Boundary detector ${model.modelId} failed '
+        'type=${error.runtimeType}; continuing cascade.',
         name: 'scan_id.boundary',
-        error: error,
-        stackTrace: stackTrace,
       );
       return null;
     }
@@ -131,3 +134,12 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
     return false;
   }
 }
+
+// Decode in an isolated scope without capturing the cascade or native models.
+Future<(int, int)> _previewDimensions(
+  Uint8List preview,
+  CancellationToken? cancellation,
+) => runCancellableIsolate(() {
+  final source = decodeForProcessing(preview);
+  return (source.width, source.height);
+}, cancellation: cancellation, debugName: 'boundary-preview');

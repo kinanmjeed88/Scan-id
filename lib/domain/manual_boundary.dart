@@ -249,7 +249,9 @@ ManualBoundaryValidation validateManualBoundary({
       );
     }
     final natural = catalog.natural(resolvedKind);
-    if (natural != null && customSizeMm == null) {
+    if (natural != null &&
+        customSizeMm == null &&
+        presetStatusFor(resolvedKind) == PresetStatus.standard) {
       resolvedSize = catalog.sizeFor(resolvedKind, landscape: landscape);
     } else if (customSizeMm != null) {
       try {

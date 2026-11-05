@@ -181,6 +181,21 @@ void main() {
     expect(run.project.toJson(), (await projects.get(project.id)).toJson());
   });
 
+  test('runner recovers committed images after a progress callback fails', () async {
+    final project = await service.create('فشل التقدم');
+    final run = await IntakeRunner(service: service, project: project).run(
+      sources(1),
+      onProgress: (progress) {
+        if (progress.stage == importStageLabel && progress.completed == 1) {
+          throw StateError('test callback failure');
+        }
+      },
+    );
+    expect(run.error, isA<StateError>());
+    expect(run.importedCount, 1);
+    expect(run.project.toJson(), (await projects.get(project.id)).toJson());
+  });
+
   test('a cancelled runner leaves a committed, reloadable project', () async {
     final project = await service.create('مُشغّل مُلغى');
     final runner = IntakeRunner(service: service, project: project);

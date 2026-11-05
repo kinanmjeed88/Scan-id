@@ -41,6 +41,42 @@ ImageAsset _derivedFixture({
 );
 
 void main() {
+  test('estimated catalog dimensions require an explicit manual size', () {
+    final corners = [
+      Point2(.1, .1),
+      Point2(.9, .1),
+      Point2(.9, .8),
+      Point2(.1, .8),
+    ];
+    for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
+      final missing = validateManualBoundary(
+        corners: corners,
+        sourceWidth: 1200,
+        sourceHeight: 900,
+        documentKind: kind,
+        requireConfirmedSize: true,
+      );
+      expect(missing.isValid, isFalse);
+      expect(
+        missing.rejection,
+        ManualBoundaryRejection.unconfirmedDocumentSize,
+      );
+      final measured = validateManualBoundary(
+        corners: corners,
+        sourceWidth: 1200,
+        sourceHeight: 900,
+        documentKind: kind,
+        customSizeMm: const PhysicalSizeMm(90, 60),
+        requireConfirmedSize: true,
+      );
+      expect(measured.isValid, isTrue);
+      expect(
+        measured.confirmedSizeMm!.sameAs(const PhysicalSizeMm(90, 60)),
+        isTrue,
+      );
+    }
+  });
+
   group('validateManualBoundary — independent from automatic verifyBoundary', () {
     test(
       'accepts valid user-confirmed quad near frame edge or custom aspect that verifyBoundary refuses automatically',

@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import '../application/cancellation.dart';
+import '../application/import_trace.dart';
 import '../application/contracts.dart';
 import '../domain/boundary_decision.dart';
 import '../application/ids.dart';
@@ -80,7 +81,8 @@ class LocalImageEditor
     CancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
-    final bytes = await _source(asset);
+    final bytes = await ImportTrace.stage(
+      'source_read', () => _source(asset), phase: 'preview');
     cancellation?.throwIfCancelled();
     return runCancellableIsolate(
       () {
@@ -127,9 +129,9 @@ class LocalImageEditor
       } else {
         if (outcome.error != null) {
           developer.log(
-            'learned boundary stage failed; using the classical proposal',
+            'learned boundary stage failed '
+            'type=${outcome.error.runtimeType}; using the classical proposal',
             name: 'scan_id.boundary',
-            error: outcome.error,
           );
         } else if (outcome.value != null) {
           return outcome.value;

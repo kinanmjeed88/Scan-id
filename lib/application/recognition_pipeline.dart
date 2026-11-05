@@ -21,6 +21,7 @@ import '../domain/recognition_routing.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
+import 'import_trace.dart';
 import 'ocr_engine.dart';
 import 'stage_budget.dart';
 import 'recognition_worker.dart';
@@ -266,7 +267,8 @@ class RecognitionPipeline {
 
     SegmentationResult segmentation;
     try {
-      segmentation = await segment(input.previewBytes);
+      segmentation = await ImportTrace.stage(
+        'detection', () => segment(input.previewBytes), phase: 'segmentation');
     } on OperationCancelled {
       rethrow;
     } catch (_) {
@@ -355,17 +357,25 @@ class RecognitionPipeline {
       double? detConf;
       double? minAutoConf;
       var touchesEdge = false;
+      var forceReview = false;
+      BoundaryReviewReason? forceReviewReason;
       var producer = BoundaryProducer.wholeFrameDetector;
       try {
         if (suggestProposal != null) {
-          final prop = await suggestProposal!(input.previewBytes);
+          final prop = await ImportTrace.stage(
+            'detection', () => suggestProposal!(input.previewBytes),
+            phase: 'boundary');
           corners = prop?.corners;
           detConf = prop?.modelConfidence;
           minAutoConf = prop?.minAutoAcceptConfidence;
           touchesEdge = prop?.touchesFrameEdge ?? false;
+          forceReview = prop?.forceReview ?? false;
+          forceReviewReason = prop?.forceReviewReason;
           if (prop != null) producer = prop.producer;
         } else {
-          corners = await suggestSingle(input.previewBytes);
+          corners = await ImportTrace.stage(
+            'detection', () => suggestSingle(input.previewBytes),
+            phase: 'boundary');
         }
       } on OperationCancelled {
         rethrow;
@@ -388,6 +398,8 @@ class RecognitionPipeline {
           producer: producer,
           minAutoAcceptConfidence: minAutoConf,
           touchesFrameEdge: touchesEdge,
+          forceReview: forceReview,
+          forceReviewReason: forceReviewReason,
           issues: issues,
           token: token,
         ),
@@ -417,6 +429,7 @@ class RecognitionPipeline {
     double? minAutoAcceptConfidence,
     bool touchesFrameEdge = false,
     bool forceReview = false,
+    BoundaryReviewReason? forceReviewReason,
     List<double>? region,
     int regionIndex = 0,
     bool isolatedRegion = false,
@@ -488,6 +501,7 @@ class RecognitionPipeline {
         minAutoAcceptConfidence: minAutoAcceptConfidence,
         touchesFrameEdge: touchesFrameEdge,
         forceReview: forceReview,
+        forceReviewReason: forceReviewReason,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,
@@ -542,12 +556,16 @@ class RecognitionPipeline {
           engineVersion: ocr.version,
         );
       } else {
+        final trace = ImportTrace.current;
+        final ocrOperation = trace?.nextOperation();
+        trace?.emit('ocr_started', operationId: ocrOperation);
         try {
-          final ocrBytes = prepareOcrRegion(
+          final ocrBytes = await ImportTrace.stage('preprocessing', () => prepareOcrRegionIsolated(
             input.previewBytes,
             corners: ocrCorners,
             region: ocrCorners == null ? region : null,
-          );
+            cancellation: token,
+          ), phase: 'ocr-region');
           final ocrOutcome = await runStageWithin(
             () => ocr.recognize(ocrBytes, token: token),
             budget: ocrBudget,
@@ -555,6 +573,7 @@ class RecognitionPipeline {
             cancellation: token,
           );
           if (ocrOutcome.didTimeOut) {
+            trace?.emit('ocr_timeout', operationId: ocrOperation);
             issues.add(
               const BatchItemFailure(
                 category: RecognitionErrorCategory.ocrFailure,
@@ -573,10 +592,14 @@ class RecognitionPipeline {
               Error.throwWithStackTrace(ocrError, ocrOutcome.stackTrace!);
             }
             ocrResult = ocrOutcome.value!;
+            trace?.emit(ocrResult.isAvailable ? 'ocr_completed' : 'ocr_unavailable',
+                operationId: ocrOperation);
           }
-        } on OperationCancelled {
+        } on OperationCancelled catch (error) {
+          trace?.emit('ocr_cancelled', error: error, operationId: ocrOperation);
           rethrow;
-        } catch (_) {
+        } catch (error) {
+          trace?.emit('ocr_failed', error: error, operationId: ocrOperation);
           issues.add(
             const BatchItemFailure(
               category: RecognitionErrorCategory.ocrFailure,

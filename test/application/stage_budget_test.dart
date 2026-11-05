@@ -66,6 +66,25 @@ void main() {
     expect(started, isFalse, reason: 'no work starts after a cancel request');
   });
 
+  test('cancellation while waiting observes and releases a late value', () async {
+    final token = CancellationToken();
+    final late = Completer<String>();
+    String? released;
+    final pending = runStageWithin(
+      () => late.future,
+      budget: const Duration(minutes: 1),
+      name: 'cancel-pending',
+      cancellation: token,
+      onLateValue: (value) => released = value,
+    );
+    final expectation = expectLater(pending, throwsA(isA<OperationCancelled>()));
+    token.cancel();
+    await expectation;
+    late.complete('resource');
+    await Future<void>.delayed(Duration.zero);
+    expect(released, 'resource');
+  });
+
   test('a late value is released instead of leaked', () async {
     final late = Completer<String>();
     String? released;

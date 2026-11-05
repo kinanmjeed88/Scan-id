@@ -55,6 +55,16 @@ void main() {
     expect(prepareOcrRegion(source), same(source));
   });
 
+  test('isolated preparation preserves the measured crop', () async {
+    final bytes = await prepareOcrRegionIsolated(
+      _source(),
+      region: const [.25, .25, .75, .75],
+    );
+    final crop = img.decodeImage(bytes)!;
+    expect(crop.width, 50);
+    expect(crop.height, 50);
+  });
+
   test('invalid measured regions fail closed', () {
     for (final region in const [
       <double>[.2, .2, .1, .9],

@@ -40,6 +40,7 @@ import '../imaging/db_text_boxes.dart';
 import '../imaging/ocr_tensor.dart';
 import '../imaging/prepare_image.dart';
 import 'cancellation.dart';
+import 'import_trace.dart';
 import 'ocr_engine.dart';
 import 'ocr_model_assets.dart';
 import 'paddle_ocr_runtime.dart';
@@ -165,10 +166,10 @@ class PaddleOcrEngine implements OcrEngine {
     token?.throwIfCancelled();
     final stopwatch = Stopwatch()..start();
     // The budget covers EVERY native stage, not just the recognition loop. A
-    // session that never answers used to leave this future pending forever,
-    // which in the UI is an import dialog stuck at 0 / 1. Each native call is
-    // therefore bounded by what is left of the budget and an expired stage is
-    // reported as an explicit unavailable result.
+    // session that never answers can leave this future pending and the import
+    // progress at 0 / 1. The display alone does not establish the cause. Each
+    // native wait uses the remaining budget and reports expiry as unavailable;
+    // this cannot interrupt a native call or a blocked event loop.
     Duration remaining() {
       final left = timeBudget - stopwatch.elapsed;
       if (left < const Duration(seconds: 1)) return const Duration(seconds: 1);
@@ -179,7 +180,9 @@ class PaddleOcrEngine implements OcrEngine {
     // recording image bytes or recognised text.
     var stage = 'ocr-detection';
     try {
-      final detection = await prepareOcrDetectionIsolated(imageBytes);
+      final detection = await ImportTrace.stage(
+        'preprocessing', () => prepareOcrDetectionIsolated(imageBytes),
+        phase: 'ocr-detector-tensor');
       token?.throwIfCancelled();
       final detectionOutcome = await runStageWithin(
         () => _runtime.runDetection(detection),
@@ -201,10 +204,9 @@ class PaddleOcrEngine implements OcrEngine {
       }
       final map = detectionOutcome.value!;
       token?.throwIfCancelled();
-      final located = await locateOcrLinesIsolated(
-        map: map,
-        detection: detection,
-      );
+      final located = await ImportTrace.stage(
+        'preprocessing', () => locateOcrLinesIsolated(map: map, detection: detection),
+        phase: 'ocr-locate-lines');
       token?.throwIfCancelled();
       if (located.isEmpty) {
         return OcrTextResult.available(lines: const [], engineVersion: version);
@@ -229,7 +231,9 @@ class PaddleOcrEngine implements OcrEngine {
       final alphabet = alphabetOutcome.value!;
       token?.throwIfCancelled();
       final quads = [for (final box in located.take(maxLines)) box.corners];
-      final inputs = await prepareOcrLineInputsIsolated(imageBytes, quads);
+      final inputs = await ImportTrace.stage(
+        'preprocessing', () => prepareOcrLineInputsIsolated(imageBytes, quads),
+        phase: 'ocr-line-tensors');
       stage = 'ocr-recognition';
       final sourceWidth = detection.width * detection.scaleX;
       final sourceHeight = detection.height * detection.scaleY;
@@ -297,7 +301,8 @@ class PaddleOcrEngine implements OcrEngine {
       );
     } on OperationCancelled {
       rethrow;
-    } on PlatformException {
+    } on PlatformException catch (error) {
+      ImportTrace.current?.emit('ocr_runtime_failed', phase: stage, error: error);
       // A missing or unreadable model/session is an explicit unavailable state,
       // never an empty success: "no text found" and "could not look" must stay
       // distinguishable to the classifier and to the user.
@@ -306,15 +311,15 @@ class PaddleOcrEngine implements OcrEngine {
         engineVersion: version,
       );
     } catch (error) {
+      ImportTrace.current?.emit('ocr_runtime_failed', phase: stage, error: error);
       // Report the failure class, never the image or the text: a field report
       // has to distinguish "the graph threw" from "the plugin never answered".
       developer.log(
         'ocr engine failure stage=$stage error=${error.runtimeType} '
         'version=$version',
         name: 'scan_id.ocr',
-        error: error,
       );
-      lastFailureDiagnostic = 'stage=$stage type=${error.runtimeType} $error';
+      lastFailureDiagnostic = 'stage=$stage type=${error.runtimeType}';
       return OcrTextResult.unavailable(
         unavailableReason: 'engine-failure',
         engineVersion: version,

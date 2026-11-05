@@ -76,10 +76,9 @@ Project setKindWithOverride(Project project, String itemId, DocumentKind kind) {
 
 /// Confirms a reviewed recognition result without changing it. Idempotent.
 ///
-/// When the record's boundary is already resolved (accepted automatically or
-/// confirmed manually) and its effective category carries a catalog size, any
-/// unlocked layout item awaiting size confirmation receives that confirmed
-/// catalog size so it can enter the A4 arrangement immediately.
+/// When the boundary is resolved, applies the category to unlocked items still
+/// awaiting a size. Only documented catalog dimensions can be confirmed by
+/// that category selection; estimates remain provisional until explicitly sized.
 Project confirmRecognition(Project project, String documentId) {
   final record = _record(project, documentId);
   if (isUserResolved(record)) return project;

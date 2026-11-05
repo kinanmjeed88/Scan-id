@@ -15,7 +15,9 @@ import 'dart:typed_data';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
 import '../imaging/ocr_tensor.dart';
+import 'import_trace.dart';
 import 'ocr_model_assets.dart';
+import 'retirable_resource.dart';
 import 'stage_budget.dart';
 
 /// How long shutdown waits for a session that may still be in flight.
@@ -68,148 +70,90 @@ abstract interface class PpocrRuntime {
   /// A native call that fails inside the plugin's platform thread never replies,
   /// so the memoised future stays pending forever and every later attempt would
   /// await the same dead future. Abandoning it lets a retry start a fresh
-  /// session; a session that arrives after the deadline is closed instead of
-  /// leaked. This never awaits the stalled call itself, and it leaves the other
-  /// graph alone: a healthy detection session must not be torn down because one
-  /// recognition row stalled.
+  /// session. The detached session is closed only after all calls using it
+  /// finish, including calls awaiting creation. If native code never returns,
+  /// its session remains retained rather than being freed while still in use.
+  /// The other graph is left alone.
   void abandonStalledSessions(PpocrGraph graph);
 }
 
 /// ONNX Runtime implementation, created lazily on first use.
 class OrtPpocrRuntime implements PpocrRuntime {
-  OrtPpocrRuntime({OnnxRuntime? runtime}) : _runtime = runtime ?? OnnxRuntime();
-
-  final OnnxRuntime _runtime;
-  Future<OrtSession>? _detection;
-  Future<OrtSession>? _recognition;
-
-  Future<OrtSession> _detectionSession() => _createOnce(
-    () => _detection,
-    (created) => _detection = created,
-    () => _runtime.createSessionFromAsset(
-      ocrDetectionAssetPath,
-      options: OrtSessionOptions(intraOpNumThreads: 2),
-    ),
-  );
-
-  Future<OrtSession> _recognitionSession() => _createOnce(
-    () => _recognition,
-    (created) => _recognition = created,
-    () => _runtime.createSessionFromAsset(
-      ocrRecognizerAssetPath,
-      options: OrtSessionOptions(intraOpNumThreads: 2),
-    ),
-  );
-
-  /// Memoises one session creation, and forgets it again if it failed.
-  ///
-  /// A failed creation must not be memoised: reusing a permanently failed future
-  /// would make one transient failure (a memory spike on a small phone) last for
-  /// the rest of the process. The failure is still reported to this caller, and
-  /// only the attempt that is still current is cleared.
-  Future<OrtSession> _createOnce(
-    Future<OrtSession>? Function() read,
-    void Function(Future<OrtSession>? created) write,
-    Future<OrtSession> Function() create,
-  ) {
-    final current = read();
-    if (current != null) return current;
-    final created = create();
-    write(created);
-    created.then<void>(
-      (_) {},
-      onError: (Object error, StackTrace stackTrace) {
-        if (identical(read(), created)) write(null);
-      },
+  OrtPpocrRuntime({OnnxRuntime? runtime}) {
+    final backend = runtime ?? OnnxRuntime();
+    _detection = RetirableResource<OrtSession>(
+      create: () => ImportTrace.stage('native', () => backend.createSessionFromAsset(
+        ocrDetectionAssetPath,
+        options: OrtSessionOptions(intraOpNumThreads: 2),
+      ), phase: 'ocr-detection-session'),
+      dispose: (session) => session.close(),
     );
-    return created;
+    _recognition = RetirableResource<OrtSession>(
+      create: () => ImportTrace.stage('native', () => backend.createSessionFromAsset(
+        ocrRecognizerAssetPath,
+        options: OrtSessionOptions(intraOpNumThreads: 2),
+      ), phase: 'ocr-recognition-session'),
+      dispose: (session) => session.close(),
+    );
   }
+
+  late final RetirableResource<OrtSession> _detection;
+  late final RetirableResource<OrtSession> _recognition;
 
   @override
-  Future<OcrDetOutput> runDetection(OcrDetInput input) async {
-    final session = await _detectionSession();
-    final values = await _run(session, input.values, [
-      1,
-      3,
-      input.height,
-      input.width,
-    ], expectRank: 4);
-    final shape = values.shape;
-    return OcrDetOutput(
-      values: values.values,
-      width: shape[3],
-      height: shape[2],
-    );
-  }
+  Future<OcrDetOutput> runDetection(OcrDetInput input) =>
+      ImportTrace.stage('native', () => _detection.run((session) async {
+        final values = await _run(session, input.values, [
+          1,
+          3,
+          input.height,
+          input.width,
+        ], expectRank: 4);
+        final shape = values.shape;
+        return OcrDetOutput(
+          values: values.values,
+          width: shape[3],
+          height: shape[2],
+        );
+      }), phase: 'ocr-detection-operation');
 
   @override
-  Future<OcrRecOutput> runRecognition(OcrLineInput input) async {
-    final session = await _recognitionSession();
-    final values = await _run(session, input.values, [
-      1,
-      3,
-      input.height,
-      input.width,
-    ], expectRank: 3);
-    final shape = values.shape;
-    return OcrRecOutput(
-      values: values.values,
-      timeSteps: shape[1],
-      classes: shape[2],
-    );
-  }
+  Future<OcrRecOutput> runRecognition(OcrLineInput input) =>
+      ImportTrace.stage('native', () => _recognition.run((session) async {
+        final values = await _run(session, input.values, [
+          1,
+          3,
+          input.height,
+          input.width,
+        ], expectRank: 3);
+        final shape = values.shape;
+        return OcrRecOutput(
+          values: values.values,
+          timeSteps: shape[1],
+          classes: shape[2],
+        );
+      }), phase: 'ocr-recognition-operation');
 
   @override
   Future<void> close() async {
-    final detection = _detection;
-    final recognition = _recognition;
-    _detection = null;
-    _recognition = null;
-    await _release(detection);
-    await _release(recognition);
+    // Detach both before waiting, so neither can be closed while an inference
+    // still uses it. Waiting is bounded even if native code never returns.
+    final releases = Future.wait([_detection.retire(), _recognition.retire()]);
+    await runStageWithin(
+      () => releases,
+      budget: defaultSessionCloseBudget,
+      name: 'ocr-close',
+    );
   }
 
   @override
   void abandonStalledSessions(PpocrGraph graph) {
     switch (graph) {
       case PpocrGraph.detection:
-        final stalled = _detection;
-        _detection = null;
-        _closeWhenSettled(stalled);
+        _detection.retire();
       case PpocrGraph.recognition:
-        final stalled = _recognition;
-        _recognition = null;
-        _closeWhenSettled(stalled);
+        _recognition.retire();
     }
-  }
-
-  /// Closes a session that already arrived, and bounds how long shutdown waits.
-  ///
-  /// A session whose creation never answered must not hold `close()` open — the
-  /// same hang this release removes from the import path, one layer down. The
-  /// late session is closed whenever it settles; a failed creation has nothing
-  /// to release, and its error is already reported to the caller that awaited it.
-  Future<void> _release(Future<OrtSession>? session) async {
-    if (session == null) return;
-    final outcome = await runStageWithin<OrtSession>(
-      () => session,
-      budget: defaultSessionCloseBudget,
-      name: 'ocr-close',
-    );
-    final arrived = outcome.value;
-    if (arrived != null) {
-      await arrived.close();
-    } else if (outcome.didTimeOut) {
-      _closeWhenSettled(session);
-    }
-  }
-
-  static void _closeWhenSettled(Future<OrtSession>? session) {
-    if (session == null) return;
-    session.then<void>(
-      (value) => value.close(),
-      onError: (Object _, StackTrace _) {},
-    );
   }
 
   /// Runs one graph and returns its single expected float output.
@@ -223,16 +167,22 @@ class OrtPpocrRuntime implements PpocrRuntime {
     OrtValue? inputValue;
     Map<String, OrtValue>? outputs;
     try {
-      inputValue = await OrtValue.fromList(input, shape);
-      outputs = await session.run({inputName: inputValue});
+      inputValue = await ImportTrace.stage('native',
+        () => OrtValue.fromList(input, shape), phase: 'tensor-create');
+      outputs = await ImportTrace.stage('native',
+        () => session.run({inputName: inputValue!}), phase: 'ocr-inference');
       final tensor = _expectedTensor(outputs, expectRank);
-      final flat = await tensor.asFlattenedList();
+      final flat = await ImportTrace.stage(
+        'native', tensor.asFlattenedList, phase: 'tensor-read');
       return (values: _toFloat32(flat), shape: tensor.shape);
     } finally {
-      if (inputValue != null) await inputValue.dispose();
+      if (inputValue != null) {
+        await ImportTrace.stage('native', () => inputValue!.dispose(),
+            phase: 'tensor-release');
+      }
       if (outputs != null) {
         for (final output in outputs.values) {
-          await output.dispose();
+          await ImportTrace.stage('native', output.dispose, phase: 'tensor-release');
         }
       }
     }

@@ -144,6 +144,18 @@ void main() {
     expect(runtime.recognitionCalls, isEmpty);
   });
 
+  test('OCR failure diagnostics do not contain exception messages', () async {
+    const sensitive = 'private-document-text';
+    final runtime = _FakeRuntime(
+      detection: (_) => throw StateError(sensitive),
+    );
+    final engine = _engine(runtime);
+    final result = await engine.recognize(_documentPng());
+    expect(result.unavailableReason, 'engine-failure');
+    expect(engine.lastFailureDiagnostic, contains('StateError'));
+    expect(engine.lastFailureDiagnostic, isNot(contains(sensitive)));
+  });
+
   test('a recognition graph failure is reported as unavailable', () async {
     final runtime = _FakeRuntime(
       detection: (input) => _detectionWithBands(input, 1),

@@ -107,6 +107,10 @@ void main() {
     final editor = await EditorHarness.pump(tester, project: _reviewProject());
     await tapKey(tester, const Key('rb-review'));
     expect(find.text('مراجعة التعرف الذكي (تجريبي)'), findsOneWidget);
+    expect(
+      find.text('النوع المقترح يحتاج تأكيداً أو تصحيحاً.'),
+      findsWidgets,
+    );
     await tapKey(tester, const Key('review-confirm-rec-front'));
     final confirmed = editor.saved.documents.firstWhere(
       (d) => d.id == 'rec-front',

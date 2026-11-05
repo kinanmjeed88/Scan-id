@@ -549,10 +549,13 @@ jobs:
           retention-days: 7
 
       # The user-visible crash appeared only after R8/AOT packaging. Debug
-      # inference cannot reproduce that transformation. This test package is
-      # signed with a disposable local key (never a repository secret), runs
-      # the real four-model intake, and is NOT uploaded as an application APK.
-      - name: Android R8 release intake regression (disposable test key)
+      # inference cannot reproduce that transformation. Flutter host-driven
+      # integration tests need a VM service, so this uses profile AOT with R8
+      # explicitly enabled; the keep rules are the same ones release loads.
+      # The test package is signed with a disposable local key (never a
+      # repository secret), runs the real four-model intake, and is NOT uploaded
+      # as an application APK.
+      - name: Android R8/AOT intake regression (disposable test key)
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35

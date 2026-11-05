@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -61,13 +62,15 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'R8 release intake and retry complete with real JNI inference',
+    'R8/AOT intake and retry complete with real JNI inference',
     (tester) async {
       expect(
-        const bool.fromEnvironment('dart.vm.product'),
+        kProfileMode || kReleaseMode,
         isTrue,
         reason:
-            'This regression must run in an AOT release package, not Debug.',
+            'This regression must run in an AOT package with R8, not Debug. '
+            'CI uses profile because Flutter host-driven integration tests '
+            'require a VM service that release mode does not expose.',
       );
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       final photo = await _syntheticPage();

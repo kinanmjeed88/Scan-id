@@ -66,20 +66,21 @@ class AndroidR8RulesTest(unittest.TestCase):
             check_android_r8.ROOT / ".github/workflows/verify.yml"
         ).read_text(encoding="utf-8")
         step = workflow.split(
-            "- name: Android R8 release intake regression (disposable test key)",
+            "- name: Android R8/AOT intake regression (disposable test key)",
             1,
         )[1].split("- name: Upload Android R8 release evidence", 1)[0]
         self.assertIn("android-emulator-runner@", step)
         self.assertIn("script: bash tool/run_android_release_regression.sh", step)
         self.assertNotIn("continue-on-error", step)
 
-    def test_runtime_regression_uses_release_aot_and_never_uploads_an_apk(self):
+    def test_runtime_regression_uses_r8_aot_and_never_uploads_an_apk(self):
         script = (
             check_android_r8.ROOT / "tool/run_android_release_regression.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("integration_test/release_intake_test.dart", script)
-        self.assertIn("--release", script)
-        self.assertIn("mapping/scanidRelease/mapping.txt", script)
+        self.assertIn("--profile", script)
+        self.assertIn("ORG_GRADLE_PROJECT_scanIdR8Profile=true", script)
+        self.assertIn("mapping/scanidProfile/mapping.txt", script)
         self.assertIn("trap 'rm -rf \"$signing_dir\"' EXIT", script)
         self.assertNotIn("secrets.KEYSTORE", script)
         self.assertNotIn("upload-artifact", script)

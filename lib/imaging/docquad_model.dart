@@ -139,8 +139,9 @@ class DocQuadNet256 implements BoundaryProposalModel {
                 (minimum, peak) =>
                     minimum < peak.probability ? minimum : peak.probability,
               );
-          if (!evidence.isFinite || evidence < _minimumReviewEvidence)
+          if (!evidence.isFinite || evidence < _minimumReviewEvidence) {
             return null;
+          }
 
           final corners = [
             for (final peak in peaks)

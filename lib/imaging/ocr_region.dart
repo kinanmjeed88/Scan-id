@@ -4,6 +4,7 @@ library;
 
 import 'dart:typed_data';
 
+import '../application/cancellation.dart';
 import '../domain/crop_draft.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
@@ -11,6 +12,19 @@ import '../domain/validation.dart';
 import 'image_header.dart';
 import 'perspective.dart';
 import 'region_crop.dart';
+
+/// Runs the CPU-heavy decode and perspective preparation away from the UI
+/// isolate. The computation is read-only and can be killed on cancellation.
+Future<Uint8List> prepareOcrRegionIsolated(
+  Uint8List previewBytes, {
+  List<Point2>? corners,
+  List<double>? region,
+  CancellationToken? cancellation,
+}) => runCancellableIsolate(
+  () => prepareOcrRegion(previewBytes, corners: corners, region: region),
+  cancellation: cancellation,
+  debugName: 'ocr-region',
+);
 
 /// Prepares one detected document's preview for an OCR engine.
 ///

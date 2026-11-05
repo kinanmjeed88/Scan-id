@@ -21,10 +21,12 @@
 library;
 
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 
 import '../application/cancellation.dart';
+import '../application/import_trace.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
 import '../domain/project.dart';
@@ -36,6 +38,7 @@ class IntakeRun {
     required this.import,
     this.layout,
     this.error,
+    this.trace,
   });
 
   /// The last committed project state — never a half-applied one.
@@ -52,6 +55,10 @@ class IntakeRun {
   /// and [project] is the reloaded committed state.
   final Object? error;
 
+  /// The runner finishes before a screen adopts the returned saved state.
+  final ImportTrace? trace;
+  void markUiStateApplied() => trace?.emit('ui_state_applied');
+
   List<ImportFailure> get failures => import.failures;
   List<ImportNotice> get notices => import.notices;
   int get importedCount => import.imported;
@@ -63,16 +70,19 @@ class IntakeRunner {
     required this.service,
     required this.project,
     this.keepPlaced = true,
+    this.onTrace,
   });
 
   final ProjectService service;
   final Project project;
   final bool keepPlaced;
-
+  final void Function(ImportTraceEvent event)? onTrace;
   CancellationToken _token = CancellationToken();
   bool _running = false;
+  ImportTrace? _lastTrace;
 
   bool get isRunning => _running;
+  ImportTrace? get lastTrace => _lastTrace;
 
   /// Whether a cancellation has been requested and is waiting for the next
   /// checkpoint.
@@ -85,17 +95,84 @@ class IntakeRunner {
   Future<IntakeRun> run(
     List<ImportSource> sources, {
     void Function(BatchProgress progress)? onProgress,
+  }) {
+    final context = ImportTrace(onEvent: onTrace);
+    return runZoned(
+      () => _run(sources, context, onProgress: onProgress),
+      zoneValues: {ImportTrace.zoneKey: context},
+    );
+  }
+
+  Future<IntakeRun> _run(
+    List<ImportSource> sources,
+    ImportTrace context, {
+    void Function(BatchProgress progress)? onProgress,
   }) async {
+    if (_running) throw StateError('IntakeRunner is already running');
+    _lastTrace = context;
     final token = _token = CancellationToken();
+    final taskId = context.taskId;
+    context.emit('import_started');
+    final elapsed = Stopwatch()..start();
+    var terminal = 'failed';
+    void reportProgress(BatchProgress progress) {
+      final phase = progress.stage == importStageLabel
+          ? 'source'
+          : progress.stage == 'تحليل الصور'
+          ? 'analysis'
+          : progress.stage == 'تجهيز وحفظ النتائج'
+          ? 'apply-and-save'
+          : 'other';
+      context.emit(
+        'progress_update',
+        phase: phase,
+        completed: progress.completed,
+        total: progress.total,
+      );
+      onProgress?.call(progress);
+    }
+
+    void trace(String stage, String state, [Object? error]) {
+      developer.log(
+        'task=$taskId stage=$stage state=$state elapsedMs=${elapsed.elapsedMilliseconds}'
+        '${error == null ? '' : ' errorType=${error.runtimeType}'}',
+        name: 'scan_id.intake',
+      );
+    }
+
     _running = true;
+    trace('import', 'started');
     try {
       final existingIds = project.assets.map((a) => a.id).toSet();
-      final import = await service.importImages(
-        project,
-        sources,
-        cancellation: token,
-        onProgress: onProgress,
-      );
+      late final ImportReport import;
+      try {
+        import = await service.importImages(
+          project,
+          sources,
+          cancellation: token,
+          onProgress: reportProgress,
+        );
+      } catch (error) {
+        trace('import', 'failed', error);
+        // A batch-level failure can occur after one or more commits. Reload
+        // before reporting it; never present an exception as a successful run.
+        var latest = project;
+        try {
+          latest = await service.projects.get(project.id);
+        } on Object {
+          // Only the last known committed state is available.
+        }
+        final imported = latest.assets
+            .where((asset) => !existingIds.contains(asset.id))
+            .length;
+        return IntakeRun(
+          project: latest,
+          import: ImportReport(latest, imported, const []),
+          error: error,
+          trace: context,
+        );
+      }
+      trace('import', 'completed');
       var latest = import.project;
       final importedIds = [
         for (final asset in latest.assets)
@@ -104,16 +181,50 @@ class IntakeRunner {
       AutomaticLayoutReport? layout;
       Object? failure;
       if (importedIds.isNotEmpty && !token.isCancelled) {
+        trace('arrangement', 'started');
+        var savingReported = false;
         try {
           layout = await service.arrangeImportedImages(
             latest,
             importedIds,
             keepPlaced: keepPlaced,
             cancellation: token,
-            onProgress: onProgress,
+            onProgress: (progress) {
+              if (progress.stage == 'تحليل الصور' && progress.completed == 0) {
+                trace('analysis', 'started');
+              }
+              if (progress.stage == 'تحليل الصور' &&
+                  progress.total > 0 &&
+                  progress.completed == progress.total) {
+                trace('analysis', 'completed');
+                savingReported = true;
+                trace('apply-and-save', 'started');
+                reportProgress(
+                  const BatchProgress(
+                    total: 1,
+                    completed: 0,
+                    stage: 'تجهيز وحفظ النتائج',
+                  ),
+                );
+              } else {
+                reportProgress(progress);
+              }
+            },
           );
           latest = layout.project;
+          if (savingReported) trace('apply-and-save', 'completed');
+          if (!token.isCancelled) {
+            reportProgress(
+              const BatchProgress(
+                total: 1,
+                completed: 1,
+                stage: 'تجهيز وحفظ النتائج',
+              ),
+            );
+          }
+          trace('arrangement', 'completed');
         } catch (error) {
+          trace('arrangement', 'failed', error);
           // The imports are already committed: reload so a successful crop
           // revision is never hidden by a later arrangement failure.
           failure = error;
@@ -124,13 +235,27 @@ class IntakeRunner {
           }
         }
       }
+      terminal = token.isCancelled
+          ? 'cancelled'
+          : failure != null || import.failures.isNotEmpty
+          ? 'failed'
+          : 'completed';
       return IntakeRun(
         project: latest,
         import: import,
         layout: layout,
         error: failure,
+        trace: context,
       );
     } finally {
+      trace('task', terminal);
+      context.finish(
+        terminal == 'completed'
+            ? 'import_completed'
+            : terminal == 'cancelled'
+            ? 'import_cancelled'
+            : 'import_failed',
+      );
       _running = false;
     }
   }
@@ -146,7 +271,7 @@ class IntakeRunner {
 /// indistinguishable from a document the app never looked for.
 String intakeSummaryText(AutomaticLayoutReport report) {
   final counts =
-      'قُصّ تلقائياً: ${report.cropped} · أنواع معروفة: '
+      'قُصّ تلقائياً: ${report.cropped} · أنواع ذات مقاس بالكتالوج: '
       '${report.recognized} · حدود بانتظار المراجعة: '
       '${report.boundaryNeedsReview} · تصنيف قيد المراجعة: '
       '${report.needsReview} · بلا رباعي صالح: ${report.notDetected} '
@@ -175,18 +300,31 @@ Future<IntakeRun?> runIntakeWithProgress(
   required Project project,
   required List<ImportSource> sources,
   bool keepPlaced = true,
-}) {
+}) async {
   final runner = IntakeRunner(
     service: service,
     project: project,
     keepPlaced: keepPlaced,
   );
-  return showDialog<IntakeRun>(
+  final result = await showDialog<_IntakeDialogResult>(
     context: context,
     barrierDismissible: false,
     builder: (context) =>
         _IntakeProgressDialog(runner: runner, sources: sources),
   );
+  runner.lastTrace?.emit('dialog_route_returned');
+  if (result?.error != null) {
+    Error.throwWithStackTrace(result!.error!, result.stackTrace!);
+  }
+  return result?.run;
+}
+
+class _IntakeDialogResult {
+  const _IntakeDialogResult.success(this.run) : error = null, stackTrace = null;
+  const _IntakeDialogResult.failure(this.error, this.stackTrace) : run = null;
+  final IntakeRun? run;
+  final Object? error;
+  final StackTrace? stackTrace;
 }
 
 class _IntakeProgressDialog extends StatefulWidget {
@@ -224,15 +362,26 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
   }
 
   Future<void> _start() async {
-    final run = await widget.runner.run(
-      widget.sources,
-      onProgress: (progress) {
-        if (!mounted) return;
-        setState(() => _progress = progress);
-      },
-    );
-    if (!mounted) return;
-    Navigator.of(context).pop(run);
+    try {
+      final run = await widget.runner.run(
+        widget.sources,
+        onProgress: (progress) {
+          if (!mounted) return;
+          setState(() => _progress = progress);
+        },
+      );
+      if (!mounted) return;
+      run.trace?.emit('dialog_close_requested');
+      Navigator.of(context).pop(_IntakeDialogResult.success(run));
+      run.trace?.emit('dialog_pop_returned');
+    } catch (error, stackTrace) {
+      // An unhandled exception in this unawaited callback previously left a
+      // non-dismissible dialog open forever. Deliver the failure to the caller.
+      if (!mounted) return;
+      widget.runner.lastTrace?.emit('dialog_close_requested', error: error);
+      Navigator.of(context).pop(_IntakeDialogResult.failure(error, stackTrace));
+      widget.runner.lastTrace?.emit('dialog_pop_returned');
+    }
   }
 
   String _elapsedText() {

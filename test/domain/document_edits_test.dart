@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -115,6 +116,27 @@ void main() {
     expect(item.sizeConfirmed, isTrue);
     expect(item.presetSnapshot?.status, PresetStatus.user);
     expect(item.hasUserConfirmedSize, isTrue);
+  });
+
+  test('estimated sizes remain off A4 until explicitly sized', () {
+    for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
+      final cropped = _project().copyWith(assets: [_croppedAsset()]);
+      final selected = DocumentEdits.setKind(cropped, 'doc', kind);
+      final item = PageLayout.item(selected, 'doc');
+      expect(item.sizeConfirmed, isFalse);
+      expect(item.presetSnapshot?.status, PresetStatus.estimated);
+      final arranged = arrangeDocuments(selected);
+      expect(arranged.awaitingSize, contains('doc'));
+      expect(PageLayout.item(arranged.result, 'doc').pageIndex, isNull);
+
+      final measured = DocumentEdits.resize(selected, 'doc', width: 90);
+      final reselected = DocumentEdits.setKind(measured, 'doc', kind);
+      expect(PageLayout.item(reselected, 'doc').sizeConfirmed, isTrue);
+      expect(PageLayout.item(reselected, 'doc').width, 90);
+      final reset = DocumentEdits.resetSize(reselected, 'doc');
+      expect(PageLayout.item(reset, 'doc').sizeConfirmed, isFalse);
+      expect(PageLayout.item(reset, 'doc').pageIndex, isNull);
+    }
   });
 
   test('reselecting a catalog type preserves its manual footprint', () {
@@ -341,7 +363,7 @@ void main() {
     );
   });
 
-  test('editing the catalog resizes every document of that category', () {
+  test('editing the catalog updates provisional sizes', () {
     var p = DocumentEdits.setKind(
       _project(),
       'doc',
@@ -356,6 +378,30 @@ void main() {
     expect(p.catalog.residenceCard.width, 95);
     final reopened = Project.fromJson(p.toJson());
     expect(reopened.catalog.residenceCard.height, 65);
+  });
+
+  test('editing the catalog preserves confirmed and locked footprints', () {
+    final selected = DocumentEdits.setKind(
+      _project(),
+      'doc',
+      DocumentKind.residenceCard,
+    );
+    final measured = DocumentEdits.resize(selected, 'doc', width: 100);
+    final before = PageLayout.item(measured, 'doc');
+    final updated = DocumentEdits.applyCatalog(
+      measured,
+      measured.catalog.copyWith(residenceCard: const PhysicalSizeMm(95, 65)),
+    );
+    final after = PageLayout.item(updated, 'doc');
+    expect([after.width, after.height], [before.width, before.height]);
+    expect(after.presetSnapshot?.widthMm, before.presetSnapshot?.widthMm);
+    expect(after.sizeConfirmed, isTrue);
+
+    final locked = selected.copyWith(
+      items: [PageLayout.item(selected, 'doc').copyWith(locked: true)],
+    );
+    final changed = DocumentEdits.applyCatalog(locked, updated.catalog);
+    expect(PageLayout.item(changed, 'doc').width, 92.4);
   });
 
   test('colour matrix reproduces the export colour pipeline', () {

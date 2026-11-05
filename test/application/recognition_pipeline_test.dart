@@ -160,6 +160,30 @@ class _RecordingOcr implements OcrEngine {
 }
 
 void main() {
+  test('single proposal preserves the forced review reason', () async {
+    final pipeline = RecognitionPipeline(
+      suggestSingle: (_) async => null,
+      suggestProposal: (_) async => BoundaryProposal(
+        producer: BoundaryProducer.learnedModel,
+        corners: _quad(),
+        modelConfidence: .99,
+        minAutoAcceptConfidence: .5,
+        forceReview: true,
+        forceReviewReason: BoundaryReviewReason.modelDisagreement,
+      ),
+      segment: _noMulti,
+    );
+    final analysis = await pipeline.analyze(_input());
+    final detection = analysis.detections.single;
+    expect(detection.cropAuthorization, isNull);
+    expect(detection.boundaryDecision!.kind, BoundaryDecisionKind.needsReview);
+    expect(
+      detection.boundaryDecision!.verification.reasons,
+      contains(BoundaryReviewReason.modelDisagreement),
+    );
+    expect(detection.suggestedCorners, isNotNull);
+  });
+
   test(
     'a valid quad is crop-authorized without inventing a document kind',
     () async {

@@ -334,7 +334,7 @@ void main() {
       expect(kindDropdown().value, DocumentKind.unifiedNationalId);
       expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
 
-      // Step 2: Select custom mm (`DocumentKind.other`) -> initial 85.6 x 54.0.
+      // Step 2: Select custom mm (`DocumentKind.other`): no size is invented.
       await tester.tap(find.byKey(const Key('crop-document-kind')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('مقاس مخصص (مم)').last);
@@ -392,7 +392,7 @@ void main() {
         '76.75',
       );
 
-      // Undo #2 -> reverts custom height back to '54.0', keeps width '118.25'.
+      // Undo #2 -> clears the unconfirmed height, keeps width '118.25'.
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(
@@ -407,10 +407,10 @@ void main() {
             .widget<TextField>(find.byKey(const Key('crop-custom-height-mm')))
             .controller!
             .text,
-        '54.0',
+        '',
       );
 
-      // Undo #3 -> reverts custom width back to '85.6'.
+      // Undo #3 -> clears the unconfirmed custom width.
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
       expect(kindDropdown().value, DocumentKind.other);
@@ -419,14 +419,14 @@ void main() {
             .widget<TextField>(find.byKey(const Key('crop-custom-width-mm')))
             .controller!
             .text,
-        '85.6',
+        '',
       );
       expect(
         tester
             .widget<TextField>(find.byKey(const Key('crop-custom-height-mm')))
             .controller!
             .text,
-        '54.0',
+        '',
       );
 
       // Undo #4 -> reverts DocumentKind from `other` back to `unifiedNationalId`.

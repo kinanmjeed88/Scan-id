@@ -293,8 +293,7 @@ class _CropScreenState extends State<CropScreen> {
         resolvedH = _formatMillimeters(targetItem.height);
       }
     }
-    if (resolvedKind == DocumentKind.civilStatusId &&
-        !_initialSizeWasUserAuthored) {
+    if (_requiresManualSize(resolvedKind) && !_initialSizeWasUserAuthored) {
       resolvedW = '';
       resolvedH = '';
     }
@@ -805,7 +804,8 @@ class _CropScreenState extends State<CropScreen> {
 
   bool _requiresManualSize(DocumentKind kind) =>
       kind != DocumentKind.unknown &&
-      widget.project.catalog.natural(kind) == null;
+      (widget.project.catalog.natural(kind) == null ||
+          presetStatusFor(kind) == PresetStatus.estimated);
 
   PhysicalSizeMm? _parseCustomSize() {
     if (!_requiresManualSize(_selectedKind)) return null;
@@ -832,7 +832,7 @@ class _CropScreenState extends State<CropScreen> {
         (current.customWidthText != _initialWidthText ||
             current.customHeightText != _initialHeightText);
     final clearUnconfirmedManualSize =
-        kind == DocumentKind.civilStatusId &&
+        _requiresManualSize(kind) &&
         !_initialSizeWasUserAuthored &&
         !editedManualSize;
     final widthText = clearUnconfirmedManualSize ? '' : current.customWidthText;
@@ -840,7 +840,7 @@ class _CropScreenState extends State<CropScreen> {
         ? ''
         : current.customHeightText;
     final double? nextRatio;
-    if (natural != null) {
+    if (natural != null && !_requiresManualSize(kind)) {
       final oriented = natural.oriented(landscape: _draftLandscape);
       nextRatio = oriented.width / oriented.height;
     } else if (_requiresManualSize(kind)) {
@@ -1802,7 +1802,8 @@ class _CropScreenState extends State<CropScreen> {
             ],
             onChanged: _busy ? null : _selectDocumentKind,
           ),
-          if (_selectedKind == DocumentKind.civilStatusId)
+          if (_selectedKind == DocumentKind.civilStatusId ||
+              presetStatusFor(_selectedKind) == PresetStatus.estimated)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(

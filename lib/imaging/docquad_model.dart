@@ -5,6 +5,9 @@ import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image/image.dart' as img;
 
 import '../application/cancellation.dart';
+import '../application/import_trace.dart';
+import '../application/retirable_resource.dart';
+import '../application/stage_budget.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import 'prepare_image.dart';
@@ -37,16 +40,20 @@ class DocQuadNet256 implements BoundaryProposalModel {
   static const _minimumReviewEvidence = 0.05;
 
   final OnnxRuntime _runtime;
-  Future<OrtSession>? _sessionFuture;
+  late final _sessions = RetirableResource<OrtSession>(
+    create: () => ImportTrace.stage(
+      'native',
+      () => _runtime.createSessionFromAsset(
+        docQuadAssetPath,
+        options: OrtSessionOptions(intraOpNumThreads: 2),
+      ),
+      phase: 'docquad-session',
+    ),
+    dispose: (session) => session.close(),
+  );
 
   @override
   String get modelId => 'DocQuadNet-256/ORT-1.28';
-
-  Future<OrtSession> _session() =>
-      _sessionFuture ??= _runtime.createSessionFromAsset(
-        docQuadAssetPath,
-        options: OrtSessionOptions(intraOpNumThreads: 2),
-      );
 
   @override
   Future<BoundaryProposal?> suggestProposal(
@@ -54,102 +61,139 @@ class DocQuadNet256 implements BoundaryProposalModel {
     CancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
-    final oriented = decodeForProcessing(preview);
-    if (oriented.width <= 0 || oriented.height <= 0) return null;
-    final input = _letterbox(oriented);
-    final session = await _session();
-    cancellation?.throwIfCancelled();
+    final (sourceWidth, sourceHeight, input) = await ImportTrace.stage(
+      'preprocessing',
+      () => _prepareDocQuadIsolated(preview, cancellation),
+      phase: 'docquad',
+    );
+    return ImportTrace.stage(
+      'native',
+      () => _sessions.run((session) async {
+        cancellation?.throwIfCancelled();
 
-    OrtValue? inputValue;
-    Map<String, OrtValue>? outputs;
-    try {
-      inputValue = await OrtValue.fromList(input.values, [
-        1,
-        3,
-        inputHeight,
-        inputWidth,
-      ]);
-      cancellation?.throwIfCancelled();
-      outputs = await session.run({'input': inputValue});
-      cancellation?.throwIfCancelled();
-      final heatmaps = outputs['corner_heatmaps'];
-      final mask = outputs['mask_logits'];
-      if (heatmaps == null || mask == null) return null;
-      if (heatmaps.dataType != OrtDataType.float32 ||
-          heatmaps.shape.length != 4 ||
-          heatmaps.shape[0] != 1 ||
-          heatmaps.shape[1] != 4 ||
-          heatmaps.shape[2] != heatmapHeight ||
-          heatmaps.shape[3] != heatmapWidth ||
-          mask.dataType != OrtDataType.float32 ||
-          mask.shape.length != 4 ||
-          mask.shape[0] != 1 ||
-          mask.shape[1] != 1 ||
-          mask.shape[2] != heatmapHeight ||
-          mask.shape[3] != heatmapWidth) {
-        throw StateError('DocQuadNet-256 returned an unexpected tensor shape.');
-      }
-
-      final values = (await heatmaps.asFlattenedList()).cast<num>();
-      final maskValues = (await mask.asFlattenedList()).cast<num>();
-      if (values.length != 4 * heatmapWidth * heatmapHeight ||
-          maskValues.length != heatmapWidth * heatmapHeight ||
-          values.any((value) => !value.isFinite) ||
-          maskValues.any((value) => !value.isFinite)) {
-        throw StateError(
-          'DocQuadNet-256 returned non-finite or incomplete data.',
-        );
-      }
-      final peaks = _peaks(values);
-      final evidence =
-          _cornerMaskIou(peaks, maskValues) *
-          peaks.fold<double>(
-            1,
-            (minimum, peak) =>
-                minimum < peak.probability ? minimum : peak.probability,
+        OrtValue? inputValue;
+        Map<String, OrtValue>? outputs;
+        try {
+          inputValue = await ImportTrace.stage(
+            'native',
+            () => OrtValue.fromList(input.values, [
+              1,
+              3,
+              inputHeight,
+              inputWidth,
+            ]),
+            phase: 'tensor-create',
           );
-      if (!evidence.isFinite || evidence < _minimumReviewEvidence) return null;
+          cancellation?.throwIfCancelled();
+          final inferenceOutputs =
+              await ImportTrace.stage<Map<String, OrtValue>>(
+                'native',
+                () => session.run({'input': inputValue!}),
+                phase: 'docquad-inference',
+              );
+          outputs = inferenceOutputs;
+          cancellation?.throwIfCancelled();
+          final heatmaps = inferenceOutputs['corner_heatmaps'];
+          final mask = inferenceOutputs['mask_logits'];
+          if (heatmaps == null || mask == null) return null;
+          if (heatmaps.dataType != OrtDataType.float32 ||
+              heatmaps.shape.length != 4 ||
+              heatmaps.shape[0] != 1 ||
+              heatmaps.shape[1] != 4 ||
+              heatmaps.shape[2] != heatmapHeight ||
+              heatmaps.shape[3] != heatmapWidth ||
+              mask.dataType != OrtDataType.float32 ||
+              mask.shape.length != 4 ||
+              mask.shape[0] != 1 ||
+              mask.shape[1] != 1 ||
+              mask.shape[2] != heatmapHeight ||
+              mask.shape[3] != heatmapWidth) {
+            throw StateError(
+              'DocQuadNet-256 returned an unexpected tensor shape.',
+            );
+          }
 
-      final corners = [
-        for (final peak in peaks)
-          Point2(
-            ((peak.x256 - input.offsetX) / input.scale) / oriented.width,
-            ((peak.y256 - input.offsetY) / input.scale) / oriented.height,
-          ),
-      ];
-      final proposal = BoundaryProposal(
-        producer: BoundaryProducer.learnedModel,
-        corners: corners,
-        modelConfidence: evidence,
-        // The model has not been calibrated on a licensed Iraqi-card holdout.
-        // Keep every result review-only; this threshold is intentionally
-        // unreachable for a probability score and is not an accuracy claim.
-        minAutoAcceptConfidence: 1.01,
-      );
-      final verified = verifyBoundary(
-        proposal,
-        sourceWidth: oriented.width,
-        sourceHeight: oriented.height,
-      );
-      return verified.verification.hasUsableGeometry ? proposal : null;
-    } finally {
-      if (inputValue != null) await inputValue.dispose();
-      if (outputs != null) {
-        for (final value in outputs.values) {
-          await value.dispose();
+          final values = (await ImportTrace.stage(
+            'native',
+            heatmaps.asFlattenedList,
+            phase: 'tensor-read',
+          )).cast<num>();
+          final maskValues = (await ImportTrace.stage(
+            'native',
+            mask.asFlattenedList,
+            phase: 'tensor-read',
+          )).cast<num>();
+          if (values.length != 4 * heatmapWidth * heatmapHeight ||
+              maskValues.length != heatmapWidth * heatmapHeight ||
+              values.any((value) => !value.isFinite) ||
+              maskValues.any((value) => !value.isFinite)) {
+            throw StateError(
+              'DocQuadNet-256 returned non-finite or incomplete data.',
+            );
+          }
+          final peaks = _peaks(values);
+          final evidence =
+              _cornerMaskIou(peaks, maskValues) *
+              peaks.fold<double>(
+                1,
+                (minimum, peak) =>
+                    minimum < peak.probability ? minimum : peak.probability,
+              );
+          if (!evidence.isFinite || evidence < _minimumReviewEvidence) {
+            return null;
+          }
+
+          final corners = [
+            for (final peak in peaks)
+              Point2(
+                ((peak.x256 - input.offsetX) / input.scale) / sourceWidth,
+                ((peak.y256 - input.offsetY) / input.scale) / sourceHeight,
+              ),
+          ];
+          final proposal = BoundaryProposal(
+            producer: BoundaryProducer.learnedModel,
+            corners: corners,
+            modelConfidence: evidence,
+            // The model has not been calibrated on a licensed Iraqi-card holdout.
+            // Keep every result review-only; this threshold is intentionally
+            // unreachable for a probability score and is not an accuracy claim.
+            minAutoAcceptConfidence: 1.01,
+          );
+          final verified = verifyBoundary(
+            proposal,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+          );
+          return verified.verification.hasUsableGeometry ? proposal : null;
+        } finally {
+          if (inputValue != null) {
+            await ImportTrace.stage(
+              'native',
+              () => inputValue!.dispose(),
+              phase: 'tensor-release',
+            );
+          }
+          if (outputs != null) {
+            for (final value in outputs.values) {
+              await ImportTrace.stage(
+                'native',
+                value.dispose,
+                phase: 'tensor-release',
+              );
+            }
+          }
         }
-      }
-    }
+      }),
+      phase: 'docquad-operation',
+    );
   }
 
   Future<void> close() async {
-    final session = _sessionFuture;
-    if (session == null) return;
-    try {
-      await (await session).close();
-    } finally {
-      _sessionFuture = null;
-    }
+    await runStageWithin(
+      _sessions.retire,
+      budget: const Duration(seconds: 5),
+      name: 'docquad-close',
+    );
   }
 
   static _DocQuadInput _letterbox(img.Image source) {
@@ -239,6 +283,20 @@ class DocQuadNet256 implements BoundaryProposalModel {
     return union == 0 ? 0 : intersection / union;
   }
 }
+
+// Keep the isolate closure in a scope containing only transferable input, not
+// the model instance or its native session manager.
+Future<(int, int, _DocQuadInput)> _prepareDocQuadIsolated(
+  Uint8List preview,
+  CancellationToken? cancellation,
+) => runCancellableIsolate(
+  () {
+    final source = decodeForProcessing(preview);
+    return (source.width, source.height, DocQuadNet256._letterbox(source));
+  },
+  cancellation: cancellation,
+  debugName: 'docquad-preprocess',
+);
 
 class _DocQuadInput {
   const _DocQuadInput(this.values, this.scale, this.offsetX, this.offsetY);

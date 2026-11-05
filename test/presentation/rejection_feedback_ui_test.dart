@@ -147,7 +147,7 @@ void main() {
       final message = said.single;
       // The counts the editor always reported are still there.
       expect(message, contains('قُصّ'));
-      expect(message, contains('أنواع معروفة'));
+      expect(message, contains('أنواع ذات مقاس بالكتالوج'));
       // And so is the refusal, with the categories the gates measured and the
       // promise that nothing was lost by it.
       expect(message, contains('استُبعدت 2 منطقة'));

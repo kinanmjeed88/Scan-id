@@ -4,10 +4,9 @@
 /// The import path crosses boundaries this app does not control: the ONNX
 /// Runtime plugin (session creation and inference), the texture/asset channels
 /// and OS-backed isolate spawning. A plugin that fails inside its platform
-/// thread without replying leaves the Dart `Future` pending forever: no error,
-/// no timeout, no log. In the UI that is exactly the reported symptom — the
-/// import dialog sits at `0 / 1` forever, because `RecognitionBatchWorker` only
-/// reports progress *after* a lane finishes its item.
+/// thread without replying leaves the Dart `Future` pending. That can produce
+/// a `0 / 1` symptom, but the display alone does not identify its cause. A Dart
+/// timeout cannot run if its event loop is blocked, and does not stop native work.
 ///
 /// [runStageWithin] converts that class of failure into an explicit
 /// [StageOutcome]: the caller always continues, and a late completion is still
@@ -24,6 +23,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'cancellation.dart';
+import 'import_trace.dart';
 
 /// How a bounded stage ended.
 enum StageOutcomeKind { completed, timedOut }
@@ -72,7 +72,8 @@ class _StageExpired implements Exception {
   const _StageExpired();
 }
 
-/// Runs [stage] and returns within [budget], whatever the stage does.
+/// Bounds how long the caller waits while the Dart event loop remains responsive.
+/// Neither timeout nor cancellation terminates underlying native work.
 ///
 /// * a stage that finishes in time yields [StageOutcome.completed];
 /// * a stage that throws yields [StageOutcome.completed] with `error` set (the
@@ -115,12 +116,10 @@ Future<StageOutcome<T>> runStageWithin<T>(
         // it runs after the caller moved on, so nobody is left to catch it.
         try {
           onLateValue?.call(value);
-        } catch (error, stackTrace) {
+        } catch (error) {
           developer.log(
             'late value release failed name=$name error=${error.runtimeType}',
             name: 'scan_id.stage',
-            error: error,
-            stackTrace: stackTrace,
           );
         }
       },
@@ -143,18 +142,25 @@ Future<StageOutcome<T>> runStageWithin<T>(
     ),
   );
 
+  void markCancelled() => expired = true;
+  cancellation?.addListener(markCancelled);
   try {
-    final value = await started.timeout(
-      budget,
-      onTimeout: () {
-        // Mark first: a value delivered in this same turn is then released by
-        // the observer instead of being dropped on the floor.
-        expired = true;
-        throw const _StageExpired();
-      },
-    );
+    final value = await awaitCancellable(started, cancellation: cancellation)
+        .timeout(
+          budget,
+          onTimeout: () {
+            // Mark first so a late value is observed and released.
+            expired = true;
+            throw const _StageExpired();
+          },
+        );
     return StageOutcome<T>.completed(value);
+  } on OperationCancelled {
+    expired = true;
+    ImportTrace.current?.emit('stage_cancelled', phase: name);
+    rethrow;
   } on _StageExpired {
+    ImportTrace.current?.emit('stage_timeout', phase: name);
     developer.log(
       'stage expired name=$name budgetMs=${budget.inMilliseconds}',
       name: 'scan_id.stage',
@@ -162,6 +168,8 @@ Future<StageOutcome<T>> runStageWithin<T>(
     return const StageOutcome.timedOut();
   } catch (error, stackTrace) {
     return StageOutcome<T>.failed(error, stackTrace);
+  } finally {
+    cancellation?.removeListener(markCancelled);
   }
 }
 

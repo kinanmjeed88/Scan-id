@@ -728,6 +728,7 @@ class LayoutEditorController extends ChangeNotifier {
         if (latest.revision > session.current.revision) {
           await session.adoptSaved(latest);
         }
+        outcome!.markUiStateApplied();
       });
     } finally {
       _intake = null;
@@ -764,7 +765,7 @@ class LayoutEditorController extends ChangeNotifier {
           'وتوجد ${intakeWarnings.length - 3} حالات أخرى.',
       ].join('\n');
       _say(
-        'قُصّ ${r.cropped} · أنواع معروفة ${r.recognized} · '
+        'قُصّ ${r.cropped} · أنواع ذات مقاس بالكتالوج ${r.recognized} · '
         'حدود للمراجعة ${r.boundaryNeedsReview} · '
         'بلا رباعي صالح ${r.notDetected} · مقاس غير محدد ${r.awaitingSize} · '
         'خارج الورق ${r.unplaced}'

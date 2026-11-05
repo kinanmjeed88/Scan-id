@@ -8,6 +8,43 @@ import '../fixtures.dart';
 import 'editor_harness.dart';
 
 void main() {
+  for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
+    testWidgets('${kind.name} crop asks for measured dimensions', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1100, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = MemoryProjects();
+      final asset = assetFixture(id: 'asset-estimated');
+      final project = await repository.create(projectFixture(assets: [asset]));
+      final service = ProjectService(
+        repository,
+        NoAssets(),
+        imageEditor: FakeImageEditor(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: CropScreen(project: project, asset: asset, service: service),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('crop-document-kind')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kind.label).last);
+      await tester.pumpAndSettle();
+      final width = find.byKey(const Key('crop-custom-width-mm'));
+      final height = find.byKey(const Key('crop-custom-height-mm'));
+      expect(tester.widget<TextField>(width).controller!.text, isEmpty);
+      expect(tester.widget<TextField>(height).controller!.text, isEmpty);
+      expect(find.textContaining('مقاس افتراضي قابل للتعديل'), findsOneWidget);
+    });
+  }
+
   testWidgets('civil-status crop requires a manually entered physical size', (
     tester,
   ) async {

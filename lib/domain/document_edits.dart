@@ -24,8 +24,9 @@ class DocumentEdits {
   /// Sets the category of a document and applies its catalog size at once.
   ///
   /// Choosing a category is not a size confirmation on its own. A known
-  /// category confirms its catalog size only when the picture has an approved
-  /// crop. Otherwise the item keeps the catalog size as a provisional size,
+  /// category confirms a documented catalog size only when the picture has an
+  /// approved crop. Estimated sizes always require explicit size confirmation.
+  /// Otherwise the item keeps the catalog size as a provisional size,
   /// stays unconfirmed, and is taken off the sheet until the crop is approved
   /// or a size is typed. Re-selecting the current category preserves a manually
   /// confirmed footprint; categories without a catalog size also preserve an
@@ -50,7 +51,10 @@ class DocumentEdits {
           item.hasUserConfirmedSize;
       final width = preserveManualSize ? item.width : size.width;
       final height = preserveManualSize ? item.height : size.height;
-      final confirmed = preserveManualSize || hasApprovedCrop(asset);
+      final confirmed =
+          preserveManualSize ||
+          (presetStatusFor(kind) == PresetStatus.standard &&
+              hasApprovedCrop(asset));
       next = item.copyWith(
         documentKind: kind,
         userSelectedKind: true,
@@ -64,7 +68,7 @@ class DocumentEdits {
           variantId: preserveManualSize ? null : builtinVariantId(kind),
           widthMm: width,
           heightMm: height,
-          status: PresetStatus.user,
+          status: confirmed ? PresetStatus.user : presetStatusFor(kind),
         ),
       );
     } else if (kind == DocumentKind.other) {
@@ -198,19 +202,30 @@ class DocumentEdits {
         ],
       );
 
-  /// Replaces the editable catalog sizes and resizes every document of the
-  /// affected categories (locked ones too, since the size is a project rule).
+  /// Updates provisional, unlocked items only. Confirmed footprints and their
+  /// snapshots are historical user decisions, not live catalog references.
   static Project applyCatalog(Project project, DocumentSizeCatalog catalog) {
     final updated = project.copyWith(catalog: catalog);
     return updated.copyWith(
       items: [
         for (final item in updated.items)
-          if (item.documentKind.hasEditableSize)
+          if (item.documentKind.hasEditableSize &&
+              !item.sizeConfirmed &&
+              !item.locked)
             () {
               final size = catalog
                   .natural(item.documentKind)!
                   .oriented(landscape: item.width >= item.height);
-              return item.copyWith(width: size.width, height: size.height);
+              return item.copyWith(
+                width: size.width,
+                height: size.height,
+                presetSnapshot: PresetSnapshot(
+                  variantId: builtinVariantId(item.documentKind),
+                  widthMm: size.width,
+                  heightMm: size.height,
+                  status: presetStatusFor(item.documentKind),
+                ),
+              );
             }()
           else
             item,

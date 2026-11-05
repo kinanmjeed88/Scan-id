@@ -310,7 +310,7 @@ void main() {
   });
 
   testWidgets(
-    'sizes dialog shows official sizes and edits residence and ration sizes live',
+    'catalog edits preserve confirmed residence and ration footprints',
     (tester) async {
       final editor = await EditorHarness.pump(
         tester,
@@ -346,9 +346,10 @@ void main() {
       expect(saved.catalog.residenceCard.width, 90);
       expect(saved.catalog.residenceCard.height, 60);
       expect(saved.catalog.rationCard.width, 50);
-      expect(itemIn(saved, 'residence').width, 90);
-      expect(itemIn(saved, 'residence').height, 60);
-      expect(itemIn(saved, 'ration').width, 50);
+      // Catalog defaults change; already-confirmed footprints do not.
+      expect(itemIn(saved, 'residence').width, 92.4);
+      expect(itemIn(saved, 'residence').height, 62.8);
+      expect(itemIn(saved, 'ration').width, 52);
       expect(itemIn(saved, 'ration').height, 287);
 
       await tapKey(tester, const Key('rb-catalog'));

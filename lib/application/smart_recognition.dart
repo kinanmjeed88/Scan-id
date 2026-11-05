@@ -37,6 +37,7 @@ import 'cancellation.dart';
 import 'contracts.dart';
 import 'full_resolution_jpeg_cropper.dart';
 import 'ids.dart';
+import 'import_trace.dart';
 import 'image_reader.dart';
 import 'ocr_engine.dart';
 import 'project_service.dart';
@@ -244,27 +245,35 @@ class SmartIntake {
       var imageCropped = 0;
       var imageNotDetected = 0;
       var imageMulti = 0;
+      final imageWarnings = <String>[];
+      final imageToken = CancellationToken();
+      void cancelImage() => imageToken.cancel();
+      cancellation?.addListener(cancelImage);
+      // Rejections belong to completed analysis, independently of application.
+      refusedRegions.addAll(analyzed.analysis.rejectedRegions);
       try {
-        current = await requireStageWithin(
-          () => _applyImage(
-            current,
-            analyzed,
-            newItems: imageItems,
-            newDocuments: imageDocuments,
-            newAssets: imageAssets,
-            replacedAssets: imageReplacements,
-            warnings: warnings,
-            onCropped: () => imageCropped++,
-            onNotDetected: () => imageNotDetected++,
-            onMulti: () => imageMulti++,
-            // Refusals describe the ANALYSIS, which already happened, so they
-            // are reported even if this image later fails.
-            onRejected: refusedRegions.addAll,
-            cancellation: cancellation,
+        current = await ImportTrace.stage(
+          'apply',
+          () => requireStageWithin(
+            () => _applyImage(
+              current,
+              analyzed,
+              newItems: imageItems,
+              newDocuments: imageDocuments,
+              newAssets: imageAssets,
+              replacedAssets: imageReplacements,
+              warnings: imageWarnings,
+              onCropped: () => imageCropped++,
+              onNotDetected: () => imageNotDetected++,
+              onMulti: () => imageMulti++,
+              onRejected: (_) {},
+              cancellation: imageToken,
+            ),
+            budget: analysisBudget,
+            name: 'image-apply',
+            // Writes are cooperative: don't abandon a save just because the
+            // user cancelled. The apply code observes imageToken at checkpoints.
           ),
-          budget: analysisBudget,
-          name: 'image-apply',
-          cancellation: cancellation,
         );
         newItems.addAll(imageItems);
         newDocuments.addAll(imageDocuments);
@@ -290,15 +299,25 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
+        // Do not commit partially staged results or create an item that
+        // would cause a subsequent import arrangement retry to skip this asset.
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
-          '(${userError(error)}).',
+          'ويمكن إعادة معالجة الصورة (${userError(error)}).',
         );
+      } finally {
+        cancellation?.removeListener(cancelImage);
+        imageToken.cancel();
+        // Snapshot only; an abandoned operation must not mutate batch state.
+        warnings.addAll(imageWarnings);
       }
     }
 
     // Pairing pass over this batch's single-sided recognized documents.
-    _applyPairing(newDocuments, newItems, newGroups);
+    ImportTrace.syncStage('pairing', () {
+      _applyPairing(newDocuments, newItems, newGroups);
+      return true;
+    });
 
     for (final record in newDocuments) {
       if (recordNeedsReview(record, thresholds)) needsReview++;
@@ -340,10 +359,21 @@ class SmartIntake {
     if (deferArrangement) {
       // Multi-only dispatch may stage several sources independently, then
       // arrange every newly produced item together around the pre-existing sheet.
-      current = await projects.save(current);
+      current = await ImportTrace.stage(
+        'persistence',
+        () => projects.save(current),
+        phase: 'arrangement',
+      );
     } else {
-      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
-      current = await projects.save(arrangement.result);
+      final arrangement = ImportTrace.syncStage(
+        'layout',
+        () => arrangeDocuments(current, keepPlaced: keepPlaced),
+      );
+      current = await ImportTrace.stage(
+        'persistence',
+        () => projects.save(arrangement.result),
+        phase: 'arrangement',
+      );
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
           '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
@@ -387,16 +417,6 @@ class SmartIntake {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
   }) async {
-    final pipeline = RecognitionPipeline(
-      suggestSingle: editor.suggest,
-      suggestProposal: editor is BoundaryProposalImageEditor
-          ? (editor as BoundaryProposalImageEditor).suggestProposal
-          : null,
-      segment: segment,
-      ocr: ocr,
-      catalog: project.catalog,
-      thresholds: thresholds,
-    );
     final pending = <ImageAsset>[];
     for (final id in assetIds.toSet()) {
       final index = project.assets.indexWhere((entry) => entry.id == id);
@@ -414,26 +434,55 @@ class SmartIntake {
         // analysis of ONE image must end. Without this a stage that never
         // answers leaves every later image untouched and the dialog open with
         // no result at all.
-        return requireStageWithin(
-          () async {
-            final source = await editor.open(asset);
-            final analysis = await pipeline.analyze(
-              PipelineImageInput(
-                assetId: asset.id,
-                previewBytes: source.preview,
-                sourceWidth: source.width,
-                sourceHeight: source.height,
-                importIndex: pending.indexOf(asset),
-                captureId: asset.captureId,
-              ),
-              token: cancellation,
-            );
-            return _Analyzed(asset, analysis, source.width, source.height);
-          },
-          budget: analysisBudget,
-          name: 'image-analysis',
-          cancellation: cancellation,
+        final imageToken = CancellationToken();
+        void cancelImage() => imageToken.cancel();
+        cancellation?.addListener(cancelImage);
+        final pipeline = RecognitionPipeline(
+          suggestSingle: editor.suggest,
+          suggestProposal: editor is BoundaryProposalImageEditor
+              ? (preview) => (editor as BoundaryProposalImageEditor)
+                    .suggestProposal(preview, cancellation: imageToken)
+              : null,
+          segment: segment,
+          ocr: ocr,
+          catalog: project.catalog,
+          thresholds: thresholds,
         );
+        try {
+          return await ImportTrace.stage(
+            'recognition',
+            () => requireStageWithin(
+              () async {
+                final source = await ImportTrace.stage(
+                  'decode',
+                  () => editor.open(asset, cancellation: imageToken),
+                  phase: 'preview',
+                );
+                ImportTrace.current?.emit('image_decoded');
+                final analysis = await pipeline.analyze(
+                  PipelineImageInput(
+                    assetId: asset.id,
+                    previewBytes: source.preview,
+                    sourceWidth: source.width,
+                    sourceHeight: source.height,
+                    importIndex: pending.indexOf(asset),
+                    captureId: asset.captureId,
+                  ),
+                  token: imageToken,
+                );
+                return _Analyzed(asset, analysis, source.width, source.height);
+              },
+              budget: analysisBudget,
+              name: 'image-analysis',
+              cancellation: imageToken,
+            ),
+          );
+        } finally {
+          cancellation?.removeListener(cancelImage);
+          // Analysis is read-only; terminate cancellable CPU work after a
+          // timeout or cancellation. Native calls retain their leases until done.
+          imageToken.cancel();
+        }
       },
       token: cancellation,
       onProgress: onProgress,

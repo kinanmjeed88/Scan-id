@@ -90,7 +90,9 @@ void main() {
       expect(
         result.isAvailable,
         isTrue,
-        reason: 'unavailable: ${result.unavailableReason}',
+        reason:
+            'unavailable: ${result.unavailableReason} '
+            '${engine.lastFailureDiagnostic}',
       );
       expect(result.lines, isNotEmpty, reason: 'no text line was detected');
       final text = _joined(result);
@@ -121,7 +123,9 @@ void main() {
       expect(
         result.isAvailable,
         isTrue,
-        reason: 'unavailable: ${result.unavailableReason}',
+        reason:
+            'unavailable: ${result.unavailableReason} '
+            '${engine.lastFailureDiagnostic}',
       );
       final text = _joined(result);
       printOnFailure('recognised: $text');
@@ -148,7 +152,13 @@ void main() {
     try {
       final result = await engine.recognize(await _blankPage());
 
-      expect(result.isAvailable, isTrue);
+      expect(
+        result.isAvailable,
+        isTrue,
+        reason:
+            'unavailable: ${result.unavailableReason} '
+            '${engine.lastFailureDiagnostic}',
+      );
       expect(result.lines, isEmpty);
       expect(result.confidence, isNull, reason: 'absence, not zero');
     } finally {

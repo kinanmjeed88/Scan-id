@@ -28,6 +28,7 @@
 /// the sampling; the ONNX calls themselves are already asynchronous.
 library;
 
+import 'dart:developer' as developer;
 import 'dart:isolate';
 import 'package:flutter/services.dart';
 
@@ -42,6 +43,7 @@ import 'cancellation.dart';
 import 'ocr_engine.dart';
 import 'ocr_model_assets.dart';
 import 'paddle_ocr_runtime.dart';
+import 'stage_budget.dart';
 
 /// Most text lines recognised per document. A card carries far fewer; the cap
 /// bounds memory and time for a dense page or a misdetected region.
@@ -91,6 +93,30 @@ List<OcrLineInput> prepareOcrLineInputs(
   return [for (final quad in quads) buildOcrLineInput(image, quad)];
 }
 
+/// Isolate hand-offs live in their own top-level functions on purpose.
+///
+/// `Isolate.run` sends the closure together with the variables its enclosing
+/// scope captured. When these closures shared `recognize`'s scope with the stage
+/// budget (a `Stopwatch`) and the stage closures, the message carried an
+/// unsendable object and every call failed with `ArgumentError: Illegal
+/// argument in isolate message`, which surfaced as `engine-failure` for every
+/// page. Keeping the hand-off alone in its own scope means the message carries
+/// only the bytes and the tensors.
+Future<OcrDetInput> prepareOcrDetectionIsolated(Uint8List imageBytes) =>
+    Isolate.run(() => prepareOcrDetection(imageBytes));
+
+/// Maps a probability map onto source pixels without capturing the caller scope.
+Future<List<TextLineBox>> locateOcrLinesIsolated({
+  required OcrDetOutput map,
+  required OcrDetInput detection,
+}) => Isolate.run(() => locateOcrLines(map: map, detection: detection));
+
+/// Builds the recognition tensors without capturing the caller scope.
+Future<List<OcrLineInput>> prepareOcrLineInputsIsolated(
+  Uint8List imageBytes,
+  List<List<Point2>> quads,
+) => Isolate.run(() => prepareOcrLineInputs(imageBytes, quads));
+
 class PaddleOcrEngine implements OcrEngine {
   PaddleOcrEngine({
     PpocrRuntime? runtime,
@@ -125,6 +151,12 @@ class PaddleOcrEngine implements OcrEngine {
   @override
   bool get isEnabled => true;
 
+  /// Stage and error class of the last failure, for field diagnosis.
+  ///
+  /// Never carries image bytes or recognised text: a report needs to say which
+  /// native stage failed and with what error class, nothing else.
+  String? lastFailureDiagnostic;
+
   @override
   Future<OcrTextResult> recognize(
     Uint8List imageBytes, {
@@ -132,26 +164,73 @@ class PaddleOcrEngine implements OcrEngine {
   }) async {
     token?.throwIfCancelled();
     final stopwatch = Stopwatch()..start();
+    // The budget covers EVERY native stage, not just the recognition loop. A
+    // session that never answers used to leave this future pending forever,
+    // which in the UI is an import dialog stuck at 0 / 1. Each native call is
+    // therefore bounded by what is left of the budget and an expired stage is
+    // reported as an explicit unavailable result.
+    Duration remaining() {
+      final left = timeBudget - stopwatch.elapsed;
+      if (left < const Duration(seconds: 1)) return const Duration(seconds: 1);
+      return left;
+    }
+
+    // Named so a device log can say which native stage failed, without ever
+    // recording image bytes or recognised text.
+    var stage = 'ocr-detection';
     try {
-      final detection = await Isolate.run(
-        () => prepareOcrDetection(imageBytes),
+      final detection = await prepareOcrDetectionIsolated(imageBytes);
+      token?.throwIfCancelled();
+      final detectionOutcome = await runStageWithin(
+        () => _runtime.runDetection(detection),
+        budget: remaining(),
+        name: 'ocr-detection',
+        cancellation: token,
       );
+      if (detectionOutcome.didTimeOut) {
+        // Only the detector stalled; the recogniser session may be healthy.
+        _runtime.abandonStalledSessions(PpocrGraph.detection);
+        return OcrTextResult.unavailable(
+          unavailableReason: 'time-budget-exceeded',
+          engineVersion: version,
+        );
+      }
+      final detectionError = detectionOutcome.error;
+      if (detectionError != null) {
+        Error.throwWithStackTrace(detectionError, detectionOutcome.stackTrace!);
+      }
+      final map = detectionOutcome.value!;
       token?.throwIfCancelled();
-      final map = await _runtime.runDetection(detection);
-      token?.throwIfCancelled();
-      final located = await Isolate.run(
-        () => locateOcrLines(map: map, detection: detection),
+      final located = await locateOcrLinesIsolated(
+        map: map,
+        detection: detection,
       );
       token?.throwIfCancelled();
       if (located.isEmpty) {
         return OcrTextResult.available(lines: const [], engineVersion: version);
       }
-      final alphabet = await _loadAlphabet();
+      stage = 'ocr-alphabet';
+      final alphabetOutcome = await runStageWithin(
+        _loadAlphabet,
+        budget: remaining(),
+        name: 'ocr-alphabet',
+        cancellation: token,
+      );
+      if (alphabetOutcome.didTimeOut) {
+        return OcrTextResult.unavailable(
+          unavailableReason: 'time-budget-exceeded',
+          engineVersion: version,
+        );
+      }
+      final alphabetError = alphabetOutcome.error;
+      if (alphabetError != null) {
+        Error.throwWithStackTrace(alphabetError, alphabetOutcome.stackTrace!);
+      }
+      final alphabet = alphabetOutcome.value!;
       token?.throwIfCancelled();
       final quads = [for (final box in located.take(maxLines)) box.corners];
-      final inputs = await Isolate.run(
-        () => prepareOcrLineInputs(imageBytes, quads),
-      );
+      final inputs = await prepareOcrLineInputsIsolated(imageBytes, quads);
+      stage = 'ocr-recognition';
       final sourceWidth = detection.width * detection.scaleX;
       final sourceHeight = detection.height * detection.scaleY;
       final lines = <OcrLine>[];
@@ -162,7 +241,28 @@ class PaddleOcrEngine implements OcrEngine {
           budgetExhausted = true;
           break;
         }
-        final output = await _runtime.runRecognition(inputs[index]);
+        final recognitionOutcome = await runStageWithin(
+          () => _runtime.runRecognition(inputs[index]),
+          budget: remaining(),
+          name: 'ocr-recognition',
+          cancellation: token,
+        );
+        if (recognitionOutcome.didTimeOut) {
+          // Keep the lines already decoded: a partial transcript is honest
+          // evidence, and the caller still learns the budget was hit.
+          budgetExhausted = true;
+          // One stalled row must not tear down the healthy detector session.
+          _runtime.abandonStalledSessions(PpocrGraph.recognition);
+          break;
+        }
+        final recognitionError = recognitionOutcome.error;
+        if (recognitionError != null) {
+          Error.throwWithStackTrace(
+            recognitionError,
+            recognitionOutcome.stackTrace!,
+          );
+        }
+        final output = recognitionOutcome.value!;
         final decoded = decodeCtcLine(
           values: output.values,
           timeSteps: output.timeSteps,
@@ -205,7 +305,16 @@ class PaddleOcrEngine implements OcrEngine {
         unavailableReason: 'model-unavailable',
         engineVersion: version,
       );
-    } catch (_) {
+    } catch (error) {
+      // Report the failure class, never the image or the text: a field report
+      // has to distinguish "the graph threw" from "the plugin never answered".
+      developer.log(
+        'ocr engine failure stage=$stage error=${error.runtimeType} '
+        'version=$version',
+        name: 'scan_id.ocr',
+        error: error,
+      );
+      lastFailureDiagnostic = 'stage=$stage type=${error.runtimeType} $error';
       return OcrTextResult.unavailable(
         unavailableReason: 'engine-failure',
         engineVersion: version,

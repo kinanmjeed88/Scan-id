@@ -201,11 +201,26 @@ class _IntakeProgressDialog extends StatefulWidget {
 class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
   BatchProgress? _progress;
   bool _cancelling = false;
+  Timer? _elapsedTicker;
+  Duration _elapsed = Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    // A slow stage and a hung stage look identical in a progress bar. The
+    // elapsed time tells the person which one they are looking at, and it is
+    // the only honest signal the dialog can offer while a native call runs.
+    _elapsedTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _elapsed = Duration(seconds: _elapsed.inSeconds + 1));
+    });
     unawaited(_start());
+  }
+
+  @override
+  void dispose() {
+    _elapsedTicker?.cancel();
+    super.dispose();
   }
 
   Future<void> _start() async {
@@ -218,6 +233,14 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
     );
     if (!mounted) return;
     Navigator.of(context).pop(run);
+  }
+
+  String _elapsedText() {
+    final minutes = _elapsed.inMinutes;
+    final seconds = _elapsed.inSeconds % 60;
+    return minutes == 0
+        ? '$seconds ث'
+        : '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -238,7 +261,12 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
             const SizedBox(height: 12),
             LinearProgressIndicator(value: value),
             const SizedBox(height: 8),
-            Text('$completed / $total'),
+            Text('$completed / $total · ${_elapsedText()}'),
+            if (_cancelling)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text('سيُلغى الإجراء عند أول نقطة آمنة.'),
+              ),
           ],
         ),
         actions: [

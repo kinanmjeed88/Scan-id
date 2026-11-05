@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -61,12 +62,15 @@ OcrRecOutput _row(int index, {double probability = .95}) {
 class _FakeRuntime implements PpocrRuntime {
   _FakeRuntime({this.detection, this.recognition});
 
+  var detectionCalls = 0;
+
   final OcrDetOutput Function(OcrDetInput input)? detection;
   final OcrRecOutput Function(int call)? recognition;
   final List<OcrLineInput> recognitionCalls = [];
 
   @override
   Future<OcrDetOutput> runDetection(OcrDetInput input) async {
+    detectionCalls++;
     final handler = detection;
     if (handler == null) throw PlatformException(code: 'model-missing');
     return handler(input);
@@ -78,6 +82,18 @@ class _FakeRuntime implements PpocrRuntime {
     final handler = recognition;
     if (handler == null) throw StateError('recognition graph failed');
     return handler(recognitionCalls.length - 1);
+  }
+
+  var abandoned = 0;
+
+  /// Which graph each abandonment released: a stalled recognition row must not
+  /// drop the detector session, and vice versa.
+  final List<PpocrGraph> abandonedGraphs = [];
+
+  @override
+  void abandonStalledSessions(PpocrGraph graph) {
+    abandoned++;
+    abandonedGraphs.add(graph);
   }
 
   @override
@@ -196,6 +212,72 @@ void main() {
     expect(engine.version, startsWith('ppocrv5'));
   });
 
+  test('a stalled detection graph expires instead of hanging', () async {
+    // This is the reported Android symptom: the plugin never replies, the
+    // future stays pending and the import counter never leaves 0 / 1. The
+    // engine must end the call with an explicit, diagnosable result.
+    final runtime = _StalledRuntime();
+    final engine = PaddleOcrEngine(
+      runtime: runtime,
+      dictionaryLoader: (assetKey) async => _dictionary(),
+      timeBudget: const Duration(milliseconds: 250),
+    );
+
+    final result = await engine.recognize(_documentPng());
+
+    expect(result.isAvailable, isFalse);
+    expect(result.unavailableReason, 'time-budget-exceeded');
+    expect(result.lines, isEmpty);
+    expect(runtime.abandoned, 1, reason: 'the stuck session is dropped');
+  });
+
+  test('a stalled recognition graph keeps the lines already decoded', () async {
+    final runtime = _SlowRecognitionRuntime(
+      slowDetection: (input) => _detectionWithBands(input, 2),
+    );
+    final engine = PaddleOcrEngine(
+      runtime: runtime,
+      dictionaryLoader: (assetKey) async => _dictionary(),
+      timeBudget: const Duration(milliseconds: 250),
+    );
+
+    final result = await engine.recognize(_documentPng());
+
+    // One line completes, then the second stalls: the transcript is partial and
+    // the engine says the budget was hit rather than inventing confidence.
+    expect(result.lines, hasLength(1));
+    expect(runtime.abandoned, 1);
+    expect(runtime.abandonedGraphs, [PpocrGraph.recognition]);
+  });
+
+  test('a stalled detector is abandoned and the next call recovers', () async {
+    // Repeated imports after a time-out are the real field pattern: the first
+    // image stalls, the user tries again. The abandoned session must be dropped
+    // (not awaited again) and the retry must run on a fresh one.
+    final runtime = _FirstCallStalledRuntime();
+    final engine = PaddleOcrEngine(
+      runtime: runtime,
+      dictionaryLoader: (assetKey) async => _dictionary(),
+      timeBudget: const Duration(milliseconds: 250),
+    );
+
+    final first = await engine.recognize(_documentPng());
+
+    expect(first.isAvailable, isFalse);
+    expect(first.unavailableReason, 'time-budget-exceeded');
+    expect(runtime.abandonedGraphs, [PpocrGraph.detection]);
+
+    final second = await engine.recognize(_documentPng());
+
+    expect(
+      second.isAvailable,
+      isTrue,
+      reason: 'the retry is not stuck on 0 / 1',
+    );
+    expect(second.lines, isNotEmpty);
+    expect(runtime.detectionCalls, 2, reason: 'the second call ran detection');
+  });
+
   test('the shipped dictionary parses to the pinned alphabet size', () async {
     final source = await File(_dictionaryAsset).readAsString();
     final dictionary = parseOcrDictionary(source);
@@ -204,4 +286,53 @@ void main() {
     expect(dictionary.first, '!');
     expect(buildOcrAlphabet(dictionary), hasLength(749));
   });
+}
+
+/// A runtime whose detection never answers, like a native call that failed on
+/// the platform thread without replying.
+class _StalledRuntime extends _FakeRuntime {
+  _StalledRuntime() : super(recognition: (call) => _row(1));
+
+  @override
+  Future<OcrDetOutput> runDetection(OcrDetInput input) =>
+      Completer<OcrDetOutput>().future;
+}
+
+/// Answers the first recognition row, then never answers again.
+class _SlowRecognitionRuntime extends _FakeRuntime {
+  _SlowRecognitionRuntime({required this.slowDetection})
+    : super(
+        detection: (input) => slowDetection(input),
+        recognition: (call) => _row(1),
+      );
+
+  final OcrDetOutput Function(OcrDetInput input) slowDetection;
+
+  var _answered = 0;
+
+  @override
+  Future<OcrRecOutput> runRecognition(OcrLineInput input) {
+    recognitionCalls.add(input);
+    if (_answered++ == 0) return Future<OcrRecOutput>.value(_row(1));
+    return Completer<OcrRecOutput>().future;
+  }
+}
+
+/// Stalls the first detection, then behaves normally — a device that fails once
+/// and works on the retry.
+class _FirstCallStalledRuntime extends _FakeRuntime {
+  _FirstCallStalledRuntime()
+    : super(
+        detection: (input) => _detectionWithBands(input, 1),
+        recognition: (call) => _row(1),
+      );
+
+  @override
+  Future<OcrDetOutput> runDetection(OcrDetInput input) {
+    if (detectionCalls == 0) {
+      detectionCalls++;
+      return Completer<OcrDetOutput>().future;
+    }
+    return super.runDetection(input);
+  }
 }

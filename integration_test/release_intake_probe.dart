@@ -49,7 +49,8 @@ Future<Uint8List> _syntheticPage() async {
   final image = await recorder.endRecording().toImage(1000, 700);
   final data = await image.toByteData(format: ui.ImageByteFormat.png);
   image.dispose();
-  if (data == null) throw StateError('Synthetic page encoding returned no PNG.');
+  if (data == null)
+    throw StateError('Synthetic page encoding returned no PNG.');
   return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 }
 
@@ -112,7 +113,10 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
       progress.last.completed == progress.last.total,
       'Intake progress did not complete.',
     );
-    _require(run.project.assets.length == 1, 'Original asset was not retained.');
+    _require(
+      run.project.assets.length == 1,
+      'Original asset was not retained.',
+    );
     _require(run.project.items.length == 1, 'Paper/item was not retained.');
     final asset = run.project.assets.single;
     _require(
@@ -130,8 +134,7 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
     for (final phase in nativePhases) {
       _require(
         events.any(
-          (event) =>
-              event.phase == phase && event.event == 'native_completed',
+          (event) => event.phase == phase && event.event == 'native_completed',
         ),
         'Release JNI inference did not complete: $phase',
       );
@@ -177,8 +180,7 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
     _require(
       !retry!.warnings.any(
         (warning) =>
-            warning.contains('فشل OCR') ||
-            warning.contains('المهلة الزمنية'),
+            warning.contains('فشل OCR') || warning.contains('المهلة الزمنية'),
       ),
       'Retry hid an OCR failure or timeout: ${retry.warnings}',
     );
@@ -191,7 +193,10 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
           retry.project.items.single.id == itemId,
       'Retry duplicated or replaced the item.',
     );
-    _require(retry.project.assets.length == 1, 'Retry duplicated the original.');
+    _require(
+      retry.project.assets.length == 1,
+      'Retry duplicated the original.',
+    );
     final retryOriginal = await retryAssets.resolve(
       retry.project.assets.single.originalPath,
     );
@@ -200,7 +205,10 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
           originalHash,
       'Retry mutated the original bytes.',
     );
-    _require(secondary.inferenceRuns >= 2, 'Retry did not reuse/run inference.');
+    _require(
+      secondary.inferenceRuns >= 2,
+      'Retry did not reuse/run inference.',
+    );
 
     return <String, Object?>{
       'originalSha256': originalHash,

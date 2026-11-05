@@ -25,13 +25,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   # Quality gate (format, analyze, tests, independent export audit) followed
-  # by a clearly labelled Android debug smoke artifact. Release APKs are built only
-  # by the protected, signed-release workflow.
+  # by a clearly labelled Android debug smoke artifact. Publishable release APKs
+  # are built only by the protected signed-release workflow; the R8 regression
+  # below builds a disposable test-signed package and never uploads its APK.
   android:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    timeout-minutes: 50
+    # Includes the additional R8/AOT emulator regression; no failing step is
+    # continue-on-error, and the production signing configuration is unchanged.
+    timeout-minutes: 60
     steps:
       # Mostmskat/ contains private, local-only evaluation data. Sparse partial
       # checkout keeps those blobs out of every GitHub Actions runner.
@@ -198,6 +201,8 @@ jobs:
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
       - name: Source integrity audit
         run: python tool/ci_gate.py source-audit python tool/check_source.py
+      - name: Android ONNX JNI release keep rules
+        run: python tool/ci_gate.py android-r8-rules python tool/check_android_r8.py
       - name: Audit workflow permissions and write paths
         run: python tool/check_workflow_permissions.py
       - name: Detector retirement and manual-only contract
@@ -208,7 +213,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m unittest test.tool.branch_cleanup_test test.tool.test_local_annotation_validator test.tool.test_format_report --verbose
+          python -m unittest test.tool.branch_cleanup_test test.tool.test_local_annotation_validator test.tool.test_format_report test.tool.test_android_r8 --verbose
+          bash -n tool/run_android_release_regression.sh
           script=$(mktemp --suffix=.js)
           python - "$script" <<'PY'
           import pathlib
@@ -539,6 +545,31 @@ jobs:
             diagnostics/android-instrumentation/
             build/app/reports/androidTests/connected/
             build/app/outputs/androidTest-results/connected/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # The user-visible crash appeared only after R8/AOT packaging. Debug
+      # inference cannot reproduce that transformation. This test package is
+      # signed with a disposable local key (never a repository secret), runs
+      # the real four-model intake, and is NOT uploaded as an application APK.
+      - name: Android R8 release intake regression (disposable test key)
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-linux-hw-accel: ${{ steps.emulator-acceleration.outputs.available != 'true' }}
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
+          script: bash tool/run_android_release_regression.sh
+
+      - name: Upload Android R8 release evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-r8-release-evidence
+          path: diagnostics/android-release/
           if-no-files-found: warn
           retention-days: 7
 

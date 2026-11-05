@@ -47,8 +47,10 @@ KEYSTORE_KEY_PASSWORD="$password" \
 EXPECTED_CERT_SHA256="$fingerprint" \
 REQUIRE_RELEASE_SIGNING=true \
 ORG_GRADLE_PROJECT_scanIdR8Profile=true \
-timeout 1200 flutter test integration_test/release_intake_test.dart \
-  -d "$serial" --flavor scanid --profile --reporter expanded \
+timeout 1200 flutter drive \
+  --driver=test_driver/integration_test.dart \
+  --target=integration_test/release_intake_test.dart \
+  -d "$serial" --flavor scanid --profile \
   > diagnostics/android-release/intake.log 2>&1
 status=$?
 set -e
@@ -85,7 +87,7 @@ if (( status != 0 )); then
   echo "::error title=android-release-intake::R8/AOT intake regression failed (exit=$status). See the uploaded log and mapping." >&2
   exit "$status"
 fi
-grep -Fq 'All tests passed!' diagnostics/android-release/intake.log || {
+grep -Eq 'All tests passed[.!]' diagnostics/android-release/intake.log || {
   echo '::error title=android-release-intake::No successful test tally was reported.' >&2
   exit 1
 }

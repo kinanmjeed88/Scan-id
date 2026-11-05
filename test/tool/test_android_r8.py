@@ -78,6 +78,8 @@ class AndroidR8RulesTest(unittest.TestCase):
             check_android_r8.ROOT / "tool/run_android_release_regression.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("integration_test/release_intake_test.dart", script)
+        self.assertIn("flutter drive", script)
+        self.assertIn("test_driver/integration_test.dart", script)
         self.assertIn("--profile", script)
         self.assertIn("ORG_GRADLE_PROJECT_scanIdR8Profile=true", script)
         self.assertIn("mapping/scanidProfile/mapping.txt", script)

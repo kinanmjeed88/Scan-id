@@ -299,13 +299,11 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
-        // The source was already committed. An apply failure must not leave
-        // it without an editable item; do not fabricate a recognition record
-        // or merge any of this image's partially staged assets and records.
-        newItems.add(_fallbackItem(current, sourceAsset, newItems));
+        // Do not commit partially staged results or create an item that
+        // would cause a subsequent import arrangement retry to skip this asset.
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
-          'ويمكن قصّه يدوياً (${userError(error)}).',
+          'ويمكن إعادة معالجة الصورة (${userError(error)}).',
         );
       } finally {
         cancellation?.removeListener(cancelImage);

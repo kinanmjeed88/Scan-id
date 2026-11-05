@@ -189,10 +189,16 @@ void main() {
       final svc = service(() async => null, ocr: ocr);
       final project = await svc.create('test');
       final events = <ImportTraceEvent>[];
+      final ocrCancelled = Completer<void>();
       final runner = IntakeRunner(
         service: svc,
         project: project,
-        onTrace: events.add,
+        onTrace: (event) {
+          events.add(event);
+          if (event.event == 'ocr_cancelled' && !ocrCancelled.isCompleted) {
+            ocrCancelled.complete();
+          }
+        },
       );
       final pending = runner.run([source()]);
       await ocr.entered.future;
@@ -200,6 +206,8 @@ void main() {
       expect(events.any((e) => e.event == 'ocr_completed'), isFalse);
       runner.cancel();
       await pending;
+      // The caller can return before the cancelled nested pipeline unwinds.
+      await ocrCancelled.future.timeout(const Duration(seconds: 5));
       expect(events.any((e) => e.event == 'ocr_cancelled'), isTrue);
       ocr.gate.complete(
         OcrTextResult.unavailable(

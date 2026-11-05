@@ -82,17 +82,25 @@ class OrtPpocrRuntime implements PpocrRuntime {
   OrtPpocrRuntime({OnnxRuntime? runtime}) {
     final backend = runtime ?? OnnxRuntime();
     _detection = RetirableResource<OrtSession>(
-      create: () => ImportTrace.stage('native', () => backend.createSessionFromAsset(
-        ocrDetectionAssetPath,
-        options: OrtSessionOptions(intraOpNumThreads: 2),
-      ), phase: 'ocr-detection-session'),
+      create: () => ImportTrace.stage(
+        'native',
+        () => backend.createSessionFromAsset(
+          ocrDetectionAssetPath,
+          options: OrtSessionOptions(intraOpNumThreads: 2),
+        ),
+        phase: 'ocr-detection-session',
+      ),
       dispose: (session) => session.close(),
     );
     _recognition = RetirableResource<OrtSession>(
-      create: () => ImportTrace.stage('native', () => backend.createSessionFromAsset(
-        ocrRecognizerAssetPath,
-        options: OrtSessionOptions(intraOpNumThreads: 2),
-      ), phase: 'ocr-recognition-session'),
+      create: () => ImportTrace.stage(
+        'native',
+        () => backend.createSessionFromAsset(
+          ocrRecognizerAssetPath,
+          options: OrtSessionOptions(intraOpNumThreads: 2),
+        ),
+        phase: 'ocr-recognition-session',
+      ),
       dispose: (session) => session.close(),
     );
   }
@@ -101,38 +109,44 @@ class OrtPpocrRuntime implements PpocrRuntime {
   late final RetirableResource<OrtSession> _recognition;
 
   @override
-  Future<OcrDetOutput> runDetection(OcrDetInput input) =>
-      ImportTrace.stage('native', () => _detection.run((session) async {
-        final values = await _run(session, input.values, [
-          1,
-          3,
-          input.height,
-          input.width,
-        ], expectRank: 4);
-        final shape = values.shape;
-        return OcrDetOutput(
-          values: values.values,
-          width: shape[3],
-          height: shape[2],
-        );
-      }), phase: 'ocr-detection-operation');
+  Future<OcrDetOutput> runDetection(OcrDetInput input) => ImportTrace.stage(
+    'native',
+    () => _detection.run((session) async {
+      final values = await _run(session, input.values, [
+        1,
+        3,
+        input.height,
+        input.width,
+      ], expectRank: 4);
+      final shape = values.shape;
+      return OcrDetOutput(
+        values: values.values,
+        width: shape[3],
+        height: shape[2],
+      );
+    }),
+    phase: 'ocr-detection-operation',
+  );
 
   @override
-  Future<OcrRecOutput> runRecognition(OcrLineInput input) =>
-      ImportTrace.stage('native', () => _recognition.run((session) async {
-        final values = await _run(session, input.values, [
-          1,
-          3,
-          input.height,
-          input.width,
-        ], expectRank: 3);
-        final shape = values.shape;
-        return OcrRecOutput(
-          values: values.values,
-          timeSteps: shape[1],
-          classes: shape[2],
-        );
-      }), phase: 'ocr-recognition-operation');
+  Future<OcrRecOutput> runRecognition(OcrLineInput input) => ImportTrace.stage(
+    'native',
+    () => _recognition.run((session) async {
+      final values = await _run(session, input.values, [
+        1,
+        3,
+        input.height,
+        input.width,
+      ], expectRank: 3);
+      final shape = values.shape;
+      return OcrRecOutput(
+        values: values.values,
+        timeSteps: shape[1],
+        classes: shape[2],
+      );
+    }),
+    phase: 'ocr-recognition-operation',
+  );
 
   @override
   Future<void> close() async {
@@ -167,22 +181,39 @@ class OrtPpocrRuntime implements PpocrRuntime {
     OrtValue? inputValue;
     Map<String, OrtValue>? outputs;
     try {
-      inputValue = await ImportTrace.stage('native',
-        () => OrtValue.fromList(input, shape), phase: 'tensor-create');
-      outputs = await ImportTrace.stage('native',
-        () => session.run({inputName: inputValue!}), phase: 'ocr-inference');
-      final tensor = _expectedTensor(outputs, expectRank);
+      inputValue = await ImportTrace.stage(
+        'native',
+        () => OrtValue.fromList(input, shape),
+        phase: 'tensor-create',
+      );
+      final inferenceOutputs = await ImportTrace.stage<Map<String, OrtValue>>(
+        'native',
+        () => session.run({inputName: inputValue!}),
+        phase: 'ocr-inference',
+      );
+      outputs = inferenceOutputs;
+      final tensor = _expectedTensor(inferenceOutputs, expectRank);
       final flat = await ImportTrace.stage(
-        'native', tensor.asFlattenedList, phase: 'tensor-read');
+        'native',
+        tensor.asFlattenedList,
+        phase: 'tensor-read',
+      );
       return (values: _toFloat32(flat), shape: tensor.shape);
     } finally {
       if (inputValue != null) {
-        await ImportTrace.stage('native', () => inputValue!.dispose(),
-            phase: 'tensor-release');
+        await ImportTrace.stage(
+          'native',
+          () => inputValue!.dispose(),
+          phase: 'tensor-release',
+        );
       }
       if (outputs != null) {
         for (final output in outputs.values) {
-          await ImportTrace.stage('native', output.dispose, phase: 'tensor-release');
+          await ImportTrace.stage(
+            'native',
+            output.dispose,
+            phase: 'tensor-release',
+          );
         }
       }
     }

@@ -119,14 +119,19 @@ class IntakeRunner {
       final phase = progress.stage == importStageLabel
           ? 'source'
           : progress.stage == 'تحليل الصور'
-              ? 'analysis'
-              : progress.stage == 'تجهيز وحفظ النتائج'
-                  ? 'apply-and-save'
-                  : 'other';
-      context.emit('progress_update', phase: phase,
-          completed: progress.completed, total: progress.total);
+          ? 'analysis'
+          : progress.stage == 'تجهيز وحفظ النتائج'
+          ? 'apply-and-save'
+          : 'other';
+      context.emit(
+        'progress_update',
+        phase: phase,
+        completed: progress.completed,
+        total: progress.total,
+      );
       onProgress?.call(progress);
     }
+
     void trace(String stage, String state, [Object? error]) {
       developer.log(
         'task=$taskId stage=$stage state=$state elapsedMs=${elapsed.elapsedMilliseconds}'
@@ -134,6 +139,7 @@ class IntakeRunner {
         name: 'scan_id.intake',
       );
     }
+
     _running = true;
     trace('import', 'started');
     try {
@@ -193,11 +199,13 @@ class IntakeRunner {
                 trace('analysis', 'completed');
                 savingReported = true;
                 trace('apply-and-save', 'started');
-                reportProgress(const BatchProgress(
-                  total: 1,
-                  completed: 0,
-                  stage: 'تجهيز وحفظ النتائج',
-                ));
+                reportProgress(
+                  const BatchProgress(
+                    total: 1,
+                    completed: 0,
+                    stage: 'تجهيز وحفظ النتائج',
+                  ),
+                );
               } else {
                 reportProgress(progress);
               }
@@ -206,11 +214,13 @@ class IntakeRunner {
           latest = layout.project;
           if (savingReported) trace('apply-and-save', 'completed');
           if (!token.isCancelled) {
-            reportProgress(const BatchProgress(
-              total: 1,
-              completed: 1,
-              stage: 'تجهيز وحفظ النتائج',
-            ));
+            reportProgress(
+              const BatchProgress(
+                total: 1,
+                completed: 1,
+                stage: 'تجهيز وحفظ النتائج',
+              ),
+            );
           }
           trace('arrangement', 'completed');
         } catch (error) {
@@ -228,8 +238,8 @@ class IntakeRunner {
       terminal = token.isCancelled
           ? 'cancelled'
           : failure != null || import.failures.isNotEmpty
-              ? 'failed'
-              : 'completed';
+          ? 'failed'
+          : 'completed';
       return IntakeRun(
         project: latest,
         import: import,
@@ -239,11 +249,13 @@ class IntakeRunner {
       );
     } finally {
       trace('task', terminal);
-      context.finish(terminal == 'completed'
-          ? 'import_completed'
-          : terminal == 'cancelled'
-              ? 'import_cancelled'
-              : 'import_failed');
+      context.finish(
+        terminal == 'completed'
+            ? 'import_completed'
+            : terminal == 'cancelled'
+            ? 'import_cancelled'
+            : 'import_failed',
+      );
       _running = false;
     }
   }

@@ -145,17 +145,15 @@ Future<StageOutcome<T>> runStageWithin<T>(
   void markCancelled() => expired = true;
   cancellation?.addListener(markCancelled);
   try {
-    final value = await awaitCancellable(
-      started,
-      cancellation: cancellation,
-    ).timeout(
-      budget,
-      onTimeout: () {
-        // Mark first so a late value is observed and released.
-        expired = true;
-        throw const _StageExpired();
-      },
-    );
+    final value = await awaitCancellable(started, cancellation: cancellation)
+        .timeout(
+          budget,
+          onTimeout: () {
+            // Mark first so a late value is observed and released.
+            expired = true;
+            throw const _StageExpired();
+          },
+        );
     return StageOutcome<T>.completed(value);
   } on OperationCancelled {
     expired = true;

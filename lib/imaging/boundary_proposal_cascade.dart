@@ -40,7 +40,8 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
   }) async {
     cancellation?.throwIfCancelled();
     final (sourceWidth, sourceHeight) = await ImportTrace.stage(
-      'preprocessing', () => _previewDimensions(preview, cancellation),
+      'preprocessing',
+      () => _previewDimensions(preview, cancellation),
       phase: 'boundary-preview',
     );
     final first = await _attempt(primary, preview, cancellation);
@@ -139,7 +140,11 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
 Future<(int, int)> _previewDimensions(
   Uint8List preview,
   CancellationToken? cancellation,
-) => runCancellableIsolate(() {
-  final source = decodeForProcessing(preview);
-  return (source.width, source.height);
-}, cancellation: cancellation, debugName: 'boundary-preview');
+) => runCancellableIsolate(
+  () {
+    final source = decodeForProcessing(preview);
+    return (source.width, source.height);
+  },
+  cancellation: cancellation,
+  debugName: 'boundary-preview',
+);

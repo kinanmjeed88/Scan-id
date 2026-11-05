@@ -181,8 +181,10 @@ class PaddleOcrEngine implements OcrEngine {
     var stage = 'ocr-detection';
     try {
       final detection = await ImportTrace.stage(
-        'preprocessing', () => prepareOcrDetectionIsolated(imageBytes),
-        phase: 'ocr-detector-tensor');
+        'preprocessing',
+        () => prepareOcrDetectionIsolated(imageBytes),
+        phase: 'ocr-detector-tensor',
+      );
       token?.throwIfCancelled();
       final detectionOutcome = await runStageWithin(
         () => _runtime.runDetection(detection),
@@ -205,8 +207,10 @@ class PaddleOcrEngine implements OcrEngine {
       final map = detectionOutcome.value!;
       token?.throwIfCancelled();
       final located = await ImportTrace.stage(
-        'preprocessing', () => locateOcrLinesIsolated(map: map, detection: detection),
-        phase: 'ocr-locate-lines');
+        'preprocessing',
+        () => locateOcrLinesIsolated(map: map, detection: detection),
+        phase: 'ocr-locate-lines',
+      );
       token?.throwIfCancelled();
       if (located.isEmpty) {
         return OcrTextResult.available(lines: const [], engineVersion: version);
@@ -232,8 +236,10 @@ class PaddleOcrEngine implements OcrEngine {
       token?.throwIfCancelled();
       final quads = [for (final box in located.take(maxLines)) box.corners];
       final inputs = await ImportTrace.stage(
-        'preprocessing', () => prepareOcrLineInputsIsolated(imageBytes, quads),
-        phase: 'ocr-line-tensors');
+        'preprocessing',
+        () => prepareOcrLineInputsIsolated(imageBytes, quads),
+        phase: 'ocr-line-tensors',
+      );
       stage = 'ocr-recognition';
       final sourceWidth = detection.width * detection.scaleX;
       final sourceHeight = detection.height * detection.scaleY;
@@ -302,7 +308,11 @@ class PaddleOcrEngine implements OcrEngine {
     } on OperationCancelled {
       rethrow;
     } on PlatformException catch (error) {
-      ImportTrace.current?.emit('ocr_runtime_failed', phase: stage, error: error);
+      ImportTrace.current?.emit(
+        'ocr_runtime_failed',
+        phase: stage,
+        error: error,
+      );
       // A missing or unreadable model/session is an explicit unavailable state,
       // never an empty success: "no text found" and "could not look" must stay
       // distinguishable to the classifier and to the user.
@@ -311,7 +321,11 @@ class PaddleOcrEngine implements OcrEngine {
         engineVersion: version,
       );
     } catch (error) {
-      ImportTrace.current?.emit('ocr_runtime_failed', phase: stage, error: error);
+      ImportTrace.current?.emit(
+        'ocr_runtime_failed',
+        phase: stage,
+        error: error,
+      );
       // Report the failure class, never the image or the text: a field report
       // has to distinguish "the graph threw" from "the plugin never answered".
       developer.log(

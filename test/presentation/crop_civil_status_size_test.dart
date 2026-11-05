@@ -9,7 +9,9 @@ import 'editor_harness.dart';
 
 void main() {
   for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
-    testWidgets('${kind.name} crop asks for measured dimensions', (tester) async {
+    testWidgets('${kind.name} crop asks for measured dimensions', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(1100, 820);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);

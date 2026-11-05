@@ -21,14 +21,14 @@ void main() {
 
   test('cancellation during spawn or computation is observed', () async {
     final token = CancellationToken();
-    final pending = runCancellableIsolate<int>(
-      () async {
-        await Future<void>.delayed(const Duration(seconds: 5));
-        return 1;
-      },
-      cancellation: token,
+    final pending = runCancellableIsolate<int>(() async {
+      await Future<void>.delayed(const Duration(seconds: 5));
+      return 1;
+    }, cancellation: token);
+    final expectation = expectLater(
+      pending,
+      throwsA(isA<OperationCancelled>()),
     );
-    final expectation = expectLater(pending, throwsA(isA<OperationCancelled>()));
     token.cancel();
     await expectation;
   });

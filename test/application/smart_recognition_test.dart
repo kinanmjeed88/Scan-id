@@ -9,6 +9,7 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
+import 'package:scan_id/application/smart_recognition.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -378,6 +379,61 @@ void main() {
     segmenter: segmenter,
     fullResolutionJpegCropper:
         fullResolutionJpegCropper ?? _FakeFullResolutionJpegCropper(_photo()),
+  );
+
+  test(
+    'failed apply retains an editable original and continues the batch',
+    () async {
+      final s = service();
+      var project = await s.create('failed apply');
+      final bytes = _photo();
+      project = (await s.importImages(project, [
+        ImportSource('first.png', () => Stream.value(bytes)),
+        ImportSource('second.png', () => Stream.value(bytes)),
+      ])).project;
+      final firstId = project.assets[0].id;
+      final secondId = project.assets[1].id;
+      var calls = 0;
+      final intake = SmartIntake(
+        projects: projects,
+        assets: assets,
+        editor: LocalImageEditor(projects.files),
+        segment: _twoUnresolved,
+        cropRegion: (source, region) {
+          if (calls++ == 1) throw StateError('simulated apply failure');
+          return defaultRegionCrop(source, region);
+        },
+      );
+      final report = await intake.run(project, [firstId, secondId]);
+      final saved = await projects.get(project.id);
+      final fallback = saved.items
+          .where((item) => item.assetId == firstId)
+          .toList();
+      expect(fallback, hasLength(1));
+      expect(fallback.single.documentId, isNull);
+      expect(fallback.single.sizeConfirmed, isFalse);
+      expect(fallback.single.pageIndex, isNull);
+      expect(
+        saved.documents.where((record) => record.sourceImageId == firstId),
+        isEmpty,
+      );
+      expect(
+        saved.documents.where((record) => record.sourceImageId == secondId),
+        hasLength(2),
+      );
+      // Two originals and the two derived assets from the successful image;
+      // the failed image's partially staged first crop must not be committed.
+      expect(saved.assets, hasLength(4));
+      expect(saved.items, hasLength(3));
+      expect(report.warnings.join(' '), contains('تعذرت المعالجة الذكية'));
+      expect(
+        await (await assets.resolve(
+          project.assets.first.originalPath,
+        )).readAsBytes(),
+        bytes,
+      );
+      expect(saved.toJson(), report.project.toJson());
+    },
   );
 
   test(

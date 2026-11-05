@@ -252,26 +252,29 @@ class SmartIntake {
       // Rejections belong to completed analysis, independently of application.
       refusedRegions.addAll(analyzed.analysis.rejectedRegions);
       try {
-        current = await ImportTrace.stage('apply', () => requireStageWithin(
-          () => _applyImage(
-            current,
-            analyzed,
-            newItems: imageItems,
-            newDocuments: imageDocuments,
-            newAssets: imageAssets,
-            replacedAssets: imageReplacements,
-            warnings: imageWarnings,
-            onCropped: () => imageCropped++,
-            onNotDetected: () => imageNotDetected++,
-            onMulti: () => imageMulti++,
-            onRejected: (_) {},
-            cancellation: imageToken,
+        current = await ImportTrace.stage(
+          'apply',
+          () => requireStageWithin(
+            () => _applyImage(
+              current,
+              analyzed,
+              newItems: imageItems,
+              newDocuments: imageDocuments,
+              newAssets: imageAssets,
+              replacedAssets: imageReplacements,
+              warnings: imageWarnings,
+              onCropped: () => imageCropped++,
+              onNotDetected: () => imageNotDetected++,
+              onMulti: () => imageMulti++,
+              onRejected: (_) {},
+              cancellation: imageToken,
+            ),
+            budget: analysisBudget,
+            name: 'image-apply',
+            // Writes are cooperative: don't abandon a save just because the
+            // user cancelled. The apply code observes imageToken at checkpoints.
           ),
-          budget: analysisBudget,
-          name: 'image-apply',
-          // Writes are cooperative: don't abandon a save just because the
-          // user cancelled. The apply code observes imageToken at checkpoints.
-        ));
+        );
         newItems.addAll(imageItems);
         newDocuments.addAll(imageDocuments);
         newAssets.addAll(imageAssets);
@@ -296,9 +299,13 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
+        // The source was already committed. An apply failure must not leave
+        // it without an editable item; do not fabricate a recognition record
+        // or merge any of this image's partially staged assets and records.
+        newItems.add(_fallbackItem(current, sourceAsset, newItems));
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
-          '(${userError(error)}).',
+          'ويمكن قصّه يدوياً (${userError(error)}).',
         );
       } finally {
         cancellation?.removeListener(cancelImage);
@@ -355,12 +362,20 @@ class SmartIntake {
       // Multi-only dispatch may stage several sources independently, then
       // arrange every newly produced item together around the pre-existing sheet.
       current = await ImportTrace.stage(
-        'persistence', () => projects.save(current), phase: 'arrangement');
+        'persistence',
+        () => projects.save(current),
+        phase: 'arrangement',
+      );
     } else {
       final arrangement = ImportTrace.syncStage(
-        'layout', () => arrangeDocuments(current, keepPlaced: keepPlaced));
+        'layout',
+        () => arrangeDocuments(current, keepPlaced: keepPlaced),
+      );
       current = await ImportTrace.stage(
-        'persistence', () => projects.save(arrangement.result), phase: 'arrangement');
+        'persistence',
+        () => projects.save(arrangement.result),
+        phase: 'arrangement',
+      );
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
           '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
@@ -436,31 +451,34 @@ class SmartIntake {
           thresholds: thresholds,
         );
         try {
-          return await ImportTrace.stage('recognition', () => requireStageWithin(
-            () async {
-              final source = await ImportTrace.stage(
-                'decode',
-                () => editor.open(asset, cancellation: imageToken),
-                phase: 'preview',
-              );
-              ImportTrace.current?.emit('image_decoded');
-              final analysis = await pipeline.analyze(
-                PipelineImageInput(
-                  assetId: asset.id,
-                  previewBytes: source.preview,
-                  sourceWidth: source.width,
-                  sourceHeight: source.height,
-                  importIndex: pending.indexOf(asset),
-                  captureId: asset.captureId,
-                ),
-                token: imageToken,
-              );
-              return _Analyzed(asset, analysis, source.width, source.height);
-            },
-            budget: analysisBudget,
-            name: 'image-analysis',
-            cancellation: imageToken,
-          ));
+          return await ImportTrace.stage(
+            'recognition',
+            () => requireStageWithin(
+              () async {
+                final source = await ImportTrace.stage(
+                  'decode',
+                  () => editor.open(asset, cancellation: imageToken),
+                  phase: 'preview',
+                );
+                ImportTrace.current?.emit('image_decoded');
+                final analysis = await pipeline.analyze(
+                  PipelineImageInput(
+                    assetId: asset.id,
+                    previewBytes: source.preview,
+                    sourceWidth: source.width,
+                    sourceHeight: source.height,
+                    importIndex: pending.indexOf(asset),
+                    captureId: asset.captureId,
+                  ),
+                  token: imageToken,
+                );
+                return _Analyzed(asset, analysis, source.width, source.height);
+              },
+              budget: analysisBudget,
+              name: 'image-analysis',
+              cancellation: imageToken,
+            ),
+          );
         } finally {
           cancellation?.removeListener(cancelImage);
           // Analysis is read-only; terminate cancellable CPU work after a

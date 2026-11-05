@@ -82,7 +82,10 @@ class LocalImageEditor
   }) async {
     cancellation?.throwIfCancelled();
     final bytes = await ImportTrace.stage(
-      'source_read', () => _source(asset), phase: 'preview');
+      'source_read',
+      () => _source(asset),
+      phase: 'preview',
+    );
     cancellation?.throwIfCancelled();
     return runCancellableIsolate(
       () {

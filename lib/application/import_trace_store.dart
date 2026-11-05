@@ -16,8 +16,10 @@ const bool importJournalRequested = bool.fromEnvironment(
 );
 
 class ImportTraceStore {
-  ImportTraceStore(this.taskId, {Future<Directory> Function()? supportDirectory})
-      : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory;
+  ImportTraceStore(
+    this.taskId, {
+    Future<Directory> Function()? supportDirectory,
+  }) : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory;
 
   static const maxQueuedEvents = 256;
   static const maxEventsPerTask = 2048;
@@ -42,7 +44,9 @@ class ImportTraceStore {
       _dropped++;
       if (_dropped == 1) {
         developer.log('journal_events_dropped', name: 'scan_id.import_trace');
-        _queue.add(jsonEncode({'task': taskId, 'event': 'journal_events_dropped'}));
+        _queue.add(
+          jsonEncode({'task': taskId, 'event': 'journal_events_dropped'}),
+        );
         if (!_writing) {
           _idle = Completer<void>();
           unawaited(_drain());
@@ -67,19 +71,29 @@ class ImportTraceStore {
       }
       if (_file == null) {
         final support = await _supportDirectory();
-        final folder = Directory('${support.path}${Platform.pathSeparator}import_diagnostics');
+        final folder = Directory(
+          '${support.path}${Platform.pathSeparator}import_diagnostics',
+        );
         await folder.create(recursive: true);
-        _file = File('${folder.path}${Platform.pathSeparator}import_$taskId.jsonl');
+        _file = File(
+          '${folder.path}${Platform.pathSeparator}import_$taskId.jsonl',
+        );
       }
       while (_queue.isNotEmpty) {
         final line = _queue.removeAt(0);
-        await _file!.writeAsString('$line\n', mode: FileMode.append, flush: true);
+        await _file!.writeAsString(
+          '$line\n',
+          mode: FileMode.append,
+          flush: true,
+        );
       }
     } catch (error) {
       _failed = true;
       _queue.clear();
-      developer.log('journal_write_failed errorType=${error.runtimeType}',
-          name: 'scan_id.import_trace');
+      developer.log(
+        'journal_write_failed errorType=${error.runtimeType}',
+        name: 'scan_id.import_trace',
+      );
     } finally {
       _writing = false;
       _idle?.complete();

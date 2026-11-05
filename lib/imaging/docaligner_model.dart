@@ -31,10 +31,14 @@ class DocAlignerFastViT implements BoundaryProposalModel {
 
   final OnnxRuntime _runtime;
   late final _sessions = RetirableResource<OrtSession>(
-    create: () => ImportTrace.stage('native', () => _runtime.createSessionFromAsset(
-      docAlignerAssetPath,
-      options: OrtSessionOptions(intraOpNumThreads: 2),
-    ), phase: 'docaligner-session'),
+    create: () => ImportTrace.stage(
+      'native',
+      () => _runtime.createSessionFromAsset(
+        docAlignerAssetPath,
+        options: OrtSessionOptions(intraOpNumThreads: 2),
+      ),
+      phase: 'docaligner-session',
+    ),
     dispose: (session) => session.close(),
   );
   int inferenceRuns = 0;
@@ -53,112 +57,134 @@ class DocAlignerFastViT implements BoundaryProposalModel {
   }) async {
     cancellation?.throwIfCancelled();
     final (sourceWidth, sourceHeight, input) = await ImportTrace.stage(
-      'preprocessing', () => _prepareAlignerIsolated(preview, cancellation),
+      'preprocessing',
+      () => _prepareAlignerIsolated(preview, cancellation),
       phase: 'docaligner',
     );
-    return ImportTrace.stage('native', () => _sessions.run((session) async {
-      cancellation?.throwIfCancelled();
-      if (session.inputNames.length != 1 || session.outputNames.length != 1) {
-        throw StateError(
-          'DocAligner 1.1.1 must expose exactly one image input and one heatmap '
-          'output; found ${session.inputNames.length} inputs and '
-          '${session.outputNames.length} outputs.',
-        );
-      }
-
-      OrtValue? inputValue;
-      Map<String, OrtValue>? outputs;
-      try {
-        inputValue = await ImportTrace.stage('native',
-          () => OrtValue.fromList(input, [1, 3, inputHeight, inputWidth]),
-          phase: 'tensor-create');
+    return ImportTrace.stage(
+      'native',
+      () => _sessions.run((session) async {
         cancellation?.throwIfCancelled();
-        outputs = await ImportTrace.stage('native',
-          () => session.run({session.inputNames.single: inputValue!}),
-          phase: 'docaligner-inference');
-        inferenceRuns++;
-        cancellation?.throwIfCancelled();
-
-        final heatmap = outputs[session.outputNames.single];
-        if (heatmap == null || heatmap.dataType != OrtDataType.float32) {
-          throw StateError('DocAligner returned no float32 heatmap tensor.');
-        }
-        final shape = heatmap.shape;
-        if (shape.length != 4 ||
-            shape[0] != 1 ||
-            shape[1] != 4 ||
-            shape[2] <= 0 ||
-            shape[3] <= 0 ||
-            shape[2] > 512 ||
-            shape[3] > 512) {
+        if (session.inputNames.length != 1 || session.outputNames.length != 1) {
           throw StateError(
-            'DocAligner returned an unexpected heatmap shape: $shape',
+            'DocAligner 1.1.1 must expose exactly one image input and one heatmap '
+            'output; found ${session.inputNames.length} inputs and '
+            '${session.outputNames.length} outputs.',
           );
         }
-        lastOutputShape = List.unmodifiable(shape);
-        final values = (await ImportTrace.stage('native', heatmap.asFlattenedList, phase: 'tensor-read')).cast<num>();
-        final mapHeight = shape[2];
-        final mapWidth = shape[3];
-        if (values.length != 4 * mapHeight * mapWidth ||
-            values.any((value) => !value.isFinite)) {
-          throw StateError(
-            'DocAligner returned incomplete or non-finite heatmaps.',
+
+        OrtValue? inputValue;
+        Map<String, OrtValue>? outputs;
+        try {
+          inputValue = await ImportTrace.stage(
+            'native',
+            () => OrtValue.fromList(input, [1, 3, inputHeight, inputWidth]),
+            phase: 'tensor-create',
           );
-        }
-        cancellation?.throwIfCancelled();
-        var minimumPeak = double.infinity;
-        for (var channel = 0; channel < 4; channel++) {
-          final start = channel * mapWidth * mapHeight;
-          final end = start + mapWidth * mapHeight;
-          for (var i = start; i < end; i++) {
-            final value = values[i].toDouble();
-            if (value < 0 || value > 1) {
-              throw StateError(
-                'DocAligner heatmap values must be probabilities in [0, 1].',
+          cancellation?.throwIfCancelled();
+          final inferenceOutputs =
+              await ImportTrace.stage<Map<String, OrtValue>>(
+                'native',
+                () => session.run({session.inputNames.single: inputValue!}),
+                phase: 'docaligner-inference',
+              );
+          outputs = inferenceOutputs;
+          inferenceRuns++;
+          cancellation?.throwIfCancelled();
+
+          final heatmap = inferenceOutputs[session.outputNames.single];
+          if (heatmap == null || heatmap.dataType != OrtDataType.float32) {
+            throw StateError('DocAligner returned no float32 heatmap tensor.');
+          }
+          final shape = heatmap.shape;
+          if (shape.length != 4 ||
+              shape[0] != 1 ||
+              shape[1] != 4 ||
+              shape[2] <= 0 ||
+              shape[3] <= 0 ||
+              shape[2] > 512 ||
+              shape[3] > 512) {
+            throw StateError(
+              'DocAligner returned an unexpected heatmap shape: $shape',
+            );
+          }
+          lastOutputShape = List.unmodifiable(shape);
+          final values = (await ImportTrace.stage(
+            'native',
+            heatmap.asFlattenedList,
+            phase: 'tensor-read',
+          )).cast<num>();
+          final mapHeight = shape[2];
+          final mapWidth = shape[3];
+          if (values.length != 4 * mapHeight * mapWidth ||
+              values.any((value) => !value.isFinite)) {
+            throw StateError(
+              'DocAligner returned incomplete or non-finite heatmaps.',
+            );
+          }
+          cancellation?.throwIfCancelled();
+          var minimumPeak = double.infinity;
+          for (var channel = 0; channel < 4; channel++) {
+            final start = channel * mapWidth * mapHeight;
+            final end = start + mapWidth * mapHeight;
+            for (var i = start; i < end; i++) {
+              final value = values[i].toDouble();
+              if (value < 0 || value > 1) {
+                throw StateError(
+                  'DocAligner heatmap values must be probabilities in [0, 1].',
+                );
+              }
+            }
+            var peak = 0.0;
+            for (var i = start; i < end; i++) {
+              final value = values[i].toDouble();
+              if (value > peak) peak = value;
+            }
+            if (peak < minimumPeak) minimumPeak = peak;
+          }
+          final points = postprocessHeatmaps(
+            values,
+            width: mapWidth,
+            height: mapHeight,
+          );
+          if (points == null) return null;
+
+          // Heatmap peaks are useful diagnostics but are not calibrated confidence.
+          // Keep all model output review-only until an independently labelled
+          // validation set establishes a defensible automatic-accept threshold.
+          final proposal = BoundaryProposal(
+            producer: BoundaryProducer.learnedModel,
+            corners: points,
+            modelConfidence: minimumPeak.clamp(0.0, 1.0).toDouble(),
+            minAutoAcceptConfidence: 1.01,
+          );
+          final verification = verifyBoundary(
+            proposal,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+          );
+          return verification.verification.hasUsableGeometry ? proposal : null;
+        } finally {
+          if (inputValue != null) {
+            await ImportTrace.stage(
+              'native',
+              () => inputValue!.dispose(),
+              phase: 'tensor-release',
+            );
+          }
+          if (outputs != null) {
+            for (final value in outputs.values) {
+              await ImportTrace.stage(
+                'native',
+                value.dispose,
+                phase: 'tensor-release',
               );
             }
           }
-          var peak = 0.0;
-          for (var i = start; i < end; i++) {
-            final value = values[i].toDouble();
-            if (value > peak) peak = value;
-          }
-          if (peak < minimumPeak) minimumPeak = peak;
         }
-        final points = postprocessHeatmaps(
-          values,
-          width: mapWidth,
-          height: mapHeight,
-        );
-        if (points == null) return null;
-
-        // Heatmap peaks are useful diagnostics but are not calibrated confidence.
-        // Keep all model output review-only until an independently labelled
-        // validation set establishes a defensible automatic-accept threshold.
-        final proposal = BoundaryProposal(
-          producer: BoundaryProducer.learnedModel,
-          corners: points,
-          modelConfidence: minimumPeak.clamp(0.0, 1.0).toDouble(),
-          minAutoAcceptConfidence: 1.01,
-        );
-        final verification = verifyBoundary(
-          proposal,
-          sourceWidth: sourceWidth,
-          sourceHeight: sourceHeight,
-        );
-        return verification.verification.hasUsableGeometry ? proposal : null;
-      } finally {
-        if (inputValue != null) {
-          await ImportTrace.stage('native', () => inputValue!.dispose(),
-              phase: 'tensor-release');
-        }
-        if (outputs != null) {
-          for (final value in outputs.values) {
-            await ImportTrace.stage('native', value.dispose, phase: 'tensor-release');
-          }
-        }
-      }
-    }), phase: 'docaligner-operation');
+      }),
+      phase: 'docaligner-operation',
+    );
   }
 
   /// Extracts one largest thresholded component centroid from each of the
@@ -290,7 +316,15 @@ class DocAlignerFastViT implements BoundaryProposalModel {
 Future<(int, int, Float32List)> _prepareAlignerIsolated(
   Uint8List preview,
   CancellationToken? cancellation,
-) => runCancellableIsolate(() {
-  final source = decodeForProcessing(preview);
-  return (source.width, source.height, DocAlignerFastViT.prepareBgrInput(source));
-}, cancellation: cancellation, debugName: 'docaligner-preprocess');
+) => runCancellableIsolate(
+  () {
+    final source = decodeForProcessing(preview);
+    return (
+      source.width,
+      source.height,
+      DocAlignerFastViT.prepareBgrInput(source),
+    );
+  },
+  cancellation: cancellation,
+  debugName: 'docaligner-preprocess',
+);

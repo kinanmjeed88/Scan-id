@@ -83,20 +83,23 @@ void main() {
     expect(disposed, [2]);
   });
 
-  test('failed creation is retried and does not dispose a nonexistent value', () async {
-    var attempts = 0;
-    final disposed = <int>[];
-    final resource = RetirableResource<int>(
-      create: () async {
-        attempts++;
-        if (attempts == 1) throw StateError('temporary');
-        return 10;
-      },
-      dispose: (id) async => disposed.add(id),
-    );
-    await expectLater(resource.run((id) async => id), throwsStateError);
-    expect(await resource.run((id) async => id), 10);
-    await resource.retire();
-    expect(disposed, [10]);
-  });
+  test(
+    'failed creation is retried and does not dispose a nonexistent value',
+    () async {
+      var attempts = 0;
+      final disposed = <int>[];
+      final resource = RetirableResource<int>(
+        create: () async {
+          attempts++;
+          if (attempts == 1) throw StateError('temporary');
+          return 10;
+        },
+        dispose: (id) async => disposed.add(id),
+      );
+      await expectLater(resource.run((id) async => id), throwsStateError);
+      expect(await resource.run((id) async => id), 10);
+      await resource.retire();
+      expect(disposed, [10]);
+    },
+  );
 }

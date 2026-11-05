@@ -268,7 +268,10 @@ class RecognitionPipeline {
     SegmentationResult segmentation;
     try {
       segmentation = await ImportTrace.stage(
-        'detection', () => segment(input.previewBytes), phase: 'segmentation');
+        'detection',
+        () => segment(input.previewBytes),
+        phase: 'segmentation',
+      );
     } on OperationCancelled {
       rethrow;
     } catch (_) {
@@ -363,8 +366,10 @@ class RecognitionPipeline {
       try {
         if (suggestProposal != null) {
           final prop = await ImportTrace.stage(
-            'detection', () => suggestProposal!(input.previewBytes),
-            phase: 'boundary');
+            'detection',
+            () => suggestProposal!(input.previewBytes),
+            phase: 'boundary',
+          );
           corners = prop?.corners;
           detConf = prop?.modelConfidence;
           minAutoConf = prop?.minAutoAcceptConfidence;
@@ -374,8 +379,10 @@ class RecognitionPipeline {
           if (prop != null) producer = prop.producer;
         } else {
           corners = await ImportTrace.stage(
-            'detection', () => suggestSingle(input.previewBytes),
-            phase: 'boundary');
+            'detection',
+            () => suggestSingle(input.previewBytes),
+            phase: 'boundary',
+          );
         }
       } on OperationCancelled {
         rethrow;
@@ -560,12 +567,16 @@ class RecognitionPipeline {
         final ocrOperation = trace?.nextOperation();
         trace?.emit('ocr_started', operationId: ocrOperation);
         try {
-          final ocrBytes = await ImportTrace.stage('preprocessing', () => prepareOcrRegionIsolated(
-            input.previewBytes,
-            corners: ocrCorners,
-            region: ocrCorners == null ? region : null,
-            cancellation: token,
-          ), phase: 'ocr-region');
+          final ocrBytes = await ImportTrace.stage(
+            'preprocessing',
+            () => prepareOcrRegionIsolated(
+              input.previewBytes,
+              corners: ocrCorners,
+              region: ocrCorners == null ? region : null,
+              cancellation: token,
+            ),
+            phase: 'ocr-region',
+          );
           final ocrOutcome = await runStageWithin(
             () => ocr.recognize(ocrBytes, token: token),
             budget: ocrBudget,
@@ -592,8 +603,10 @@ class RecognitionPipeline {
               Error.throwWithStackTrace(ocrError, ocrOutcome.stackTrace!);
             }
             ocrResult = ocrOutcome.value!;
-            trace?.emit(ocrResult.isAvailable ? 'ocr_completed' : 'ocr_unavailable',
-                operationId: ocrOperation);
+            trace?.emit(
+              ocrResult.isAvailable ? 'ocr_completed' : 'ocr_unavailable',
+              operationId: ocrOperation,
+            );
           }
         } on OperationCancelled catch (error) {
           trace?.emit('ocr_cancelled', error: error, operationId: ocrOperation);

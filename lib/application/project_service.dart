@@ -353,12 +353,18 @@ class ProjectService {
         );
         validName(source.name);
         final bytes = await ImportTrace.stage(
-          'source_read', () => readBoundedImage(source.openRead()));
+          'source_read',
+          () => readBoundedImage(source.openRead()),
+        );
         final asset = await ImportTrace.stage(
-          'asset_import', () => assets.importImage(current.id, source.name, bytes));
+          'asset_import',
+          () => assets.importImage(current.id, source.name, bytes),
+        );
         current = await ImportTrace.stage(
           'persistence',
-          () => projects.save(current.copyWith(assets: [...current.assets, asset])),
+          () => projects.save(
+            current.copyWith(assets: [...current.assets, asset]),
+          ),
           phase: 'source',
         );
         imported++;
@@ -373,7 +379,11 @@ class ProjectService {
           );
         }
       } on RevisionConflict catch (error) {
-        ImportTrace.current?.emit('source_failed', phase: 'revision-conflict', error: error);
+        ImportTrace.current?.emit(
+          'source_failed',
+          phase: 'revision-conflict',
+          error: error,
+        );
         failures.add(ImportFailure(source.name, error.message));
         // The in-memory project is stale; continuing would create more orphans.
         for (final skipped in sources.skip(index + 1)) {
@@ -387,7 +397,11 @@ class ProjectService {
         }
         break;
       } catch (error) {
-        ImportTrace.current?.emit('source_failed', phase: 'import', error: error);
+        ImportTrace.current?.emit(
+          'source_failed',
+          phase: 'import',
+          error: error,
+        );
         failures.add(ImportFailure(source.name, userError(error)));
       } finally {
         await _cleanupSource(source);
@@ -1604,7 +1618,9 @@ String userError(Object error) {
 
 Future<void> _cleanupSource(ImportSource source) async {
   try {
-    await ImportTrace.stage('cleanup', () async { await source.cleanup?.call(); });
+    await ImportTrace.stage('cleanup', () async {
+      await source.cleanup?.call();
+    });
   } catch (_) {
     /* Only private picker cache; never let cleanup mask a committed import. */
   }

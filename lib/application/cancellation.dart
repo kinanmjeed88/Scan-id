@@ -90,13 +90,18 @@ Future<T> runCancellableIsolate<T>(
   cancellation?.throwIfCancelled();
   final trace = ImportTrace.current;
   final traceOperation = trace?.nextOperation();
-  trace?.emit('isolate_started', phase: debugName ?? 'read-only',
-      operationId: traceOperation);
+  trace?.emit(
+    'isolate_started',
+    phase: debugName ?? 'read-only',
+    operationId: traceOperation,
+  );
   final results = ReceivePort();
   final completer = Completer<T>();
   // Cancellation can happen while spawn is still pending. Observe the error
   // immediately rather than waiting until spawn returns to attach a handler.
-  unawaited(completer.future.then<void>((_) {}, onError: (Object _, StackTrace __) {}));
+  unawaited(
+    completer.future.then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+  );
   Isolate? worker;
   var done = false;
 
@@ -112,8 +117,11 @@ Future<T> runCancellableIsolate<T>(
 
   void cancel() {
     if (!completer.isCompleted) {
-      trace?.emit('isolate_cancelled', phase: debugName ?? 'read-only',
-          operationId: traceOperation);
+      trace?.emit(
+        'isolate_cancelled',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+      );
       completer.completeError(const OperationCancelled());
     }
     finish();
@@ -126,8 +134,11 @@ Future<T> runCancellableIsolate<T>(
   final subscription = results.listen((Object? message) {
     if (done || completer.isCompleted) return;
     if (message == null) {
-      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
-          operationId: traceOperation);
+      trace?.emit(
+        'isolate_failed',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+      );
       completer.completeError(
         const ValidationException('توقفت معالجة الصورة قبل إكمال المعاينة.'),
       );
@@ -136,12 +147,19 @@ Future<T> runCancellableIsolate<T>(
     }
     final result = message as (T?, Object?, StackTrace?);
     if (result.$2 != null) {
-      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
-          operationId: traceOperation, error: result.$2);
+      trace?.emit(
+        'isolate_failed',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+        error: result.$2,
+      );
       completer.completeError(result.$2!, result.$3);
     } else {
-      trace?.emit('isolate_completed', phase: debugName ?? 'read-only',
-          operationId: traceOperation);
+      trace?.emit(
+        'isolate_completed',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+      );
       completer.complete(result.$1 as T);
     }
     finish();
@@ -157,14 +175,21 @@ Future<T> runCancellableIsolate<T>(
     if (done) {
       worker.kill(priority: Isolate.immediate);
     } else {
-      trace?.emit('isolate_spawned', phase: debugName ?? 'read-only',
-          operationId: traceOperation);
+      trace?.emit(
+        'isolate_spawned',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+      );
     }
     return await completer.future;
   } catch (error) {
     if (!done) {
-      trace?.emit('isolate_failed', phase: debugName ?? 'read-only',
-          operationId: traceOperation, error: error);
+      trace?.emit(
+        'isolate_failed',
+        phase: debugName ?? 'read-only',
+        operationId: traceOperation,
+        error: error,
+      );
     }
     finish();
     rethrow;

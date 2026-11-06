@@ -111,7 +111,7 @@
   - `test exit=0`: `+1091: All tests passed!`.
   - `android-instrumentation-evidence`: `androidTests=4 failures=0 skipped=0; docquadFlutterInferenceExit=0`.
 - دليل `Android 16 startup evidence` (job `127687000845`): وصول إلى أول إطار رئيسي على API 36 (`x86_64`)، وتحميل `onnxruntime4j_jni` و`onnxruntime` وإنشاء `OrtEnvironment` في preflight. هذا دليل محاكي `x86_64` وليس دليل جهاز ARM64 فعلي.
--Attempts/مسارات مهجورة قبل النجاح:
+- محاولات/مسارات مهجورة قبل النجاح:
   - بوابات تنسيق/تحليل Dart في ملفات الاختبار الجديدة صُححت عبر دفعات لاحقة؛ التشغيل `42145124441` فشل في `dart format` فقط قبل الوصول إلى Release.
   - التشغيل `42145933316` وصل إلى Release فعلياً، وفشل المسبار عند شرط متشدد `inferenceRuns >= 2` لأن retry أعاد استخدام اقتراح الحدود المحتفظ به؛ كما طالت الوظيفة حتى الإلغاء. عُدل الشرط إلى اكتمال retry مع استدلال أصلي سليم، وُقُيّدت أوامر adb بمهل، ثم نجح `cee2bae`.
   - بديل Profile/AOT أُزيل: قيود VM service ثم اعتمادات Gradle/إضافات dev dependency (`42116446348`، `42119881130`).

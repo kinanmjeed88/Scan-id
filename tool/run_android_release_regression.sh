@@ -44,7 +44,7 @@ export EXPECTED_CERT_SHA256="$fingerprint"
 export REQUIRE_RELEASE_SIGNING=true
 
 set +e
-timeout 300 flutter build apk --config-only --release --flavor scanid \
+timeout 900 flutter build apk --release --flavor scanid \
   --target "$target" > diagnostics/android-release/intake.log 2>&1
 status=$?
 if (( status == 0 )); then
@@ -104,6 +104,12 @@ else
   done
 fi
 
+# A stack trace tail alone can miss R8's actual diagnostic. Publish the named
+# failure lines too, bounded to the check-annotation limit.
+summary="$(grep -E 'FAILURE:|What went wrong|Execution failed|Caused by:|ERROR:|Missing class|^e: |error:|> Task .*FAILED' diagnostics/android-release/intake.log | head -n 45 | head -c 3000 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+if [[ -n "$summary" ]]; then
+  echo "::error title=android-release-intake-summary::$summary" >&2
+fi
 tail -n 80 diagnostics/android-release/intake.log
 cat diagnostics/android-release/junit-summary.txt
 if (( status != 0 )); then

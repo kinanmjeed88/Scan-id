@@ -57,7 +57,7 @@
 - أضيف `tool/run_android_release_regression.sh`:
   - ينشئ مفتاح اختبار مؤقتاً ليوم واحد داخل مجلد مؤقت، ويحذفه عند الخروج.
   - لا يقرأ أسرار التوقيع الإنتاجية ولا يغير `EXPECTED_CERT_SHA256` الإنتاجي؛ يمرر بصمة مفتاح الاختبار لأمر الاختبار فقط.
-  - يبني إعداد Release ثم يشغّل `:app:connectedScanidReleaseAndroidTest` على المحاكي، مع `scanIdReleaseIntakeTest=true` ومدخل `integration_test/release_intake_main.dart`.
+  - يبني Release فعليًا ثم يشغّل `:app:connectedScanidReleaseAndroidTest` على المحاكي، مع `scanIdReleaseIntakeTest=true` ومدخل `integration_test/release_intake_main.dart`.
   - يتحقق من وجود `mapping/scanidRelease/mapping.txt` ومن بقاء أسماء أصناف JNI، ويرفع السجل/الخريطة/نتيجة JUnit كدليل، ولا يرفع APK الاختبار كأثر تطبيق.
   - يعمل بعد خطوة «Ensure release build rejects missing signing credentials»، بحيث يبقى حارس غياب التوقيع الإنتاجي مختبراً كما كان.
 
@@ -98,7 +98,7 @@
   - `dart format --output=none --set-exit-if-changed .`
   - `flutter analyze --fatal-infos`
   - `flutter test --reporter expanded`
-  - `flutter build apk --config-only --release` و`:app:connectedScanidReleaseAndroidTest` مع `scanIdReleaseIntakeTest`
+  - `flutter build apk --release` و`:app:connectedScanidReleaseAndroidTest` مع `scanIdReleaseIntakeTest`
   - بناء Android/Windows.
 - البديل المنفذ: حراس Python/بنية محلية، ثم GitHub Actions على SHA الدفع الفعلي. لا يُعلن نجاح بناء لم يُنفذ.
 

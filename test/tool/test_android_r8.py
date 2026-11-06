@@ -78,7 +78,7 @@ class AndroidR8RulesTest(unittest.TestCase):
             check_android_r8.ROOT / "tool/run_android_release_regression.sh"
         ).read_text(encoding="utf-8")
         self.assertIn("integration_test/release_intake_main.dart", script)
-        self.assertIn("--config-only --release", script)
+        self.assertIn("flutter build apk --release", script)
         self.assertIn(":app:connectedScanidReleaseAndroidTest", script)
         self.assertIn("-PscanIdReleaseIntakeTest=true", script)
         self.assertIn("mapping/scanidRelease/mapping.txt", script)

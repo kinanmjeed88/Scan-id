@@ -10,12 +10,10 @@ import 'prepare_image.dart';
 
 /// Strict two-model policy: run DocQuadNet first, then DocAligner on every
 /// image because neither model has an independently calibrated score for the
-/// target document set. A DocAligner result may stand alone only when the
-/// primary is unusable; when both return usable corners they must agree
+/// target document set. When both return usable corners they must agree
 /// geometrically, and then the primary's corners are retained unchanged.
-/// Material disagreement keeps DocQuadNet's corners visible with an explicit
-/// review reason (never averages points or authorizes a crop). If the second
-/// model fails, null deliberately sends intake to its existing classical path.
+/// Material disagreement or a lone proposal remains visible for manual review;
+/// neither bypasses independent corroboration or authorizes a crop.
 class BoundaryProposalCascade implements BoundaryProposalModel {
   BoundaryProposalCascade({
     required this.primary,
@@ -70,17 +68,31 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
           forceReviewReason: BoundaryReviewReason.modelDisagreement,
         );
       }
-      // Do not combine outputs. Keep the already validated primary proposal;
-      // confidence remains review-only under its own producer policy.
+      // Do not combine outputs. Keep the primary score and its 70% gate.
       return first;
     }
-    if (!firstValid && secondValid) return second;
-
-    // A primary-only result is not enough: stage 2 was required precisely
-    // because neither model has a calibrated, independently safe accept gate.
-    // Null lets LocalImageEditor invoke the existing classical detector.
+    // Preserve either lone proposal for the user without turning an absent
+    // second opinion into permission for an automatic perspective crop.
+    if (firstValid) return _uncorroborated(first!);
+    if (secondValid) return _uncorroborated(second!);
     return null;
   }
+
+  BoundaryProposal _uncorroborated(BoundaryProposal proposal) =>
+      BoundaryProposal(
+        producer: proposal.producer,
+        corners: proposal.corners,
+        region: proposal.region,
+        imposedAspect: proposal.imposedAspect,
+        imposedKindLabel: proposal.imposedKindLabel,
+        modelConfidence: proposal.modelConfidence,
+        minAutoAcceptConfidence: proposal.minAutoAcceptConfidence,
+        touchesFrameEdge: proposal.touchesFrameEdge,
+        forceReview: true,
+        forceReviewReason:
+            proposal.forceReviewReason ??
+            BoundaryReviewReason.modelNotCorroborated,
+      );
 
   Future<BoundaryProposal?> _attempt(
     BoundaryProposalModel model,

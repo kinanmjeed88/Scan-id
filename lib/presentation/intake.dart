@@ -162,12 +162,21 @@ class IntakeRunner {
         } on Object {
           // Only the last known committed state is available.
         }
-        final imported = latest.assets
-            .where((asset) => !existingIds.contains(asset.id))
-            .length;
+        final importedIds = [
+          for (final asset in latest.assets)
+            if (!existingIds.contains(asset.id)) asset.id,
+        ];
+        try {
+          latest = await service.retainUnrepresentedImports(
+            latest,
+            importedIds,
+          );
+        } on Object catch (recoveryError) {
+          trace('manual-recovery', 'failed', recoveryError);
+        }
         return IntakeRun(
           project: latest,
-          import: ImportReport(latest, imported, const []),
+          import: ImportReport(latest, importedIds.length, const []),
           error: error,
           trace: context,
         );
@@ -234,6 +243,29 @@ class IntakeRunner {
             // Keep the last known committed state rather than losing it.
           }
         }
+      }
+      try {
+        latest = await service.retainUnrepresentedImports(latest, importedIds);
+      } on Object catch (recoveryError) {
+        trace('manual-recovery', 'failed', recoveryError);
+        failure ??= recoveryError;
+      }
+      final arranged = layout;
+      if (arranged != null && arranged.project.revision != latest.revision) {
+        // Recovery may add pending items after the automatic report was made.
+        // Its derived counts must describe the same saved project the UI uses.
+        layout = AutomaticLayoutReport(
+          project: latest,
+          cropped: arranged.cropped,
+          notDetected: arranged.notDetected,
+          recognized: arranged.recognized,
+          needsReview: arranged.needsReview,
+          boundaryNeedsReview: arranged.boundaryNeedsReview,
+          multiDocumentImages: arranged.multiDocumentImages,
+          rejectedRegions: arranged.rejectedRegions,
+          rejectedByReason: arranged.rejectedByReason,
+          warnings: arranged.warnings,
+        );
       }
       terminal = token.isCancelled
           ? 'cancelled'

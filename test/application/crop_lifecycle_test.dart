@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/boundary_decision.dart';
+import 'package:scan_id/imaging/docquad_model.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
@@ -55,6 +58,19 @@ class _DelayedEditor implements ImageEditor {
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
       _inner.createRevision(asset, recipe);
+}
+
+// Models/native sessions are owned by the editor on the main isolate and are
+// not sendable. Open/preview/save must not capture this object graph.
+class _NonSendableProposer implements BoundaryProposalModel {
+  final ReceivePort port = ReceivePort();
+  @override
+  String get modelId => 'non-sendable-test';
+  @override
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async => null;
 }
 
 void main() {
@@ -212,6 +228,39 @@ void main() {
         await tester.pumpAndSettle();
       }
     }
+
+    test(
+      'real editor opens, previews and saves with a non-sendable proposer',
+      () async {
+        final proposer = _NonSendableProposer();
+        addTearDown(proposer.port.close);
+        final real = LocalImageEditor(
+          projects.files,
+          boundaryProposer: proposer,
+        );
+        final asset = project.assets.single;
+        final source = await real.open(asset);
+        expect(source.width, 120);
+        expect(source.height, 80);
+        expect(img.decodeImage(source.preview), isNotNull);
+        final recipe = CropDraft(
+          corners: [
+            Point2(.1, .1),
+            Point2(.9, .1),
+            Point2(.9, .9),
+            Point2(.1, .9),
+          ],
+        ).toRecipe(source.width, source.height);
+        final preview = await real.preview(asset, recipe);
+        expect(img.decodeImage(preview), isNotNull);
+        final revision = await real.createRevision(asset, recipe);
+        expect(revision.crop, isNotNull);
+        await expectLater(
+          (await assets.resolve(asset.originalPath)).readAsBytes(),
+          completion(original),
+        );
+      },
+    );
 
     testWidgets('known category does not silently reshape a new manual draft', (
       tester,

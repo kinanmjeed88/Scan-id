@@ -4,6 +4,7 @@
 /// evidence the result is `unknown`.
 library;
 
+import 'acceptance_policy.dart';
 import 'document_kind.dart';
 import 'ocr_evidence.dart';
 import 'recognition.dart';
@@ -54,6 +55,32 @@ class ClassificationOutcome {
   /// Every kind that received at least one evidence vote, in stable enum
   /// order — the candidate shortlist for an awaiting-size preset.
   final List<DocumentKind> candidates;
+}
+
+/// A known, unambiguous type may use its documented catalog size when both
+/// the type evidence and the fused score meet the user-requested threshold.
+/// A strong boundary alone must not make an unreadable or conflicting kind
+/// eligible. OCR-only classifications may be placed, but remain reviewable:
+/// this is a routing policy, not a claim of calibrated recognition accuracy.
+bool qualifiesForAutomaticPlacement(
+  ClassificationOutcome outcome, {
+  RecognitionThresholds thresholds = defaultThresholds,
+}) {
+  final scores = outcome.confidences;
+  return outcome.kind != DocumentKind.unknown &&
+      outcome.status == RecognitionStatus.recognized &&
+      outcome.candidates.length == 1 &&
+      outcome.candidates.single == outcome.kind &&
+      meetsAutomaticAcceptanceThreshold(scores.classification?.value) &&
+      meetsAutomaticAcceptanceThreshold(scores.finalConfidence?.value) &&
+      [
+        scores.detection?.value,
+        scores.geometry?.value,
+        scores.classification?.value,
+      ].whereType<double>().every(
+        (score) =>
+            score.isFinite && score >= thresholds.componentFloor && score <= 1,
+      );
 }
 
 /// Version tag recorded as the producer version of classifier confidences.

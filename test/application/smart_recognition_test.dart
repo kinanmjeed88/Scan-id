@@ -404,7 +404,10 @@ void main() {
     );
     final report = await intake.run(project, [firstId, secondId]);
     final saved = await projects.get(project.id);
-    expect(saved.items.where((item) => item.assetId == firstId), isEmpty);
+    final fallback = saved.items.singleWhere((item) => item.assetId == firstId);
+    expect(fallback.pageIndex, isNull);
+    expect(fallback.sizeConfirmed, isFalse);
+    expect(fallback.documentKind, DocumentKind.unknown);
     expect(
       saved.documents.where((record) => record.sourceImageId == firstId),
       isEmpty,
@@ -416,7 +419,7 @@ void main() {
     // Two originals and the two derived assets from the successful image;
     // the failed image's partially staged first crop must not be committed.
     expect(saved.assets, hasLength(4));
-    expect(saved.items, hasLength(2));
+    expect(saved.items, hasLength(3));
     expect(report.warnings.join(' '), contains('تعذرت المعالجة الذكية'));
     expect(
       await (await assets.resolve(
@@ -1082,11 +1085,18 @@ void main() {
       expect(report.notDetected, 1);
       expect(
         report.project.revision,
-        revision,
-        reason: 'failed native extraction must not commit a half-image',
+        greaterThan(revision),
+        reason: 'the untouched source is saved as a manual decision',
       );
-      expect(report.project.assets, hasLength(1));
-      expect(report.project.items, isEmpty);
+      expect(
+        report.project.assets,
+        hasLength(1),
+        reason: 'no partial derived image',
+      );
+      expect(report.project.items, hasLength(1));
+      expect(report.project.items.single.assetId, source.id);
+      expect(report.project.items.single.pageIndex, isNull);
+      expect(report.project.items.single.sizeConfirmed, isFalse);
       expect(report.project.documents, isEmpty);
       expect(cropper.calls, hasLength(1));
       expect(

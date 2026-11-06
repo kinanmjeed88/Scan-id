@@ -300,8 +300,9 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
-        // Do not commit partially staged results or create an item that
-        // would cause a subsequent import arrangement retry to skip this asset.
+        // Discard the partially staged results, but keep the saved original
+        // reachable in the manual classification/crop flow.
+        newItems.add(_fallbackItem(current, sourceAsset, newItems));
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
           'ويمكن إعادة معالجة الصورة (${userError(error)}).',
@@ -1940,9 +1941,10 @@ class SmartIntake {
   }) {
     final classification = detection.classification;
     final sizeStatus = presetStatusFor(classification.kind);
-    if (classification.status != RecognitionStatus.recognized ||
-        classification.routing.band != RecognitionBand.autoCandidate ||
-        classification.candidates.length != 1 ||
+    if (!qualifiesForAutomaticPlacement(
+          classification,
+          thresholds: thresholds,
+        ) ||
         classification.kind == DocumentKind.unknown ||
         (sizeStatus != PresetStatus.standard &&
             sizeStatus != PresetStatus.measured) ||
@@ -1986,11 +1988,16 @@ class SmartIntake {
           'راجعه وأكّده يدوياً قبل وضعه على A4.';
     }
     final classification = detection.classification;
-    if (classification.status != RecognitionStatus.recognized ||
-        classification.routing.band != RecognitionBand.autoCandidate ||
-        classification.candidates.length != 1) {
-      return '${kind.label}: دليل التصنيف غير كافٍ للتأكيد الآلي؛ '
-          'راجعه يدوياً قبل اعتماد المقاس.';
+    if (!qualifiesForAutomaticPlacement(
+      classification,
+      thresholds: thresholds,
+    )) {
+      final typeScore = classification.confidences.classification?.value;
+      final totalScore = classification.confidences.finalConfidence?.value;
+      return '${kind.label}: لا يكفي دليل التصنيف للإضافة التلقائية (الحد ٧٠٪؛ '
+          'التصنيف ${typeScore == null ? 'غير متاح' : '${(typeScore * 100).toStringAsFixed(1)}٪'}، '
+          'الدرجة الإجمالية ${totalScore == null ? 'غير متاحة' : '${(totalScore * 100).toStringAsFixed(1)}٪'})؛ '
+          'اختر التصنيف يدوياً قبل اعتماد المقاس.';
     }
     if (warped && !_catalogShapeMatches(current, detection)) {
       return catalogShapeUnconfirmedMessage();

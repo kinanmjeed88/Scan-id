@@ -13,6 +13,7 @@ import 'crop_screen.dart';
 import 'editor_controller.dart';
 import 'export_screen.dart';
 import 'intake.dart';
+import 'manual_classification_dialog.dart';
 import 'review_screen.dart';
 import 'ribbon.dart';
 import 'shared.dart';
@@ -27,6 +28,7 @@ class LayoutScreen extends StatefulWidget {
     this.pickImages,
     this.intakeSummary,
     this.intakeWarnings = const [],
+    this.autoClassifyItemIds = const [],
     this.adjustmentCommitDelay = const Duration(milliseconds: 700),
     super.key,
   });
@@ -38,6 +40,7 @@ class LayoutScreen extends StatefulWidget {
   final Future<List<ImportSource>> Function()? pickImages;
   final String? intakeSummary;
   final List<String> intakeWarnings;
+  final List<String> autoClassifyItemIds;
   final Duration adjustmentCommitDelay;
 
   @override
@@ -48,6 +51,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
   late final LayoutEditorController _c;
   String _tab = 'home';
   bool _intakeVisible = true;
+  bool _classificationOpen = false;
 
   @override
   void initState() {
@@ -62,10 +66,16 @@ class _LayoutScreenState extends State<LayoutScreen> {
           ..onMessage = (message) {
             if (mounted) showMessage(context, message);
           }
-          ..onImportReport = (report) {
-            if (mounted) unawaited(_showImportReport(report));
-          };
+          ..onImportReport = (report) async {
+            if (mounted) await _showImportReport(report);
+          }
+          ..onManualClassificationNeeded = _classifyPending;
     _c.addListener(_changed);
+    if (widget.autoClassifyItemIds.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_classifyPending(widget.autoClassifyItemIds));
+      });
+    }
   }
 
   Future<void> _showImportReport(ImportReport report) async {
@@ -166,6 +176,97 @@ class _LayoutScreenState extends State<LayoutScreen> {
     );
     if (saved != null && mounted) {
       await _c.adoptCrop(saved, freshAsset.id, preferredItemId: freshItem.id);
+    }
+  }
+
+  /// Ask immediately for each unresolved import; deferring keeps the original
+  /// and leaves a persistent action above the sheet to resume the workflow.
+  Future<void> _classifyPending([List<String>? requestedIds]) => _classifyItems(
+    requestedIds ??
+        [
+          for (final item in _c.project.items)
+            if (item.pageIndex == null && !item.sizeConfirmed && !item.locked)
+              item.id,
+        ],
+  );
+
+  Future<void> _classifySelected() async {
+    final item = _c.active;
+    if (item == null || item.locked || _c.selected.length != 1) return;
+    await _classifyItems([item.id], editingExisting: true);
+  }
+
+  Future<void> _classifyItems(
+    List<String> ids, {
+    bool editingExisting = false,
+  }) async {
+    if (!mounted || _classificationOpen || _c.busy) return;
+    _classificationOpen = true;
+    try {
+      for (final id in ids) {
+        if (!mounted) return;
+        final item = _c.project.items
+            .where((entry) => entry.id == id)
+            .firstOrNull;
+        if (item == null ||
+            item.locked ||
+            (!editingExisting && item.sizeConfirmed)) {
+          continue;
+        }
+        final choice = await showManualClassificationDialog(
+          context,
+          _c,
+          item,
+          editingExisting: editingExisting,
+        );
+        if (!mounted || choice == null) return;
+        final classified = await _c.classifyItem(id, choice.kind, choice.side);
+        if (!mounted || !classified) return;
+        var current = _c.project.items
+            .where((entry) => entry.id == id)
+            .firstOrNull;
+        if (current == null) continue;
+        if (!current.sizeConfirmed) {
+          if (widget.service.imageEditor == null) {
+            showMessage(
+              context,
+              'احفظ التصنيف ثم افتح الصورة للقص وتأكيد المقاس عند توفر محرر الصور.',
+            );
+            continue;
+          }
+          _c.select(id);
+          await _editCrop(current);
+          if (!mounted) return;
+          current = _c.project.items
+              .where((entry) => entry.id == id)
+              .firstOrNull;
+        }
+        final partnerId = choice.partnerItemId;
+        if (partnerId != null) {
+          if (current == null || !current.sizeConfirmed) {
+            showMessage(
+              context,
+              'لم يُربط الوجهان بعد؛ أكّد القص والمقاس أولاً.',
+            );
+          } else {
+            final paired = await _c.pairSelectedSides(id, partnerId);
+            if (!mounted) return;
+            if (paired) {
+              final result = _c.project.items.firstWhere(
+                (entry) => entry.id == id,
+              );
+              showMessage(
+                context,
+                result.pageIndex == null
+                    ? 'تم ربط الوجهين؛ لا تتسع المجموعة على الورقة حالياً.'
+                    : 'تم وضع الوجهين متجاورين على الورقة.',
+              );
+            }
+          }
+        }
+      }
+    } finally {
+      _classificationOpen = false;
     }
   }
 
@@ -830,6 +931,15 @@ class _LayoutScreenState extends State<LayoutScreen> {
                       ),
                   ],
                 ),
+                RibbonButton(
+                  key: const Key('rb-doc-classify'),
+                  icon: Icons.category_outlined,
+                  label: 'النوع والوجه',
+                  tooltip: 'تعديل نوع المستمسك ووجهه أو ربطه بوجه آخر',
+                  onPressed: busy || item.locked || c.selected.length != 1
+                      ? null
+                      : _classifySelected,
+                ),
                 if (widget.service.imageEditor != null)
                   RibbonStack(
                     children: [
@@ -1360,8 +1470,19 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   ].join('\n'),
                   onClose: () => setState(() => _intakeVisible = false),
                 ),
+              OffSheetTray(
+                key: const Key('pending-classification-section'),
+                controller: c,
+                pendingOnly: true,
+                onClassify: () => unawaited(_classifyPending()),
+                onAdjustBoundary: _editCrop,
+              ),
               Expanded(child: SheetView(controller: c)),
-              OffSheetTray(controller: c, onAdjustBoundary: _editCrop),
+              OffSheetTray(
+                key: const Key('off-sheet-section'),
+                controller: c,
+                onAdjustBoundary: _editCrop,
+              ),
               EditorStatusBar(controller: c),
             ],
           ),

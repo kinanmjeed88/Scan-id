@@ -13,6 +13,7 @@ import '../domain/crop_draft.dart';
 import '../domain/document_edits.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/manual_classification.dart' as manual;
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
@@ -56,7 +57,10 @@ class LayoutEditorController extends ChangeNotifier {
   void Function(String message)? onMessage;
 
   /// Presents per-image import scaling notices and failures.
-  void Function(ImportReport report)? onImportReport;
+  Future<void> Function(ImportReport report)? onImportReport;
+
+  /// Prompt for newly imported items that could not be placed automatically.
+  Future<void> Function(List<String> itemIds)? onManualClassificationNeeded;
 
   final selected = <String>{};
   bool busy = false;
@@ -532,6 +536,24 @@ class LayoutEditorController extends ChangeNotifier {
         return next;
       });
 
+  /// Persist the user's kind and side together, without pretending either was
+  /// detected. An unapproved photo remains pending until its crop is reviewed.
+  Future<bool> classifyItem(String itemId, DocumentKind kind, SideKind side) =>
+      edit(
+        (project) => manual.classifyItemManually(
+          project,
+          itemId: itemId,
+          kind: kind,
+          side: side,
+          nextId: newId,
+        ),
+      );
+
+  Future<bool> pairSelectedSides(String itemId, String partnerItemId) => edit(
+    (project) => manual.pairManualSides(project, itemId, partnerItemId),
+    layout: false,
+  );
+
   Future<void> setRecordSide(String documentId, SideKind side) =>
       edit((p) => rec.setSideOverride(p, documentId, side), layout: false);
 
@@ -706,6 +728,9 @@ class LayoutEditorController extends ChangeNotifier {
     // The shared runner: the editor and the project screen therefore expose
     // the same real progress, cooperative cancellation and committed final
     // state.
+    final existingItemIds = session.current.items
+        .map((item) => item.id)
+        .toSet();
     final runner = IntakeRunner(
       service: service,
       project: session.current,
@@ -742,7 +767,8 @@ class LayoutEditorController extends ChangeNotifier {
     final importReport = outcome?.import;
     if (importReport != null &&
         (importReport.failures.isNotEmpty || importReport.notices.isNotEmpty)) {
-      onImportReport?.call(importReport);
+      final reportHandler = onImportReport;
+      if (reportHandler != null) await reportHandler(importReport);
     }
     final r = outcome?.layout;
     if (r != null) {
@@ -775,6 +801,16 @@ class LayoutEditorController extends ChangeNotifier {
         '${intakeDetails.isEmpty ? '' : '\n$intakeDetails'}',
       );
     }
+    final pendingIds = [
+      for (final item in session.current.items)
+        if (!existingItemIds.contains(item.id) &&
+            item.pageIndex == null &&
+            !item.sizeConfirmed &&
+            !item.locked)
+          item.id,
+    ];
+    final prompt = onManualClassificationNeeded;
+    if (pendingIds.isNotEmpty && prompt != null) await prompt(pendingIds);
   }
 
   /// Re-runs recognition over the given source images.

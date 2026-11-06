@@ -199,6 +199,28 @@ void main() {
     },
   );
 
+  test(
+    'a failed automatic pass retains its source as a manual decision',
+    () async {
+      final project = await service.create('فشل التحليل');
+      final run = await IntakeRunner(service: service, project: project).run(
+        sources(1),
+        onProgress: (progress) {
+          if (progress.stage == 'تحليل الصور' && progress.completed == 0) {
+            throw StateError('simulated arrangement failure');
+          }
+        },
+      );
+      expect(run.error, isA<StateError>());
+      expect(run.project.assets, hasLength(1));
+      final item = run.project.items.single;
+      expect(item.assetId, run.project.assets.single.id);
+      expect(item.pageIndex, isNull);
+      expect(item.sizeConfirmed, isFalse);
+      expect(run.project.toJson(), (await projects.get(project.id)).toJson());
+    },
+  );
+
   test('a cancelled runner leaves a committed, reloadable project', () async {
     final project = await service.create('مُشغّل مُلغى');
     final runner = IntakeRunner(service: service, project: project);
@@ -211,7 +233,20 @@ void main() {
     expect(run.import.imported, 1);
     expect(run.layout, isNull, reason: 'analysis never started');
     expect(run.project.assets, hasLength(1));
+    expect(run.project.items, hasLength(1));
+    expect(run.project.items.single.assetId, run.project.assets.single.id);
+    expect(run.project.items.single.sizeConfirmed, isFalse);
+    expect(run.project.items.single.pageIndex, isNull);
     expect(run.project.toJson(), (await projects.get(project.id)).toJson());
+    final secondRecovery = await service.retainUnrepresentedImports(
+      run.project,
+      [run.project.assets.single.id],
+    );
+    expect(
+      secondRecovery.toJson(),
+      run.project.toJson(),
+      reason: 'recovery is idempotent',
+    );
   });
 
   test('a runner over an empty selection changes nothing', () async {

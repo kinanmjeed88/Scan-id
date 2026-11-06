@@ -3,9 +3,8 @@
 ///
 /// These tests separate physical-size presets from document-kind evidence.
 /// Image dimensions and boundary aspect may validate a size only after an
-/// independent kind is known; neither can create a kind. The shipped OCR engine
-/// is unavailable and there is no visual classifier, so only explicitly
-/// injected synthetic OCR fixtures produce a text-derived suggestion here.
+/// independent kind is known; neither can create a kind. This suite injects
+/// synthetic OCR output so it tests policy, not the shipped OCR model.
 /// Those fixtures test contracts, not real OCR accuracy.
 ///
 /// The segmenter is injected here on purpose: these tests exercise the
@@ -456,7 +455,7 @@ void main() {
     );
 
     test(
-      'OCR-only evidence for every supported Iraqi type stays off A4',
+      'strong OCR requires an accepted crop and matching documented size before A4',
       () async {
         final cases = [
           (
@@ -518,27 +517,43 @@ void main() {
 
             final item = itemForRecord(report, record);
             expect(item.documentKind, entry.kind);
-            expect(item.sizeConfirmed, isFalse);
-            expect(item.pageIndex, isNull);
+            // Only the wide ID-1-shaped crop has a matching documented preset.
+            // The tall crop contradicts it; estimated/missing sizes remain
+            // unconfirmed regardless of their strong text scores.
+            final processed = record.sides.single.processedAsset;
+            final eligible =
+                entry.kind == DocumentKind.unifiedNationalId &&
+                processed.width > processed.height;
+            expect(item.sizeConfirmed, eligible, reason: entry.kind.name);
+            if (eligible) {
+              expect(
+                result.confidences.finalConfidence!.value,
+                greaterThanOrEqualTo(.70),
+              );
+              expect(record.sides.single.detection!.polygon, hasLength(4));
+              expect(item.pageIndex, isNotNull);
+            } else {
+              expect(item.pageIndex, isNull);
+            }
             expect(recordNeedsReview(record), isTrue);
           }
-          // Follow candidates through the real arranger and checked-layout
-          // contract: OCR alone cannot confirm even an official catalog size.
           final awaiting = arrangeDocuments(report.project);
           expect(
             awaiting.awaitingSize,
-            unorderedEquals(report.project.items.map((item) => item.id)),
-          );
-          expect(
-            awaiting.result.items.every((item) => item.pageIndex == null),
-            isTrue,
+            unorderedEquals(
+              report.project.items
+                  .where((item) => !item.sizeConfirmed)
+                  .map((item) => item.id),
+            ),
           );
           expect(() => PageLayout.checked(awaiting.result), returnsNormally);
-          final first = report.project.items.first;
+          final first = report.project.items.firstWhere(
+            (item) => !item.sizeConfirmed,
+          );
           final invalidPlacement = report.project.copyWith(
             items: [
-              first.copyWith(pageIndex: 0),
-              ...report.project.items.skip(1),
+              for (final item in report.project.items)
+                if (item.id == first.id) first.copyWith(pageIndex: 0) else item,
             ],
           );
           expect(

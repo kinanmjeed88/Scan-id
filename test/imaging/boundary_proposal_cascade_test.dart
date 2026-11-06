@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
+import 'package:scan_id/domain/acceptance_policy.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/imaging/boundary_proposal_cascade.dart';
@@ -37,12 +38,13 @@ void main() {
     Point2(left, .88),
   ];
 
-  BoundaryProposal learned(List<Point2> corners) => BoundaryProposal(
-    producer: BoundaryProducer.learnedModel,
-    corners: corners,
-    modelConfidence: .4,
-    minAutoAcceptConfidence: 1.01,
-  );
+  BoundaryProposal learned(List<Point2> corners, {double score = .4}) =>
+      BoundaryProposal(
+        producer: BoundaryProducer.learnedModel,
+        corners: corners,
+        modelConfidence: score,
+        minAutoAcceptConfidence: automaticAcceptanceThreshold,
+      );
 
   void expectCorners(List<Point2>? actual, List<Point2> expected) {
     expect(actual, hasLength(expected.length));
@@ -141,14 +143,63 @@ void main() {
     );
   });
 
-  test('drops a lone primary result when DocAligner fails', () async {
-    final first = _FakeModel('DocQuadNet', learned(quad()));
+  test(
+    'a corroborated 70% proposal is accepted when geometry is safe',
+    () async {
+      final first = _FakeModel('DocQuadNet', learned(quad(), score: .70));
+      final second = _FakeModel('DocAligner', learned(quad(), score: .75));
+      final cascade = BoundaryProposalCascade(
+        primary: first,
+        secondary: second,
+      );
+      final proposal = await cascade.suggestProposal(preview);
+      final decision = verifyBoundary(
+        proposal!,
+        sourceWidth: 1000,
+        sourceHeight: 700,
+      );
+      expect(decision.cropAuthorization, isNotNull);
+    },
+  );
+
+  test('retains a high-scoring lone primary only for review', () async {
+    final first = _FakeModel('DocQuadNet', learned(quad(), score: .95));
     final second = _FakeModel('DocAligner')..fail = true;
     final cascade = BoundaryProposalCascade(primary: first, secondary: second);
 
-    expect(await cascade.suggestProposal(preview), isNull);
+    final proposal = await cascade.suggestProposal(preview);
+    expectCorners(proposal?.corners, quad());
+    final decision = verifyBoundary(
+      proposal!,
+      sourceWidth: 1000,
+      sourceHeight: 700,
+    );
+    expect(proposal.modelConfidence, .95);
+    expect(decision.kind, BoundaryDecisionKind.needsReview);
+    expect(decision.cropAuthorization, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.modelNotCorroborated),
+    );
     expect(first.calls, 1);
     expect(second.calls, 1);
+  });
+
+  test('a high-scoring lone secondary is also review-only', () async {
+    final first = _FakeModel('DocQuadNet')..fail = true;
+    final second = _FakeModel('DocAligner', learned(quad(), score: .95));
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
+    final proposal = await cascade.suggestProposal(preview);
+    final decision = verifyBoundary(
+      proposal!,
+      sourceWidth: 1000,
+      sourceHeight: 700,
+    );
+    expect(decision.cropAuthorization, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.modelNotCorroborated),
+    );
   });
 
   test('cancellation from the first model is not swallowed', () async {

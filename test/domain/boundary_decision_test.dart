@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/acceptance_policy.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -343,4 +344,136 @@ void main() {
       );
     },
   );
+  group('70% learned boundary policy', () {
+    BoundaryDecision decide(
+      double? score, {
+      bool edge = false,
+      bool conflict = false,
+    }) => verifyBoundary(
+      BoundaryProposal(
+        producer: BoundaryProducer.learnedModel,
+        corners: goodQuad(),
+        modelConfidence: score,
+        minAutoAcceptConfidence: automaticAcceptanceThreshold,
+        touchesFrameEdge: edge,
+        forceReview: conflict,
+        forceReviewReason: conflict
+            ? BoundaryReviewReason.modelDisagreement
+            : null,
+      ),
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+
+    test('below 70 is reviewed; exactly 70 and above are accepted', () {
+      final below = decide(.699);
+      expect(below.kind, BoundaryDecisionKind.needsReview);
+      expect(below.cropAuthorization, isNull);
+      expect(
+        below.verification.reasons,
+        contains(BoundaryReviewReason.lowModelConfidence),
+      );
+      for (final score in [.70, .71, 1.0]) {
+        final accepted = decide(score);
+        expect(accepted.kind, BoundaryDecisionKind.accepted, reason: '$score');
+        expect(accepted.cropAuthorization, isNotNull);
+      }
+    });
+
+    test('missing, invalid or nonfinite scores do not authorize a crop', () {
+      for (final score in <double?>[
+        null,
+        -.01,
+        1.01,
+        double.nan,
+        double.infinity,
+      ]) {
+        expect(
+          decide(score).kind,
+          BoundaryDecisionKind.needsReview,
+          reason: '$score',
+        );
+        expect(decide(score).cropAuthorization, isNull);
+      }
+    });
+
+    test('learned proposals cannot omit or lower the shared 70% floor', () {
+      for (final proposal in [
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+        ),
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          modelConfidence: .69,
+        ),
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          modelConfidence: .69,
+          minAutoAcceptConfidence: .50,
+        ),
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          modelConfidence: .75,
+          minAutoAcceptConfidence: .80,
+        ),
+      ]) {
+        final result = verifyBoundary(
+          proposal,
+          sourceWidth: width,
+          sourceHeight: height,
+        );
+        expect(result.cropAuthorization, isNull);
+        expect(
+          result.verification.reasons,
+          contains(BoundaryReviewReason.lowModelConfidence),
+        );
+      }
+    });
+
+    test('frame edges, model conflict and bad geometry remain review-only', () {
+      expect(decide(.95, edge: true).cropAuthorization, isNull);
+      expect(
+        decide(.95, conflict: true).verification.reasons,
+        contains(BoundaryReviewReason.modelDisagreement),
+      );
+      final bad = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: [
+            Point2(.45, .45),
+            Point2(.55, .45),
+            Point2(.55, .55),
+            Point2(.45, .55),
+          ],
+          modelConfidence: .95,
+          minAutoAcceptConfidence: automaticAcceptanceThreshold,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(bad.cropAuthorization, isNull);
+    });
+
+    test('warning shows the real score or unavailable, not a made-up zero', () {
+      expect(
+        boundaryReviewReasonMessage(
+          BoundaryReviewReason.lowModelConfidence,
+          modelConfidence: .699,
+          minAutoAcceptConfidence: .70,
+        ),
+        allOf(contains('69.9'), contains('70')),
+      );
+      final missing = boundaryReviewReasonMessage(
+        BoundaryReviewReason.lowModelConfidence,
+        modelConfidence: null,
+        minAutoAcceptConfidence: .70,
+      );
+      expect(missing, contains('غير متاحة'));
+      expect(missing, isNot(contains('0.0')));
+    });
+  });
 }

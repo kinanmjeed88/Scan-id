@@ -87,23 +87,7 @@ class LocalImageEditor
       phase: 'preview',
     );
     cancellation?.throwIfCancelled();
-    return runCancellableIsolate(
-      () {
-        final image = decodeForProcessing(bytes);
-        final reduced = img.copyResize(
-          image,
-          width: image.width >= image.height
-              ? math.min(maxRecognitionPreviewLongEdge, image.width)
-              : null,
-          height: image.height > image.width
-              ? math.min(maxRecognitionPreviewLongEdge, image.height)
-              : null,
-        );
-        return EditorSource(img.encodePng(reduced), image.width, image.height);
-      },
-      cancellation: cancellation,
-      debugName: 'crop-source',
-    );
+    return _openSourceIsolated(bytes, cancellation);
   }
 
   /// Identifies the offline cascade for diagnostics; the proposal's producer
@@ -202,11 +186,7 @@ class LocalImageEditor
     cancellation?.throwIfCancelled();
     final bytes = await _source(asset);
     cancellation?.throwIfCancelled();
-    return runCancellableIsolate(
-      () => renderPerspective(bytes, recipe, previewLongEdge: 1200),
-      cancellation: cancellation,
-      debugName: 'crop-preview',
-    );
+    return _renderPreviewIsolated(bytes, recipe, cancellation);
   }
 
   @override
@@ -219,7 +199,7 @@ class LocalImageEditor
     }
     final bytes = await _source(asset);
     final root = files.root.path;
-    return Isolate.run(() => _saveRevision(root, asset, recipe, bytes));
+    return _saveRevisionIsolated(root, asset, recipe, bytes);
   }
 
   @override
@@ -229,13 +209,10 @@ class LocalImageEditor
   ) async {
     if (asset.hasScaledLargeSource && _usesOriginalJpeg(recipe)) {
       final prepared = await _prepareFullResolutionExtract(asset, recipe);
-      return Isolate.run(
-        () =>
-            img.encodePng(warpPerspective(prepared.extracted, prepared.recipe)),
-      );
+      return _renderCropBytesIsolated(prepared.extracted, prepared.recipe);
     }
     final bytes = await _source(asset);
-    return Isolate.run(() => img.encodePng(warpPerspective(bytes, recipe)));
+    return _renderCropBytesIsolated(bytes, recipe);
   }
 
   /// A sampled large JPEG uses the original for every region except the whole
@@ -340,20 +317,67 @@ class LocalImageEditor
   ) async {
     final prepared = await _prepareFullResolutionExtract(asset, recipe);
     final root = files.root.path;
-    return Isolate.run(
-      () => _saveRevision(
-        root,
-        asset,
-        prepared.recipe,
-        prepared.extracted,
-        storedCorners: [
-          for (final corner in recipe.geometry.corners)
-            Point2(corner.x, corner.y),
-        ],
-      ),
+    return _saveRevisionIsolated(
+      root,
+      asset,
+      prepared.recipe,
+      prepared.extracted,
+      storedCorners: [
+        for (final corner in recipe.geometry.corners)
+          Point2(corner.x, corner.y),
+      ],
     );
   }
 }
+
+// Separate scopes ensure these closures contain only bytes/recipes. In
+// particular, they must not capture LocalImageEditor, the native region-reader
+// method tear-off or the live ONNX sessions held by boundaryProposer.
+Future<EditorSource> _openSourceIsolated(
+  Uint8List bytes,
+  CancellationToken? cancellation,
+) => runCancellableIsolate(
+  () {
+    final image = decodeForProcessing(bytes);
+    final reduced = img.copyResize(
+      image,
+      width: image.width >= image.height
+          ? math.min(maxRecognitionPreviewLongEdge, image.width)
+          : null,
+      height: image.height > image.width
+          ? math.min(maxRecognitionPreviewLongEdge, image.height)
+          : null,
+    );
+    return EditorSource(img.encodePng(reduced), image.width, image.height);
+  },
+  cancellation: cancellation,
+  debugName: 'crop-source',
+);
+
+Future<Uint8List> _renderPreviewIsolated(
+  Uint8List bytes,
+  ImageEditRecipe recipe,
+  CancellationToken? cancellation,
+) => runCancellableIsolate(
+  () => renderPerspective(bytes, recipe, previewLongEdge: 1200),
+  cancellation: cancellation,
+  debugName: 'crop-preview',
+);
+
+Future<Uint8List> _renderCropBytesIsolated(
+  Uint8List bytes,
+  ImageEditRecipe recipe,
+) => Isolate.run(() => img.encodePng(warpPerspective(bytes, recipe)));
+
+Future<ImageAsset> _saveRevisionIsolated(
+  String root,
+  ImageAsset asset,
+  ImageEditRecipe recipe,
+  Uint8List bytes, {
+  List<Point2>? storedCorners,
+}) => Isolate.run(
+  () => _saveRevision(root, asset, recipe, bytes, storedCorners: storedCorners),
+);
 
 Future<ImageAsset> _saveRevision(
   String root,

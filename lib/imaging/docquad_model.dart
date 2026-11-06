@@ -8,6 +8,7 @@ import '../application/cancellation.dart';
 import '../application/import_trace.dart';
 import '../application/retirable_resource.dart';
 import '../application/stage_budget.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import 'prepare_image.dart';
@@ -154,10 +155,9 @@ class DocQuadNet256 implements BoundaryProposalModel {
             producer: BoundaryProducer.learnedModel,
             corners: corners,
             modelConfidence: evidence,
-            // The model has not been calibrated on a licensed Iraqi-card holdout.
-            // Keep every result review-only; this threshold is intentionally
-            // unreachable for a probability score and is not an accuracy claim.
-            minAutoAcceptConfidence: 1.01,
+            // A score of 70% is the requested routing threshold, not an
+            // accuracy claim. Geometry and cascade agreement still apply.
+            minAutoAcceptConfidence: automaticAcceptanceThreshold,
           );
           final verified = verifyBoundary(
             proposal,

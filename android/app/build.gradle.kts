@@ -375,5 +375,8 @@ dependencies {
     // integration_test 3.35.7 exposes runner 1.2+ and Gradle's Android
     // consistent-resolution rule pins androidTest to the app runtime's 1.2.0.
     androidTestImplementation("androidx.test:runner:1.2.0")
+    // AndroidX Test's release runner references tracing at runtime, but the
+    // upstream test artifacts expose it only as a compile-only dependency.
+    androidTestImplementation("androidx.tracing:tracing:1.2.0")
     androidTestImplementation("junit:junit:4.12")
 }

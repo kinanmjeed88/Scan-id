@@ -97,6 +97,8 @@ class AndroidR8RulesTest(unittest.TestCase):
             gradle,
         )
         self.assertNotIn("scanIdR8Profile", gradle)
+        self.assertIn('testProguardFiles("proguard-rules-android-test.pro")', gradle)
+        self.assertTrue((check_android_r8.ROOT / "android/app/proguard-rules-android-test.pro").is_file())
         self.assertTrue((
             check_android_r8.ROOT
             / "android/app/src/androidTestScanidRelease/java/iq/scanid/scan_id/"

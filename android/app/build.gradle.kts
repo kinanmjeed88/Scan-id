@@ -355,6 +355,11 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            if (releaseIntakeTestRequested) {
+                // The tested Release app stays minified. Only the androidTest
+                // APK needs these optional AndroidX Test compile-only refs.
+                testProguardFiles("proguard-rules-android-test.pro")
+            }
         }
     }
 }

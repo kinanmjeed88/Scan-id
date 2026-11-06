@@ -549,9 +549,9 @@ jobs:
           retention-days: 7
 
       # The user-visible crash appeared only in the signed Release package.
-      # Android instrumentation drives the actual Release Dart entrypoint over
-      # a test-only MethodChannel: no VM service or Profile substitute. The APK
-      # uses a disposable local key, never production secrets, and is not uploaded.
+      # Build/install/launch the actual Release Dart probe and require its logcat
+      # result plus R8 mapping: no VM service, Profile, or androidTest orchestrator.
+      # The APK uses a disposable local key, never production secrets, and is not uploaded.
       - name: Android signed Release R8 intake regression (disposable test key)
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -569,10 +569,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-r8-release-evidence
-          path: |
-            diagnostics/android-release/
-            build/app/reports/androidTests/connected/
-            build/app/outputs/androidTest-results/connected/
+          path: diagnostics/android-release/
           if-no-files-found: warn
           retention-days: 7
 

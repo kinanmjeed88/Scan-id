@@ -6,7 +6,7 @@
 - **المطلوب:** ألا يتوقف التطبيق عند «تحليل الصور» في الحزمة الموقّعَة بينما يكمل البناء غير الموقّع/Debug لنفس المدخل. إذا لم توجد أدلة كافية يجب أن تبقى النتيجة الصادقة `unknown` مع إمكانية القص اليدوي، لا أن يُختلق قصّ أو نوع.
 - **معيار القبول:**
   1. عقد أسماء ONNX Runtime JNI محفوظ في حزمة Android المصغّرة بـ R8.
-  2. اختبار Android أصلي يبني Release موقّعًا فعليًا بمفتاح اختبار مؤقت، ويشغّل النماذج الأصلية عبر الاستيراد الحقيقي وإعادة الفتح/retry داخل محرّك Flutter Release، ولا يكتفي بنجاح التوقيع أو باكتمال العداد مع fallback صامت.
+  2. اختبار Android أصلي يبني Release موقّعًا فعليًا بمفتاح اختبار مؤقت، ويثبّته ويشغّل النماذج الأصلية عبر الاستيراد الحقيقي وإعادة الفتح/retry على المحاكي، ولا يكتفي بنجاح التوقيع أو باكتمال العداد مع fallback صامت.
   3. الأصل لا يتغير، ولا يتكرر العنصر عند إعادة المعالجة.
   4. حارس يمنع حذف قاعدة الحماية مستقبلاً، وبوابات المشروع والبناء على SHA التغيير.
 
@@ -49,7 +49,7 @@
 - أضيف `tool/check_android_r8.py` ويفحص وجود القاعدة في المسار الذي يحمّله Flutter، مع رفض الملف المفقود/التعليقات فقط/الحزمة الخاطئة/حفظ الأسماء دون الأعضاء.
 - أضيف فحص القواعد إلى سير التحقق وسير Android الموقّع قبل البناء.
 - أضيف `integration_test/release_intake_test.dart`:
-  - يعمل عبر مدخل Release مستقل وقناة MethodChannel مع اختبار Android أصلي، فلا يحتاج VM service ولا يضيف `integration_test` إلى حزمة Release.
+  - يعمل عبر مدخل Release مستقل وعلامة نتيجة في logcat، فلا يحتاج VM service ولا يضيف `integration_test` إلى حزمة Release.
   - يستخدم صورة اصطناعية عامة، لا مستمسك مستخدم.
   - يشغّل `IntakeRunner` الحقيقي مع `LocalImageEditor` وسلسلة DocQuadNet/DocAligner ومحرك PP-OCRv5.
   - يشترط أحداث `native_completed` لمراحل استدلال النماذج و`ocr_completed`، ويرفض `native_failed`/`ocr_failed`/`stage_timeout`؛ باكتمال العداد وحده لا ينجح الاختبار لأن المسار يستطيع السقوط يدوياً عند الفشل.
@@ -57,8 +57,8 @@
 - أضيف `tool/run_android_release_regression.sh`:
   - ينشئ مفتاح اختبار مؤقتاً ليوم واحد داخل مجلد مؤقت، ويحذفه عند الخروج.
   - لا يقرأ أسرار التوقيع الإنتاجية ولا يغير `EXPECTED_CERT_SHA256` الإنتاجي؛ يمرر بصمة مفتاح الاختبار لأمر الاختبار فقط.
-  - يبني Release فعليًا ثم يشغّل `:app:connectedScanidReleaseAndroidTest` على المحاكي، مع `scanIdReleaseIntakeTest=true` ومدخل `integration_test/release_intake_main.dart`.
-  - يتحقق من وجود `mapping/scanidRelease/mapping.txt` ومن بقاء أسماء أصناف JNI، ويرفع السجل/الخريطة/نتيجة JUnit كدليل، ولا يرفع APK الاختبار كأثر تطبيق.
+  - يبني Release فعليًا بالمدخل `integration_test/release_intake_main.dart`، يثبّته ويشغّله على المحاكي، ويشترط علامة `SCANID_RELEASE_INTAKE_RESULT` ذات الحالة success.
+  - يتحقق من وجود `mapping/scanidRelease/mapping.txt` ومن بقاء أسماء أصناف JNI، ويرفع السجل/الخريطة/ملخص النتيجة كدليل، ولا يرفع APK الاختبار كأثر تطبيق.
   - يعمل بعد خطوة «Ensure release build rejects missing signing credentials»، بحيث يبقى حارس غياب التوقيع الإنتاجي مختبراً كما كان.
 
 ## الملفات المضافة أو المعدلة
@@ -69,11 +69,9 @@
 | `tool/check_android_r8.py` | جديد: حارس عقد التعبئة |
 | `test/tool/test_android_r8.py` | جديد: اختبارات الحارس وربط خطوة الانحدار الإلزامية |
 | `integration_test/release_intake_probe.dart` | جديد: مسبار مشترك للاستيراد/retry وفحوص الأصل/الاستدلال |
-| `integration_test/release_intake_main.dart` | جديد: مدخل Dart لقناة نتيجة Release دون VM service |
+| `integration_test/release_intake_main.dart` | جديد: مدخل Dart يطبع نتيجة Release المهيكلة في logcat |
 | `integration_test/release_intake_test.dart` | جديد: غلاف اختبار مضيف للمسبار نفسه |
-| `android/app/src/androidTestScanidRelease/.../ReleaseIntakeInstrumentationTest.kt` | جديد: اختبار Android أصلي يستهدف Release غير القابل للتصحيح |
 | `tool/run_android_release_regression.sh` | جديد: تشغيل اختبار R8/AOT بمفتاح مؤقت وتحقق mapping ونشر ذيل السجل عند الفشل |
-| `android/app/build.gradle.kts` | خاصية CI فقط `scanIdReleaseIntakeTest` لاختيار testBuildType=release؛ الافتراضي والإنتاجي يبقيان كما كانا |
 | `.github/workflows/verify.yml` | حارس القواعد، اختبار Python، خطوة محاكي R8 إلزامية، رفع دليل |
 | `.github/workflows/android-signed-release.yml` | حارس القواعد قبل بناء الحزمة الموقّعة |
 | `docs/STATUS.md` | حالة التنفيذ والقيود |
@@ -98,7 +96,7 @@
   - `dart format --output=none --set-exit-if-changed .`
   - `flutter analyze --fatal-infos`
   - `flutter test --reporter expanded`
-  - `flutter build apk --release` و`:app:connectedScanidReleaseAndroidTest` مع `scanIdReleaseIntakeTest`
+  - `flutter build apk --release` بالمدخل الاختباري، ثم تثبيت/تشغيل وقراءة logcat وmapping Release
   - بناء Android/Windows.
 - البديل المنفذ: حراس Python/بنية محلية، ثم GitHub Actions على SHA الدفع الفعلي. لا يُعلن نجاح بناء لم يُنفذ.
 

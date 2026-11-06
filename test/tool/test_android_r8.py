@@ -79,30 +79,26 @@ class AndroidR8RulesTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("integration_test/release_intake_main.dart", script)
         self.assertIn("flutter build apk --release", script)
-        self.assertIn(":app:connectedScanidReleaseAndroidTest", script)
-        self.assertIn("-PscanIdReleaseIntakeTest=true", script)
+        self.assertIn("adb -s \"$serial\" install -r \"$apk\"", script)
+        self.assertIn("am start -W -n iq.scanid.scan_id/.MainActivity", script)
+        self.assertIn("SCANID_RELEASE_INTAKE_RESULT", script)
         self.assertIn("mapping/scanidRelease/mapping.txt", script)
-        self.assertIn("releaseIntakeTests=", script)
+        self.assertIn("releaseIntakeResult=", script)
         self.assertIn("trap 'rm -rf \"$signing_dir\"' EXIT", script)
         self.assertNotIn("--profile", script)
         self.assertNotIn("secrets.KEYSTORE", script)
         self.assertNotIn("upload-artifact", script)
 
-    def test_release_instrumentation_is_isolated_from_normal_debug_tests(self):
+    def test_release_regression_does_not_add_production_test_hooks(self):
         gradle = (
             check_android_r8.ROOT / "android/app/build.gradle.kts"
         ).read_text(encoding="utf-8")
-        self.assertIn(
-            'testBuildType = if (releaseIntakeTestRequested) "release" else "debug"',
-            gradle,
-        )
+        self.assertNotIn("scanIdReleaseIntakeTest", gradle)
         self.assertNotIn("scanIdR8Profile", gradle)
-        self.assertIn('testProguardFiles("proguard-rules-android-test.pro")', gradle)
-        self.assertTrue((check_android_r8.ROOT / "android/app/proguard-rules-android-test.pro").is_file())
+        self.assertNotIn("testProguardFiles", gradle)
+        self.assertNotIn("androidx.tracing", gradle)
         self.assertTrue((
-            check_android_r8.ROOT
-            / "android/app/src/androidTestScanidRelease/java/iq/scanid/scan_id/"
-            / "ReleaseIntakeInstrumentationTest.kt"
+            check_android_r8.ROOT / "integration_test/release_intake_main.dart"
         ).is_file())
 
 

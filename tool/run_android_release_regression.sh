@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Actual signed Release R8 regression. Android instrumentation receives the Dart
-# result over a test-only MethodChannel, so no VM service, Profile substitute, or
-# integration_test dev plugin is needed in the Release package. A fresh one-day
-# test key signs this local test build; no production secret is read and no APK
-# is uploaded. verify.yml's missing-production-signing guard runs BEFORE this.
+# Actual signed Release R8 regression. Build/install/launch the Release APK with
+# a disposable one-day test key, then require the Dart probe's result marker in
+# logcat and the Release R8 mapping. No VM service, Profile substitute,
+# androidTest orchestrator, production secret, or uploaded APK is involved.
+# verify.yml's missing-production-signing guard runs BEFORE this script.
 set -euo pipefail
 
 command -v keytool >/dev/null || { echo 'keytool (JDK 17) is required.' >&2; exit 1; }
@@ -44,50 +44,80 @@ export EXPECTED_CERT_SHA256="$fingerprint"
 export REQUIRE_RELEASE_SIGNING=true
 
 set +e
-timeout 900 flutter build apk --release --flavor scanid \
-  --target "$target" > diagnostics/android-release/intake.log 2>&1
+timeout 900 flutter build apk --release --flavor scanid --target "$target" \
+  > diagnostics/android-release/intake.log 2>&1
 status=$?
+apk=build/app/outputs/flutter-apk/app-scanid-release.apk
+if (( status == 0 )) && [[ ! -f "$apk" ]]; then
+  echo 'Release APK was not produced.' >> diagnostics/android-release/intake.log
+  status=1
+fi
 if (( status == 0 )); then
-  (cd android && timeout 1500 ./gradlew :app:connectedScanidReleaseAndroidTest \
-    --no-daemon --stacktrace --console=plain \
-    -PscanIdReleaseIntakeTest=true \
-    -Ptarget="$target" \
-    -Ptarget-platform=android-x64 \
-    -Pandroid.testInstrumentationRunnerArguments.class=iq.scanid.scan_id.ReleaseIntakeInstrumentationTest) \
+  adb -s "$serial" install -r "$apk" >> diagnostics/android-release/intake.log 2>&1
+  status=$?
+fi
+if (( status == 0 )); then
+  adb -s "$serial" shell am start -W -n iq.scanid.scan_id/.MainActivity \
     >> diagnostics/android-release/intake.log 2>&1
   status=$?
+fi
+marker=''
+if (( status == 0 )); then
+  deadline=$((SECONDS + 480))
+  while (( SECONDS < deadline )); do
+    adb -s "$serial" logcat -d -v threadtime \
+      > diagnostics/android-release/logcat.log 2>/dev/null || true
+    marker="$(grep -F 'SCANID_RELEASE_INTAKE_RESULT ' diagnostics/android-release/logcat.log | tail -n 1 || true)"
+    [[ -n "$marker" ]] && break
+    if grep -Eq 'FATAL EXCEPTION|Fatal signal' diagnostics/android-release/logcat.log; then
+      break
+    fi
+    sleep 5
+  done
+  [[ -n "$marker" ]] || status=1
 fi
 set -e
 
 adb -s "$serial" logcat -d -v threadtime \
   > diagnostics/android-release/logcat.log 2>/dev/null || true
-grep -E 'ScanIdReleaseIntake|FATAL EXCEPTION|Fatal signal|JNI DETECTED ERROR|UnsatisfiedLinkError|NoSuchMethodError|NoSuchFieldError|Tests on|FAILURE:' \
+grep -E 'SCANID_RELEASE_INTAKE_RESULT|FATAL EXCEPTION|Fatal signal|JNI DETECTED ERROR|UnsatisfiedLinkError|NoSuchMethodError|NoSuchFieldError' \
   diagnostics/android-release/logcat.log \
   > diagnostics/android-release/native-summary.log 2>/dev/null || true
 
-# Require a real successful JUnit case, not merely Gradle exit zero.
-if python3 - <<'PY' > diagnostics/android-release/junit-summary.txt
+# Require the probe's structured success evidence, not merely a launched app.
+if python3 - <<'PY' > diagnostics/android-release/result-summary.txt
+import json
 from pathlib import Path
-import xml.etree.ElementTree as ET
-name = 'iq.scanid.scan_id.ReleaseIntakeInstrumentationTest'
-cases = []
-for path in Path('build/app/outputs/androidTest-results/connected').rglob('TEST-*.xml'):
-    try:
-        root = ET.parse(path).getroot()
-    except (ET.ParseError, OSError):
-        continue
-    cases.extend(case for case in root.iter('testcase') if case.get('classname') == name)
-failed = sum(any(child.tag in {'failure', 'error', 'skipped'} for child in case) for case in cases)
-print(f'releaseIntakeTests={len(cases)} failuresOrSkips={failed}')
-if len(cases) != 1 or failed:
+text = Path('diagnostics/android-release/logcat.log').read_text(errors='replace')
+lines = [line.split('SCANID_RELEASE_INTAKE_RESULT ', 1)[1]
+         for line in text.splitlines() if 'SCANID_RELEASE_INTAKE_RESULT ' in line]
+if not lines:
+    print('releaseIntakeResult=missing')
+    raise SystemExit(1)
+result = json.loads(lines[-1])
+evidence = result.get('evidence') or {}
+print(f"releaseIntakeResult={result.get('status')} imported={evidence.get('importedCount')} "
+      f"assets={evidence.get('assetCount')} items={evidence.get('itemCount')} "
+      f"docAlignerRuns={evidence.get('docAlignerRuns')}")
+if result.get('status') != 'success':
+    print(result.get('error'))
+    raise SystemExit(1)
+for key in ('importedCount', 'assetCount', 'itemCount'):
+    if evidence.get(key) != 1:
+        raise SystemExit(1)
+if evidence.get('originalUnchanged') is not True or evidence.get('retryOriginalUnchanged') is not True:
+    raise SystemExit(1)
+phases = set(evidence.get('nativePhases') or [])
+if not {'docquad-inference', 'docaligner-inference', 'ocr-inference'} <= phases:
+    raise SystemExit(1)
+if int(evidence.get('docAlignerRuns') or 0) < 2:
     raise SystemExit(1)
 PY
 then
-  junit_status=0
+  :
 else
-  junit_status=$?
+  status=1
 fi
-if (( junit_status != 0 )); then status=1; fi
 
 # Prove the actual Release R8 transformation preserved the JNI name contract.
 mapping=build/app/outputs/mapping/scanidRelease/mapping.txt
@@ -104,17 +134,15 @@ else
   done
 fi
 
-# A stack trace tail alone can miss R8's actual diagnostic. Publish the named
-# failure lines too, bounded to the check-annotation limit.
-summary="$(grep -E 'FAILURE:|What went wrong|Execution failed|Caused by:|ERROR:|Missing class|^e: |error:|> Task .*FAILED' diagnostics/android-release/intake.log | head -n 45 | head -c 3000 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+summary="$(grep -E 'FAILURE:|What went wrong|Execution failed|Caused by:|ERROR:|Missing class|^e: |error:|releaseIntakeResult=' diagnostics/android-release/intake.log diagnostics/android-release/result-summary.txt | head -n 40 | head -c 2500 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
 if [[ -n "$summary" ]]; then
-  echo "::error title=android-release-intake-summary::$summary" >&2
+  echo "::notice title=android-release-intake-summary::$summary" >&2
 fi
-tail -n 80 diagnostics/android-release/intake.log
-cat diagnostics/android-release/junit-summary.txt
+tail -n 60 diagnostics/android-release/intake.log
+cat diagnostics/android-release/result-summary.txt
 if (( status != 0 )); then
   cat diagnostics/android-release/native-summary.log >&2 || true
-  detail="$(tail -c 6000 diagnostics/android-release/intake.log | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+  detail="$( { tail -c 1600 diagnostics/android-release/intake.log; echo; tail -c 1600 diagnostics/android-release/native-summary.log; } | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
   echo "::error title=android-release-intake-log::exit=$status $detail" >&2
   echo "::error title=android-release-intake::Signed Release R8 intake regression failed (exit=$status). See uploaded evidence." >&2
   exit "$status"

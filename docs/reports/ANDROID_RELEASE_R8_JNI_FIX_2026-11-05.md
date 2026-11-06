@@ -58,7 +58,7 @@
   - ينشئ مفتاح اختبار مؤقتاً ليوم واحد داخل مجلد مؤقت، ويحذفه عند الخروج.
   - لا يقرأ أسرار التوقيع الإنتاجية ولا يغير `EXPECTED_CERT_SHA256` الإنتاجي؛ يمرر بصمة مفتاح الاختبار لأمر الاختبار فقط.
   - يبني Release فعليًا بالمدخل `integration_test/release_intake_main.dart`، يثبّته ويشغّله على المحاكي، ويشترط علامة `SCANID_RELEASE_INTAKE_RESULT` ذات الحالة success.
-  - يتحقق من وجود `mapping/scanidRelease/mapping.txt` ومن بقاء أسماء أصناف JNI، ويرفع السجل/الخريطة/ملخص النتيجة كدليل، ولا يرفع APK الاختبار كأثر تطبيق.
+  - يتحقق من وجود `mapping/scanidRelease/mapping.txt` ومن بقاء أسماء أصناف JNI، تُقيَّد أوامر adb بمهل حتى لا يعلّق التقاط الدليل الوظيفة، ويرفع السجل/الخريطة/ملخص النتيجة كدليل، ولا يرفع APK الاختبار كأثر تطبيق.
   - يعمل بعد خطوة «Ensure release build rejects missing signing credentials»، بحيث يبقى حارس غياب التوقيع الإنتاجي مختبراً كما كان.
 
 ## الملفات المضافة أو المعدلة
@@ -79,8 +79,8 @@
 
 ## الاختبارات والأوامر المنفذة محلياً
 
-- `python -m unittest test.tool.test_android_r8 -v` قبل إضافة القاعدة: **فشل متعمد** في اختبار المستودع لأن الملف كان مفقوداً؛ بعد الإصلاح: **9/9** ضمن المجموعة الموسعة.
-- `/home/user/annotation-venv/bin/python -m unittest test.tool.test_android_r8 test.tool.test_ci_gate test.tool.test_format_report test.tool.branch_cleanup_test test.tool.test_local_annotation_validator -v`: **57/57 نجاح**.
+- `python -m unittest test.tool.test_android_r8 -v` قبل إضافة القاعدة: **فشل متعمد** في اختبار المستودع لأن الملف كان مفقوداً؛ بعد الإصلاح: **10/10** ضمن المجموعة الموسعة.
+- `/home/user/annotation-venv/bin/python -m unittest test.tool.test_android_r8 test.tool.test_ci_gate test.tool.test_format_report test.tool.branch_cleanup_test test.tool.test_local_annotation_validator -v`: **58/58 نجاح**.
 - `python tool/check_android_r8.py`: نجاح بعد أن كان يفشل قبل الإصلاح.
 - `python tool/check_source.py`: نجاح؛ 255 ملف Dart ذات imports محلية محلولة، و1063 اختبار Dart/Flutter معلناً غير منفذ بهذا التدقيق.
 - `python tool/check_detector_retirement.py`: نجاح.
@@ -103,11 +103,19 @@
 ## حالة GitHub Actions
 
 - الفرع المصرح: `arena/ea8f0b7b-scan-id`.
-- صححت محاولات سابقة أخطاء تنسيق/تحليل في ملفات الاختبار الجديدة. كما أثبتت محاولات Profile أن هذا المسار ليس بديلًا مناسبًا: قيود VM service، ثم إعدادات Gradle/إضافات dev dependency؛ لذلك أزيل بالكامل واستبدل باختبار Release أصلي.
-- التشغيل [`42126532235`](https://github.com/kinanmjeed88/Scan-id/actions/runs/42126532235) على `6297032c9b9ab369ce8dda67b188c4bb187ec9e1`: فشل تنسيق Dart، وفشل Windows خارجيًا بجلب نموذج DocAligner بسبب `HTTP 403: rate limit exceeded`. طُبق فرق المنسق، ونجح Windows في التشغيل التالي.
-- التشغيل [`42127531603`](https://github.com/kinanmjeed88/Scan-id/actions/runs/42127531603) على `219b6856e1790f136b45c1e502eadc6520c6d53d`: نجح التنسيق، وفشل التحليل بسبب حارس `if` دون أقواس؛ أضيفت الأقواس.
-- التشغيل [`42128493630`](https://github.com/kinanmjeed88/Scan-id/actions/runs/42128493630) على `329a84f91415266a7204df01531c95e2d40bbc5d`: نجحت بوابات Dart/Flutter وWindows والفحص التفاضلي، لكن خطوة debug instrumentation القائمة فشلت قبل خطوة Release عند `adb logcat` برمز 255. لم يصل التنفيذ إلى انحدار Release، ولم تُعلن هذه النتيجة نجاحًا له.
-- نتيجة تشغيل الالتزام الذي يحمل هذه الوثيقة تُقرأ من GitHub Actions على نفس SHA قبل إعلان الاكتمال؛ لا تُستخدم نتيجة تشغيل قديم كدليل على الإصلاح.
+- **التشغيل الأخضر النهائي:** [`42152486961`](https://github.com/kinanmjeed88/Scan-id/actions/runs/42152486961) على SHA `cee2baeef6c5a1c28da628a89f2b40c1556b68a6`، والنتيجة `success`. الوظائف `android` و`Android debug/diagnostic differential` و`windows / windows` و`Android 16 startup evidence` كلها `success`.
+- دليل وظيفة `android` (job `127678761098`) من annotations الرسمية:
+  - `android-release-intake`: نجح الاستيراد/reopen/retry في Release/AOT موقّع بمفتاح اختبار مؤقت، دون نشر APK.
+  - `android-release-intake-summary`: `releaseIntakeResult=success imported=1 assets=1 items=1 docAlignerRuns=1`.
+  - `android-r8-rules exit=0`: `PASS: ONNX Runtime JNI classes and members are kept in R8 release builds.`
+  - `test exit=0`: `+1091: All tests passed!`.
+  - `android-instrumentation-evidence`: `androidTests=4 failures=0 skipped=0; docquadFlutterInferenceExit=0`.
+- دليل `Android 16 startup evidence` (job `127687000845`): وصول إلى أول إطار رئيسي على API 36 (`x86_64`)، وتحميل `onnxruntime4j_jni` و`onnxruntime` وإنشاء `OrtEnvironment` في preflight. هذا دليل محاكي `x86_64` وليس دليل جهاز ARM64 فعلي.
+-Attempts/مسارات مهجورة قبل النجاح:
+  - بوابات تنسيق/تحليل Dart في ملفات الاختبار الجديدة صُححت عبر دفعات لاحقة؛ التشغيل `42145124441` فشل في `dart format` فقط قبل الوصول إلى Release.
+  - التشغيل `42145933316` وصل إلى Release فعلياً، وفشل المسبار عند شرط متشدد `inferenceRuns >= 2` لأن retry أعاد استخدام اقتراح الحدود المحتفظ به؛ كما طالت الوظيفة حتى الإلغاء. عُدل الشرط إلى اكتمال retry مع استدلال أصلي سليم، وُقُيّدت أوامر adb بمهل، ثم نجح `cee2bae`.
+  - بديل Profile/AOT أُزيل: قيود VM service ثم اعتمادات Gradle/إضافات dev dependency (`42116446348`، `42119881130`).
+  - مسار androidTest ضد Release أُزيل: R8 للـ androidTest APK ثم `ClassNotFoundException: androidx.tracing.Trace` رغم قواعد الحفظ والاعتماد الصريح (`42133674388`، `42136149768`، `42138648169`، `42141823917`). أعيد `android/app/build.gradle.kts` إلى أصل `719c06c`، ولا توجد hooks اختبار في بناء الإنتاج؛ المسبار يُبنى كمدخل Dart مستقل ويُثبّت/يُشغّل مباشرة.
 
 ## الافتراضات والمخاطر المتبقية
 

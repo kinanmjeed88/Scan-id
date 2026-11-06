@@ -1,5 +1,14 @@
 # حالة التنفيذ والتحقق — Scan ID
 
+## تحديث 2026-11-06 — اكتمال إصلاح توقف التحليل في Android Release الموقّع
+
+- ثبت عيب تعبئة Release: Flutter 3.35.7 يفعّل R8 ويحمّل `android/app/proguard-rules.pro`، بينما كانت قواعد حفظ أسماء ONNX Runtime JNI المطلوبة من `flutter_onnxruntime` غير موجودة. Debug لا يمر بهذا التصغير؛ لذلك كان يمكن أن يكمل بينما تتعطل الحزمة المصغّرة عند الاستدلال الأصلي.
+- أضيفت القاعدة الوثائقية `-keep class ai.onnxruntime.** { *; }` دون تعطيل R8 أو تغيير التوقيع/الأسرار، وأضيف حارس `tool/check_android_r8.py` واختبارات Python، وانحدار Android أصلي يبني **Release موقّعًا فعليًا** بمفتاح اختبار مؤقت ويثبّت الحزمة ويشغّل مدخل Dart الاختباري مباشرة على المحاكي، ثم يشترط نتيجة الاستيراد/retry في logcat وmapping R8. لا يحتاج هذا المسار VM service ولا androidTest ولا يستبدل Release بـ Profile. مفتاح الاختبار غير إنتاجي ولا يُرفع APK الخاص به.
+- **النتيجة النهائية:** run [`42152486961`](https://github.com/kinanmjeed88/Scan-id/actions/runs/42152486961) على SHA `cee2baeef6c5a1c28da628a89f2b40c1556b68a6` = `success`. دليل Release: `releaseIntakeResult=success imported=1 assets=1 items=1 docAlignerRuns=1`، وحارس R8 ناجح، وmapping يحفظ أسماء JNI. اختبارات Flutter `1091` ناجحة، وAndroid instrumentation `4` بلا فشل، وWindows ناجح، وAndroid 16 startup evidence على API 36 (`x86_64`) وصل إلى أول إطار رئيسي. قد يعيد retry استخدام اقتراح الحدود المحتفظ به؛ `docAlignerRuns=1` ليس فشلاً.
+- المسارات المهجورة موثقة في التقرير: Profile/AOT، وandroidTest ضد Release؛ أعيد `android/app/build.gradle.kts` إلى أصل `719c06c` ولا توجد hooks اختبار في بناء الإنتاج.
+- لا يوجد جهاز المستخدم أو logcat من حزمته في هذه البيئة؛ اختبار المحاكي يقيس مسار Release/R8 بعد الإصلاح، ولا يدّعي دقة على مستمسكات حقيقية أو إثبات جهاز ARM64. تبقى سياسة `unknown`/القص اليدوي عند عدم كفاية الدليل كما هي.
+- `flutter`/`dart` غير متاحين محلياً؛ أوامر Dart/Flutter والبناء تُنفذ عبر Actions على SHA الفرع. التفاصيل والأدلة وحدود الإثبات في [`تقرير إصلاح R8/JNI`](reports/ANDROID_RELEASE_R8_JNI_FIX_2026-11-05.md).
+
 ## الحالة الحالية — تصنيف المستندات والمقاس وA4 (2026-11-04)
 
 - **يُشحن الآن محرك OCR محلي حقيقي**: PP-OCRv5 mobile detection + Arabic recognition على ONNX Runtime، بلا شبكة، على Android وWindows (`docs/OCR_ENGINE.md`، ADR-010). الأوزان تُجلب في البناء ببصمة SHA-256 مُثبَّتة، والقاموس (747 رمزاً) ملتزم في المستودع.

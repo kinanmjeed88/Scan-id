@@ -213,6 +213,9 @@ jobs:
       - name: Resolve dependencies
         shell: bash
         run: bash tool/bootstrap.sh
+      - name: Android ONNX JNI release keep rules
+        shell: bash
+        run: python tool/ci_gate.py android-r8-rules python tool/check_android_r8.py
 
       # pubspec.yaml declares the DocAligner weight as a bundled asset, and it is
       # git-ignored: the 83 MB file is fetched from its pinned upstream release at

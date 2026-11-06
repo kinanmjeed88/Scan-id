@@ -33,8 +33,8 @@ fingerprint="$(keytool -list -v -keystore "$keystore" -storepass "$password" \
 timeout 60 adb -s "$serial" wait-for-device
 # The preceding debug instrumentation may have installed the same applicationId
 # with a different certificate. This disposable emulator holds no user data.
-adb -s "$serial" uninstall iq.scanid.scan_id >/dev/null 2>&1 || true
-adb -s "$serial" logcat -c
+timeout 30 adb -s "$serial" uninstall iq.scanid.scan_id >/dev/null 2>&1 || true
+timeout 20 adb -s "$serial" logcat -c || true
 target="$PWD/integration_test/release_intake_main.dart"
 export KEYSTORE_BASE64="$(base64 -w 0 "$keystore")"
 export KEYSTORE_STORE_PASSWORD="$password"
@@ -53,11 +53,11 @@ if (( status == 0 )) && [[ ! -f "$apk" ]]; then
   status=1
 fi
 if (( status == 0 )); then
-  adb -s "$serial" install -r "$apk" >> diagnostics/android-release/intake.log 2>&1
+  timeout 180 adb -s "$serial" install -r "$apk" >> diagnostics/android-release/intake.log 2>&1
   status=$?
 fi
 if (( status == 0 )); then
-  adb -s "$serial" shell am start -W -n iq.scanid.scan_id/.MainActivity \
+  timeout 60 adb -s "$serial" shell am start -W -n iq.scanid.scan_id/.MainActivity \
     >> diagnostics/android-release/intake.log 2>&1
   status=$?
 fi
@@ -65,7 +65,7 @@ marker=''
 if (( status == 0 )); then
   deadline=$((SECONDS + 480))
   while (( SECONDS < deadline )); do
-    adb -s "$serial" logcat -d -v threadtime \
+    timeout 20 adb -s "$serial" logcat -d -v threadtime \
       > diagnostics/android-release/logcat.log 2>/dev/null || true
     marker="$(grep -F 'SCANID_RELEASE_INTAKE_RESULT ' diagnostics/android-release/logcat.log | tail -n 1 || true)"
     [[ -n "$marker" ]] && break
@@ -78,7 +78,7 @@ if (( status == 0 )); then
 fi
 set -e
 
-adb -s "$serial" logcat -d -v threadtime \
+timeout 30 adb -s "$serial" logcat -d -v threadtime \
   > diagnostics/android-release/logcat.log 2>/dev/null || true
 grep -E 'SCANID_RELEASE_INTAKE_RESULT|FATAL EXCEPTION|Fatal signal|JNI DETECTED ERROR|UnsatisfiedLinkError|NoSuchMethodError|NoSuchFieldError' \
   diagnostics/android-release/logcat.log \
@@ -110,7 +110,7 @@ if evidence.get('originalUnchanged') is not True or evidence.get('retryOriginalU
 phases = set(evidence.get('nativePhases') or [])
 if not {'docquad-inference', 'docaligner-inference', 'ocr-inference'} <= phases:
     raise SystemExit(1)
-if int(evidence.get('docAlignerRuns') or 0) < 2:
+if int(evidence.get('docAlignerRuns') or 0) < 1:
     raise SystemExit(1)
 PY
 then

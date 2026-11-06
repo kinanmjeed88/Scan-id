@@ -1,9 +1,98 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../application/project_service.dart';
 
 /// Tone of an [InfoBanner]. [caution] is for facts the user must know before
 /// an irreversible or external step (printing, backups, deletion).
 enum BannerTone { info, caution }
+
+/// Collapses a (possibly multi-line) message into one flowing line for
+/// compact surfaces: newlines become an Arabic semicolon separator, so no
+/// part of the message is silently dropped when the line later clips with
+/// an ellipsis. The full multi-line text stays available through
+/// [showFullMessage] / [ExpandableMessage].
+String oneLineMessage(String message) {
+  final parts = [
+    for (final line in const LineSplitter().convert(message))
+      if (line.trim().isNotEmpty) line.trim(),
+  ];
+  return parts.join(' ؛ ');
+}
+
+/// Shows the full, uncapped message in a scrollable, selectable dialog.
+/// Every compact surface that truncates a message routes its tap here.
+Future<void> showFullMessage(BuildContext context, String message) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('الرسالة الكاملة'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480, maxHeight: 400),
+          child: SingleChildScrollView(child: SelectableText(message)),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إغلاق'),
+          ),
+        ],
+      ),
+    );
+
+/// A message that fits a compact surface in ONE line; tapping the line opens
+/// the full text.
+///
+/// Banners and snackbars reserve a single line for the message: anything
+/// longer would either wrap and swallow the sheet, or clip with its tail
+/// invisible — which is how intake summaries used to hide half of the
+/// per-image warnings. Nothing is lost here, only deferred: the complete
+/// text is always one tap (and one screen reader label) away.
+class ExpandableMessage extends StatelessWidget {
+  const ExpandableMessage({required this.message, this.style, super.key});
+
+  final String message;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final color = style?.color ?? scheme.onSurface;
+    return Semantics(
+      button: true,
+      label: 'الرسالة الكاملة: ${oneLineMessage(message)}',
+      child: Tooltip(
+        message: 'اضغط لعرض النص كاملاً',
+        waitDuration: const Duration(milliseconds: 600),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: () => showFullMessage(context, message),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    oneLineMessage(message),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: style,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.unfold_more,
+                  size: 16,
+                  color: color.withValues(alpha: .65),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// A contextual message card. Used where a warning belongs to the task it
 /// concerns, instead of a permanent banner on every screen.
@@ -139,7 +228,10 @@ class AdaptableAction extends StatelessWidget {
 
 void showMessage(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(message), duration: const Duration(seconds: 6)),
+    SnackBar(
+      content: ExpandableMessage(message: message),
+      duration: const Duration(seconds: 6),
+    ),
   );
 }
 

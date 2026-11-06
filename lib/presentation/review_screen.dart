@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../domain/document_kind.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
+import '../domain/classification_gap.dart';
 import '../domain/recognition_routing.dart';
 import 'crop_screen.dart';
 import 'editor_controller.dart';
@@ -155,6 +156,25 @@ class _ReviewDialog extends StatelessWidget {
             !isUserResolved(record) &&
             !record.overrides.any((override) => override.documentKind != null))
           const Text('النوع المقترح يحتاج تأكيداً أو تصحيحاً.'),
+        if (kind == DocumentKind.unknown && record.recognition != null)
+          Builder(
+            builder: (context) {
+              final gap = classificationUnknownReason(
+                kind: kind,
+                status: record.recognition!.status,
+                confidences: record.recognition!.confidences,
+                evidence: record.recognition!.evidence,
+              );
+              if (gap == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'لماذا: $gap',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              );
+            },
+          ),
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Wrap(

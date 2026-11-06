@@ -1429,10 +1429,8 @@ class _Banner extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                text,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
+              child: ExpandableMessage(
+                message: text,
                 style: TextStyle(
                   fontSize: 12.5,
                   color: error

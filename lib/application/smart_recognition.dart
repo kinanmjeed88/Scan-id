@@ -16,6 +16,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../domain/classification_gap.dart';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/crop_draft.dart';
@@ -1085,8 +1086,15 @@ class SmartIntake {
       ),
     );
     if (kind == DocumentKind.unknown) {
+      final gap = classificationUnknownReason(
+        kind: kind,
+        status: detection.classification.status,
+        confidences: detection.classification.confidences,
+        evidence: detection.classification.evidence,
+      );
       warnings.add(
-        '${sourceAsset.name} (مستند $position): لم يُتعرّف على النوع؛ '
+        '${sourceAsset.name} (مستند $position): لم يُتعرّف على النوع'
+        '${gap == null ? '' : ' — $gap'}؛ '
         'اختر النوع من تبويب «المستمسك».',
       );
     }

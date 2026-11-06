@@ -49,11 +49,7 @@ Future<void> showFullMessage(BuildContext context, String message) =>
 /// per-image warnings. Nothing is lost here, only deferred: the complete
 /// text is always one tap (and one screen reader label) away.
 class ExpandableMessage extends StatelessWidget {
-  const ExpandableMessage({
-    required this.message,
-    this.style,
-    super.key,
-  });
+  const ExpandableMessage({required this.message, this.style, super.key});
 
   final String message;
   final TextStyle? style;

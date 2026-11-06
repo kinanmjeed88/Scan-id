@@ -3,9 +3,8 @@ import 'package:scan_id/domain/classification_gap.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/recognition.dart';
 
-ConfidenceSet _withOcr(double? value) => ConfidenceSet(
-  ocr: value == null ? null : Confidence(value: value),
-);
+ConfidenceSet _withOcr(double? value) =>
+    ConfidenceSet(ocr: value == null ? null : Confidence(value: value));
 
 RecognitionEvidence _vote(DocumentKind kind) => RecognitionEvidence(
   source: EvidenceSource.ocr,

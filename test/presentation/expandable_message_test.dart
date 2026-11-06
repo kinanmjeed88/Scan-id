@@ -26,15 +26,9 @@ void main() {
   testWidgets('oneLineMessage collapses lines without losing content', (
     tester,
   ) async {
-    expect(
-      oneLineMessage('الأول\nالثاني\nالثالث'),
-      'الأول ؛ الثاني ؛ الثالث',
-    );
+    expect(oneLineMessage('الأول\nالثاني\nالثالث'), 'الأول ؛ الثاني ؛ الثالث');
     expect(oneLineMessage('سطر واحد'), 'سطر واحد');
-    expect(
-      oneLineMessage('\n الأول \n\n الثاني \n'),
-      'الأول ؛ الثاني',
-    );
+    expect(oneLineMessage('\n الأول \n\n الثاني \n'), 'الأول ؛ الثاني');
     expect(oneLineMessage('\n\n'), '');
   });
 
@@ -61,10 +55,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final line = tester.widget<Text>(
-      find.descendant(
-        of: find.byType(SnackBar),
-        matching: find.byType(Text),
-      ),
+      find.descendant(of: find.byType(SnackBar), matching: find.byType(Text)),
     );
     expect(line.maxLines, 1);
     expect(line.overflow, TextOverflow.ellipsis);

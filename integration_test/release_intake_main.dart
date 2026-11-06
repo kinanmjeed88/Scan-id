@@ -20,9 +20,10 @@ Future<void> main() async {
     result = <String, Object?>{
       'status': 'failure',
       'error': error.toString(),
-      'stack': stack.toString().substring(0, stack.toString().length < 1500
-          ? stack.toString().length
-          : 1500),
+      'stack': stack.toString().substring(
+        0,
+        stack.toString().length < 1500 ? stack.toString().length : 1500,
+      ),
     };
   }
   // ignore: avoid_print

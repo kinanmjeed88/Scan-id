@@ -285,17 +285,17 @@ BoundaryProposal? arbitrateBoundaryProposal({
         : _classicalProposal(measuredClassical);
   }
 
-  final displayedLearned = measuredLearned?.corners ?? learnedCorners!;
+  final displayedLearned = measuredLearned?.corners ?? learnedCorners;
 
   // A lone learned claim is kept with its own evidence and review state.
   if (measuredClassical == null) {
-    return _withCorners(learned!, displayedLearned);
+    return _withCorners(learned, displayedLearned);
   }
 
   final classicalCorners = measuredClassical.corners;
   final agrees =
       boundaryDisagreement(
-        measuredLearned?.originalCorners ?? learnedCorners!,
+        measuredLearned?.originalCorners ?? learnedCorners,
         measuredClassical.originalCorners,
         width,
         height,
@@ -305,7 +305,7 @@ BoundaryProposal? arbitrateBoundaryProposal({
     // Independent agreement: keep the learned score and flags untouched, so
     // the existing 70% acceptance path and all of `verifyBoundary`'s safety
     // checks still apply unchanged.
-    return _withCorners(learned!, displayedLearned);
+    return _withCorners(learned, displayedLearned);
   }
 
   // ---- Disagreement: a replacement needs more than sharper gradients. ----
@@ -313,7 +313,7 @@ BoundaryProposal? arbitrateBoundaryProposal({
     measuredClassical,
     width,
     height,
-    imposedAspect: learned!.imposedAspect,
+    imposedAspect: learned.imposedAspect,
   )) {
     return _keepLearned(learned, displayedLearned);
   }

@@ -362,7 +362,7 @@ void main() {
       expect(both.sourceWidth, 240);
       expect(both.sourceHeight, 170);
       expect(both.learned, isNotNull);
-      expect(both.learned!.evidence.quality, isFinite);
+      expect(both.learned!.evidence.quality.isFinite, isTrue);
       expect(measureBoundaryCandidates(bytes, null).learned, isNull);
     });
   });

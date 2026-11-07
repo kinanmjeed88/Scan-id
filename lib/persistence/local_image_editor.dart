@@ -143,11 +143,12 @@ class LocalImageEditor
     // agreed. Geometry validation alone cannot see that four valid points sit
     // in the middle of a clearly visible card; measured edge support can. The
     // two are compared on one scale and the better-measured quad is retained.
-    final encoded = learnedProposal?.corners == null
+    final learnedCorners = learnedProposal?.corners;
+    final encoded = learnedCorners == null
         ? null
         : <double>[
-            for (final point in learnedProposal!.corners!) point.x,
-            for (final point in learnedProposal!.corners!) point.y,
+            for (final point in learnedCorners) point.x,
+            for (final point in learnedCorners) point.y,
           ];
     final measurements = await _measureBoundaryCandidatesInIsolate(
       preview,

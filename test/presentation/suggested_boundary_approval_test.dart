@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';

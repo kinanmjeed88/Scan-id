@@ -87,19 +87,14 @@ class RenderBoundaryHitLayer extends RenderBox {
     required Size canvasSize,
     required double inset,
     required double Function() zoom,
-    required void Function(BoundaryHandle handle) onDragStart,
-    required void Function(BoundaryHandle handle, Offset globalPosition)
-    onDragUpdate,
-    required void Function(BoundaryHandle handle) onDragEnd,
-    required void Function(BoundaryHandle handle) onDragCancel,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.onDragCancel,
   }) : _corners = corners,
        _canvasSize = canvasSize,
        _inset = inset,
-       _zoom = zoom,
-       onDragStart = onDragStart,
-       onDragUpdate = onDragUpdate,
-       onDragEnd = onDragEnd,
-       onDragCancel = onDragCancel {
+       _zoom = zoom {
     _multi = ImmediateMultiDragGestureRecognizer()..onStart = _startDrag;
   }
 

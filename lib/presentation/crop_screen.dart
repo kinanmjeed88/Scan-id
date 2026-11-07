@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../application/cancellation.dart';
 import '../application/contracts.dart';
 import '../application/project_service.dart';
+import '../domain/boundary_suggestion.dart';
 import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
 import '../domain/edit_history.dart';
@@ -19,7 +20,9 @@ import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
 import '../imaging/prepare_image.dart';
-import 'crop_corner_hit_layer.dart';
+import 'boundary_handle.dart';
+import 'boundary_hit_layer.dart';
+import 'crop_loupe.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
@@ -156,25 +159,10 @@ bool _samePoints(List<Point2>? a, List<Point2>? b) {
   return true;
 }
 
-List<Point2>? _savedSuggestionFor(Project project, ImageAsset asset) {
-  final assetSuggestion = asset.suggestedCrop;
-  if (assetSuggestion != null) return assetSuggestion;
-  for (final record in project.documents) {
-    for (final side in record.sides) {
-      final saved = side.detection?.suggestedPolygon;
-      if (saved == null) continue;
-      if (assetOwnsProjectPath(
-            project.id,
-            asset.id,
-            side.processedAsset.workingPath,
-          ) ||
-          (record.sides.length == 1 && record.sourceImageId == asset.id)) {
-        return saved;
-      }
-    }
-  }
-  return null;
-}
+/// Single source of truth for the saved suggestion (see
+/// [savedSuggestedBoundary] in the domain layer).
+List<Point2>? _savedSuggestionFor(Project project, ImageAsset asset) =>
+    savedSuggestedBoundary(project, asset);
 
 bool _usableSuggestedCorners(
   List<Point2>? corners, {
@@ -222,8 +210,8 @@ Future<bool> _hasDecodablePreview(
 class _CropScreenState extends State<CropScreen> {
   final _canvasKey = GlobalKey();
   final _view = TransformationController();
-  final _customWidthController = TextEditingController(text: '85.6');
-  final _customHeightController = TextEditingController(text: '54.0');
+  final _customWidthController = TextEditingController();
+  final _customHeightController = TextEditingController();
   EditorSource? _source;
   EditHistory<_CropEditorState>? _history;
   _CropEditorState? _state;
@@ -233,6 +221,10 @@ class _CropScreenState extends State<CropScreen> {
   int _draftRevision = 0;
   int? _previewRevision;
   String? _error;
+
+  /// Inline, field-scoped size error. A stale global error banner used to stay
+  /// on screen even after the user switched to the preview tab.
+  String? _sizeError;
   String? _proposalNotice;
   bool _busy = true;
   bool _busyCancelable = true;
@@ -244,6 +236,11 @@ class _CropScreenState extends State<CropScreen> {
   /// Whether the fallback gate is set on the current state.
   bool get _manualRequired => _state?.manualRequired ?? false;
   bool _cornerDragMoved = false;
+  // Non-null only while a corner or an edge is being dragged. The loupe reads
+  // these directly; they carry no persistence or undo semantics.
+  BoundaryHandle? _activeDragHandle;
+  Offset? _dragLastLocal;
+  Point2? _loupeFocus;
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
@@ -273,8 +270,8 @@ class _CropScreenState extends State<CropScreen> {
     _initialSizeWasUserAuthored = false;
     _sizeTextEdited = false;
     var resolvedKind = widget.documentKind;
-    var resolvedW = '85.6';
-    var resolvedH = '54.0';
+    var resolvedW = '';
+    var resolvedH = '';
     final targetItem = widget.targetItemId == null
         ? null
         : widget.project.items
@@ -291,15 +288,41 @@ class _CropScreenState extends State<CropScreen> {
         resolvedH = _formatMillimeters(targetItem.height);
       }
     }
-    if (_requiresManualSize(resolvedKind) && !_initialSizeWasUserAuthored) {
-      resolvedW = '';
-      resolvedH = '';
+    // An editable ESTIMATE is still a real catalog size. Showing it in the
+    // fields (instead of blank boxes) is the difference between "change it if
+    // you measured something else" and "you may not continue until you type a
+    // number". A kind with no catalog size legitimately has nothing to show.
+    if (resolvedW.isEmpty || resolvedH.isEmpty) {
+      final natural = widget.project.catalog.natural(resolvedKind);
+      if (natural != null) {
+        final oriented = natural.oriented(landscape: _initialLandscape());
+        resolvedW = _formatMillimeters(oriented.width);
+        resolvedH = _formatMillimeters(oriented.height);
+      }
     }
     _initialKind = resolvedKind;
     _initialWidthText = resolvedW;
     _initialHeightText = resolvedH;
     _customWidthController.text = resolvedW;
     _customHeightController.text = resolvedH;
+  }
+
+  /// Orientation of the source as shown before the editor opens.
+  bool _initialLandscape() {
+    final turned = widget.asset.adjustments.quarterTurns.isOdd;
+    final width = turned ? widget.asset.height : widget.asset.width;
+    final height = turned ? widget.asset.width : widget.asset.height;
+    return width >= height;
+  }
+
+  /// Catalog size turned to the current crop orientation, or null when the
+  /// category has no documented/estimated size at all.
+  PhysicalSizeMm? _catalogSize(DocumentKind kind) {
+    final natural = widget.project.catalog.natural(kind);
+    if (natural == null) return null;
+    return natural.oriented(
+      landscape: _source == null ? _initialLandscape() : _draftLandscape,
+    );
   }
 
   bool _sameGeometry(CropGeometry? a, CropGeometry? b) {
@@ -387,7 +410,9 @@ class _CropScreenState extends State<CropScreen> {
     _coalescedCustomField = null;
     _clearPreview();
     _error = null;
+    _sizeError = null;
     _proposalNotice = null;
+    _clearDragState();
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
@@ -502,6 +527,8 @@ class _CropScreenState extends State<CropScreen> {
         _source = source;
         _history = history;
         _state = activeState;
+        _sizeError = null;
+        _clearDragState();
         _reviewDrafts.clear();
         if (proposed != null) _rememberReviewDraft(activeState.draft);
         _tapSelection = null;
@@ -648,6 +675,8 @@ class _CropScreenState extends State<CropScreen> {
 
   void _commitState(_CropEditorState next) {
     _coalescedCustomField = null;
+    _clearDragState();
+    _sizeError = null;
     _history!.record(next);
     _syncControllerText(_customWidthController, next.customWidthText);
     _syncControllerText(_customHeightController, next.customHeightText);
@@ -690,6 +719,7 @@ class _CropScreenState extends State<CropScreen> {
         : current.customHeightText;
     if (value == previous) return;
     _sizeTextEdited = true;
+    _sizeError = null;
     final nextW = isWidth ? value : current.customWidthText;
     final nextH = isWidth ? current.customHeightText : value;
     final ratio = _requiresManualSize(current.selectedKind)
@@ -756,17 +786,42 @@ class _CropScreenState extends State<CropScreen> {
       (widget.project.catalog.natural(kind) == null ||
           presetStatusFor(kind) == PresetStatus.estimated);
 
-  PhysicalSizeMm? _parseCustomSize() {
+  /// The physical size to confirm, or null to let the service use the catalog
+  /// default oriented to the ACTUAL rendered crop.
+  ///
+  /// Empty fields are not an error and never block saving: the fields are
+  /// prefilled from the catalog (including editable estimates), so leaving
+  /// them alone is an explicit acceptance of that default. A kind with no
+  /// catalog size and no typed measurement simply keeps its footprint
+  /// unconfirmed and stays off A4 until measured. Only malformed or partial
+  /// input is refused, with a precise inline message.
+  PhysicalSizeMm? _resolvePrintSize() {
     if (!_requiresManualSize(_selectedKind)) return null;
-    final w = double.tryParse(
-      _state!.customWidthText.trim().replaceAll(',', '.'),
-    );
-    final h = double.tryParse(
-      _state!.customHeightText.trim().replaceAll(',', '.'),
-    );
+    final widthText = _state!.customWidthText.trim();
+    final heightText = _state!.customHeightText.trim();
+    if (widthText.isEmpty && heightText.isEmpty) return null;
+    double? parse(String text) => double.tryParse(text.replaceAll(',', '.'));
+    final w = parse(widthText);
+    final h = parse(heightText);
+    final defaultSize = _catalogSize(_selectedKind);
+    if (defaultSize != null) {
+      // One measured dimension is enough: derive the other from the catalog
+      // proportion rather than refusing to save.
+      if (w != null && w.isFinite && heightText.isEmpty) {
+        return validDocumentSize(
+          PhysicalSizeMm(w, w * defaultSize.height / defaultSize.width),
+        );
+      }
+      if (h != null && h.isFinite && widthText.isEmpty) {
+        return validDocumentSize(
+          PhysicalSizeMm(h * defaultSize.width / defaultSize.height, h),
+        );
+      }
+    }
     if (w == null || h == null || !w.isFinite || !h.isFinite) {
       throw const ValidationException(
-        'أدخل عرض المستمسك وارتفاعه بالمليمتر بأرقام صحيحة.',
+        'أدخل العرض والارتفاع بالمليمتر بأرقام صحيحة، أو اتركهما فارغين '
+        'لاستخدام المقاس الافتراضي.',
       );
     }
     return validDocumentSize(PhysicalSizeMm(w, h));
@@ -776,23 +831,23 @@ class _CropScreenState extends State<CropScreen> {
     if (kind == null || kind == _selectedKind) return;
     final current = _state!;
     final natural = widget.project.catalog.natural(kind);
-    final editedManualSize =
-        _sizeTextEdited &&
-        (current.customWidthText != _initialWidthText ||
-            current.customHeightText != _initialHeightText);
-    final clearUnconfirmedManualSize =
-        _requiresManualSize(kind) &&
-        !_initialSizeWasUserAuthored &&
-        !editedManualSize;
-    final widthText = clearUnconfirmedManualSize ? '' : current.customWidthText;
-    final heightText = clearUnconfirmedManualSize
-        ? ''
-        : current.customHeightText;
+    // Switching category fills the fields with THAT category's catalog size;
+    // a measurement the user actually typed is always preserved.
+    final keepUserSize = _sizeTextEdited || _initialSizeWasUserAuthored;
+    final widthText = keepUserSize
+        ? current.customWidthText
+        : _formatMillimeters(_catalogSize(kind)?.width ?? 0);
+    final heightText = keepUserSize
+        ? current.customHeightText
+        : _formatMillimeters(_catalogSize(kind)?.height ?? 0);
+    final hasDefaultSize = _catalogSize(kind) != null;
     final double? nextRatio;
     if (natural != null && !_requiresManualSize(kind)) {
       final oriented = natural.oriented(landscape: _draftLandscape);
       nextRatio = oriented.width / oriented.height;
-    } else if (_requiresManualSize(kind)) {
+    } else if (_requiresManualSize(kind) && _sizeTextEdited) {
+      // Only a MEASUREMENT the user typed may reshape the warp. A prefilled
+      // catalog default sizes the A4 slot; it never stretches the pixels.
       nextRatio =
           _tryParseCustomRatio(widthText, heightText) ?? _draft!.aspectRatio;
     } else {
@@ -809,8 +864,8 @@ class _CropScreenState extends State<CropScreen> {
       current.copyWith(
         draft: nextDraft,
         selectedKind: kind,
-        customWidthText: widthText,
-        customHeightText: heightText,
+        customWidthText: hasDefaultSize || keepUserSize ? widthText : '',
+        customHeightText: hasDefaultSize || keepUserSize ? heightText : '',
       ),
     );
   }
@@ -910,11 +965,11 @@ class _CropScreenState extends State<CropScreen> {
       if (points == null) {
         setState(() {
           _proposalNotice =
-              'لا يتوفر اقتراح تلقائي في هذا الإصدار؛ بقي الإطار الحالي كما هو. حرّك الزوايا يدوياً عند الحاجة.';
+              'لم يجد الكشف حدوداً مدعومة بالحواف في هذه الصورة؛ بقي الإطار الحالي كما هو. حرّك الزوايا أو الأضلاع يدوياً عند الحاجة.';
         });
         showMessage(
           context,
-          'لا يتوفر كشف تلقائي في هذا الإصدار؛ لم يتغير الإطار الحالي.',
+          'لم يُعثر على حدود مدعومة بالحواف؛ لم يتغير الإطار الحالي.',
         );
       } else if (!_usableSuggestedCorners(
         points,
@@ -1054,6 +1109,21 @@ class _CropScreenState extends State<CropScreen> {
     final initialKind = _initialKind;
     final initialWidthText = _initialWidthText;
     final initialHeightText = _initialHeightText;
+    // Field-level validation happens before the operation starts, so a size
+    // mistake is reported next to its fields instead of leaving a red banner
+    // behind on the preview tab.
+    final PhysicalSizeMm? size;
+    try {
+      size = _resolvePrintSize();
+    } on ValidationException catch (error) {
+      setState(() {
+        _sizeError = error.message;
+        _busy = false;
+        _busyCancelable = false;
+      });
+      return;
+    }
+    _sizeError = null;
     final operation = _beginOperation(canCancel: false);
     try {
       final kindOrSizeChanged =
@@ -1062,6 +1132,12 @@ class _CropScreenState extends State<CropScreen> {
           (_requiresManualSize(selectedKind) &&
               (_state!.customWidthText != initialWidthText ||
                   _state!.customHeightText != initialHeightText));
+      // A selected category is confirmed even when its physical size is not
+      // resolvable yet; the service then keeps the item off A4. Only "unknown"
+      // with no size takes the plain crop path (no kind to record).
+      final confirmPath =
+          (confirmForSheet || kindOrSizeChanged) &&
+          (selectedKind != DocumentKind.unknown || size != null);
       final Project saved;
       if (extractDerived) {
         saved = await service.extractManualDerivedDocument(
@@ -1069,17 +1145,17 @@ class _CropScreenState extends State<CropScreen> {
           asset,
           recipe,
           documentKind: selectedKind,
-          customSizeMm: _parseCustomSize(),
+          customSizeMm: size,
           sourceWidth: source.width,
           sourceHeight: source.height,
         );
-      } else if (confirmForSheet || kindOrSizeChanged) {
+      } else if (confirmPath) {
         saved = await service.confirmManualBoundary(
           project,
           asset,
           recipe,
           documentKind: selectedKind,
-          customSizeMm: _parseCustomSize(),
+          customSizeMm: size,
           targetItemId: targetItemId,
           sourceWidth: source.width,
           sourceHeight: source.height,
@@ -1370,7 +1446,10 @@ class _CropScreenState extends State<CropScreen> {
                     showMessage(context, 'اضغط معاينة أولاً.');
                     return;
                   }
-                  setState(() => _showResult = values.single);
+                  setState(() {
+                    _error = null;
+                    _showResult = values.single;
+                  });
                 },
         ),
       ),
@@ -1396,55 +1475,85 @@ class _CropScreenState extends State<CropScreen> {
                         (box.maxHeight - 40) * ratio,
                       );
                       final height = width / ratio;
-                      return Center(
-                        child: InteractiveViewer(
-                          transformationController: _view,
-                          minScale: 1,
-                          maxScale: 5,
-                          clipBehavior: Clip.none,
-                          child: SizedBox(
-                            // The hit-test box includes the entire corner handles,
-                            // not just the image. Clip.none alone only expands paint.
-                            width: width + 40,
-                            height: height + 40,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Positioned(
-                                  left: 20,
-                                  top: 20,
-                                  width: width,
-                                  height: height,
-                                  child: SizedBox(
-                                    key: _canvasKey,
-                                    child: Stack(
-                                      children: [
-                                        Positioned.fill(
-                                          child: Image.memory(
-                                            _source!.preview,
-                                            key: const Key('crop-source-image'),
-                                            fit: BoxFit.fill,
-                                          ),
-                                        ),
-                                        Positioned.fill(
-                                          child: IgnorePointer(
-                                            child: CustomPaint(
-                                              painter: _CropPainter(
-                                                _draft!.corners,
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(
+                            child: Center(
+                              child: InteractiveViewer(
+                                transformationController: _view,
+                                minScale: 1,
+                                maxScale: 5,
+                                clipBehavior: Clip.none,
+                                child: SizedBox(
+                                  // The hit-test box includes the entire corner handles,
+                                  // not just the image. Clip.none alone only expands paint.
+                                  width: width + 40,
+                                  height: height + 40,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Positioned(
+                                        left: 20,
+                                        top: 20,
+                                        width: width,
+                                        height: height,
+                                        child: SizedBox(
+                                          key: _canvasKey,
+                                          child: Stack(
+                                            children: [
+                                              Positioned.fill(
+                                                child: Image.memory(
+                                                  _source!.preview,
+                                                  key: const Key(
+                                                    'crop-source-image',
+                                                  ),
+                                                  fit: BoxFit.fill,
+                                                ),
                                               ),
-                                            ),
+                                              Positioned.fill(
+                                                child: IgnorePointer(
+                                                  child: CustomPaint(
+                                                    painter: _CropPainter(
+                                                      _draft!.corners,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                      ],
-                                    ),
+                                      ),
+                                      ..._tapLayer(width, height),
+                                      ..._cornerHandles(width, height),
+                                    ],
                                   ),
                                 ),
-                                ..._tapLayer(width, height),
-                                ..._cornerHandles(width, height),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
+                          if (_activeDragHandle != null &&
+                              _loupeFocus != null &&
+                              _source != null)
+                            Positioned.directional(
+                              textDirection: Directionality.of(context),
+                              start: 12,
+                              top: 12,
+                              child: IgnorePointer(
+                                child: ValueListenableBuilder<Matrix4>(
+                                  valueListenable: _view,
+                                  builder: (context, matrix, _) =>
+                                      CropPrecisionLoupe(
+                                        preview: _source!.preview,
+                                        corners: _draft!.corners,
+                                        focus: _loupeFocus!,
+                                        canvasSize: Size(width, height),
+                                        zoom: matrix.getMaxScaleOnAxis(),
+                                      ),
+                                ),
+                              ),
+                            ),
+                        ],
                       );
                     },
                   ),
@@ -1515,19 +1624,57 @@ class _CropScreenState extends State<CropScreen> {
     );
   }
 
-  void _moveCorner(int index, Offset global, double width, double height) {
+  void _moveHandle(
+    BoundaryHandle handle,
+    Offset global,
+    double width,
+    double height,
+  ) {
     final render = _canvasKey.currentContext!.findRenderObject()! as RenderBox;
     final local = render.globalToLocal(global);
-    final next = _draft!.withCorner(
-      index,
-      Point2(
-        (local.dx / width).clamp(0, 1).toDouble(),
-        (local.dy / height).clamp(0, 1).toDouble(),
-      ),
+    final focus = Point2(
+      (local.dx / width).clamp(0.0, 1.0),
+      (local.dy / height).clamp(0.0, 1.0),
+    );
+    final current = _draft!;
+    final List<Point2> nextCorners;
+    if (handle is CornerHandle) {
+      final next = current.withCorner(handle.index, focus);
+      nextCorners = [...next.corners];
+    } else {
+      // An EDGE drag moves both of its endpoints by the same incremental
+      // delta, preserving the edge's direction and length. The first update
+      // only records the anchor, which also makes a stationary press on the
+      // line harmless.
+      final last = _dragLastLocal;
+      if (last == null) {
+        _dragLastLocal = local;
+        return;
+      }
+      final dx = (local.dx - last.dx) / width;
+      final dy = (local.dy - last.dy) / height;
+      // Advance the anchor even when the resulting quad is refused, so a
+      // blocked step never accumulates into a jump on the next update.
+      _dragLastLocal = local;
+      if (dx == 0 && dy == 0) return;
+      final ends = edgeCorners(handle.index);
+      final corners = [...current.corners];
+      for (final index in [ends.first, ends.second]) {
+        final point = corners[index];
+        corners[index] = Point2(
+          (point.x + dx).clamp(0.0, 1.0),
+          (point.y + dy).clamp(0.0, 1.0),
+        );
+      }
+      nextCorners = corners;
+    }
+    final next = CropDraft(
+      corners: nextCorners,
+      adjustments: current.adjustments,
+      aspectRatio: current.aspectRatio,
     );
     if (quadEdgesCross(next.corners)) {
-      // Drag-time gate (UI only): the corner stays at its last valid position.
-      // CropDraft still allows crossing by design.
+      // Drag-time gate (UI only): the boundary stays at its last valid shape.
       if (_error != _cornerCrossingMessage) {
         setState(() => _error = _cornerCrossingMessage);
       }
@@ -1535,19 +1682,36 @@ class _CropScreenState extends State<CropScreen> {
     }
     _cornerDragMoved = true;
     // The fallback gate and the status line stay as they are during the
-    // gesture. Lifting them here would remove the status line under the
-    // pointer; the canvas would then move and the corner would follow the
-    // pointer 32 px off its place. The drag end lifts the gate (see onDragEnd).
+    // gesture; the drag end lifts the gate (see _endHandleDrag).
     setState(() {
       _coalescedCustomField = null;
       _state = _state!.copyWith(draft: next);
+      _loupeFocus = focus;
       _clearPreview();
       _dirty = true;
       _error = null;
     });
   }
 
-  void _cancelCornerDrag() {
+  void _clearDragState() {
+    _activeDragHandle = null;
+    _dragLastLocal = null;
+    _loupeFocus = null;
+  }
+
+  void _endHandleDrag() {
+    final moved = _cornerDragMoved;
+    _clearDragState();
+    if (!moved) return;
+    // Commit only when the boundary really moved: a fully refused drag must
+    // not add an undo step.
+    final keepNotice = _error == _cornerCrossingMessage;
+    _change(_draft!, clearManualRequired: true);
+    if (keepNotice) setState(() => _error = _cornerCrossingMessage);
+  }
+
+  void _cancelHandleDrag() {
+    _clearDragState();
     setState(() {
       _coalescedCustomField = null;
       _state = _history!.current;
@@ -1590,7 +1754,8 @@ class _CropScreenState extends State<CropScreen> {
   ///
   /// P6: the corners are visual only (IgnorePointer). Hits come from ONE
   /// geometric layer placed last, which selects the nearest corner inside a
-  /// 24 px screen radius and lets the viewer pan everywhere else.
+  /// 32 px screen radius, otherwise the nearest edge inside an 18 px band,
+  /// and lets the viewer pan everywhere else.
   List<Widget> _cornerHandles(double width, double height) {
     if (_tapSelection != null) return const [];
     final corners = _draft!.corners;
@@ -1605,34 +1770,29 @@ class _CropScreenState extends State<CropScreen> {
           ),
         ),
       Positioned.fill(
-        child: CornerHitLayer(
+        child: BoundaryHitLayer(
           corners: corners,
           canvasSize: Size(width, height),
           inset: 20,
           zoom: () => _view.value.getMaxScaleOnAxis(),
-          onDragStart: (_) {
+          onDragStart: (handle) {
             _cornerDragMoved = false;
+            _activeDragHandle = handle;
+            _dragLastLocal = null;
+            _loupeFocus = null;
           },
-          onDragUpdate: (index, global) {
+          onDragUpdate: (handle, global) {
             if (_busy) return;
-            _moveCorner(index, global, width, height);
+            _moveHandle(handle, global, width, height);
           },
           onDragEnd: (_) {
             if (_busy) return;
-            // Commit only when the corner really moved: a fully refused drag
-            // must not add an undo step.
-            if (_cornerDragMoved) {
-              // The commit clears _error; keep the crossing notice so the user
-              // learns why the corner stopped at its last valid position.
-              final keepNotice = _error == _cornerCrossingMessage;
-              _change(_draft!, clearManualRequired: true);
-              if (keepNotice) setState(() => _error = _cornerCrossingMessage);
-            }
+            _endHandleDrag();
           },
           onDragCancel: (_) {
             if (_busy) return;
             _cornerDragMoved = false;
-            _cancelCornerDrag();
+            _cancelHandleDrag();
           },
         ),
       ),
@@ -1694,7 +1854,9 @@ class _CropScreenState extends State<CropScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'حرّك الزوايا الأربع. كبّر الصورة بإصبعين أو بعجلة الفأرة. لا يتغير الأصل.',
+            'حرّك الزوايا أو اسحب أي ضلع لتحريكه كاملاً. تظهر دائرة مكبّرة '
+            'أثناء السحب لضبط الحد بدقة. كبّر الصورة بإصبعين أو بعجلة '
+            'الفأرة. لا يتغير الأصل.',
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -1779,7 +1941,9 @@ class _CropScreenState extends State<CropScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                _selectedKind.sizeNote(widget.project.catalog),
+                '${_selectedKind.sizeNote(widget.project.catalog)}\n'
+                'الحقول معبأة بالمقاس الافتراضي؛ اتركها كما هي أو أدخل '
+                'قياسك، ولن يُطلب منك إدخال مقاس إجبارياً.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -1822,6 +1986,15 @@ class _CropScreenState extends State<CropScreen> {
                 ),
               ],
             ),
+            if (_sizeError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _sizeError!,
+                  key: const Key('crop-size-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
           ],
           const SizedBox(height: 12),
           const Text('شكل المستمسك (يحدد نسبة الأبعاد بعد التصحيح)'),
@@ -2001,6 +2174,15 @@ class _CropPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()..color = const Color(0xff12685e).withValues(alpha: .15),
+    );
+    // A wide translucent band makes it clear that the WHOLE edge is draggable,
+    // not just the four numbered circles.
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xff12685e).withValues(alpha: .18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12,
     );
     canvas.drawPath(
       path,

@@ -549,6 +549,37 @@ class LayoutEditorController extends ChangeNotifier {
         ),
       );
 
+  /// Applies the saved 4-corner boundary recognition for [itemId] after the
+  /// user explicitly chose the document type. Recovery then takes ONE action:
+  /// no crop editor and no mandatory size entry, while the catalog/estimated
+  /// default remains editable later.
+  Future<bool> confirmSuggestedBoundary(String itemId, DocumentKind kind) {
+    final item = session.current.items
+        .where((entry) => entry.id == itemId)
+        .firstOrNull;
+    final asset = item == null
+        ? null
+        : session.current.assets
+              .where((entry) => entry.id == item.assetId)
+              .firstOrNull;
+    if (item == null || asset == null) return Future.value(false);
+    return run(() async {
+      final saved = await service.confirmSuggestedBoundary(
+        session.current,
+        asset,
+        documentKind: kind,
+        targetItemId: itemId,
+      );
+      await session.adoptSaved(saved);
+      if (session.current.items.any((entry) => entry.id == itemId)) {
+        selected
+          ..clear()
+          ..add(itemId);
+      }
+      _say('تم اعتماد النوع والحدود المقترحة؛ المقاس الافتراضي جاهز للتعديل.');
+    });
+  }
+
   Future<bool> pairSelectedSides(String itemId, String partnerItemId) => edit(
     (project) => manual.pairManualSides(project, itemId, partnerItemId),
     layout: false,

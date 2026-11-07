@@ -19,7 +19,7 @@ import '../domain/image_limits.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import '../imaging/docquad_model.dart';
-import '../imaging/document_detector.dart';
+import '../imaging/boundary_arbitration.dart';
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/image_header.dart';
 import '../imaging/perspective.dart';
@@ -49,6 +49,19 @@ typedef FullResolutionRegionReader =
 /// all; expiring the stage falls through to the independent classical detector,
 /// which is exactly the next cascade stage and needs no native code.
 const Duration defaultBoundaryProposalBudget = Duration(seconds: 45);
+
+/// Creates the isolate closure in a minimal, sendable-only scope. Keeping this
+/// out of [LocalImageEditor.suggestProposal] prevents the closure context from
+/// picking up the native model handle or the cancellation token.
+Future<BoundaryMeasurements> _measureBoundaryCandidatesInIsolate(
+  Uint8List preview,
+  List<double>? encoded,
+  CancellationToken? cancellation,
+) => runCancellableIsolate<BoundaryMeasurements>(
+  () => measureBoundaryCandidates(preview, encoded),
+  cancellation: cancellation,
+  debugName: 'boundary-measured-arbitration',
+);
 
 class LocalImageEditor
     implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor {
@@ -95,7 +108,7 @@ class LocalImageEditor
   @override
   String? get boundaryModelId => boundaryProposer == null
       ? null
-      : '${boundaryProposer!.modelId}+classical-fallback';
+      : '${boundaryProposer!.modelId}+measured-classical-arbitration';
 
   @override
   Future<BoundaryProposal?> suggestProposal(
@@ -103,64 +116,58 @@ class LocalImageEditor
     CancellationToken? cancellation,
   }) async {
     cancellation?.throwIfCancelled();
+    BoundaryProposal? learnedProposal;
     final learned = boundaryProposer;
     if (learned != null) {
       final outcome = await _boundedCascade(learned, preview, cancellation);
       if (outcome.didTimeOut) {
-        // A stuck native call must not hold the import: the classical detector
-        // below is independent of the plugin and stays review-only.
+        // A stuck native call must not hold the import: the measured classical
+        // detector below is independent of the plugin and stays review-only.
         developer.log(
-          'learned boundary stage expired; using the classical proposal',
+          'learned boundary stage expired; using measured arbitration',
+          name: 'scan_id.boundary',
+        );
+      } else if (outcome.error != null) {
+        developer.log(
+          'learned boundary stage failed '
+          'type=${outcome.error.runtimeType}; using measured arbitration',
           name: 'scan_id.boundary',
         );
       } else {
-        if (outcome.error != null) {
-          developer.log(
-            'learned boundary stage failed '
-            'type=${outcome.error.runtimeType}; using the classical proposal',
-            name: 'scan_id.boundary',
-          );
-        } else if (outcome.value != null) {
-          return outcome.value;
-        }
+        learnedProposal = outcome.value;
       }
     }
-    final measured = await runCancellableIsolate(
-      () {
-        final decoded = decodeForProcessing(preview);
-        final result = detectDocumentCornersScored(decoded);
-        final corners = result?.corners;
-        if (result == null || corners == null) return null;
-        return <double>[
-          for (final point in corners) point.x,
-          for (final point in corners) point.y,
-          result.score,
-        ];
-      },
-      cancellation: cancellation,
-      debugName: 'classical-boundary-proposal',
-    );
-    if (measured == null || measured.length != 9) return null;
     cancellation?.throwIfCancelled();
-    final corners = [
-      for (var i = 0; i < 4; i++) Point2(measured[i], measured[i + 4]),
-    ];
-    return BoundaryProposal(
-      producer: BoundaryProducer.detector,
-      corners: corners,
-      // The classical score ranks its own candidates; it is neither returned
-      // as confidence nor used for auto-acceptance. verifyBoundary routes this
-      // producer to manual review pending local calibration data.
+
+    // ALWAYS measure the classical candidate, even when both learned models
+    // agreed. Geometry validation alone cannot see that four valid points sit
+    // in the middle of a clearly visible card; measured edge support can. The
+    // two are compared on one scale and the better-measured quad is retained.
+    final encoded = learnedProposal?.corners == null
+        ? null
+        : <double>[
+            for (final point in learnedProposal!.corners!) point.x,
+            for (final point in learnedProposal!.corners!) point.y,
+          ];
+    final measurements = await _measureBoundaryCandidatesInIsolate(
+      preview,
+      encoded,
+      cancellation,
+    );
+    cancellation?.throwIfCancelled();
+    return arbitrateBoundaryProposal(
+      learned: learnedProposal,
+      measurements: measurements,
     );
   }
 
   /// Runs the offline cascade in its own scope.
   ///
-  /// The classical detector below hands a closure to `runCancellableIsolate`,
-  /// and that message may carry the preview bytes only. Creating the cascade
-  /// closure here — in a scope that holds nothing else — keeps the two hand-offs
-  /// apart: while they shared a scope, the isolate message also carried the
-  /// cascade object, so the classical fallback failed with
+  /// Both isolate hand-offs (this learned stage and the measured arbitration
+  /// below) must be created in scopes that hold nothing but sendable bytes.
+  /// Dart closures can share an enclosing context with sibling closures; while
+  /// the two shared a scope, the isolate message also carried the native cascade
+  /// object and failed with
   /// `ArgumentError: Illegal argument in isolate message`.
   Future<StageOutcome<BoundaryProposal?>> _boundedCascade(
     BoundaryProposalModel learned,

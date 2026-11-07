@@ -645,6 +645,7 @@ void main() {
       // suggestion again, and Redo restores the fresh local proposal.
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -659,6 +660,7 @@ void main() {
 
       await tester.tap(find.byTooltip('إعادة'));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));

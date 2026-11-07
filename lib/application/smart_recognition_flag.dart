@@ -12,9 +12,9 @@
 ///   intake it was written against.
 /// * [appSmartRecognitionEnabled] is the policy the shipped application
 ///   applies at its single composition root (`lib/main.dart`). The PP-OCRv5
-///   engine, the multi-evidence classifier and the A4 eligibility path are
-///   implemented and verified, so the app runs them; an import still needs
-///   human confirmation before anything reaches the sheet.
+///   engine, classifier and A4 eligibility path are enabled. Automatic
+///   placement still requires a qualifying score, an accepted boundary and a
+///   matching documented size; recognition remains reviewable.
 ///
 /// Multi-document segmentation is a separate flag and stays disabled. The
 /// v4→v5 migration is independent of both flags (legacy inline recognition is

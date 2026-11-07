@@ -219,8 +219,8 @@ class ProjectService {
   /// safe empty default; it never invokes the legacy classical segmenter.
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
 
-  /// Local OCR backend seam. Production remains explicitly unavailable until
-  /// a qualified offline engine is selected and packaged for both platforms.
+  /// Local OCR backend seam. Hosts default to unavailable; the shipped app
+  /// supplies its offline engine and handles model unavailability explicitly.
   final OcrEngine ocr;
 
   /// Extracts a measured region from a sampled JPEG's immutable original at
@@ -552,9 +552,8 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
-    // SmartIntake may count text-derived suggestions when an enabled OCR engine
-    // is injected; the shipped engine is disabled, so production defaults stay
-    // at zero recognized categories until qualified evidence is packaged.
+    // SmartIntake counts text-derived suggestions when an OCR engine is
+    // available. The host default is unavailable; the app supplies PP-OCRv5.
     var recognized = 0;
     var needsReview = 0;
     var boundaryNeedsReview = 0;

@@ -115,6 +115,8 @@ void main() {
         corner,
         const Offset(35, 25),
         const Duration(milliseconds: 300),
+        // Handles are visual-only; CornerHitLayer owns the pointer gesture.
+        warnIfMissed: false,
       );
       await tester.pumpAndSettle();
       expect((tester.getCenter(corner) - beforeDrag).distance, greaterThan(5));

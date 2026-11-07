@@ -300,9 +300,10 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
-        // Discard the partially staged results, but keep the saved original
-        // reachable in the manual classification/crop flow.
-        newItems.add(_fallbackItem(current, sourceAsset, newItems));
+        // Do not commit partially staged results or create an item that
+        // would cause a subsequent import arrangement retry to skip this asset.
+        // The intake UI separately retains the committed source for a manual
+        // decision after the batch has finished.
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
           'ويمكن إعادة معالجة الصورة (${userError(error)}).',

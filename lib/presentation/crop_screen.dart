@@ -247,7 +247,9 @@ class _CropScreenState extends State<CropScreen> {
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
-  CropDraft? _initialReviewDraft;
+  // Keep the banner tied to suggestion history entries, not just the first
+  // suggestion. User edits hide it; undo/redo can restore it accurately.
+  final Set<CropDraft> _reviewDrafts = Set.identity();
   late DocumentKind _initialKind;
   late String _initialWidthText;
   late String _initialHeightText;
@@ -257,7 +259,7 @@ class _CropScreenState extends State<CropScreen> {
   CropDraft? get _draft => _state?.draft;
   DocumentKind get _selectedKind => _state?.selectedKind ?? _initialKind;
   bool get _showingReviewProposal =>
-      _initialReviewDraft != null && identical(_draft, _initialReviewDraft);
+      _draft != null && _reviewDrafts.contains(_draft);
   ImageEditor get _editor => widget.service.imageEditor!;
 
   @override
@@ -389,7 +391,7 @@ class _CropScreenState extends State<CropScreen> {
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
-    _initialReviewDraft = null;
+    _reviewDrafts.clear();
     _view.value = Matrix4.identity();
     _initializeInitialMetadata();
     unawaited(_load());
@@ -500,7 +502,8 @@ class _CropScreenState extends State<CropScreen> {
         _source = source;
         _history = history;
         _state = activeState;
-        _initialReviewDraft = proposed != null ? activeState.draft : null;
+        _reviewDrafts.clear();
+        if (proposed != null) _rememberReviewDraft(activeState.draft);
         _tapSelection = null;
         _proposalNotice = notice;
         _busy = false;
@@ -865,6 +868,12 @@ class _CropScreenState extends State<CropScreen> {
     }
   }
 
+  void _rememberReviewDraft(CropDraft draft) {
+    // Match the history's capacity so repeated refreshes stay bounded.
+    if (_reviewDrafts.length >= 50) _reviewDrafts.remove(_reviewDrafts.first);
+    _reviewDrafts.add(draft);
+  }
+
   Future<void> _suggest() async {
     final editor = _editor;
     final source = _source!;
@@ -918,14 +927,13 @@ class _CropScreenState extends State<CropScreen> {
         });
         showMessage(context, 'الاقتراح غير صالح؛ احتُفظ بالحدود الحالية.');
       } else {
-        _change(
-          CropDraft(
-            corners: points,
-            adjustments: draft.adjustments,
-            aspectRatio: draft.aspectRatio,
-          ),
-          clearManualRequired: true,
+        final suggested = CropDraft(
+          corners: points,
+          adjustments: draft.adjustments,
+          aspectRatio: draft.aspectRatio,
         );
+        _change(suggested, clearManualRequired: true);
+        _rememberReviewDraft(suggested);
         setState(() {
           _proposalNotice =
               'اقتراح جديد للمراجعة فقط؛ لم يتغير الأصل. تراجع يعيد الحدود السابقة، واعرض المعاينة قبل الحفظ.';

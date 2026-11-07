@@ -43,7 +43,7 @@ void main() {
     expect(outcome.routing.band, isNot(RecognitionBand.autoCandidate));
   });
 
-  test('OCR alone never authorizes automatic size or A4 placement', () {
+  test('OCR-only classification remains in the review routing band', () {
     for (final kind in const [
       DocumentKind.unifiedNationalId,
       DocumentKind.civilStatusId,

@@ -1,7 +1,7 @@
-/// Document classification (ADR-007) from explicit evidence only. This build
-/// has no validated visual kind classifier and no packaged OCR engine, so a
-/// filename or boundary aspect can never create a kind; without independent
-/// evidence the result is `unknown`.
+/// Document classification from explicit evidence only. The app can supply
+/// OCR keyword evidence, but has no validated visual kind classifier. A
+/// filename or boundary aspect never creates a kind; without class evidence
+/// the result is `unknown`.
 library;
 
 import 'acceptance_policy.dart';

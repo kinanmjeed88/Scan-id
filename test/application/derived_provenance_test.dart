@@ -42,6 +42,7 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
+import 'package:scan_id/presentation/intake.dart';
 
 final _paper = img.ColorRgb8(240, 238, 232);
 
@@ -461,6 +462,48 @@ void main() {
         reason: 'the referenced source photo must not be an orphan',
       );
     });
+
+    test(
+      'the user-facing runner retains a partial failure as a manual decision',
+      () async {
+        final failing = _FailingAssets(assets, failOnCall: 3);
+        final s = service(repository: failing);
+        final bytes = _twoCardPhoto();
+        final project = await s.create('استيراد يتطلب تدخلاً يدوياً');
+        final run = await IntakeRunner(
+          service: s,
+          project: project,
+        ).run([ImportSource('صورة.png', () => Stream<List<int>>.value(bytes))]);
+        expect(failing.calls, 3);
+        expect(run.importedCount, 1);
+        expect(run.project.assets, hasLength(1));
+        expect(run.project.documents, isEmpty);
+        expect(run.project.items, hasLength(1));
+        final item = run.project.items.single;
+        expect(item.assetId, run.project.assets.single.id);
+        expect(item.documentKind, DocumentKind.unknown);
+        expect(item.sizeConfirmed, isFalse);
+        expect(item.pageIndex, isNull);
+        expect(run.layout, isNotNull);
+        expect(run.layout!.awaitingSize, 1);
+        expect(run.layout!.project.toJson(), run.project.toJson());
+        expect((await projects.get(project.id)).toJson(), run.project.toJson());
+        expect(
+          await (await assets.resolve(
+            run.project.assets.single.originalPath,
+          )).readAsBytes(),
+          bytes,
+        );
+        final repeated = await s.retainUnrepresentedImports(run.project, [
+          item.assetId,
+        ]);
+        expect(
+          repeated.toJson(),
+          run.project.toJson(),
+          reason: 'manual recovery is idempotent',
+        );
+      },
+    );
 
     test('the same photo recovers completely on a later run', () async {
       final failing = _FailingAssets(assets, failOnCall: 3);

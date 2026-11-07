@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/boundary_suggestion.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 
 import '../fixtures.dart';
@@ -40,6 +41,18 @@ DocumentRecord recordWithSuggestion(List<Point2> corners) => DocumentRecord(
     processedAssetVersion: 'v1',
     pipelineVersion: 'v1',
   ),
+);
+
+/// A v5 active record must be linked to a layout item; the fixture supplies
+/// that link so the project invariant passes without weakening the domain.
+DocumentItem linkedItem(String assetId) => DocumentItem(
+  id: 'item-a',
+  assetId: assetId,
+  x: 0,
+  y: 0,
+  width: 60,
+  height: 40,
+  documentId: 'doc-a',
 );
 
 void main() {
@@ -90,6 +103,7 @@ void main() {
     final asset = assetFixture(id: 'a');
     final project = projectFixture(
       assets: [asset],
+      items: [linkedItem('a')],
       documents: [recordWithSuggestion(quad)],
     );
     expect(savedSuggestedBoundary(project, asset), quad);
@@ -107,6 +121,7 @@ void main() {
     final other = assetFixture(id: 'b');
     final project = projectFixture(
       assets: [asset, other],
+      items: [linkedItem('b')],
       documents: [
         recordWithSuggestion(quad).copyWithRecordOwnership(
           'projects/project1/assets/b/working.png',

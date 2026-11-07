@@ -86,7 +86,7 @@ void main() {
     // contract with explicitly scaled radii.
     final scaled = boundaryHandleAt(
       corners,
-      Point2(50, 6),
+      Point2(50, 8),
       cornerRadius: cornerCaptureRadiusPx / 3,
       edgeWidth: edgeCaptureWidthPx / 3,
     );

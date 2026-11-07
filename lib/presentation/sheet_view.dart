@@ -392,16 +392,26 @@ class OffSheetTray extends StatelessWidget {
   const OffSheetTray({
     required this.controller,
     this.onAdjustBoundary,
+    this.pendingOnly = false,
+    this.onClassify,
     super.key,
   });
 
   final LayoutEditorController controller;
   final ValueChanged<DocumentItem>? onAdjustBoundary;
 
+  /// Pending, unconfirmed imports are shown beside the classification action
+  /// above the paper, not mixed with genuinely overflowing items below it.
+  final bool pendingOnly;
+  final VoidCallback? onClassify;
+
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    final items = c.offSheet;
+    final items = c.offSheet.where((item) {
+      final pending = !item.sizeConfirmed && !item.locked;
+      return pendingOnly == pending;
+    }).toList();
     if (items.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return Material(
@@ -410,13 +420,21 @@ class OffSheetTray extends StatelessWidget {
         height: 64,
         child: Row(
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text(
-                'خارج الورق (${items.length})',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+            if (pendingOnly && onClassify != null)
+              TextButton.icon(
+                key: const Key('choose-document-classification'),
+                onPressed: c.busy ? null : onClassify,
+                icon: const Icon(Icons.category_outlined),
+                label: Text('اختر التصنيف (${items.length})'),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Text(
+                  'خارج الورق (${items.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
-            ),
             Expanded(
               child: ListView(
                 scrollDirection: Axis.horizontal,

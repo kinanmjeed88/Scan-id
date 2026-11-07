@@ -136,7 +136,8 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
     maintenance: maintenance,
     // The shipped policy enables the full pipeline: acquisition → quality →
     // boundary review → PP-OCRv5 text → multi-evidence kind → catalog size →
-    // A4 eligibility. Nothing is placed without human confirmation.
+    // A4 eligibility. Placement requires a qualified score, accepted boundary
+    // and a matching documented size; recognition remains reviewable.
     smartRecognitionEnabled: appSmartRecognitionEnabled,
     // The on-device PP-OCRv5 engine: detection + Arabic recognition through ONNX
     // Runtime. Sessions are created on first use, so construction stays cheap and

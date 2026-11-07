@@ -100,6 +100,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (sources.isEmpty || !mounted) return;
       // The shared runner gives the project screen the same real progress,
       // cooperative cancellation and committed final state as the editor.
+      final existingItemIds = _project.items.map((item) => item.id).toSet();
       final run = await runIntakeWithProgress(
         context,
         service: widget.service,
@@ -140,6 +141,14 @@ class _ProjectScreenState extends State<ProjectScreen> {
         await _layout(
           intakeSummary: summary,
           intakeWarnings: automatic?.warnings ?? const [],
+          autoClassifyItemIds: [
+            for (final item in latest.items)
+              if (!existingItemIds.contains(item.id) &&
+                  item.pageIndex == null &&
+                  !item.sizeConfirmed &&
+                  !item.locked)
+                item.id,
+          ],
         );
       }
     } catch (error) {
@@ -496,6 +505,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
   Future<void> _layout({
     String? intakeSummary,
     List<String> intakeWarnings = const [],
+    List<String> autoClassifyItemIds = const [],
   }) async {
     final saved = await Navigator.of(context).push<Project>(
       MaterialPageRoute(
@@ -505,6 +515,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
           pickImages: widget.pickImages,
           intakeSummary: intakeSummary,
           intakeWarnings: intakeWarnings,
+          autoClassifyItemIds: autoClassifyItemIds,
         ),
       ),
     );

@@ -302,6 +302,8 @@ class SmartIntake {
         notDetected++;
         // Do not commit partially staged results or create an item that
         // would cause a subsequent import arrangement retry to skip this asset.
+        // The intake UI separately retains the committed source for a manual
+        // decision after the batch has finished.
         warnings.add(
           '${analyzed.asset.name}: تعذرت المعالجة الذكية؛ بقي الأصل محفوظاً '
           'ويمكن إعادة معالجة الصورة (${userError(error)}).',
@@ -524,6 +526,8 @@ class SmartIntake {
   ///   (ADR-004);
   /// - a region with no existing record becomes a NEW derived document, so a
   ///   document that the first attempt missed is never lost;
+  /// - a source-wide manual item without a matchable detector ID is left alone:
+  ///   no region can safely be identified as that item without guessing;
   /// - a missing or unreadable original/derived file is reported per image and
   ///   never aborts the batch.
   ///
@@ -575,9 +579,22 @@ class SmartIntake {
       current = await projects.save(reconciliation.project);
     }
 
+    final retryIds = <String>[];
+    for (final id in _sourceAssetIds(current, assetIds)) {
+      if (_hasUnmatchableSourceItem(current, id)) {
+        final source = current.assets.firstWhere((asset) => asset.id == id);
+        warnings.add(
+          '${source.name}: أُبقي العنصر اليدوي دون تغيير ولم تُعَد معالجة '
+          'الصورة لتجنب تكراره. يمكنك إكمال تصنيفه وقصّه يدوياً، أو حذف '
+          'العنصر قبل إعادة التعرف؛ تبقى الصورة الأصلية محفوظة.',
+        );
+      } else {
+        retryIds.add(id);
+      }
+    }
     final analysis = await _analyzeImages(
       current,
-      _sourceAssetIds(current, assetIds),
+      retryIds,
       cancellation: cancellation,
       onProgress: onProgress,
     );
@@ -728,6 +745,31 @@ class SmartIntake {
       rejectedByReason: rejectionTally(refusedRegions),
       warnings: warnings,
     );
+  }
+
+  /// A source-wide manual item has no detector identity by which a newly
+  /// found region can be matched. This includes both an intake recovery item
+  /// and an explicit user item; neither is disposable or safe to duplicate.
+  /// A manual classification record deliberately has no fabricated detection,
+  /// and a `manual-user` detection ID identifies a user decision, not a region
+  /// a detector can reproduce. Derived-region items do not block their source.
+  bool _hasUnmatchableSourceItem(Project project, String sourceId) {
+    for (final item in project.items) {
+      if (item.assetId != sourceId) continue;
+      final record = project.documents
+          .where((document) => document.id == item.documentId)
+          .firstOrNull;
+      // _reprocessImage can only match single-sided records belonging to this
+      // source. Anything else is equally ambiguous, even if it has an ID.
+      if (record == null ||
+          record.sourceImageId != sourceId ||
+          record.sides.length != 1) {
+        return true;
+      }
+      final detection = record.sides.single.detection;
+      if (detection == null || detection.producer == 'manual-user') return true;
+    }
+    return false;
   }
 
   /// The requested ids that reprocessing may treat as AUTHORITATIVE SOURCE
@@ -1940,9 +1982,10 @@ class SmartIntake {
   }) {
     final classification = detection.classification;
     final sizeStatus = presetStatusFor(classification.kind);
-    if (classification.status != RecognitionStatus.recognized ||
-        classification.routing.band != RecognitionBand.autoCandidate ||
-        classification.candidates.length != 1 ||
+    if (!qualifiesForAutomaticPlacement(
+          classification,
+          thresholds: thresholds,
+        ) ||
         classification.kind == DocumentKind.unknown ||
         (sizeStatus != PresetStatus.standard &&
             sizeStatus != PresetStatus.measured) ||
@@ -1986,11 +2029,16 @@ class SmartIntake {
           'راجعه وأكّده يدوياً قبل وضعه على A4.';
     }
     final classification = detection.classification;
-    if (classification.status != RecognitionStatus.recognized ||
-        classification.routing.band != RecognitionBand.autoCandidate ||
-        classification.candidates.length != 1) {
-      return '${kind.label}: دليل التصنيف غير كافٍ للتأكيد الآلي؛ '
-          'راجعه يدوياً قبل اعتماد المقاس.';
+    if (!qualifiesForAutomaticPlacement(
+      classification,
+      thresholds: thresholds,
+    )) {
+      final typeScore = classification.confidences.classification?.value;
+      final totalScore = classification.confidences.finalConfidence?.value;
+      return '${kind.label}: لا يكفي دليل التصنيف للإضافة التلقائية (الحد ٧٠٪؛ '
+          'التصنيف ${typeScore == null ? 'غير متاح' : '${(typeScore * 100).toStringAsFixed(1)}٪'}، '
+          'الدرجة الإجمالية ${totalScore == null ? 'غير متاحة' : '${(totalScore * 100).toStringAsFixed(1)}٪'})؛ '
+          'اختر التصنيف يدوياً قبل اعتماد المقاس.';
     }
     if (warped && !_catalogShapeMatches(current, detection)) {
       return catalogShapeUnconfirmedMessage();

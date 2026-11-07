@@ -559,7 +559,7 @@ void main() {
   );
 
   testWidgets(
-    'CropScreen refreshes an unversioned saved suggestion but keeps the fresh proposal review-only',
+    'CropScreen opens the saved suggestion immediately; a requested refresh remains review-only',
     (tester) async {
       tester.view.physicalSize = const Size(1100, 820);
       tester.view.devicePixelRatio = 1;
@@ -628,6 +628,11 @@ void main() {
 
       await tester.tap(find.byKey(const Key('open-crop-refresh')));
       await tester.pumpAndSettle();
+      expect(editor.refreshCount, 0);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
       expect(editor.refreshCount, 1);
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       expect(
@@ -640,6 +645,7 @@ void main() {
       // suggestion again, and Redo restores the fresh local proposal.
       await tester.tap(find.byTooltip('تراجع'));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -654,6 +660,7 @@ void main() {
 
       await tester.tap(find.byTooltip('إعادة'));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       await tester.ensureVisible(find.text('معاينة التصحيح'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('معاينة التصحيح'));
@@ -714,6 +721,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(editor.refreshCount, 0);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
+      await tester.pumpAndSettle();
       expect(editor.refreshCount, 1);
       expect(find.byKey(const Key('crop-proposed-banner')), findsOneWidget);
       expect(find.byKey(const Key('crop-proposal-status')), findsOneWidget);
@@ -902,6 +914,11 @@ void main() {
         ),
       );
       await tester.pump();
+      await tester.pumpAndSettle();
+      expect(editor.refreshCount, 0);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pump();
       expect(editor.refreshCount, 1);
 
@@ -1002,8 +1019,11 @@ void main() {
         ),
       );
       await tester.tap(find.byKey(const Key('open-cancel-refresh')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(editor.refreshCount, 0);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.ensureVisible(find.text('اقتراح حدود المستمسك'));
+      await tester.tap(find.text('اقتراح حدود المستمسك'));
       await tester.pump();
       expect(editor.refreshCount, 1);
       expect(find.byTooltip('إلغاء العملية والخروج'), findsOneWidget);

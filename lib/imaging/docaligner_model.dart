@@ -7,6 +7,7 @@ import '../application/cancellation.dart';
 import '../application/import_trace.dart';
 import '../application/retirable_resource.dart';
 import '../application/stage_budget.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
 import 'docquad_model.dart';
@@ -149,14 +150,13 @@ class DocAlignerFastViT implements BoundaryProposalModel {
           );
           if (points == null) return null;
 
-          // Heatmap peaks are useful diagnostics but are not calibrated confidence.
-          // Keep all model output review-only until an independently labelled
-          // validation set establishes a defensible automatic-accept threshold.
+          // Heatmap peaks are not calibrated accuracy probabilities. The
+          // requested 70% is a routing threshold; geometry still has to pass.
           final proposal = BoundaryProposal(
             producer: BoundaryProducer.learnedModel,
             corners: points,
             modelConfidence: minimumPeak.clamp(0.0, 1.0).toDouble(),
-            minAutoAcceptConfidence: 1.01,
+            minAutoAcceptConfidence: automaticAcceptanceThreshold,
           );
           final verification = verifyBoundary(
             proposal,

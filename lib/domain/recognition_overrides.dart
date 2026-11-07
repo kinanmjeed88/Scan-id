@@ -184,7 +184,12 @@ String pairGroupId(String documentIdA, String documentIdB) {
 /// Confirms that [documentIdA] and [documentIdB] are the two sides of one
 /// physical document: links the records reciprocally, records the explicit
 /// user decision, and keeps their layout items together in a [LayoutGroup].
-Project acceptPair(Project project, String documentIdA, String documentIdB) {
+Project acceptPair(
+  Project project,
+  String documentIdA,
+  String documentIdB, {
+  GroupArrangement arrangement = GroupArrangement.stacked,
+}) {
   require(documentIdA != documentIdB, 'لا يمكن اقتران المستند بنفسه.');
   final a = _record(project, documentIdA);
   final b = _record(project, documentIdB);
@@ -220,7 +225,11 @@ Project acceptPair(Project project, String documentIdA, String documentIdB) {
   ];
   if (itemIds.length < 2) return next;
   final groupId = pairGroupId(a.id, b.id);
-  final group = LayoutGroup(id: groupId, itemIds: itemIds);
+  final group = LayoutGroup(
+    id: groupId,
+    itemIds: itemIds,
+    arrangement: arrangement,
+  );
   return next.copyWith(
     layoutGroups: [
       for (final existing in next.layoutGroups)

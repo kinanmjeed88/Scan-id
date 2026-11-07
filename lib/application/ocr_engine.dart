@@ -1,26 +1,8 @@
-/// Offline OCR engine contract (ADR-007: OCR is evidence, never the sole
-/// classifier; ADR-005: strictly offline).
-///
-/// **No OCR engine ships in this build. Do not describe this app as having
-/// OCR.**
-///
-/// The full option evaluation — ML Kit, Tesseract 5, PaddleOCR PP-OCRv5
-/// Arabic, ONNX Runtime, Windows.Media.Ocr — with licences, model sizes and
-/// what must be measured before any engine is adopted, is recorded in
-/// `docs/OCR_EVALUATION.md` (summary in `docs/RECOGNITION.md`). The
-/// leading research candidate, PaddleOCR PP-OCRv5 Arabic mobile
-/// (`arabic_PP-OCRv5_mobile_rec`), has not been proven as a shippable local
-/// model/runtime pair here. Historical local-screen reports refer to an
-/// unlabelled sample; `Mostmskat/` is absent from the current checkout. No
-/// reviewed OCR transcriptions or independent split are available, so no Arabic
-/// accuracy claim is supported. Private image data is excluded from CI and is
-/// not used to train or validate OCR.
-///
-/// Rather than compromise the Windows target or bundle an unverified native
-/// dependency, the production pipeline runs against this abstraction with
-/// [UnavailableOcrEngine]: OCR unavailability is an explicit, non-fatal state
-/// and boundary analysis continues. Without independent type evidence, the
-/// classifier returns `unknown`.
+/// Offline OCR engine contract. The application composition root supplies the
+/// local PP-OCRv5 engine; other hosts can use [UnavailableOcrEngine], and a
+/// missing model remains an explicit, non-fatal state. OCR keyword evidence is
+/// not a calibrated probability of document type, and recognized text is not
+/// persisted. Without class evidence, classification remains unknown.
 library;
 
 import 'dart:typed_data';
@@ -46,8 +28,8 @@ abstract interface class OcrEngine {
   });
 }
 
-/// The shipped default: OCR is not available on this build. Deterministic,
-/// allocation-free, and honest — it never fabricates text or confidence.
+/// Default for hosts that do not configure OCR. Deterministic and honest — it
+/// never fabricates text or confidence; the app supplies its own local engine.
 class UnavailableOcrEngine implements OcrEngine {
   const UnavailableOcrEngine();
 

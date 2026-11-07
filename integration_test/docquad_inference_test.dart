@@ -45,7 +45,7 @@ Uint8List _syntheticDesk({required bool card}) {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('bundled DocQuadNet loads and proposes a review-only quad', (
+  testWidgets('bundled DocQuadNet loads and applies its 70% geometry gate', (
     tester,
   ) async {
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
@@ -68,8 +68,13 @@ void main() {
         sourceHeight: 700,
       );
       expect(decision.verification.hasUsableGeometry, isTrue);
-      expect(decision.kind, BoundaryDecisionKind.needsReview);
-      expect(decision.cropAuthorization, isNull);
+      expect(proposal.minAutoAcceptConfidence, .70);
+      if (decision.kind == BoundaryDecisionKind.accepted) {
+        expect(proposal.modelConfidence, greaterThanOrEqualTo(.70));
+        expect(decision.cropAuthorization, isNotNull);
+      } else {
+        expect(decision.cropAuthorization, isNull);
+      }
     } finally {
       await model.close();
     }
@@ -108,8 +113,13 @@ void main() {
             sourceHeight: 700,
           );
           expect(decision.verification.hasUsableGeometry, isTrue);
-          expect(decision.kind, BoundaryDecisionKind.needsReview);
-          expect(decision.cropAuthorization, isNull);
+          expect(proposal.minAutoAcceptConfidence, .70);
+          if (decision.kind == BoundaryDecisionKind.accepted) {
+            expect(proposal.modelConfidence, greaterThanOrEqualTo(.70));
+            expect(decision.cropAuthorization, isNotNull);
+          } else {
+            expect(decision.cropAuthorization, isNull);
+          }
         }
       } finally {
         await model.close();

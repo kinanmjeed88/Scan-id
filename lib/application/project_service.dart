@@ -219,8 +219,8 @@ class ProjectService {
   /// safe empty default; it never invokes the legacy classical segmenter.
   final Future<SegmentationResult> Function(Uint8List previewBytes)? segmenter;
 
-  /// Local OCR backend seam. Production remains explicitly unavailable until
-  /// a qualified offline engine is selected and packaged for both platforms.
+  /// Local OCR backend seam. Hosts default to unavailable; the shipped app
+  /// supplies its offline engine and handles model unavailability explicitly.
   final OcrEngine ocr;
 
   /// Extracts a measured region from a sampled JPEG's immutable original at
@@ -228,8 +228,8 @@ class ProjectService {
   /// available to the Dart test runner.
   final FullResolutionJpegCropper fullResolutionJpegCropper;
 
-  /// App-level Phase 1B gate. Production defaults to the disabled build flag;
-  /// tests can explicitly opt in to exercise the implementation behind it.
+  /// Recognition gate for this host. An unspecified host defaults to false;
+  /// the shipped application explicitly enables it at its composition root.
   final bool smartRecognitionEnabled;
 
   /// Independent import policy. It only segments candidate multi-document
@@ -472,6 +472,67 @@ class ProjectService {
     );
   }
 
+  /// Preserve imports not represented by any layout item after an interrupted
+  /// or failed automatic pass. These are pending manual decisions, not guessed
+  /// types or approved boundaries; the original asset remains untouched.
+  Future<Project> retainUnrepresentedImports(
+    Project project,
+    Iterable<String> importedAssetIds,
+  ) async {
+    final ids = importedAssetIds.toSet();
+    if (ids.isEmpty) return project;
+    final represented = <String>{
+      for (final item in project.items) item.assetId,
+    };
+    final linkedDocuments = {
+      for (final item in project.items)
+        if (item.documentId != null) item.documentId,
+    };
+    represented.addAll([
+      for (final record in project.documents)
+        if (linkedDocuments.contains(record.id)) record.sourceImageId,
+      for (final asset in project.assets)
+        if (represented.contains(asset.id) && asset.derivedFrom != null)
+          asset.derivedFrom!,
+    ]);
+    final missing = project.assets
+        .where(
+          (asset) => ids.contains(asset.id) && !represented.contains(asset.id),
+        )
+        .toList();
+    if (missing.isEmpty) return project;
+    var nextZ = project.items.fold<int>(
+      0,
+      (top, item) => math.max(top, item.zIndex),
+    );
+    return projects.save(
+      project.copyWith(
+        items: [
+          ...project.items,
+          for (final asset in missing)
+            DocumentItem(
+              id: newId(),
+              assetId: asset.id,
+              x: project.paper.margins.left,
+              y: project.paper.margins.top,
+              width: provisionalSize(
+                width: asset.width,
+                height: asset.height,
+              ).width,
+              height: provisionalSize(
+                width: asset.width,
+                height: asset.height,
+              ).height,
+              pageIndex: null,
+              zIndex: ++nextZ,
+              documentKind: DocumentKind.unknown,
+              sizeConfirmed: false,
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<AutomaticLayoutReport> _arrangeWithMultiDocumentSegmentation(
     Project project,
     Iterable<String> assetIds, {
@@ -491,9 +552,8 @@ class ProjectService {
     var current = project;
     var cropped = 0;
     var notDetected = 0;
-    // SmartIntake may count text-derived suggestions when an enabled OCR engine
-    // is injected; the shipped engine is disabled, so production defaults stay
-    // at zero recognized categories until qualified evidence is packaged.
+    // SmartIntake counts text-derived suggestions when an OCR engine is
+    // available. The host default is unavailable; the app supplies PP-OCRv5.
     var recognized = 0;
     var needsReview = 0;
     var boundaryNeedsReview = 0;
@@ -803,7 +863,7 @@ class ProjectService {
               }
               for (final reason in decision.verification.reasons) {
                 warnings.add(
-                  '${asset.name}: ${boundaryReviewReasonMessage(reason)}',
+                  '${asset.name}: ${boundaryReviewReasonMessage(reason, modelConfidence: decision.proposal.modelConfidence, minAutoAcceptConfidence: decision.proposal.minAutoAcceptConfidence)}',
                 );
               }
             } else {
@@ -989,13 +1049,10 @@ class ProjectService {
       cancellation: cancellation,
     );
     cancellation?.throwIfCancelled();
-    return runCancellableIsolate(
-      () => imaging.suggestAutoAdjustments(
-        cropPreview,
-        quarterTurns: quarterTurns,
-      ),
+    return _suggestCropAdjustmentsIsolated(
+      cropPreview,
+      quarterTurns: quarterTurns,
       cancellation: cancellation,
-      debugName: 'crop-auto-adjust',
     );
   }
 
@@ -1625,3 +1682,15 @@ Future<void> _cleanupSource(ImportSource source) async {
     /* Only private picker cache; never let cleanup mask a committed import. */
   }
 }
+
+// Keep the ProjectService (which owns native OCR/editor resources) out of the
+// isolate message, including Dart's closure-context over-capture.
+Future<ImageAdjustments> _suggestCropAdjustmentsIsolated(
+  Uint8List preview, {
+  required int quarterTurns,
+  CancellationToken? cancellation,
+}) => runCancellableIsolate(
+  () => imaging.suggestAutoAdjustments(preview, quarterTurns: quarterTurns),
+  cancellation: cancellation,
+  debugName: 'crop-auto-adjust',
+);

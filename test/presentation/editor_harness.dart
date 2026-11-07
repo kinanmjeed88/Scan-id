@@ -36,6 +36,7 @@ class EditorHarness {
     Future<List<ImportSource>> Function()? pickImages,
     String? intakeSummary,
     List<String> intakeWarnings = const [],
+    List<String> autoClassifyItemIds = const [],
     Size size = const Size(1400, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -58,6 +59,7 @@ class EditorHarness {
           adjustmentCommitDelay: const Duration(milliseconds: 200),
           intakeSummary: intakeSummary,
           intakeWarnings: intakeWarnings,
+          autoClassifyItemIds: autoClassifyItemIds,
         ),
       ),
     );

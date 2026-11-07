@@ -49,6 +49,7 @@
 ///   difference becomes a margin, never a stretch.
 library;
 
+import 'acceptance_policy.dart';
 import 'crop_draft.dart';
 import 'document_kind.dart';
 import 'geometry.dart';
@@ -106,8 +107,8 @@ enum BoundaryReviewReason {
   /// The quadrilateral does not describe the measured region it came from.
   quadOutsideRegion,
 
-  /// Learned model confidence fell below the validation-calibrated auto-accept
-  /// threshold; proposed corners remain available for editable user review.
+  /// Learned model score fell below the requested auto-accept threshold;
+  /// proposed corners remain available for editable user review.
   lowModelConfidence,
 
   /// One or more corners touch the outer camera frame edge, indicating
@@ -127,6 +128,10 @@ enum BoundaryReviewReason {
   /// visible for editing, explicitly flag the disagreement, and never average
   /// their points or silently select an automatic crop.
   modelDisagreement,
+
+  /// Only one learned detector produced usable geometry; it is a suggestion,
+  /// not an independently corroborated automatic crop.
+  modelNotCorroborated,
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -162,7 +167,7 @@ class BoundaryProposal {
   /// Human-readable label of the kind behind [imposedAspect], for messages.
   final String? imposedKindLabel;
 
-  /// Optional calibrated score emitted by a learned model (`0..1`).
+  /// Optional uncalibrated score emitted by a learned model (`0..1`).
   final double? modelConfidence;
 
   /// Minimum model confidence required before automatic perspective cropping
@@ -388,10 +393,19 @@ BoundaryDecision verifyBoundary(
   }
   final modelConf = proposal.modelConfidence;
   final minAutoConf = proposal.minAutoAcceptConfidence;
-  if (modelConf != null && minAutoConf != null) {
-    if (!modelConf.isFinite || modelConf < minAutoConf) {
-      reasons.add(BoundaryReviewReason.lowModelConfidence);
-    }
+  final learned = proposal.producer == BoundaryProducer.learnedModel;
+  if ((learned || minAutoConf != null) &&
+      (modelConf == null ||
+          !modelConf.isFinite ||
+          modelConf < 0 ||
+          modelConf > 1 ||
+          (learned && !meetsAutomaticAcceptanceThreshold(modelConf)) ||
+          (minAutoConf != null &&
+              (!minAutoConf.isFinite ||
+                  minAutoConf < 0 ||
+                  minAutoConf > 1 ||
+                  modelConf < minAutoConf)))) {
+    reasons.add(BoundaryReviewReason.lowModelConfidence);
   }
 
   return BoundaryDecision(
@@ -439,8 +453,10 @@ ImageEditRecipe recipeFromAcceptedBoundary(
 /// Arabic, user-facing explanation of one review reason. The caller owns
 /// prefixing the image name; this text owns saying what happens next.
 String boundaryReviewReasonMessage(
-  BoundaryReviewReason reason,
-) => switch (reason) {
+  BoundaryReviewReason reason, {
+  double? modelConfidence,
+  double? minAutoAcceptConfidence,
+}) => switch (reason) {
   BoundaryReviewReason.noBoundary =>
     'لم تُقترح حدود للمستمسك؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
   BoundaryReviewReason.notABoundary =>
@@ -452,7 +468,9 @@ String boundaryReviewReasonMessage(
   BoundaryReviewReason.quadOutsideRegion =>
     'الحدود المقترحة لا تصف المنطقة المقاسة؛ بقيت الصورة كاملة لتُقصّ يدوياً.',
   BoundaryReviewReason.lowModelConfidence =>
-    'ثقة كشف الذكاء الاصطناعي دون حد القبول التلقائي؛ حُفظت الزوايا المقترحة للمراجعة والتعديل اليدوي دون قصّ صامت.',
+    '${modelConfidence != null && modelConfidence.isFinite && modelConfidence >= 0 && modelConfidence <= 1 ? 'درجة كشف الحدود ${(modelConfidence * 100).toStringAsFixed(1)}٪' : 'درجة كشف الحدود غير متاحة'}'
+        '${minAutoAcceptConfidence != null && minAutoAcceptConfidence.isFinite && minAutoAcceptConfidence >= 0 && minAutoAcceptConfidence <= 1 ? '، وحد القبول ${(minAutoAcceptConfidence * 100).round()}٪' : ''}؛ '
+        'حُفظت الزوايا المقترحة للمراجعة والقص اليدوي. الدرجة ليست ضماناً للدقة.',
   BoundaryReviewReason.touchesFrameEdge =>
     'تلامس حدود البطاقة حافة الإطار وقد يكون جزء منها مقطوعاً؛ راجع الزوايا يدوياً قبل اعتماد القصّ.',
   BoundaryReviewReason.multiSceneNotCorroborated =>
@@ -461,6 +479,8 @@ String boundaryReviewReasonMessage(
     'اقتراح حدود هندسي محلي؛ درجته ليست ثقة معايرة، لذا حُفظت الزوايا للمراجعة اليدوية دون قصّ تلقائي.',
   BoundaryReviewReason.modelDisagreement =>
     'اختلف كاشفا الذكاء الاصطناعي على مواضع الزوايا؛ عُرض اقتراح واحد للمراجعة اليدوية، ولم تُدمج النتائج أو تُعتمد تلقائياً.',
+  BoundaryReviewReason.modelNotCorroborated =>
+    'لم تتوفر حدود صالحة من كاشف ثانٍ للتحقق؛ حُفظ الاقتراح للمراجعة اليدوية دون قص تلقائي.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its

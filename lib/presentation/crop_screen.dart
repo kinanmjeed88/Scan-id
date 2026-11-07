@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -128,14 +129,9 @@ String _formatMillimeters(double value) {
 }
 
 class _SuggestedCornersResolution {
-  const _SuggestedCornersResolution({
-    this.corners,
-    this.previousSavedCorners,
-    this.notice,
-  });
+  const _SuggestedCornersResolution({this.corners, this.notice});
 
   final List<Point2>? corners;
-  final List<Point2>? previousSavedCorners;
   final String? notice;
 }
 
@@ -251,7 +247,9 @@ class _CropScreenState extends State<CropScreen> {
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
-  CropDraft? _initialReviewDraft;
+  // Keep the banner tied to suggestion history entries, not just the first
+  // suggestion. User edits hide it; undo/redo can restore it accurately.
+  final Set<CropDraft> _reviewDrafts = Set.identity();
   late DocumentKind _initialKind;
   late String _initialWidthText;
   late String _initialHeightText;
@@ -261,7 +259,7 @@ class _CropScreenState extends State<CropScreen> {
   CropDraft? get _draft => _state?.draft;
   DocumentKind get _selectedKind => _state?.selectedKind ?? _initialKind;
   bool get _showingReviewProposal =>
-      _initialReviewDraft != null && identical(_draft, _initialReviewDraft);
+      _draft != null && _reviewDrafts.contains(_draft);
   ImageEditor get _editor => widget.service.imageEditor!;
 
   @override
@@ -393,7 +391,7 @@ class _CropScreenState extends State<CropScreen> {
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
-    _initialReviewDraft = null;
+    _reviewDrafts.clear();
     _view.value = Matrix4.identity();
     _initializeInitialMetadata();
     unawaited(_load());
@@ -445,14 +443,11 @@ class _CropScreenState extends State<CropScreen> {
         aspectRatio: initialAspect,
       );
       final resolution = crop == null && !extractDerived
-          ? await _resolveSuggestedCorners(
-              source.preview,
+          ? _resolveSuggestedCorners(
               source.width,
               source.height,
               project: project,
               asset: asset,
-              service: service,
-              cancellation: cancellation,
             )
           : const _SuggestedCornersResolution();
       if (!_isCurrentOperation(operation)) return;
@@ -491,19 +486,6 @@ class _CropScreenState extends State<CropScreen> {
           manualRequired: gateBase,
         );
         history = EditHistory(baseState);
-        final previous = resolution.previousSavedCorners;
-        if (previous != null) {
-          // A previously saved boundary is a real boundary, not a full frame.
-          history.record(
-            baseState.withBoundary(
-              CropDraft(
-                corners: previous,
-                adjustments: baseFull.adjustments,
-                aspectRatio: initialAspect,
-              ),
-            ),
-          );
-        }
         if (proposed != null) {
           final proposedDraft = CropDraft(
             corners: proposed,
@@ -520,7 +502,8 @@ class _CropScreenState extends State<CropScreen> {
         _source = source;
         _history = history;
         _state = activeState;
-        _initialReviewDraft = proposed != null ? activeState.draft : null;
+        _reviewDrafts.clear();
+        if (proposed != null) _rememberReviewDraft(activeState.draft);
         _tapSelection = null;
         _proposalNotice = notice;
         _busy = false;
@@ -528,8 +511,13 @@ class _CropScreenState extends State<CropScreen> {
       });
     } catch (error) {
       if (_isCurrentOperation(operation)) {
+        // Do not log image content or filesystem paths.
+        developer.log(
+          'Failed to open crop source: ${error.runtimeType}',
+          name: 'scan_id.crop',
+        );
         setState(() {
-          _error = userError(error);
+          _error = 'تعذر فتح الصورة للقص. ${userError(error)}';
           _busy = false;
           _busyCancelable = false;
         });
@@ -581,69 +569,30 @@ class _CropScreenState extends State<CropScreen> {
     return true;
   }
 
-  Future<_SuggestedCornersResolution> _resolveSuggestedCorners(
-    Uint8List preview,
+  // Show the saved suggestion immediately. Running two native models again
+  // here used to delay (or block) the entire manual editor even though the
+  // source was already open. A fresh suggestion is available via its button.
+  _SuggestedCornersResolution _resolveSuggestedCorners(
     int sourceWidth,
     int sourceHeight, {
     required Project project,
     required ImageAsset asset,
-    required ProjectService service,
-    required CancellationToken cancellation,
-  }) async {
-    final explicit = widget.suggestedCorners;
-    final candidate = explicit ?? _savedSuggestionFor(project, asset);
+  }) {
+    final candidate =
+        widget.suggestedCorners ?? _savedSuggestionFor(project, asset);
     if (candidate == null) return const _SuggestedCornersResolution();
-
-    String? notice;
-    if (explicit == null) {
-      final editor = service.imageEditor;
-      if (editor is BoundaryProposalImageEditor) {
-        try {
-          final refreshed = await editor.suggestProposal(
-            preview,
-            cancellation: cancellation,
-          );
-          final freshCorners = refreshed?.corners;
-          if (_usableSuggestedCorners(
-            freshCorners,
-            sourceWidth: sourceWidth,
-            sourceHeight: sourceHeight,
-          )) {
-            final previous = _usableSuggestedCorners(
-              candidate,
-              sourceWidth: sourceWidth,
-              sourceHeight: sourceHeight,
-            );
-            final changed = !_samePoints(freshCorners, candidate);
-            return _SuggestedCornersResolution(
-              corners: freshCorners,
-              previousSavedCorners: changed && previous ? candidate : null,
-              notice: changed
-                  ? 'حُدّث الاقتراح المحلي للمراجعة فقط؛ تراجع يعيد الحدود المحفوظة السابقة. لم يُحفظ أي قص.'
-                  : 'الحدود المعروضة اقتراح للمراجعة فقط؛ لا يُعتمد قص قبل المعاينة والحفظ.',
-            );
-          }
-          notice = freshCorners == null
-              ? 'لم يظهر اقتراح جديد؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.'
-              : 'الاقتراح المحدّث غير صالح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
-        } catch (_) {
-          notice =
-              'تعذر تحديث الاقتراح؛ أُبقيت الحدود المحفوظة للمراجعة اليدوية.';
-        }
-      }
-    }
-
     if (_usableSuggestedCorners(
       candidate,
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
     )) {
-      return _SuggestedCornersResolution(corners: candidate, notice: notice);
+      return _SuggestedCornersResolution(
+        corners: candidate,
+        notice: 'الحدود المحفوظة اقتراح للمراجعة؛ عدّلها وعاين القص قبل الحفظ.',
+      );
     }
-    return _SuggestedCornersResolution(
-      notice: notice == null
-          ? 'الحدود المحفوظة غير صالحة؛ عُرضت الصورة كاملة لضبطها يدوياً.'
-          : '$notice الحدود المحفوظة غير صالحة؛ عُرضت الصورة كاملة لضبطها يدوياً.',
+    return const _SuggestedCornersResolution(
+      notice: 'الحدود المحفوظة غير صالحة؛ عُرضت الصورة كاملة لضبطها يدوياً.',
     );
   }
 
@@ -919,6 +868,12 @@ class _CropScreenState extends State<CropScreen> {
     }
   }
 
+  void _rememberReviewDraft(CropDraft draft) {
+    // Match the history's capacity so repeated refreshes stay bounded.
+    if (_reviewDrafts.length >= 50) _reviewDrafts.remove(_reviewDrafts.first);
+    _reviewDrafts.add(draft);
+  }
+
   Future<void> _suggest() async {
     final editor = _editor;
     final source = _source!;
@@ -972,14 +927,13 @@ class _CropScreenState extends State<CropScreen> {
         });
         showMessage(context, 'الاقتراح غير صالح؛ احتُفظ بالحدود الحالية.');
       } else {
-        _change(
-          CropDraft(
-            corners: points,
-            adjustments: draft.adjustments,
-            aspectRatio: draft.aspectRatio,
-          ),
-          clearManualRequired: true,
+        final suggested = CropDraft(
+          corners: points,
+          adjustments: draft.adjustments,
+          aspectRatio: draft.aspectRatio,
         );
+        _change(suggested, clearManualRequired: true);
+        _rememberReviewDraft(suggested);
         setState(() {
           _proposalNotice =
               'اقتراح جديد للمراجعة فقط؛ لم يتغير الأصل. تراجع يعيد الحدود السابقة، واعرض المعاينة قبل الحفظ.';
@@ -1293,7 +1247,25 @@ class _CropScreenState extends State<CropScreen> {
                     ? const CircularProgressIndicator()
                     : Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Text(_error ?? 'تعذر فتح الصورة.'),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_error ?? 'تعذر فتح الصورة.'),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              key: const Key('crop-retry-open'),
+                              onPressed: () {
+                                setState(() {
+                                  _error = null;
+                                  _busy = true;
+                                });
+                                unawaited(_load());
+                              },
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('إعادة فتح الصورة'),
+                            ),
+                          ],
+                        ),
                       ),
               )
             : Column(

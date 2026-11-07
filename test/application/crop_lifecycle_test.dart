@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
+import 'package:scan_id/domain/boundary_decision.dart';
+import 'package:scan_id/imaging/docquad_model.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
@@ -18,6 +21,7 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 import '../presentation/crop_tap_helpers.dart';
+import '../presentation/editor_harness.dart' show pumpCropPreviewResult;
 
 class _DelayedEditor implements ImageEditor {
   _DelayedEditor(this._inner);
@@ -55,6 +59,19 @@ class _DelayedEditor implements ImageEditor {
   @override
   Future<ImageAsset> createRevision(ImageAsset asset, ImageEditRecipe recipe) =>
       _inner.createRevision(asset, recipe);
+}
+
+// Models/native sessions are owned by the editor on the main isolate and are
+// not sendable. Open/preview/save must not capture this object graph.
+class _NonSendableProposer implements BoundaryProposalModel {
+  final ReceivePort port = ReceivePort();
+  @override
+  String get modelId => 'non-sendable-test';
+  @override
+  Future<BoundaryProposal?> suggestProposal(
+    Uint8List preview, {
+    CancellationToken? cancellation,
+  }) async => null;
 }
 
 void main() {
@@ -212,6 +229,98 @@ void main() {
         await tester.pumpAndSettle();
       }
     }
+
+    test(
+      'real editor opens, previews and saves with a non-sendable proposer',
+      () async {
+        final proposer = _NonSendableProposer();
+        addTearDown(proposer.port.close);
+        final real = LocalImageEditor(
+          projects.files,
+          boundaryProposer: proposer,
+        );
+        final asset = project.assets.single;
+        final source = await real.open(asset);
+        expect(source.width, 120);
+        expect(source.height, 80);
+        expect(img.decodeImage(source.preview), isNotNull);
+        final recipe = CropDraft(
+          corners: [
+            Point2(.1, .1),
+            Point2(.9, .1),
+            Point2(.9, .9),
+            Point2(.1, .9),
+          ],
+        ).toRecipe(source.width, source.height);
+        final preview = await real.preview(asset, recipe);
+        expect(img.decodeImage(preview), isNotNull);
+        final revision = await real.createRevision(asset, recipe);
+        expect(revision.crop, isNotNull);
+        await expectLater(
+          (await assets.resolve(asset.originalPath)).readAsBytes(),
+          completion(original),
+        );
+      },
+    );
+
+    testWidgets('real source displays and dragged corners preview and persist', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      final sourceWidget = tester.widget<Image>(
+        find.byKey(const Key('crop-source-image')),
+      );
+      final pixels = img.decodePng((sourceWidget.image as MemoryImage).bytes)!;
+      expect((pixels.width, pixels.height), (120, 80));
+      final center = pixels.getPixel(60, 40);
+      expect(
+        (center.r.toInt(), center.g.toInt(), center.b.toInt()),
+        (220, 220, 210),
+      );
+      expect(find.text('تعذر عرض الصورة'), findsNothing);
+
+      await tapFourCorners(tester);
+      final corner = find.byKey(const Key('crop-corner-0'));
+      final beforeDrag = tester.getCenter(corner);
+      await tester.timedDrag(
+        corner,
+        const Offset(30, 20),
+        const Duration(milliseconds: 300),
+        // The visual handle is intentionally hit through the surrounding layer.
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(corner) - beforeDrag).distance, greaterThan(5));
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropPreviewResult(tester);
+      expect(find.byKey(const Key('crop-result')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+      await tester.tap(find.byKey(const Key('accept-crop')));
+      // Saving uses real filesystem and isolate work, not Flutter's fake clock.
+      for (var attempt = 0; attempt < 150; attempt++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find.text('open crop').evaluate().isNotEmpty) break;
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
+      expect(find.text('open crop'), findsOneWidget);
+      final saved = (await tester.runAsync(() => projects.get(project.id)))!;
+      final asset = saved.assets.single;
+      expect(asset.userAuthoredCrop, isTrue);
+      expect(asset.crop, isNotNull);
+      expect(asset.crop!.corners.first.x, greaterThan(.2));
+      final files = (await tester.runAsync(
+        () async => (
+          await (await assets.resolve(asset.originalPath)).readAsBytes(),
+          await (await assets.resolve(asset.workingPath)).readAsBytes(),
+        ),
+      ))!;
+      expect(files.$1, original);
+      expect(img.decodeImage(files.$2), isNotNull);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('known category does not silently reshape a new manual draft', (
       tester,

@@ -43,7 +43,7 @@ void main() {
     expect(outcome.routing.band, isNot(RecognitionBand.autoCandidate));
   });
 
-  test('OCR alone never authorizes automatic size or A4 placement', () {
+  test('OCR-only classification remains in the review routing band', () {
     for (final kind in const [
       DocumentKind.unifiedNationalId,
       DocumentKind.civilStatusId,
@@ -209,6 +209,87 @@ void main() {
     expect(
       withUpstream.confidences.finalConfidence!.value,
       isNot(ocrOnly.confidences.finalConfidence!.value),
+    );
+  });
+  group('automatic placement confidence gate', () {
+    ClassificationOutcome outcome({
+      double? type = .70,
+      double? total = .70,
+      double? detection = .70,
+      DocumentKind kind = DocumentKind.unifiedNationalId,
+      RecognitionStatus status = RecognitionStatus.recognized,
+      List<DocumentKind> candidates = const [DocumentKind.unifiedNationalId],
+    }) => ClassificationOutcome(
+      kind: kind,
+      status: status,
+      candidates: candidates,
+      confidences: ConfidenceSet(
+        classification: type == null ? null : Confidence(value: type),
+        finalConfidence: total == null ? null : Confidence(value: total),
+        detection: detection == null ? null : Confidence(value: detection),
+      ),
+      evidence: const [],
+      routing: const RoutingDecision(band: RecognitionBand.review, reasons: []),
+    );
+
+    test('a real fusion of exact 70% evidence remains eligible', () {
+      final fused = classifyDocument(
+        ClassificationInput(
+          detectionConfidence: .70,
+          geometryConfidence: .70,
+          ocrKeywords: [
+            OcrKeywordEvidence(
+              kind: DocumentKind.unifiedNationalId,
+              score: .70,
+              matchedAnchorGroups: 2,
+            ),
+          ],
+          ocrConfidence: .70,
+        ),
+      );
+      expect(qualifiesForAutomaticPlacement(fused), isTrue);
+    });
+
+    test('at and above 70 qualifies while lower scores do not', () {
+      expect(qualifiesForAutomaticPlacement(outcome()), isTrue);
+      expect(
+        qualifiesForAutomaticPlacement(outcome(type: .71, total: .71)),
+        isTrue,
+      );
+      expect(qualifiesForAutomaticPlacement(outcome(type: .699)), isFalse);
+      expect(qualifiesForAutomaticPlacement(outcome(total: .699)), isFalse);
+    });
+    test(
+      'unknown, conflict, missing type or total and weak component stay pending',
+      () {
+        expect(qualifiesForAutomaticPlacement(outcome(type: null)), isFalse);
+        expect(qualifiesForAutomaticPlacement(outcome(total: null)), isFalse);
+        expect(
+          qualifiesForAutomaticPlacement(outcome(detection: .49)),
+          isFalse,
+        );
+        expect(
+          qualifiesForAutomaticPlacement(outcome(kind: DocumentKind.unknown)),
+          isFalse,
+        );
+        expect(
+          qualifiesForAutomaticPlacement(
+            outcome(status: RecognitionStatus.uncertain),
+          ),
+          isFalse,
+        );
+        expect(
+          qualifiesForAutomaticPlacement(
+            outcome(
+              candidates: [
+                DocumentKind.unifiedNationalId,
+                DocumentKind.passport,
+              ],
+            ),
+          ),
+          isFalse,
+        );
+      },
     );
   });
 }

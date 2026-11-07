@@ -185,6 +185,10 @@ def verify() -> list[str]:
     elif hashlib.sha256(model_path.read_bytes()).hexdigest() != expected_model_sha256:
         errors.append("DocQuadNet-256 ORT asset SHA-256 does not match the reviewed weight")
 
+    policy = (ROOT / "lib/domain/acceptance_policy.dart").read_text(encoding="utf-8")
+    if not re.search(r"const\s+double\s+automaticAcceptanceThreshold\s*=\s*\.70\s*;", policy):
+        errors.append("the shared automatic acceptance threshold must remain 70%")
+
     model_source_path = ROOT / "lib/imaging/docquad_model.dart"
     if not model_source_path.is_file():
         errors.append("DocQuadNet-256 ONNX Runtime adapter is missing")
@@ -195,7 +199,7 @@ def verify() -> list[str]:
             "corner_heatmaps",
             "mask_logits",
             "BoundaryProducer.learnedModel",
-            "minAutoAcceptConfidence: 1.01",
+            "minAutoAcceptConfidence: automaticAcceptanceThreshold",
             "verifyBoundary(",
             "_minimumReviewEvidence",
         ):
@@ -216,7 +220,7 @@ def verify() -> list[str]:
             "session.run(",
             "_heatmapThreshold = 0.3",
             "BoundaryProducer.learnedModel",
-            "minAutoAcceptConfidence: 1.01",
+            "minAutoAcceptConfidence: automaticAcceptanceThreshold",
             "verifyBoundary(",
         ):
             if token not in docaligner_source:

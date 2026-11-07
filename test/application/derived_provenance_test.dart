@@ -34,6 +34,8 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
+import 'package:scan_id/domain/manual_classification.dart';
+import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/validation.dart';
@@ -42,6 +44,8 @@ import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
+import 'package:scan_id/presentation/editor_controller.dart';
+import 'package:scan_id/presentation/intake.dart';
 
 final _paper = img.ColorRgb8(240, 238, 232);
 
@@ -461,6 +465,168 @@ void main() {
         reason: 'the referenced source photo must not be an orphan',
       );
     });
+
+    test(
+      'the user-facing runner retains a partial failure as a manual decision',
+      () async {
+        final failing = _FailingAssets(assets, failOnCall: 3);
+        final s = service(repository: failing);
+        final bytes = _twoCardPhoto();
+        final project = await s.create('استيراد يتطلب تدخلاً يدوياً');
+        final run = await IntakeRunner(
+          service: s,
+          project: project,
+        ).run([ImportSource('صورة.png', () => Stream<List<int>>.value(bytes))]);
+        expect(failing.calls, 3);
+        expect(run.importedCount, 1);
+        expect(run.project.assets, hasLength(1));
+        expect(run.project.documents, isEmpty);
+        expect(run.project.items, hasLength(1));
+        final item = run.project.items.single;
+        expect(item.assetId, run.project.assets.single.id);
+        expect(item.documentKind, DocumentKind.unknown);
+        expect(item.sizeConfirmed, isFalse);
+        expect(item.pageIndex, isNull);
+        expect(run.layout, isNotNull);
+        expect(run.layout!.awaitingSize, 1);
+        expect(run.layout!.project.toJson(), run.project.toJson());
+        expect((await projects.get(project.id)).toJson(), run.project.toJson());
+        expect(
+          await (await assets.resolve(
+            run.project.assets.single.originalPath,
+          )).readAsBytes(),
+          bytes,
+        );
+        final repeated = await s.retainUnrepresentedImports(run.project, [
+          item.assetId,
+        ]);
+        expect(
+          repeated.toJson(),
+          run.project.toJson(),
+          reason: 'manual recovery is idempotent',
+        );
+
+        // The reprocess button must not append detections beside an unmatched
+        // source-wide fallback or discard a user-edited/locked item.
+        final edited = await projects.save(
+          run.project.copyWith(
+            items: [item.copyWith(x: 21, y: 18, locked: true)],
+          ),
+        );
+        final skipped = (await s.reprocessImages(edited, [item.assetId]))!;
+        expect(skipped.project.toJson(), edited.toJson());
+        expect(skipped.warnings.join(' '), contains('لتجنب تكراره'));
+        expect(
+          failing.calls,
+          3,
+          reason: 'the protected source was not re-cropped',
+        );
+        final controller = LayoutEditorController(project: edited, service: s);
+        final messages = <String>[];
+        controller.onMessage = messages.add;
+        await controller.reprocessImages([item.assetId]);
+        expect(controller.error, isNull);
+        expect(messages.single, contains('لتجنب تكراره'));
+        controller.dispose();
+
+        final unlocked = await projects.save(
+          edited.copyWith(items: [edited.items.single.copyWith(locked: false)]),
+        );
+        var id = 0;
+        final classified = await projects.save(
+          classifyItemManually(
+            unlocked,
+            itemId: item.id,
+            kind: DocumentKind.unifiedNationalId,
+            side: SideKind.front,
+            nextId: () => 'manual-regression-${id++}',
+          ),
+        );
+        expect(classified.documents.single.sides.single.detection, isNull);
+        final stillSkipped = (await s.reprocessImages(classified, [
+          item.assetId,
+        ]))!;
+        expect(stillSkipped.project.toJson(), classified.toJson());
+        expect(stillSkipped.warnings.join(' '), contains('لتجنب تكراره'));
+
+        // An explicit deletion, not inference, allows a genuine fresh retry.
+        final removed = await projects.save(
+          PageLayout.remove(classified, {item.id}),
+        );
+        final recovered = (await s.reprocessImages(removed, [item.assetId]))!;
+        expect(recovered.project.items, hasLength(2));
+        expect(recovered.project.documents, hasLength(2));
+        expect(recovered.project.assets, hasLength(3));
+        expect(
+          await (await assets.resolve(
+            recovered.project.assets.first.originalPath,
+          )).readAsBytes(),
+          bytes,
+        );
+      },
+    );
+
+    test(
+      'a manual source crop is kept while other sources reprocess',
+      () async {
+        final s = service();
+        final bytes = _twoCardPhoto();
+        var project = await s.create('حماية القص اليدوي');
+        project = (await s.importImages(project, [
+          ImportSource('يدوية.png', () => Stream<List<int>>.value(bytes)),
+          ImportSource('أخرى.png', () => Stream<List<int>>.value(bytes)),
+        ])).project;
+        final source = project.assets.first;
+        final other = project.assets.last;
+        project = await s.retainUnrepresentedImports(project, [source.id]);
+        final item = project.items.single;
+        final recipe = CropDraft(
+          corners: [
+            Point2(.125, .112),
+            Point2(.667, .112),
+            Point2(.667, .369),
+            Point2(.125, .369),
+          ],
+        ).toRecipe(source.width, source.height);
+        final confirmed = await s.confirmManualBoundary(
+          project,
+          source,
+          recipe,
+          documentKind: DocumentKind.unifiedNationalId,
+          targetItemId: item.id,
+          sourceWidth: source.width,
+          sourceHeight: source.height,
+        );
+        expect(
+          confirmed.documents.single.sides.single.detection!.producer,
+          'manual-user',
+        );
+        final report = (await s.reprocessImages(confirmed, [
+          source.id,
+          other.id,
+        ]))!;
+        final result = report.project;
+        expect(
+          result.items.firstWhere((i) => i.id == item.id).toJson(),
+          confirmed.items.single.toJson(),
+        );
+        expect(
+          result.documents
+              .firstWhere((d) => d.sourceImageId == source.id)
+              .toJson(),
+          confirmed.documents.single.toJson(),
+        );
+        expect(
+          result.documents.where((d) => d.sourceImageId == other.id),
+          hasLength(2),
+        );
+        expect(report.warnings.join(' '), contains('لتجنب تكراره'));
+        expect(
+          await (await assets.resolve(source.originalPath)).readAsBytes(),
+          bytes,
+        );
+      },
+    );
 
     test('the same photo recovers completely on a later run', () async {
       final failing = _FailingAssets(assets, failOnCall: 3);

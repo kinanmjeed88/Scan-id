@@ -502,9 +502,11 @@ class RecognitionPipeline {
         producer: effectiveProducer,
         corners: corners,
         region: region,
-        modelConfidence: minAutoAcceptConfidence == null
-            ? null
-            : detectionConfidence,
+        modelConfidence:
+            effectiveProducer == BoundaryProducer.learnedModel ||
+                minAutoAcceptConfidence != null
+            ? detectionConfidence
+            : null,
         minAutoAcceptConfidence: minAutoAcceptConfidence,
         touchesFrameEdge: touchesFrameEdge,
         forceReview: forceReview,
@@ -530,7 +532,12 @@ class RecognitionPipeline {
           issues.add(
             BatchItemFailure(
               category: RecognitionErrorCategory.geometryFailure,
-              message: boundaryReviewReasonMessage(reason),
+              message: boundaryReviewReasonMessage(
+                reason,
+                modelConfidence: decision.proposal.modelConfidence,
+                minAutoAcceptConfidence:
+                    decision.proposal.minAutoAcceptConfidence,
+              ),
             ),
           );
         }

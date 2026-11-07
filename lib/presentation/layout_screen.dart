@@ -235,8 +235,11 @@ class _LayoutScreenState extends State<LayoutScreen> {
             );
             continue;
           }
+          // [current] is reassigned below, so Dart cannot promote it inside a
+          // closure. Capture the promoted, non-null item before the lookup.
+          final pending = current;
           final asset = _c.project.assets
-              .where((entry) => entry.id == current.assetId)
+              .where((entry) => entry.id == pending.assetId)
               .firstOrNull;
           final suggestion = asset == null
               ? null

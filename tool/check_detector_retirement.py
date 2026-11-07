@@ -172,12 +172,45 @@ def verify() -> list[str]:
     )
     for token in (
         "implements ImageEditor, CropBytesImageEditor, BoundaryProposalImageEditor",
-        "detectDocumentCornersScored(decoded)",
-        "producer: BoundaryProducer.detector",
+        # The classical detector now runs INSIDE the measured-arbitration
+        # isolate: both claims are measured against the same gradient field
+        # before either is offered for review. The old single-stage tokens
+        # (detectDocumentCornersScored(decoded) / detector proposal inline)
+        # described a fallback path that no longer exists.
+        "measureBoundaryCandidates(",
+        "arbitrateBoundaryProposal(",
         "runCancellableIsolate(",
     ):
         if token not in editor:
             errors.append(f"local classical proposal path is missing required contract: {token}")
+
+    arbitration_path = ROOT / "lib/imaging/boundary_arbitration.dart"
+    if not arbitration_path.is_file():
+        errors.append("measured boundary arbitration is missing")
+    else:
+        arbitration_source = arbitration_path.read_text(encoding="utf-8")
+        for token in (
+            "detectDocumentCornersScored(image)",
+            "producer: BoundaryProducer.detector",
+            "BoundaryReviewReason.modelDisagreement",
+            "forceReview: true",
+            "isPlausibleBoundary(",
+            "containsQuad(",
+            "quadInRegion(",
+            "withinRefinementDisplacement(",
+        ):
+            if token not in arbitration_source:
+                errors.append(f"measured arbitration safety contract is missing: {token}")
+        for forbidden in (
+            "cropAuthorization",
+            "BoundaryDecisionKind.accepted",
+            "automaticAcceptanceThreshold =",
+        ):
+            if forbidden in arbitration_source:
+                errors.append(
+                    "arbitration must never grant or redefine automatic crop acceptance: "
+                    f"{forbidden}"
+                )
     model_path = ROOT / "assets/models/docquadnet256_trained_opset17.ort"
     expected_model_sha256 = "f0f2f52d7d79ff02d346c8f9d0c9e903407366aeea1747cdcff160c401e3e72a"
     if not model_path.is_file():

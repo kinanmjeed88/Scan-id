@@ -228,8 +228,8 @@ class ProjectService {
   /// available to the Dart test runner.
   final FullResolutionJpegCropper fullResolutionJpegCropper;
 
-  /// App-level Phase 1B gate. Production defaults to the disabled build flag;
-  /// tests can explicitly opt in to exercise the implementation behind it.
+  /// Recognition gate for this host. An unspecified host defaults to false;
+  /// the shipped application explicitly enables it at its composition root.
   final bool smartRecognitionEnabled;
 
   /// Independent import policy. It only segments candidate multi-document

@@ -843,11 +843,16 @@ class LayoutEditorController extends ChangeNotifier {
       _say('التعرف الذكي غير مفعّل في هذا البناء.');
       return;
     }
+    final details = [
+      ...r.warnings.take(3),
+      if (r.warnings.length > 3) 'وتوجد ${r.warnings.length - 3} تنبيهات أخرى.',
+    ].join('\n');
     _say(
       'أُعيد التعرف: تصنيف قيد المراجعة ${r.needsReview} · '
       'حدود للمراجعة ${r.boundaryNeedsReview} · بلا رباعي صالح ${r.notDetected}'
       '${r.warnings.isNotEmpty ? ' · مع ${r.warnings.length} تنبيه' : ''}'
-      '${r.rejectedSummary == null ? '' : '\n${r.rejectedSummary}'}',
+      '${r.rejectedSummary == null ? '' : '\n${r.rejectedSummary}'}'
+      '${details.isEmpty ? '' : '\n$details'}',
     );
   }
 

@@ -21,6 +21,7 @@ import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 import '../presentation/crop_tap_helpers.dart';
+import '../presentation/editor_harness.dart' show pumpCropPreviewResult;
 
 class _DelayedEditor implements ImageEditor {
   _DelayedEditor(this._inner);
@@ -261,6 +262,65 @@ void main() {
         );
       },
     );
+
+    testWidgets('real source displays and dragged corners preview and persist', (
+      tester,
+    ) async {
+      await pumpScreen(tester);
+      final sourceWidget = tester.widget<Image>(
+        find.byKey(const Key('crop-source-image')),
+      );
+      final pixels = img.decodePng((sourceWidget.image as MemoryImage).bytes)!;
+      expect((pixels.width, pixels.height), (120, 80));
+      final center = pixels.getPixel(60, 40);
+      expect(
+        (center.r.toInt(), center.g.toInt(), center.b.toInt()),
+        (220, 220, 210),
+      );
+      expect(find.text('تعذر عرض الصورة'), findsNothing);
+
+      await tapFourCorners(tester);
+      final corner = find.byKey(const Key('crop-corner-0'));
+      final beforeDrag = tester.getCenter(corner);
+      await tester.timedDrag(
+        corner,
+        const Offset(30, 20),
+        const Duration(milliseconds: 300),
+        // The visual handle is intentionally hit through the surrounding layer.
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect((tester.getCenter(corner) - beforeDrag).distance, greaterThan(5));
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropPreviewResult(tester);
+      expect(find.byKey(const Key('crop-result')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('accept-crop')));
+      await tester.tap(find.byKey(const Key('accept-crop')));
+      // Saving uses real filesystem and isolate work, not Flutter's fake clock.
+      for (var attempt = 0; attempt < 150; attempt++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find.text('open crop').evaluate().isNotEmpty) break;
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+      }
+      expect(find.text('open crop'), findsOneWidget);
+      final saved = (await tester.runAsync(() => projects.get(project.id)))!;
+      final asset = saved.assets.single;
+      expect(asset.userAuthoredCrop, isTrue);
+      expect(asset.crop, isNotNull);
+      expect(asset.crop!.corners.first.x, greaterThan(.2));
+      final files = (await tester.runAsync(
+        () async => (
+          await (await assets.resolve(asset.originalPath)).readAsBytes(),
+          await (await assets.resolve(asset.workingPath)).readAsBytes(),
+        ),
+      ))!;
+      expect(files.$1, original);
+      expect(img.decodeImage(files.$2), isNotNull);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('known category does not silently reshape a new manual draft', (
       tester,

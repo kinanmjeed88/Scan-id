@@ -728,7 +728,8 @@ class _CropScreenState extends State<CropScreen> {
     final measuredRatio = _requiresManualSize(current.selectedKind)
         ? _tryParseCustomRatio(nextW, nextH)
         : null;
-    final ratio = measuredRatio != null && _draft!.adjustments.quarterTurns.isOdd
+    final ratio =
+        measuredRatio != null && _draft!.adjustments.quarterTurns.isOdd
         ? 1 / measuredRatio
         : measuredRatio;
     final nextDraft = ratio != null && ratio != current.draft.aspectRatio

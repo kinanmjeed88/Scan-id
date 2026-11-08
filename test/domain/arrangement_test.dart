@@ -73,6 +73,7 @@ Project _project(
     ).copyWith(
       paper: PaperSettings(margins: Margins.all(margin)),
       items: items,
+      layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
       layoutGroups: layoutGroups,
     );
 
@@ -809,35 +810,44 @@ void main() {
     expect(PageLayout.item(turned.result, 'wide').width, 250);
   });
 
-  test(
-    'an unchosen layout records compact but remains effectively ordered',
-    () {
-      final project = _project([
-        _doc('passport', DocumentKind.passport),
-        _doc('id', DocumentKind.unifiedNationalId),
-      ]);
-      expect(project.layout.strategy, ArrangementStrategy.compact);
-      expect(project.layout.strategyChosen, isFalse);
-      expect(project.layout.arrangementStrategy, ArrangementStrategy.ordered);
+  test('a new unchosen layout actually uses compact gap filling', () {
+    final project = _project([
+      _doc('passport', DocumentKind.passport, x: 80, y: 150),
+      _doc('id', DocumentKind.unifiedNationalId, x: 10, y: 90),
+    ]).copyWith(layout: LayoutSettings());
+    expect(project.layout.strategy, ArrangementStrategy.compact);
+    expect(project.layout.strategyChosen, isFalse);
+    expect(project.layout.arrangementStrategy, ArrangementStrategy.compact);
 
-      final actual = arrangeDocuments(project).result;
-      final ordered = arrangeDocuments(
-        project.copyWith(
-          layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
-        ),
-      ).result;
-      expect(
-        {
-          for (final item in actual.items)
-            item.id: (item.x, item.y, item.pageIndex),
-        },
-        {
-          for (final item in ordered.items)
-            item.id: (item.x, item.y, item.pageIndex),
-        },
-      );
-    },
-  );
+    final actual = arrangeDocuments(project).result;
+    final compact = arrangeDocuments(
+      project.copyWith(
+        layout: LayoutSettings(strategy: ArrangementStrategy.compact),
+      ),
+    ).result;
+    expect(
+      {
+        for (final item in actual.items)
+          item.id: (item.x, item.y, item.pageIndex),
+      },
+      {
+        for (final item in compact.items)
+          item.id: (item.x, item.y, item.pageIndex),
+      },
+    );
+    expect(PageLayout.item(actual, 'id').y, 5);
+    expect(PageLayout.item(actual, 'passport').y, closeTo(63.98, 1e-9));
+    expect(PageLayout.item(actual, 'id').x, 5);
+    expect(PageLayout.item(actual, 'passport').x, 5);
+    expect(inspectLayout(actual), isEmpty);
+  });
+
+  test('legacy settings without a strategy keep ordered rows', () {
+    final legacy = LayoutSettings.fromJson(LayoutSettings().toJson());
+    expect(legacy.strategyChosen, isFalse);
+    expect(legacy.strategy, ArrangementStrategy.ordered);
+    expect(legacy.arrangementStrategy, ArrangementStrategy.ordered);
+  });
 
   // Compact packs more documents per page than ordered
   test(
@@ -897,15 +907,40 @@ void main() {
     if (bounds != null) {
       final area = r.paper.printable;
       final centerX = area.x + area.width / 2;
-      final centerY = area.y + area.height / 2;
       final groupCenterX = bounds.x + bounds.width / 2;
-      final groupCenterY = bounds.y + bounds.height / 2;
 
-      // The group should be centered within the printable area
+      // Horizontal alignment changes; the packed top position does not.
       expect((groupCenterX - centerX).abs(), lessThan(1.0));
-      expect((groupCenterY - centerY).abs(), lessThan(1.0));
+      expect(bounds.y, closeTo(area.y, 1e-9));
     }
   });
+
+  test(
+    'centering a newly added document keeps it below existing documents',
+    () {
+      final first = _sizedDoc('first', 85.6, 53.98).copyWith(x: 5, y: 5);
+      final second = _sizedDoc('second', 85.6, 53.98).copyWith(x: 95.6, y: 5);
+      final added = _sizedDoc('added', 85.6, 53.98, page: null);
+      final project = _project([first, second, added]).copyWith(
+        layout: LayoutSettings(
+          strategy: ArrangementStrategy.compact,
+          centerCaptures: true,
+        ),
+      );
+
+      final result = arrangeDocuments(project, keepPlaced: true);
+      final item = PageLayout.item(result.result, 'added');
+      expect(item.pageIndex, 0);
+      expect(item.y, greaterThanOrEqualTo(second.bottom + 5));
+      expect(item.y, lessThan(project.paper.printable.height / 2));
+      expect(PageLayout.item(result.result, 'first').toJson(), first.toJson());
+      expect(
+        PageLayout.item(result.result, 'second').toJson(),
+        second.toJson(),
+      );
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
 
   // Center captures off by default for old projects
   test(

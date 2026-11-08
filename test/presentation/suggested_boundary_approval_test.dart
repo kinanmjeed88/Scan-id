@@ -47,7 +47,9 @@ void main() {
         find.byKey(const Key('manual-classification-dialog')),
         findsOneWidget,
       );
-      // The ACTUAL cause is shown; the working dropdowns are untouched.
+      // The ACTUAL cause remains available on demand without blocking the
+      // primary manual action.
+      await tapKey(tester, const Key('manual-classification-diagnostics'));
       expect(
         find.byKey(const Key('manual-classification-reasons')),
         findsOneWidget,
@@ -69,9 +71,6 @@ void main() {
       await tapKey(tester, const Key('manual-classification-kind'));
       await tester.tap(find.text(DocumentKind.residenceCard.label).last);
       await tester.pumpAndSettle();
-      await tapKey(tester, const Key('manual-classification-side'));
-      await tester.tap(find.text('الوجه الأول (أمامي)').last);
-      await tester.pumpAndSettle();
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();
 
@@ -85,7 +84,13 @@ void main() {
       expect(item.pageIndex, isNotNull);
       expect(item.width, closeTo(92.4, .01));
       expect(item.height, closeTo(62.8, .01));
-      expect(harness.saved.assets.first.crop, isNotNull);
+      final crop = harness.saved.assets.first.crop!;
+      final expectedAspect = item.width / item.height;
+      expect(
+        crop.outputWidth / crop.outputHeight,
+        closeTo(expectedAspect, 2 * expectedAspect / crop.outputHeight),
+        reason: 'direct approval leaves no band beyond integer pixel rounding',
+      );
       expect(tester.takeException(), isNull);
     },
   );

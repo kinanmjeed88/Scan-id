@@ -28,6 +28,7 @@ class _DelayedEditor implements ImageEditor {
   final LocalImageEditor _inner;
   final openedTokens = <CancellationToken?>[];
   final previewTokens = <CancellationToken?>[];
+  ImageEditRecipe? lastPreview;
   Completer<void>? blockPreview;
   // What a Suggest tap returns. Null means no detection result.
   List<Point2>? suggestion;
@@ -51,6 +52,7 @@ class _DelayedEditor implements ImageEditor {
     CancellationToken? cancellation,
   }) async {
     previewTokens.add(cancellation);
+    lastPreview = recipe;
     final block = blockPreview;
     if (block != null) await block.future;
     return _inner.preview(asset, recipe, cancellation: cancellation);
@@ -195,12 +197,14 @@ void main() {
       // loading state rather than pumpAndSettle on an indeterminate spinner.
       for (var attempt = 0; attempt < 80; attempt++) {
         await tester.pump(const Duration(milliseconds: 20));
-        if (find.byKey(const Key('crop-aspect')).evaluate().isNotEmpty) break;
+        if (find.byKey(const Key('crop-document-kind')).evaluate().isNotEmpty) {
+          break;
+        }
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 20)),
         );
       }
-      expect(find.byKey(const Key('crop-aspect')), findsOneWidget);
+      expect(find.byKey(const Key('crop-document-kind')), findsOneWidget);
     }
 
     ButtonStyleButton previewButton(WidgetTester tester) =>
@@ -322,16 +326,31 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('known category does not silently reshape a new manual draft', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      final aspect = tester.widget<DropdownButton<double?>>(
-        find.byKey(const Key('crop-aspect')),
-      );
-      expect(aspect.value, isNull, reason: 'measured corners are the default');
-      expect(editor.openedTokens.single, isNotNull);
-    });
+    testWidgets(
+      'known category previews at its physical aspect without bands',
+      (tester) async {
+        await pumpScreen(tester);
+        expect(
+          find.byKey(const Key('crop-aspect')),
+          findsNothing,
+          reason:
+              'a selected category must not expose a competing shape choice',
+        );
+        expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
+        expect(editor.openedTokens.single, isNotNull);
+        await tapFourCorners(tester);
+        await tester.ensureVisible(find.text('معاينة التصحيح'));
+        await tester.tap(find.text('معاينة التصحيح'));
+        await pumpCropPreviewResult(tester);
+        final geometry = editor.lastPreview!.geometry;
+        const expectedAspect = 85.6 / 53.98;
+        expect(
+          geometry.outputWidth / geometry.outputHeight,
+          closeTo(expectedAspect, 2 * expectedAspect / geometry.outputHeight),
+          reason: 'integer raster rounding may not exceed one output pixel',
+        );
+      },
+    );
 
     // C3: no usable boundary means an unapproved full frame, gated until four
     // valid taps. The gate is the state, not a screen variable.

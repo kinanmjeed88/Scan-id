@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/presentation/boundary_hit_layer.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 
 import '../fixtures.dart';
@@ -155,6 +156,36 @@ void main() {
     });
   }
 
+  for (var corner = 0; corner < 4; corner++) {
+    testWidgets('corner $corner captures a press arriving from outside', (
+      tester,
+    ) async {
+      await _pumpCrop(tester);
+      final outward = switch (corner) {
+        0 => const Offset(-18, -18),
+        1 => const Offset(18, -18),
+        2 => const Offset(18, 18),
+        _ => const Offset(-18, 18),
+      };
+      final before = _normalized(tester, corner);
+      final start = _handleCentre(tester, corner) + outward;
+      final hitPath = tester.hitTestOnBinding(start).path;
+      expect(
+        hitPath.any((entry) => entry.target is RenderBoundaryHitLayer),
+        isTrue,
+        reason: 'outside press $start must reach the boundary; path: $hitPath',
+      );
+
+      // Continue past the original corner into the image. Ending at -outward
+      // would correctly restore the original point and prove no movement.
+      await dragInSteps(tester, start, -outward * 2);
+
+      final after = _normalized(tester, corner);
+      expect((after - before).distance, greaterThan(.01));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('T04 pan: the dragged corner follows', (tester) async {
     await _pumpCrop(tester);
     await _setZoom(tester, 3, topLeftInViewer: const Offset(120, 80));
@@ -287,6 +318,28 @@ void main() {
       expect(now.dx, closeTo(before[i].dx, 1e-9), reason: 'x$i unchanged');
       expect(now.dy, closeTo(before[i].dy, 1e-9), reason: 'y$i unchanged');
     }
+  });
+
+  testWidgets('the live loupe stays opposite the dragged top-right corner', (
+    tester,
+  ) async {
+    await _pumpCrop(tester);
+    final gesture = await tester.startGesture(_handleCentre(tester, 1));
+    await gesture.moveBy(const Offset(-12, 12));
+    await tester.pump();
+
+    final alignment = tester.widget<Align>(
+      find.byKey(const Key('crop-loupe-alignment')),
+    );
+    expect(alignment.alignment, Alignment.bottomLeft);
+    final loupe = tester.getRect(find.byKey(const Key('crop-precision-loupe')));
+    final finger = _handleCentre(tester, 1);
+    expect(loupe.center.dy, greaterThan(finger.dy));
+    expect(loupe.center.dx, lessThan(finger.dx));
+
+    await gesture.up();
+    await tester.pump();
+    expect(find.byKey(const Key('crop-precision-loupe')), findsNothing);
   });
 
   testWidgets('T06 widget: a crossing drag is refused', (tester) async {

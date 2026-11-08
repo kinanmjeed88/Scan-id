@@ -1,5 +1,3 @@
-import 'dart:collection';
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -7,23 +5,11 @@ import 'package:flutter/widgets.dart';
 import '../domain/geometry.dart';
 import 'boundary_handle.dart';
 
-/// One geometric hit region for the four corners AND the four edges of a crop
-/// boundary.
+/// Geometric input for the four corners and four edges of a crop boundary.
 ///
-/// Hit testing happens in one pass, in the viewer's CONTENT coordinates:
-/// a corner wins inside [cornerCaptureRadiusPx], otherwise the nearest edge
-/// inside [edgeCaptureWidthPx] is selected. A pointer outside every region is
-/// not hit at all, so the enclosing [InteractiveViewer] keeps panning.
-///
-/// The layer owns an [ImmediateMultiDragGestureRecognizer] that accepts the
-/// pointer on touch-down, before the viewer's pan recognizer can claim it. The
-/// handle is attached to the pointer at HIT-TEST time (where coordinates are
-/// unambiguous) instead of being recomputed from a global drag position, and
-/// each drag carries its own handle. That removes the shared single-pointer
-/// field which used to be overwritten by a second touch mid-gesture.
-///
-/// Coordinates: [corners] are normalized (0..1) on the canvas; the canvas sits
-/// at [inset] inside this layer's coordinate space.
+/// Only a real handle is hit; empty space remains available to the enclosing
+/// [InteractiveViewer] for panning and pinching. Every accepted pointer owns a
+/// separate recognizer, so a second finger cannot overwrite the active handle.
 class BoundaryHitLayer extends LeafRenderObjectWidget {
   const BoundaryHitLayer({
     super.key,
@@ -41,8 +27,7 @@ class BoundaryHitLayer extends LeafRenderObjectWidget {
   final Size canvasSize;
   final double inset;
 
-  /// Current viewer scale, read through a callback so the capture regions stay
-  /// in SCREEN pixels without rebuilding on every zoom step.
+  /// Current viewer scale, read lazily so capture targets remain screen-sized.
   final double Function() zoom;
 
   final void Function(BoundaryHandle handle) onDragStart;
@@ -85,7 +70,7 @@ class RenderBoundaryHitLayer extends RenderBox {
   RenderBoundaryHitLayer({
     required List<Point2> corners,
     required Size canvasSize,
-    required double inset,
+    required this.inset,
     required double Function() zoom,
     required this.onDragStart,
     required this.onDragUpdate,
@@ -93,24 +78,15 @@ class RenderBoundaryHitLayer extends RenderBox {
     required this.onDragCancel,
   }) : _corners = corners,
        _canvasSize = canvasSize,
-       _inset = inset,
-       _zoom = zoom {
-    _multi = ImmediateMultiDragGestureRecognizer()..onStart = _startDrag;
-  }
+       _zoom = zoom;
 
-  late final ImmediateMultiDragGestureRecognizer _multi;
-
-  /// Handles claimed by a pointer down but not yet handed to its drag. An
-  /// immediate recognizer starts each drag synchronously, in pointer-down
-  /// order, so this queue stays at most one entry deep in ordinary use.
-  final Queue<BoundaryHandle> _pending = Queue<BoundaryHandle>();
+  final Map<int, _BoundaryGestureRecognizer> _recognizers = {};
 
   List<Point2> get corners => _corners;
   List<Point2> _corners;
   set corners(List<Point2> value) {
     if (_samePoints(_corners, value)) return;
     _corners = value;
-    markNeedsPaint();
   }
 
   Size get canvasSize => _canvasSize;
@@ -118,16 +94,9 @@ class RenderBoundaryHitLayer extends RenderBox {
   set canvasSize(Size value) {
     if (_canvasSize == value) return;
     _canvasSize = value;
-    markNeedsPaint();
   }
 
-  double get inset => _inset;
-  double _inset;
-  set inset(double value) {
-    if (_inset == value) return;
-    _inset = value;
-    markNeedsPaint();
-  }
+  double inset;
 
   double Function() _zoom;
   set zoom(double Function() value) => _zoom = value;
@@ -136,20 +105,6 @@ class RenderBoundaryHitLayer extends RenderBox {
   void Function(BoundaryHandle handle, Offset globalPosition) onDragUpdate;
   void Function(BoundaryHandle handle) onDragEnd;
   void Function(BoundaryHandle handle) onDragCancel;
-
-  Drag? _startDrag(Offset _) {
-    if (_pending.isEmpty) return null;
-    final handle = _pending.removeFirst();
-    onDragStart(handle);
-    return _BoundaryDrag(this, handle);
-  }
-
-  void _dragUpdated(BoundaryHandle handle, Offset globalPosition) =>
-      onDragUpdate(handle, globalPosition);
-
-  void _dragEnded(BoundaryHandle handle) => onDragEnd(handle);
-
-  void _dragCancelled(BoundaryHandle handle) => onDragCancel(handle);
 
   @override
   void performLayout() {
@@ -164,8 +119,7 @@ class RenderBoundaryHitLayer extends RenderBox {
   }
 
   /// The handle under a CONTENT-space [position], or null outside every
-  /// capture region. Screen-pixel sizes are divided by the viewer scale so
-  /// zooming never shrinks the touch targets.
+  /// capture region. Screen-pixel sizes are divided by the viewer scale.
   BoundaryHandle? handleAt(Offset position) {
     if (!position.dx.isFinite || !position.dy.isFinite) return null;
     final rawZoom = _zoom();
@@ -180,9 +134,6 @@ class RenderBoundaryHitLayer extends RenderBox {
 
   @override
   bool hitTest(BoxHitTestResult result, {required Offset position}) {
-    // The default RenderBox implementation bounds the hit to this box. Keep
-    // that contract explicitly: a corner near the edge must not capture a
-    // pointer that actually landed outside the canvas.
     if (!size.contains(position)) return false;
     final handle = handleAt(position);
     if (handle == null) return false;
@@ -192,41 +143,67 @@ class RenderBoundaryHitLayer extends RenderBox {
 
   @override
   void handleEvent(PointerEvent event, covariant HitTestEntry entry) {
-    if (entry is! _BoundaryHitEntry) return;
-    if (event is PointerDownEvent) {
-      _pending.add(entry.handle);
-      _multi.addPointer(event);
-    } else if (event is PointerCancelEvent && _pending.isNotEmpty) {
-      // A pointer that was never accepted must not leave a stale handle for a
-      // later drag.
-      _pending.remove(entry.handle);
-    }
+    if (entry is! _BoundaryHitEntry || event is! PointerDownEvent) return;
+    // Do not replace a live pointer if a framework replay delivers its down
+    // event twice. Each physical pointer has exactly one owner for its lifetime.
+    if (_recognizers.containsKey(event.pointer)) return;
+    final recognizer = _BoundaryGestureRecognizer(this, entry.handle);
+    _recognizers[event.pointer] = recognizer;
+    recognizer.addAllowedPointer(event);
+  }
+
+  void _releaseRecognizer(int pointer, _BoundaryGestureRecognizer recognizer) {
+    if (!identical(_recognizers[pointer], recognizer)) return;
+    _recognizers.remove(pointer);
+    recognizer.dispose();
   }
 
   @override
   void dispose() {
-    _multi.dispose();
-    _pending.clear();
+    for (final recognizer in _recognizers.values) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
     super.dispose();
   }
 }
 
-class _BoundaryDrag extends Drag {
-  _BoundaryDrag(this._layer, this._handle);
+/// A pointer-specific recognizer that wins immediately only after geometric
+/// hit testing has found a handle. This avoids the shared pending-handle queue
+/// and the gesture-arena race of the previous multi-drag implementation.
+class _BoundaryGestureRecognizer extends OneSequenceGestureRecognizer {
+  _BoundaryGestureRecognizer(this._layer, this._handle);
 
   final RenderBoundaryHitLayer _layer;
   final BoundaryHandle _handle;
 
   @override
-  void update(DragUpdateDetails details) {
-    _layer._dragUpdated(_handle, details.globalPosition);
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    _layer.onDragStart(_handle);
+    resolve(GestureDisposition.accepted);
   }
 
   @override
-  void end(DragEndDetails details) => _layer._dragEnded(_handle);
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent) {
+      _layer.onDragUpdate(_handle, event.position);
+    } else if (event is PointerUpEvent) {
+      _layer.onDragEnd(_handle);
+      stopTrackingPointer(event.pointer);
+      _layer._releaseRecognizer(event.pointer, this);
+    } else if (event is PointerCancelEvent) {
+      _layer.onDragCancel(_handle);
+      stopTrackingPointer(event.pointer);
+      _layer._releaseRecognizer(event.pointer, this);
+    }
+  }
 
   @override
-  void cancel() => _layer._dragCancelled(_handle);
+  void didStopTrackingLastPointer(int pointer) {}
+
+  @override
+  String get debugDescription => 'crop-boundary';
 }
 
 class _BoundaryHitEntry extends BoxHitTestEntry {

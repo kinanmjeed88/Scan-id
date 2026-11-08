@@ -279,7 +279,16 @@ class LayoutEditorController extends ChangeNotifier {
     ArrangementResult? outcome;
     final ok = await run(
       () => session.apply((p) {
-        outcome = arrangeDocuments(p);
+        // The explicit command reflows and fills gaps; it is not the separate
+        // “centre the current group” command. Persist that choice so the next
+        // automatic edit cannot silently restore by-kind group centring.
+        final target = p.copyWith(
+          layout: p.layout.copyWith(
+            strategy: ArrangementStrategy.compact,
+            centerCaptures: false,
+          ),
+        );
+        outcome = arrangeDocuments(target);
         return outcome!.result;
       }),
     );

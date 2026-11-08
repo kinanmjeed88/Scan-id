@@ -1272,22 +1272,38 @@ class ProjectService {
         (natural == null
             ? null
             : project.catalog.sizeFor(documentKind, landscape: landscape));
+    // A confirmed physical size is also the output aspect contract. Building
+    // the rectified pixels at that ratio prevents BoxFit.contain from adding
+    // white bands to the A4 slot. Rotation is applied after the crop, so its
+    // ratio must be inverted here when the quarter-turn count is odd.
+    final outputAspect = resolvedSize == null
+        ? null
+        : (turned
+              ? resolvedSize.height / resolvedSize.width
+              : resolvedSize.width / resolvedSize.height);
+    final resolvedRecipe = outputAspect == null
+        ? recipe
+        : CropDraft(
+            corners: recipe.geometry.corners,
+            adjustments: recipe.adjustments,
+            aspectRatio: outputAspect,
+          ).toRecipe(resolvedWidth, resolvedHeight);
     requireValidManualBoundary(
-      corners: recipe.geometry.corners,
+      corners: resolvedRecipe.geometry.corners,
       sourceWidth: resolvedWidth,
       sourceHeight: resolvedHeight,
-      adjustments: recipe.adjustments,
+      adjustments: resolvedRecipe.adjustments,
       documentKind: documentKind,
       customSizeMm: resolvedSize,
       catalog: project.catalog,
       requireConfirmedSize: resolvedSize != null,
       allowUnconfirmedSize: resolvedSize == null,
     );
-    final updated = await createImageRevision(project, asset, recipe);
+    final updated = await createImageRevision(project, asset, resolvedRecipe);
     final next = applyManualConfirmationToProject(
       project,
       updatedAsset: updated,
-      recipe: recipe,
+      recipe: resolvedRecipe,
       documentKind: documentKind,
       sizeMm: resolvedSize,
       nextId: newId,

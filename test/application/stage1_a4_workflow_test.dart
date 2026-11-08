@@ -862,6 +862,42 @@ void main() {
       );
       expect(confirmedItem.sizeConfirmed, isTrue);
       expect(confirmedItem.pageIndex, 0);
+      final confirmedCrop = project.assets
+          .firstWhere((asset) => asset.id == truncAsset.id)
+          .crop!;
+      final expectedAspect = confirmedItem.width / confirmedItem.height;
+      expect(
+        confirmedCrop.outputWidth / confirmedCrop.outputHeight,
+        closeTo(
+          expectedAspect,
+          2 * expectedAspect / confirmedCrop.outputHeight,
+        ),
+        reason: 'integer raster rounding may not exceed one output pixel',
+      );
+      final fitted = containedDocumentRect(
+        itemX: confirmedItem.x,
+        itemY: confirmedItem.y,
+        itemWidth: confirmedItem.width,
+        itemHeight: confirmedItem.height,
+        imageWidth: confirmedCrop.outputWidth,
+        imageHeight: confirmedCrop.outputHeight,
+      );
+      expect(
+        fitted.width,
+        closeTo(
+          confirmedItem.width,
+          2 * confirmedItem.width / confirmedCrop.outputWidth,
+        ),
+        reason: 'a subpixel raster rounding margin is not a white band',
+      );
+      expect(
+        fitted.height,
+        closeTo(
+          confirmedItem.height,
+          2 * confirmedItem.height / confirmedCrop.outputHeight,
+        ),
+        reason: 'a subpixel raster rounding margin is not a white band',
+      );
       expect(hasManualBoundaryOverride(confirmedRecord), isTrue);
       expect(hasUnresolvedBoundary(confirmedRecord), isFalse);
 

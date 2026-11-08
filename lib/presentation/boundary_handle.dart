@@ -53,6 +53,13 @@ final class EdgeHandle extends BoundaryHandle {
 /// that lands anywhere on the visible circle always starts the drag.
 const double cornerCaptureRadiusPx = 32;
 
+/// Space reserved around the image for the COMPLETE corner capture target.
+///
+/// The crop canvas, visual handles and hit layer must all use this same inset.
+/// A smaller inset clips the outer half of a corner target at the image/frame
+/// boundary, which makes a press arriving from outside the image unresponsive.
+const double boundaryCanvasInsetPx = cornerCaptureRadiusPx + 8;
+
 /// Screen-space half-width of an edge's capture band, in logical pixels.
 const double edgeCaptureWidthPx = 18;
 

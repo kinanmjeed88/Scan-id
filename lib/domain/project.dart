@@ -119,10 +119,10 @@ class LayoutSettings {
   final bool allowRotation;
   final LayoutOrder order;
 
-  /// The strategy recorded for this project. When the user never chose one,
-  /// the model still reports [ArrangementStrategy.compact] as the product's
-  /// preferred default, while [arrangementStrategy] keeps the classic by-kind
-  /// rows until a choice is made — the established layout contract.
+  /// The strategy recorded for this project. New in-memory projects default to
+  /// compact packing so «ترتيب تلقائي» fills gaps instead of merely centring
+  /// by-kind rows. Legacy JSON without a strategy is explicitly mapped to
+  /// ordered rows in [fromJson], preserving existing pages on reopen.
   final ArrangementStrategy strategy;
 
   /// Whether [strategy] was explicitly chosen (constructor argument,
@@ -137,9 +137,7 @@ class LayoutSettings {
   final bool autoFlow;
 
   /// The strategy used when arranging unless the caller overrides it.
-  /// Projects that never recorded a strategy choice keep the by-kind rows.
-  ArrangementStrategy get arrangementStrategy =>
-      strategyChosen ? strategy : ArrangementStrategy.ordered;
+  ArrangementStrategy get arrangementStrategy => strategy;
 
   LayoutSettings copyWith({
     double? horizontalGap,

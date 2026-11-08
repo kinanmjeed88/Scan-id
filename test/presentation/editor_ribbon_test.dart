@@ -161,6 +161,24 @@ void main() {
     expect(() => PageLayout.checked(editor.saved), returnsNormally);
   });
 
+  testWidgets(
+    'app bar: print/export sits beside undo and opens the same exporter',
+    (tester) async {
+      await EditorHarness.pump(tester);
+      expect(find.byKey(const Key('qa-export')), findsOneWidget);
+      expect(find.byKey(const Key('qa-undo')), findsOneWidget);
+      expect(find.byKey(const Key('qa-redo')), findsOneWidget);
+      expect(find.byKey(const Key('rb-quick-export')), findsNothing);
+
+      await tapKey(tester, const Key('qa-export'));
+      expect(find.byType(ExportScreen), findsOneWidget);
+      tester.state<NavigatorState>(find.byType(Navigator)).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(LayoutScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('home: undo, redo, duplicate, delete and select all', (
     tester,
   ) async {
@@ -217,6 +235,14 @@ void main() {
     await tapKey(tester, const Key('rb-arrange'));
     expect(itemIn(editor.saved, 'card').y, closeTo(5, 1e-6));
     expect(itemIn(editor.saved, 'passport').y, closeTo(5 + 53.98 + 5, 1e-6));
+    expect(
+      itemIn(editor.saved, 'passport').x,
+      closeTo(5, 1e-6),
+      reason: 'compact packing uses the gap instead of centering the old row',
+    );
+    expect(itemIn(editor.saved, 'card').x, closeTo(5, 1e-6));
+    expect(editor.saved.layout.strategy, ArrangementStrategy.compact);
+    expect(editor.saved.layout.centerCaptures, isFalse);
     expect(_button(tester, 'rb-autoflow').selected, isTrue);
 
     await tapKey(tester, const Key('rb-autoflow'));

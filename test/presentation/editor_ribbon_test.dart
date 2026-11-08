@@ -162,14 +162,15 @@ void main() {
   });
 
   testWidgets(
-    'home: print/export sits beside undo and opens the same exporter',
+    'app bar: print/export sits beside undo and opens the same exporter',
     (tester) async {
       await EditorHarness.pump(tester);
-      expect(find.byKey(const Key('rb-quick-export')), findsOneWidget);
-      expect(find.byKey(const Key('rb-undo')), findsOneWidget);
-      expect(find.byKey(const Key('rb-redo')), findsOneWidget);
+      expect(find.byKey(const Key('qa-export')), findsOneWidget);
+      expect(find.byKey(const Key('qa-undo')), findsOneWidget);
+      expect(find.byKey(const Key('qa-redo')), findsOneWidget);
+      expect(find.byKey(const Key('rb-quick-export')), findsNothing);
 
-      await tapKey(tester, const Key('rb-quick-export'));
+      await tapKey(tester, const Key('qa-export'));
       expect(find.byType(ExportScreen), findsOneWidget);
       tester.state<NavigatorState>(find.byType(Navigator)).pop();
       await tester.pumpAndSettle();

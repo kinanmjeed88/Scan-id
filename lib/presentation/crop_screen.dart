@@ -781,13 +781,19 @@ class _CropScreenState extends State<CropScreen> {
     final physicalAspect = catalogSize == null
         ? null
         : catalogSize.width / catalogSize.height;
-    final aspectRatio =
-        _draft!.aspectRatio ??
-        (physicalAspect == null
-            ? null
-            : _draft!.adjustments.quarterTurns.isOdd
-            ? 1 / physicalAspect
-            : physicalAspect);
+    final keepMeasuredRatio =
+        _requiresManualSize(_selectedKind) &&
+        (_sizeTextEdited || _initialSizeWasUserAuthored);
+    // A saved crop may have been portrait before the user moved its corners
+    // to a landscape document. Catalog geometry follows the CURRENT corners;
+    // only an explicitly measured custom size may keep the draft ratio.
+    final catalogAspect =
+        physicalAspect == null || keepMeasuredRatio
+        ? null
+        : _draft!.adjustments.quarterTurns.isOdd
+        ? 1 / physicalAspect
+        : physicalAspect;
+    final aspectRatio = catalogAspect ?? _draft!.aspectRatio;
     final validation = requireValidManualBoundary(
       corners: _draft!.corners,
       sourceWidth: _source!.width,

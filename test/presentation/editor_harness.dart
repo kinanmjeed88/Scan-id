@@ -268,6 +268,7 @@ class NoAssets implements AssetRepository {
 class FakeImageEditor implements ImageEditor {
   final bytes = img.encodePng(img.Image(width: 64, height: 40));
   int revisions = 0;
+  ImageEditRecipe? lastPreview;
 
   @override
   Future<EditorSource> open(
@@ -288,7 +289,10 @@ class FakeImageEditor implements ImageEditor {
     ImageAsset asset,
     ImageEditRecipe recipe, {
     CancellationToken? cancellation,
-  }) async => bytes;
+  }) async {
+    lastPreview = recipe;
+    return bytes;
+  }
 
   @override
   Future<ImageAsset> createRevision(

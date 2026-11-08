@@ -804,14 +804,19 @@ Map<String, DocumentItem> _ordered(
     }
   }
   closeRow();
-  // Center the entire group of placed items on each page.
+  // Center each page horizontally while preserving packed Y positions.
   if (project.layout.centerCaptures && placed.isNotEmpty) {
     _centerPageItems(placed, area, gx, gy, obstacles);
   }
   return placed;
 }
 
-/// Centers the group of placed items on each page within the printable area.
+/// Horizontally centers placed items without changing their packed Y positions.
+///
+/// Vertical centering used to move a small first row to the middle of A4 and,
+/// with keep-placed, could move only a newly added document there. The user's
+/// reading order and the packer's vertical placement are intentional; this
+/// command changes alignment only.
 void _centerPageItems(
   Map<String, DocumentItem> placed,
   RectMm area,
@@ -829,7 +834,7 @@ void _centerPageItems(
     if (bounds == null) continue;
     // Check that centering won't cause overlap with obstacles.
     final shiftX = (area.width - bounds.width) / 2 - (bounds.x - area.x);
-    final shiftY = (area.height - bounds.height) / 2 - (bounds.y - area.y);
+    const shiftY = 0.0;
     final shifted = pageItems.map((item) {
       final bounds = item.bounds;
       return RectMm(
@@ -981,9 +986,8 @@ Map<String, DocumentItem> _compactPass(
     if (!progress && pageWasEmpty) break;
     page++;
   }
-  // Center the group of placed items on each page, preserving relative
-  // positions from the packing algorithm and never colliding with items
-  // that stayed put (locked or keep-placed).
+  // Center each page horizontally, preserving relative positions and never
+  // colliding with items that stayed put (locked or keep-placed).
   if (project.layout.centerCaptures && placed.isNotEmpty) {
     final obstacles = <int, List<RectMm>>{};
     for (final item in project.items) {

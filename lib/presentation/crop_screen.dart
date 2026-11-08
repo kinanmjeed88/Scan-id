@@ -633,12 +633,12 @@ class _CropScreenState extends State<CropScreen> {
       math.pow((c[a].x - c[b].x) * sx, 2) + math.pow((c[a].y - c[b].y) * sy, 2),
     );
     final landscape = edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
-    return _adjustments.quarterTurns.isOdd ? !landscape : landscape;
+    return _draft!.adjustments.quarterTurns.isOdd ? !landscape : landscape;
   }
 
   /// Catalog shapes turned to the orientation of the current selection.
   List<(String, double)> _aspectPresets() {
-    final landscape = _adjustments.quarterTurns.isOdd
+    final landscape = _draft!.adjustments.quarterTurns.isOdd
         ? !_draftLandscape
         : _draftLandscape;
     return [
@@ -728,7 +728,7 @@ class _CropScreenState extends State<CropScreen> {
     final measuredRatio = _requiresManualSize(current.selectedKind)
         ? _tryParseCustomRatio(nextW, nextH)
         : null;
-    final ratio = measuredRatio != null && _adjustments.quarterTurns.isOdd
+    final ratio = measuredRatio != null && _draft!.adjustments.quarterTurns.isOdd
         ? 1 / measuredRatio
         : measuredRatio;
     final nextDraft = ratio != null && ratio != current.draft.aspectRatio
@@ -784,7 +784,7 @@ class _CropScreenState extends State<CropScreen> {
         _draft!.aspectRatio ??
         (physicalAspect == null
             ? null
-            : _adjustments.quarterTurns.isOdd
+            : _draft!.adjustments.quarterTurns.isOdd
             ? 1 / physicalAspect
             : physicalAspect);
     final validation = requireValidManualBoundary(
@@ -860,7 +860,7 @@ class _CropScreenState extends State<CropScreen> {
     final hasDefaultSize = _catalogSize(kind) != null;
     final double? nextRatio;
     double beforeRotation(double ratio) =>
-        _adjustments.quarterTurns.isOdd ? 1 / ratio : ratio;
+        _draft!.adjustments.quarterTurns.isOdd ? 1 / ratio : ratio;
     if (natural != null && !_requiresManualSize(kind)) {
       final oriented = natural.oriented(landscape: _draftLandscape);
       nextRatio = beforeRotation(oriented.width / oriented.height);

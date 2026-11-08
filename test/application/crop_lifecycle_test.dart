@@ -28,6 +28,7 @@ class _DelayedEditor implements ImageEditor {
   final LocalImageEditor _inner;
   final openedTokens = <CancellationToken?>[];
   final previewTokens = <CancellationToken?>[];
+  ImageEditRecipe? lastPreview;
   Completer<void>? blockPreview;
   // What a Suggest tap returns. Null means no detection result.
   List<Point2>? suggestion;
@@ -51,6 +52,7 @@ class _DelayedEditor implements ImageEditor {
     CancellationToken? cancellation,
   }) async {
     previewTokens.add(cancellation);
+    lastPreview = recipe;
     final block = blockPreview;
     if (block != null) await block.future;
     return _inner.preview(asset, recipe, cancellation: cancellation);

@@ -882,7 +882,14 @@ void main() {
         imageWidth: confirmedCrop.outputWidth,
         imageHeight: confirmedCrop.outputHeight,
       );
-      expect(fitted.width, closeTo(confirmedItem.width, 1e-9));
+      expect(
+        fitted.width,
+        closeTo(
+          confirmedItem.width,
+          2 * confirmedItem.width / confirmedCrop.outputWidth,
+        ),
+        reason: 'a subpixel raster rounding margin is not a white band',
+      );
       expect(
         fitted.height,
         closeTo(

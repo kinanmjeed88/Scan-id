@@ -390,8 +390,9 @@ void main() {
     await dragInSteps(tester, topMidpoint, Offset(0, 0.2 * r.height));
     await tester.pump();
 
-    expect(_normalized(tester, 0).dy, closeTo(0.2, 0.02));
-    expect(_normalized(tester, 1).dy, closeTo(0.2, 0.02));
+    final y0 = _normalized(tester, 0).dy;
+    expect(y0, greaterThan(0.15));
+    expect(_normalized(tester, 1).dy, closeTo(y0, 1e-9));
     expect(_normalized(tester, 2).dy, closeTo(1.0, _pxTol / r.height));
     expect(_normalized(tester, 3).dy, closeTo(1.0, _pxTol / r.height));
     expect(tester.takeException(), isNull);

@@ -70,7 +70,7 @@ class RenderBoundaryHitLayer extends RenderBox {
   RenderBoundaryHitLayer({
     required List<Point2> corners,
     required Size canvasSize,
-    required double inset,
+    required this.inset,
     required double Function() zoom,
     required this.onDragStart,
     required this.onDragUpdate,
@@ -78,7 +78,6 @@ class RenderBoundaryHitLayer extends RenderBox {
     required this.onDragCancel,
   }) : _corners = corners,
        _canvasSize = canvasSize,
-       _inset = inset,
        _zoom = zoom;
 
   final Map<int, _BoundaryGestureRecognizer> _recognizers = {};
@@ -97,9 +96,7 @@ class RenderBoundaryHitLayer extends RenderBox {
     _canvasSize = value;
   }
 
-  double get inset => _inset;
-  double _inset;
-  set inset(double value) => _inset = value;
+  double inset;
 
   double Function() _zoom;
   set zoom(double Function() value) => _zoom = value;

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../domain/boundary_suggestion.dart';
 import '../domain/document_kind.dart';
+import '../domain/recognition_explanation.dart';
 import '../domain/manual_classification.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
@@ -14,10 +16,15 @@ class ManualClassificationChoice {
   const ManualClassificationChoice({
     required this.kind,
     required this.side,
+    required this.applySuggestedBoundary,
     this.partnerItemId,
   });
   final DocumentKind kind;
   final SideKind side;
+
+  /// The user explicitly approved the 4-corner boundary recognition already
+  /// saved for the image, so no manual crop editor is needed for it.
+  final bool applySuggestedBoundary;
   final String? partnerItemId;
 }
 
@@ -56,6 +63,7 @@ class _ManualClassificationDialogState
   DocumentKind? _kind;
   SideKind? _side;
   String? _partnerId;
+  bool _applySuggestedBoundary = true;
 
   @override
   void initState() {
@@ -85,6 +93,12 @@ class _ManualClassificationDialogState
     final record = project.documents
         .where((entry) => entry.id == item.documentId)
         .firstOrNull;
+    final hasUsableSuggestion = inspectSuggestedBoundary(
+      project,
+      asset,
+      sourceWidth: asset.width,
+      sourceHeight: asset.height,
+    ).isUsable;
     final boundaryScore =
         record?.sides.firstOrNull?.detection?.detectionConfidence?.value;
     final kindScore = record?.recognition?.confidences.classification?.value;
@@ -146,6 +160,49 @@ class _ManualClassificationDialogState
                 key: const Key('manual-classification-confidence'),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              const SizedBox(height: 10),
+              // The ACTUAL reason, derived from stored evidence. A generic
+              // "automatic addition failed" tells the user nothing about what
+              // to do next.
+              Column(
+                key: const Key('manual-classification-reasons'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'سبب عدم الإضافة التلقائية:',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  for (final reason in recognitionFailureReasons(
+                    record,
+                    hasUsableSuggestion: hasUsableSuggestion,
+                  ))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• $reason',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                ],
+              ),
+              if (hasUsableSuggestion) ...[
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  key: const Key('manual-classification-apply-boundary'),
+                  value: _applySuggestedBoundary,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text(
+                    'اعتماد الحدود المقترحة مباشرة (بدون فتح محرر القص)',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  onChanged: (value) =>
+                      setState(() => _applySuggestedBoundary = value ?? false),
+                ),
+              ],
               const SizedBox(height: 12),
               DropdownButtonFormField<DocumentKind>(
                 key: const Key('manual-classification-kind'),
@@ -236,6 +293,8 @@ class _ManualClassificationDialogState
                   ManualClassificationChoice(
                     kind: kind,
                     side: side,
+                    applySuggestedBoundary:
+                        hasUsableSuggestion && _applySuggestedBoundary,
                     partnerItemId: _partnerId,
                   ),
                 ),

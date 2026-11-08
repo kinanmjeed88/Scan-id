@@ -105,6 +105,16 @@ ManualBoundaryValidation validateManualBoundary({
   PhysicalSizeMm? customSizeMm,
   DocumentSizeCatalog catalog = const DocumentSizeCatalog(),
   bool requireConfirmedSize = false,
+
+  /// Explicit opt-in by a caller that will keep the item OFF the A4 sheet until
+  /// the user measures it. Geometry is still fully validated; only the
+  /// physical-size gate is lifted. A crop the user approved with four corners
+  /// is never refused merely because a catalog kind has no documented size.
+  ///
+  /// This is deliberately NOT the default: callers that place a document on
+  /// the sheet (and the domain tests of that contract) keep requiring a
+  /// confirmed size.
+  bool allowUnconfirmedSize = false,
 }) {
   if (corners.length != 4) {
     return ManualBoundaryValidation.rejected(
@@ -240,35 +250,40 @@ ManualBoundaryValidation validateManualBoundary({
 
   DocumentKind? resolvedKind = documentKind;
   PhysicalSizeMm? resolvedSize;
-  if (requireConfirmedSize ||
-      (documentKind != null && documentKind != DocumentKind.unknown)) {
-    if (resolvedKind == null || resolvedKind == DocumentKind.unknown) {
+  final needsConfirmedSize =
+      (requireConfirmedSize ||
+          (documentKind != null && documentKind != DocumentKind.unknown)) &&
+      !allowUnconfirmedSize;
+  if (customSizeMm != null) {
+    // A typed measurement always wins, and is always validated, whether or not
+    // the caller is placing the item on the sheet.
+    try {
+      validDocumentSize(customSizeMm);
+    } on ValidationException catch (e) {
       return ManualBoundaryValidation.rejected(
         ManualBoundaryRejection.unconfirmedDocumentSize,
-        'اختر نوع المستمسك أو مقاس الطباعة قبل إضافته إلى ورقة A4.',
+        e.message,
       );
     }
-    final natural = catalog.natural(resolvedKind);
-    if (natural != null &&
-        customSizeMm == null &&
-        presetStatusFor(resolvedKind) == PresetStatus.standard) {
-      resolvedSize = catalog.sizeFor(resolvedKind, landscape: landscape);
-    } else if (customSizeMm != null) {
-      try {
-        validDocumentSize(customSizeMm);
-      } on ValidationException catch (e) {
-        return ManualBoundaryValidation.rejected(
-          ManualBoundaryRejection.unconfirmedDocumentSize,
-          e.message,
-        );
-      }
-      resolvedSize = customSizeMm;
-    } else {
-      return ManualBoundaryValidation.rejected(
-        ManualBoundaryRejection.unconfirmedDocumentSize,
-        'أدخل عرض المستمسك وارتفاعه بالمليمتر لتأكيد المقاس المخصص.',
-      );
-    }
+    resolvedSize = customSizeMm;
+  } else if (needsConfirmedSize &&
+      (resolvedKind == null || resolvedKind == DocumentKind.unknown)) {
+    return ManualBoundaryValidation.rejected(
+      ManualBoundaryRejection.unconfirmedDocumentSize,
+      'اختر نوع المستمسك أو مقاس الطباعة قبل إضافته إلى ورقة A4.',
+    );
+  } else if (resolvedKind != null &&
+      resolvedKind != DocumentKind.unknown &&
+      presetStatusFor(resolvedKind) == PresetStatus.standard) {
+    // Only a documented, standardised dimension may be applied without an
+    // explicit measurement. Estimated defaults are resolved by the caller and
+    // passed as customSizeMm, so the user's choice stays explicit.
+    resolvedSize = catalog.sizeFor(resolvedKind, landscape: landscape);
+  } else if (needsConfirmedSize) {
+    return ManualBoundaryValidation.rejected(
+      ManualBoundaryRejection.unconfirmedDocumentSize,
+      'أدخل عرض المستمسك وارتفاعه بالمليمتر لتأكيد المقاس المخصص.',
+    );
   }
 
   return ManualBoundaryValidation.accepted(
@@ -290,6 +305,7 @@ ManualBoundaryValidation requireValidManualBoundary({
   PhysicalSizeMm? customSizeMm,
   DocumentSizeCatalog catalog = const DocumentSizeCatalog(),
   bool requireConfirmedSize = false,
+  bool allowUnconfirmedSize = false,
 }) {
   final result = validateManualBoundary(
     corners: corners,
@@ -301,6 +317,7 @@ ManualBoundaryValidation requireValidManualBoundary({
     customSizeMm: customSizeMm,
     catalog: catalog,
     requireConfirmedSize: requireConfirmedSize,
+    allowUnconfirmedSize: allowUnconfirmedSize,
   );
   if (!result.isValid) {
     throw ValidationException(result.message ?? 'زوايا القص غير صالحة.');
@@ -586,15 +603,21 @@ Project revertManualCropOnProject(
   return next;
 }
 
-/// Applies an explicit user-confirmed manual boundary + print size to [project]
-/// in one deterministic transition (**Path B**) and arranges confirmed items
-/// onto A4 immediately.
+/// Applies an explicit user-confirmed manual boundary to [project] in one
+/// deterministic transition (**Path B**).
+///
+/// [sizeMm] is optional: a category with no documented physical size can still
+/// be cropped and classified. In that case the item keeps its existing
+/// footprint (or a clearly provisional one for a new item), stays
+/// `sizeConfirmed == false` and is NOT placed on A4 — the size decision is
+/// deferred to the user instead of blocking the crop. Only a resolved size
+/// confirms the footprint and lets the arranger place the item.
 Project applyManualConfirmationToProject(
   Project project, {
   required ImageAsset updatedAsset,
   required ImageEditRecipe recipe,
   required DocumentKind documentKind,
-  required PhysicalSizeMm sizeMm,
+  PhysicalSizeMm? sizeMm,
   required String Function() nextId,
   String? targetItemId,
 }) {
@@ -602,7 +625,11 @@ Project applyManualConfirmationToProject(
     documentKind != DocumentKind.unknown,
     'اختر نوع المستمسك أو مقاساً مخصصاً قبل التأكيد.',
   );
-  validDocumentSize(sizeMm);
+  if (sizeMm != null) validDocumentSize(sizeMm);
+  final confirmed = sizeMm != null;
+  final provisional =
+      sizeMm ??
+      provisionalSize(width: updatedAsset.width, height: updatedAsset.height);
 
   final authored = updatedAsset.markUserAuthoredCrop().withSuggestedCrop(null);
   var next = project.copyWith(
@@ -705,13 +732,13 @@ Project applyManualConfirmationToProject(
       assetId: authored.id,
       x: next.paper.margins.left,
       y: next.paper.margins.top,
-      width: sizeMm.width,
-      height: sizeMm.height,
+      width: provisional.width,
+      height: provisional.height,
       pageIndex: null,
       zIndex: _nextZIndex(next.items),
       documentKind: documentKind,
       recognitionConfidence: 0,
-      sizeConfirmed: true,
+      sizeConfirmed: confirmed,
       userSelectedKind: true,
       documentId: manualRecord.id,
       sideId: manualRecord.sides.single.id,
@@ -729,14 +756,18 @@ Project applyManualConfirmationToProject(
         updatedItems.add(item);
         continue;
       }
+      // Without a resolved size the existing footprint and its confirmation
+      // state are preserved: approving a crop never invents or demotes a
+      // physical measurement, and never silently places the item on paper.
       if (item.documentId != null) {
         updatedItems.add(
           item.copyWith(
             documentKind: documentKind,
             userSelectedKind: true,
-            width: sizeMm.width,
-            height: sizeMm.height,
-            sizeConfirmed: true,
+            width: sizeMm?.width ?? item.width,
+            height: sizeMm?.height ?? item.height,
+            sizeConfirmed: confirmed ? true : item.sizeConfirmed,
+            clearPresetSnapshot: !confirmed,
             presetSnapshot: snapshot,
           ),
         );
@@ -747,12 +778,13 @@ Project applyManualConfirmationToProject(
           item.copyWith(
             documentKind: documentKind,
             userSelectedKind: true,
-            width: sizeMm.width,
-            height: sizeMm.height,
-            sizeConfirmed: true,
+            width: sizeMm?.width ?? item.width,
+            height: sizeMm?.height ?? item.height,
+            sizeConfirmed: confirmed ? true : item.sizeConfirmed,
+            clearPresetSnapshot: !confirmed,
+            presetSnapshot: snapshot,
             documentId: manualRecord.id,
             sideId: manualRecord.sides.single.id,
-            presetSnapshot: snapshot,
           ),
         );
       }
@@ -776,7 +808,7 @@ Project appendManualDerivedDocumentToProject(
   required ImageAsset derivedAsset,
   required ImageEditRecipe recipe,
   required DocumentKind documentKind,
-  required PhysicalSizeMm sizeMm,
+  PhysicalSizeMm? sizeMm,
   required String Function() nextId,
   bool replaceUnconfirmedSourcePlaceholder = true,
 }) {
@@ -792,7 +824,11 @@ Project appendManualDerivedDocumentToProject(
     documentKind != DocumentKind.unknown,
     'اختر نوع المستمسك أو مقاساً مخصصاً قبل استخراجه إلى ورقة A4.',
   );
-  validDocumentSize(sizeMm);
+  if (sizeMm != null) validDocumentSize(sizeMm);
+  final confirmed = sizeMm != null;
+  final provisional =
+      sizeMm ??
+      provisionalSize(width: derivedAsset.width, height: derivedAsset.height);
 
   var next = project;
   if (replaceUnconfirmedSourcePlaceholder) {
@@ -900,13 +936,13 @@ Project appendManualDerivedDocumentToProject(
     assetId: taggedDerived.id,
     x: next.paper.margins.left,
     y: next.paper.margins.top,
-    width: sizeMm.width,
-    height: sizeMm.height,
+    width: provisional.width,
+    height: provisional.height,
     pageIndex: null,
     zIndex: _nextZIndex(next.items),
     documentKind: documentKind,
     recognitionConfidence: 0,
-    sizeConfirmed: true,
+    sizeConfirmed: confirmed,
     userSelectedKind: true,
     documentId: record.id,
     sideId: side.id,
@@ -921,11 +957,12 @@ Project appendManualDerivedDocumentToProject(
   return _relayoutProject(next);
 }
 
-PresetSnapshot _manualSnapshot(
+PresetSnapshot? _manualSnapshot(
   DocumentSizeCatalog catalog,
   DocumentKind kind,
-  PhysicalSizeMm size,
+  PhysicalSizeMm? size,
 ) {
+  if (size == null) return null;
   final natural = catalog.natural(kind);
   final matchesCatalog =
       natural != null &&

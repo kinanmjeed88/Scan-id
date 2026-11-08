@@ -5,6 +5,7 @@ import 'package:image/image.dart' as img;
 
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
+import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
 import 'prepare_image.dart';
 
@@ -1464,3 +1465,115 @@ List<List<int>> _components(Uint8List mask, int w, int h) {
   }
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Measured evidence for an ALREADY proposed quadrilateral.
+//
+// A learned model can emit four geometrically valid points that do not lie on
+// the physical document at all (a clear photo of a card is the common case).
+// Geometry validation cannot see that; the image can. The functions below
+// reuse the SAME gradient field and side-scoring used to rank classical
+// candidates, so a learned proposal and a classical proposal are compared by
+// one measurement instead of by uncalibrated scores.
+// ---------------------------------------------------------------------------
+
+/// Measured edge support of one quadrilateral on the image it came from.
+///
+/// [meanSupport] / [minSupport] are fractions of sampled side points that lie
+/// on a supporting gradient (0..1); [score] is the classical candidate score.
+/// These are measurements, NOT probabilities or accuracy claims.
+class QuadEdgeEvidence {
+  const QuadEdgeEvidence({
+    required this.meanSupport,
+    required this.minSupport,
+    required this.score,
+  });
+
+  final double meanSupport;
+  final double minSupport;
+  final double score;
+
+  /// Robust comparison value: a quad with one unsupported side must not win
+  /// just because its other three sides are strong.
+  double get quality => .6 * meanSupport + .4 * minSupport;
+
+  /// Whether the four sides are measurably supported by image edges. This is a
+  /// diagnostic, not a crop authorization.
+  bool get looksLikeBoundary => meanSupport >= .5 && minSupport >= .3;
+}
+
+double _evidenceLowThreshold(_Field field) {
+  final sorted = Float32List.fromList(field.mag)..sort();
+  final p90 = sorted[((sorted.length - 1) * .9).round()];
+  return math.max(3.0, .45 * math.max(12.0, p90) * .5);
+}
+
+/// Measures how well [corners] follow real edges in [image].
+/// Returns null when the quad cannot be measured (bad shape, tiny image, or a
+/// border-only quad whose sides have no edge evidence).
+QuadEdgeEvidence? measureQuadEdges(img.Image image, List<Point2> corners) {
+  if (corners.length != 4 || image.width < 20 || image.height < 20) {
+    return null;
+  }
+  final coarse = _Raster.fromImage(image, _coarseSide);
+  final fine = _Raster.fromImage(image, _fineSide);
+  final detector = _Detector(fine, coarse);
+  final field = detector.coarse;
+  final quad = [
+    for (final point in corners)
+      _P(point.x * (field.width - 1), point.y * (field.height - 1)),
+  ];
+  final score = detector._scoreQuad(field, quad, _evidenceLowThreshold(field));
+  if (score == null) return null;
+  return QuadEdgeEvidence(
+    meanSupport: score.mean,
+    minSupport: score.min,
+    score: score.total,
+  );
+}
+
+/// Snaps a proposed quadrilateral to the nearest strong edges using the same
+/// sub-pixel line refinement the classical detector applies to its own
+/// candidates. Returns null when refinement is unstable or produces an invalid
+/// quad; the caller then keeps the original proposal unchanged.
+List<Point2>? refineQuadToEdges(img.Image image, List<Point2> corners) {
+  if (corners.length != 4 || image.width < 20 || image.height < 20) {
+    return null;
+  }
+  final fine = _Raster.fromImage(image, _fineSide);
+  final coarse = _Raster.fromImage(image, _coarseSide);
+  final detector = _Detector(fine, coarse);
+  final low = _evidenceLowThreshold(detector.coarse);
+  final radius = math.max(3, (3 * detector.scale).round());
+  var quad = [
+    for (final point in corners)
+      _P(point.x * (fine.width - 1), point.y * (fine.height - 1)),
+  ];
+  for (var pass = 0; pass < 2; pass++) {
+    final refined = detector._refine(
+      detector.fine,
+      quad,
+      low * .5,
+      radius,
+      2.5 * detector.scale,
+    );
+    if (refined == null) break;
+    final ordered = _orderQuad(refined);
+    if (!_validQuad(ordered, fine.width, fine.height, .03)) return null;
+    quad = ordered;
+  }
+  return [
+    for (final point in quad)
+      Point2(
+        (point.x / math.max(1, fine.width - 1)).clamp(0.0, 1.0),
+        (point.y / math.max(1, fine.height - 1)).clamp(0.0, 1.0),
+      ),
+  ];
+}
+
+/// Whether a quadrilateral is a valid, non-degenerate boundary on [image].
+bool quadFitsImage(List<Point2> corners, img.Image image) => assessQuad(
+  corners,
+  sourceWidth: image.width,
+  sourceHeight: image.height,
+).acceptable;

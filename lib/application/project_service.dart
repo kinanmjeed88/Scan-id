@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
+import '../domain/boundary_suggestion.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/image_deletion.dart';
@@ -1192,6 +1193,50 @@ class ProjectService {
     return saved;
   }
 
+  /// Applies the 4-corner boundary recognition ALREADY measured and saved for
+  /// [asset], after one explicit user decision (choosing the document type).
+  ///
+  /// This is not automatic cropping: without the user's approval no pixels
+  /// change, and the immutable original is never touched. It delegates to
+  /// [confirmManualBoundary] so validation, manual provenance, crop authorship
+  /// and A4 placement stay on exactly one path. It is how an image with a
+  /// perfectly good proposed boundary reaches the sheet without being forced
+  /// through the manual crop editor.
+  Future<Project> confirmSuggestedBoundary(
+    Project project,
+    ImageAsset asset, {
+    required DocumentKind documentKind,
+    PhysicalSizeMm? customSizeMm,
+    String? targetItemId,
+  }) async {
+    final (width, height) = await _resolveSourceDimensions(asset);
+    final suggestion = inspectSuggestedBoundary(
+      project,
+      asset,
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+    if (!suggestion.isUsable) {
+      throw const ValidationException(
+        'لا توجد حدود مقترحة صالحة لهذه الصورة؛ اضبط الزوايا يدوياً.',
+      );
+    }
+    final recipe = CropDraft(
+      corners: suggestion.corners!,
+      adjustments: asset.adjustments,
+    ).toRecipe(width, height);
+    return confirmManualBoundary(
+      project,
+      asset,
+      recipe,
+      documentKind: documentKind,
+      customSizeMm: customSizeMm,
+      targetItemId: targetItemId,
+      sourceWidth: width,
+      sourceHeight: height,
+    );
+  }
+
   /// Atomically applies a user-confirmed manual 4-corner crop, validates print
   /// size/category, records side-scoped manual provenance without altering
   /// detector evidence or partner sides, and places the confirmed item onto A4
@@ -1212,24 +1257,33 @@ class ProjectService {
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
     );
-    final validation = requireValidManualBoundary(
+    // Validate BEFORE any file is written. The catalog default (including an
+    // editable ESTIMATE) is a real, resolved size: the user chose the category
+    // explicitly, so no keyboard entry is needed. Only a kind without any
+    // catalog size leaves the footprint unconfirmed; the crop is still
+    // approved and the item simply stays off A4.
+    final turned = recipe.adjustments.quarterTurns.isOdd;
+    final landscape =
+        (turned ? recipe.geometry.outputHeight : recipe.geometry.outputWidth) >=
+        (turned ? recipe.geometry.outputWidth : recipe.geometry.outputHeight);
+    final natural = project.catalog.natural(documentKind);
+    final PhysicalSizeMm? resolvedSize =
+        customSizeMm ??
+        (natural == null
+            ? null
+            : project.catalog.sizeFor(documentKind, landscape: landscape));
+    requireValidManualBoundary(
       corners: recipe.geometry.corners,
       sourceWidth: resolvedWidth,
       sourceHeight: resolvedHeight,
       adjustments: recipe.adjustments,
       documentKind: documentKind,
-      customSizeMm: customSizeMm,
+      customSizeMm: resolvedSize,
       catalog: project.catalog,
-      requireConfirmedSize: true,
+      requireConfirmedSize: resolvedSize != null,
+      allowUnconfirmedSize: resolvedSize == null,
     );
     final updated = await createImageRevision(project, asset, recipe);
-    final natural = project.catalog.natural(documentKind);
-    final resolvedSize = natural != null && customSizeMm == null
-        ? project.catalog.sizeFor(
-            documentKind,
-            landscape: updated.width >= updated.height,
-          )!
-        : validation.confirmedSizeMm!;
     final next = applyManualConfirmationToProject(
       project,
       updatedAsset: updated,
@@ -1306,15 +1360,26 @@ class ProjectService {
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
     );
-    final validation = requireValidManualBoundary(
+    final turned = recipe.adjustments.quarterTurns.isOdd;
+    final landscape =
+        (turned ? recipe.geometry.outputHeight : recipe.geometry.outputWidth) >=
+        (turned ? recipe.geometry.outputWidth : recipe.geometry.outputHeight);
+    final natural = project.catalog.natural(documentKind);
+    final PhysicalSizeMm? resolvedSize =
+        customSizeMm ??
+        (natural == null
+            ? null
+            : project.catalog.sizeFor(documentKind, landscape: landscape));
+    requireValidManualBoundary(
       corners: recipe.geometry.corners,
       sourceWidth: effectiveWidth,
       sourceHeight: effectiveHeight,
       adjustments: recipe.adjustments,
       documentKind: documentKind,
-      customSizeMm: customSizeMm,
+      customSizeMm: resolvedSize,
       catalog: project.catalog,
-      requireConfirmedSize: true,
+      requireConfirmedSize: resolvedSize != null,
+      allowUnconfirmedSize: resolvedSize == null,
     );
 
     final cropBytes = editor is CropBytesImageEditor
@@ -1332,13 +1397,6 @@ class ProjectService {
       derivedName,
       cropBytes,
     );
-    final natural = project.catalog.natural(documentKind);
-    final resolvedSize = natural != null && customSizeMm == null
-        ? project.catalog.sizeFor(
-            documentKind,
-            landscape: derived.width >= derived.height,
-          )!
-        : validation.confirmedSizeMm!;
     final next = appendManualDerivedDocumentToProject(
       project,
       sourceAsset: rootSource,

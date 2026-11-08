@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../application/project_service.dart';
 import '../domain/arrangement.dart' show maxArrangedPages;
+import '../domain/boundary_suggestion.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/page_layout.dart';
@@ -234,12 +235,40 @@ class _LayoutScreenState extends State<LayoutScreen> {
             );
             continue;
           }
-          _c.select(id);
-          await _editCrop(current);
-          if (!mounted) return;
-          current = _c.project.items
-              .where((entry) => entry.id == id)
+          // [current] is reassigned below, so Dart cannot promote it inside a
+          // closure. Capture the promoted, non-null item before the lookup.
+          final pending = current;
+          final asset = _c.project.assets
+              .where((entry) => entry.id == pending.assetId)
               .firstOrNull;
+          final suggestion = asset == null
+              ? null
+              : inspectSuggestedBoundary(
+                  _c.project,
+                  asset,
+                  sourceWidth: asset.width,
+                  sourceHeight: asset.height,
+                );
+          if (choice.applySuggestedBoundary && suggestion?.isUsable == true) {
+            // The boundary was already recognized and geometrically validated;
+            // asking the user to redraw it is the regression this fixes.
+            final applied = await _c.confirmSuggestedBoundary(id, choice.kind);
+            if (!mounted) return;
+            if (!applied) {
+              showMessage(context, _c.error ?? 'تعذّر اعتماد الحدود المقترحة.');
+              continue;
+            }
+            current = _c.project.items
+                .where((entry) => entry.id == id)
+                .firstOrNull;
+          } else {
+            _c.select(id);
+            await _editCrop(current);
+            if (!mounted) return;
+            current = _c.project.items
+                .where((entry) => entry.id == id)
+                .firstOrNull;
+          }
         }
         final partnerId = choice.partnerItemId;
         if (partnerId != null) {

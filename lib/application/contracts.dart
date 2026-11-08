@@ -150,9 +150,10 @@ abstract interface class ImageEditor {
 }
 
 /// Metadata capability for the local two-model learned cascade and its
-/// review-only classical fallback. Every proposal still passes the shared
-/// geometry gate; neither uncalibrated learned output nor classical ranking
-/// authorizes a crop without user review.
+/// measured classical arbitration. Every proposal still passes the shared
+/// geometry gate, and learned/classical claims are compared against the same
+/// image gradients before one is offered. Neither uncalibrated learned output
+/// nor classical edge ranking authorizes a crop without user review.
 abstract interface class BoundaryProposalImageEditor implements ImageEditor {
   Future<BoundaryProposal?> suggestProposal(
     Uint8List preview, {

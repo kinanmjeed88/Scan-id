@@ -787,8 +787,7 @@ class _CropScreenState extends State<CropScreen> {
     // A saved crop may have been portrait before the user moved its corners
     // to a landscape document. Catalog geometry follows the CURRENT corners;
     // only an explicitly measured custom size may keep the draft ratio.
-    final catalogAspect =
-        physicalAspect == null || keepMeasuredRatio
+    final catalogAspect = physicalAspect == null || keepMeasuredRatio
         ? null
         : _draft!.adjustments.quarterTurns.isOdd
         ? 1 / physicalAspect

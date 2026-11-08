@@ -915,26 +915,32 @@ void main() {
     }
   });
 
-  test('centering a newly added document keeps it below existing documents', () {
-    final first = _sizedDoc('first', 60, 40).copyWith(x: 5, y: 5);
-    final second = _sizedDoc('second', 60, 40).copyWith(x: 70, y: 5);
-    final added = _sizedDoc('added', 60, 40, page: null);
-    final project = _project([first, second, added]).copyWith(
-      layout: LayoutSettings(
-        strategy: ArrangementStrategy.compact,
-        centerCaptures: true,
-      ),
-    );
+  test(
+    'centering a newly added document keeps it below existing documents',
+    () {
+      final first = _sizedDoc('first', 60, 40).copyWith(x: 5, y: 5);
+      final second = _sizedDoc('second', 60, 40).copyWith(x: 70, y: 5);
+      final added = _sizedDoc('added', 60, 40, page: null);
+      final project = _project([first, second, added]).copyWith(
+        layout: LayoutSettings(
+          strategy: ArrangementStrategy.compact,
+          centerCaptures: true,
+        ),
+      );
 
-    final result = arrangeDocuments(project, keepPlaced: true);
-    final item = PageLayout.item(result.result, 'added');
-    expect(item.pageIndex, 0);
-    expect(item.y, greaterThanOrEqualTo(second.bottom + 5));
-    expect(item.y, lessThan(project.paper.printable.height / 2));
-    expect(PageLayout.item(result.result, 'first').toJson(), first.toJson());
-    expect(PageLayout.item(result.result, 'second').toJson(), second.toJson());
-    expect(inspectLayout(result.result), isEmpty);
-  });
+      final result = arrangeDocuments(project, keepPlaced: true);
+      final item = PageLayout.item(result.result, 'added');
+      expect(item.pageIndex, 0);
+      expect(item.y, greaterThanOrEqualTo(second.bottom + 5));
+      expect(item.y, lessThan(project.paper.printable.height / 2));
+      expect(PageLayout.item(result.result, 'first').toJson(), first.toJson());
+      expect(
+        PageLayout.item(result.result, 'second').toJson(),
+        second.toJson(),
+      );
+      expect(inspectLayout(result.result), isEmpty);
+    },
+  );
 
   // Center captures off by default for old projects
   test(

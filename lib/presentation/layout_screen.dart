@@ -261,7 +261,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
             current = _c.project.items
                 .where((entry) => entry.id == id)
                 .firstOrNull;
-          } else {
+          } else if (!(editingExisting && (asset?.hasApprovedCrop ?? false))) {
             _c.select(id);
             await _editCrop(current);
             if (!mounted) return;

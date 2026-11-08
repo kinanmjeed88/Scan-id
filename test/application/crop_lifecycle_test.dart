@@ -324,27 +324,29 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('known category previews at its physical aspect without bands', (
-      tester,
-    ) async {
-      await pumpScreen(tester);
-      expect(
-        find.byKey(const Key('crop-aspect')),
-        findsNothing,
-        reason: 'a selected category must not expose a competing shape choice',
-      );
-      expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
-      expect(editor.openedTokens.single, isNotNull);
-      await tapFourCorners(tester);
-      await tester.ensureVisible(find.text('معاينة التصحيح'));
-      await tester.tap(find.text('معاينة التصحيح'));
-      await pumpCropPreviewResult(tester);
-      final geometry = editor.recipes.last.geometry;
-      expect(
-        geometry.outputWidth / geometry.outputHeight,
-        closeTo(85.6 / 53.98, 1e-9),
-      );
-    });
+    testWidgets(
+      'known category previews at its physical aspect without bands',
+      (tester) async {
+        await pumpScreen(tester);
+        expect(
+          find.byKey(const Key('crop-aspect')),
+          findsNothing,
+          reason:
+              'a selected category must not expose a competing shape choice',
+        );
+        expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
+        expect(editor.openedTokens.single, isNotNull);
+        await tapFourCorners(tester);
+        await tester.ensureVisible(find.text('معاينة التصحيح'));
+        await tester.tap(find.text('معاينة التصحيح'));
+        await pumpCropPreviewResult(tester);
+        final geometry = editor.lastPreview!.geometry;
+        expect(
+          geometry.outputWidth / geometry.outputHeight,
+          closeTo(85.6 / 53.98, 1e-9),
+        );
+      },
+    );
 
     // C3: no usable boundary means an unapproved full frame, gated until four
     // valid taps. The gate is the state, not a screen variable.

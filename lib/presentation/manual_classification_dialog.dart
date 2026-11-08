@@ -164,7 +164,9 @@ class _ManualClassificationDialogState
                 childrenPadding: const EdgeInsets.only(bottom: 8),
                 dense: true,
                 title: const Text('تفاصيل الرفض التلقائي (اختياري)'),
-                subtitle: const Text('لا تمنع هذه الدرجات متابعة الاختيار اليدوي.'),
+                subtitle: const Text(
+                  'لا تمنع هذه الدرجات متابعة الاختيار اليدوي.',
+                ),
                 children: [
                   Align(
                     alignment: AlignmentDirectional.centerStart,

@@ -632,8 +632,7 @@ class _CropScreenState extends State<CropScreen> {
     double edge(int a, int b) => math.sqrt(
       math.pow((c[a].x - c[b].x) * sx, 2) + math.pow((c[a].y - c[b].y) * sy, 2),
     );
-    final landscape =
-        edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
+    final landscape = edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
     return _adjustments.quarterTurns.isOdd ? !landscape : landscape;
   }
 

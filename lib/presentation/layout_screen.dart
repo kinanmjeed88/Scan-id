@@ -561,6 +561,14 @@ class _LayoutScreenState extends State<LayoutScreen> {
             label: 'التحرير',
             children: [
               RibbonButton(
+                key: const Key('rb-quick-export'),
+                icon: Icons.print_outlined,
+                label: 'طباعة وتصدير',
+                large: true,
+                tooltip: 'معاينة الصفحات ثم الطباعة أو تصدير PDF/PNG (Ctrl+P)',
+                onPressed: busy ? null : _openExport,
+              ),
+              RibbonButton(
                 key: const Key('rb-undo'),
                 icon: Icons.undo,
                 label: 'تراجع',

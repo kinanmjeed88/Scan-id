@@ -161,6 +161,22 @@ void main() {
     expect(() => PageLayout.checked(editor.saved), returnsNormally);
   });
 
+  testWidgets('home: print/export sits beside undo and opens the same exporter', (
+    tester,
+  ) async {
+    await EditorHarness.pump(tester);
+    expect(find.byKey(const Key('rb-quick-export')), findsOneWidget);
+    expect(find.byKey(const Key('rb-undo')), findsOneWidget);
+    expect(find.byKey(const Key('rb-redo')), findsOneWidget);
+
+    await tapKey(tester, const Key('rb-quick-export'));
+    expect(find.byType(ExportScreen), findsOneWidget);
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(LayoutScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('home: undo, redo, duplicate, delete and select all', (
     tester,
   ) async {

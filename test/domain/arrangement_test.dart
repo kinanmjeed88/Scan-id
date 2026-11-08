@@ -73,6 +73,7 @@ Project _project(
     ).copyWith(
       paper: PaperSettings(margins: Margins.all(margin)),
       items: items,
+      layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
       layoutGroups: layoutGroups,
     );
 
@@ -809,35 +810,42 @@ void main() {
     expect(PageLayout.item(turned.result, 'wide').width, 250);
   });
 
-  test(
-    'an unchosen layout records compact but remains effectively ordered',
-    () {
-      final project = _project([
-        _doc('passport', DocumentKind.passport),
-        _doc('id', DocumentKind.unifiedNationalId),
-      ]);
-      expect(project.layout.strategy, ArrangementStrategy.compact);
-      expect(project.layout.strategyChosen, isFalse);
-      expect(project.layout.arrangementStrategy, ArrangementStrategy.ordered);
+  test('a new unchosen layout actually uses compact gap filling', () {
+    final project = _project([
+      _doc('passport', DocumentKind.passport, x: 80, y: 150),
+      _doc('id', DocumentKind.unifiedNationalId, x: 10, y: 90),
+    ]).copyWith(layout: LayoutSettings());
+    expect(project.layout.strategy, ArrangementStrategy.compact);
+    expect(project.layout.strategyChosen, isFalse);
+    expect(project.layout.arrangementStrategy, ArrangementStrategy.compact);
 
-      final actual = arrangeDocuments(project).result;
-      final ordered = arrangeDocuments(
-        project.copyWith(
-          layout: LayoutSettings(strategy: ArrangementStrategy.ordered),
-        ),
-      ).result;
-      expect(
-        {
-          for (final item in actual.items)
-            item.id: (item.x, item.y, item.pageIndex),
-        },
-        {
-          for (final item in ordered.items)
-            item.id: (item.x, item.y, item.pageIndex),
-        },
-      );
-    },
-  );
+    final actual = arrangeDocuments(project).result;
+    final compact = arrangeDocuments(
+      project.copyWith(
+        layout: LayoutSettings(strategy: ArrangementStrategy.compact),
+      ),
+    ).result;
+    expect(
+      {
+        for (final item in actual.items)
+          item.id: (item.x, item.y, item.pageIndex),
+      },
+      {
+        for (final item in compact.items)
+          item.id: (item.x, item.y, item.pageIndex),
+      },
+    );
+    expect(PageLayout.item(actual, 'passport').y, 5);
+    expect(PageLayout.item(actual, 'id').y, lessThan(150));
+    expect(inspectLayout(actual), isEmpty);
+  });
+
+  test('legacy settings without a strategy keep ordered rows', () {
+    final legacy = LayoutSettings.fromJson(LayoutSettings().toJson());
+    expect(legacy.strategyChosen, isFalse);
+    expect(legacy.strategy, ArrangementStrategy.ordered);
+    expect(legacy.arrangementStrategy, ArrangementStrategy.ordered);
+  });
 
   // Compact packs more documents per page than ordered
   test(

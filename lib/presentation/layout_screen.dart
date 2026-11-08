@@ -662,7 +662,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                 label: 'ترتيب تلقائي',
                 large: true,
                 tooltip:
-                    'ترتيب الآن: البطاقة الوطنية ثم السكن ثم الجواز ثم التموينية، وتُضاف صفحات عند الحاجة',
+                    'إعادة توزيع المستمسكات وتعبئة الفراغات دون تصغيرها، وتُضاف صفحات عند الحاجة',
                 onPressed: busy || project.items.isEmpty ? null : c.arrangeNow,
               ),
               RibbonStack(

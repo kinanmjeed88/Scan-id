@@ -217,6 +217,14 @@ void main() {
     await tapKey(tester, const Key('rb-arrange'));
     expect(itemIn(editor.saved, 'card').y, closeTo(5, 1e-6));
     expect(itemIn(editor.saved, 'passport').y, closeTo(5 + 53.98 + 5, 1e-6));
+    expect(
+      itemIn(editor.saved, 'passport').x,
+      closeTo(5, 1e-6),
+      reason: 'compact packing uses the gap instead of centering the old row',
+    );
+    expect(itemIn(editor.saved, 'card').x, closeTo(5, 1e-6));
+    expect(editor.saved.layout.strategy, ArrangementStrategy.compact);
+    expect(editor.saved.layout.centerCaptures, isFalse);
     expect(_button(tester, 'rb-autoflow').selected, isTrue);
 
     await tapKey(tester, const Key('rb-autoflow'));

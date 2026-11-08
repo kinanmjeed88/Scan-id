@@ -61,7 +61,11 @@ class _ManualClassificationDialog extends StatefulWidget {
 class _ManualClassificationDialogState
     extends State<_ManualClassificationDialog> {
   DocumentKind? _kind;
-  SideKind? _side;
+  // A new manual classification needs the document type only. “Unspecified”
+  // is a real SideKind and does not invent a front/back recognition result;
+  // the user can still choose a face explicitly below. Requiring a second
+  // dropdown here made the low-confidence recovery path look blocked again.
+  SideKind? _side = SideKind.unknown;
   String? _partnerId;
   bool _applySuggestedBoundary = true;
 
@@ -151,40 +155,52 @@ class _ManualClassificationDialogState
               Text(
                 widget.editingExisting
                     ? 'يمكن تعديل النوع والوجه. تغيير أحدهما في مستمسك مرتبط يفصل الربط الحالي؛ الصور تبقى محفوظة.'
-                    : 'تعذرت الإضافة التلقائية. اختر النوع والوجه، ثم راجع القص أو المقاس عند الحاجة. الأصل محفوظ.',
+                    : 'اختر النوع ثم اضغط «متابعة». اختيارك اليدوي مسار مستقل عن درجة التعرف التلقائي، وسيأخذك إلى مراجعة القص أو اعتماد حدوده ثم الإضافة إلى الورقة.',
               ),
               const SizedBox(height: 8),
-              Text(
-                'درجة الحدود: ${_score(boundaryScore)} · درجة التصنيف: ${_score(kindScore)} · '
-                'الدرجة الإجمالية: ${_score(finalScore)}. حد القبول ٧٠٪؛ هذه الدرجات ليست ضماناً للدقة.',
-                key: const Key('manual-classification-confidence'),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 10),
-              // The ACTUAL reason, derived from stored evidence. A generic
-              // "automatic addition failed" tells the user nothing about what
-              // to do next.
-              Column(
-                key: const Key('manual-classification-reasons'),
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
+              ExpansionTile(
+                key: const Key('manual-classification-diagnostics'),
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: 8),
+                dense: true,
+                title: const Text('تفاصيل الرفض التلقائي (اختياري)'),
+                subtitle: const Text('لا تمنع هذه الدرجات متابعة الاختيار اليدوي.'),
                 children: [
-                  Text(
-                    'سبب عدم الإضافة التلقائية:',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  for (final reason in recognitionFailureReasons(
-                    record,
-                    hasUsableSuggestion: hasUsableSuggestion,
-                  ))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        '• $reason',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      'درجة الحدود: ${_score(boundaryScore)} · درجة التصنيف: ${_score(kindScore)} · '
+                      'الدرجة الإجمالية: ${_score(finalScore)}. حد القبول التلقائي ٧٠٪؛ هذه الدرجات ليست ضماناً للدقة.',
+                      key: const Key('manual-classification-confidence'),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  // The ACTUAL reason remains available for diagnosis without
+                  // making the recovery action look like another rejection.
+                  Column(
+                    key: const Key('manual-classification-reasons'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'سبب عدم الإضافة التلقائية:',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      for (final reason in recognitionFailureReasons(
+                        record,
+                        hasUsableSuggestion: hasUsableSuggestion,
+                      ))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $reason',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
               if (hasUsableSuggestion) ...[

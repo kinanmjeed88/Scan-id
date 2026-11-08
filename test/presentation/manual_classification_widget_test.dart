@@ -40,7 +40,15 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('اختر تصنيف المستمسك'), findsOneWidget);
-      expect(find.textContaining('غير متاحة'), findsWidgets);
+      expect(
+        find.textContaining('مسار مستقل عن درجة التعرف التلقائي'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('manual-classification-confidence')),
+        findsNothing,
+        reason: 'diagnostic scores are optional, not a blocking banner',
+      );
       expect(
         tester
             .widget<FilledButton>(
@@ -49,6 +57,14 @@ void main() {
             .onPressed,
         isNull,
       );
+
+      await tapKey(tester, const Key('manual-classification-diagnostics'));
+      expect(
+        find.byKey(const Key('manual-classification-confidence')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('غير متاحة'), findsWidgets);
+      await tapKey(tester, const Key('manual-classification-diagnostics'));
 
       await tapKey(tester, const Key('manual-classification-later'));
       expect(
@@ -75,18 +91,16 @@ void main() {
       await tapKey(tester, const Key('manual-classification-kind'));
       await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
       await tester.pumpAndSettle();
-      // Kind alone is insufficient: the user must also explicitly choose a side.
+      // The type alone is enough to continue. An unspecified face is an
+      // explicit manual value, not fabricated automatic side recognition.
       expect(
         tester
             .widget<FilledButton>(
               find.byKey(const Key('manual-classification-continue')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
       );
-      await tapKey(tester, const Key('manual-classification-side'));
-      await tester.tap(find.text('الوجه الأول (أمامي)').last);
-      await tester.pumpAndSettle();
       await tapKey(tester, const Key('manual-classification-continue'));
       expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
       expect(harness.saved.items.single.sizeConfirmed, isFalse);
@@ -95,7 +109,7 @@ void main() {
           harness.saved.documents.single,
           harness.saved.documents.single.sides.single,
         ),
-        SideKind.front,
+        SideKind.unknown,
       );
 
       await ensureCropTapMode(tester);

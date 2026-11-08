@@ -47,7 +47,9 @@ void main() {
         find.byKey(const Key('manual-classification-dialog')),
         findsOneWidget,
       );
-      // The ACTUAL cause is shown; the working dropdowns are untouched.
+      // The ACTUAL cause remains available on demand without blocking the
+      // primary manual action.
+      await tapKey(tester, const Key('manual-classification-diagnostics'));
       expect(
         find.byKey(const Key('manual-classification-reasons')),
         findsOneWidget,
@@ -68,9 +70,6 @@ void main() {
 
       await tapKey(tester, const Key('manual-classification-kind'));
       await tester.tap(find.text(DocumentKind.residenceCard.label).last);
-      await tester.pumpAndSettle();
-      await tapKey(tester, const Key('manual-classification-side'));
-      await tester.tap(find.text('الوجه الأول (أمامي)').last);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();

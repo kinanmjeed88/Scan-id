@@ -8,10 +8,8 @@ import '../domain/geometry.dart';
 ///
 /// Physical alignment is intentional: it does not flip with RTL. A top-right
 /// drag therefore shows the loupe at bottom-left, never beneath the finger.
-Alignment cropLoupeAlignment(Point2 focus) => Alignment(
-  focus.x <= .5 ? 1 : -1,
-  focus.y <= .5 ? 1 : -1,
-);
+Alignment cropLoupeAlignment(Point2 focus) =>
+    Alignment(focus.x <= .5 ? 1 : -1, focus.y <= .5 ? 1 : -1);
 
 /// A precision loupe shown WHILE a crop corner or edge is being dragged.
 ///

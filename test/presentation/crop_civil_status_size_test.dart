@@ -43,16 +43,17 @@ Future<void> _chooseKind(WidgetTester tester, String label) async {
 }
 
 void main() {
-  testWidgets('a documented kind supplies its size without duplicate controls', (
-    tester,
-  ) async {
-    await _pumpCrop(tester, assetId: 'asset-documented-size');
-    await _chooseKind(tester, DocumentKind.unifiedNationalId.label);
+  testWidgets(
+    'a documented kind supplies its size without duplicate controls',
+    (tester) async {
+      await _pumpCrop(tester, assetId: 'asset-documented-size');
+      await _chooseKind(tester, DocumentKind.unifiedNationalId.label);
 
-    expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
-    expect(find.byKey(const Key('crop-custom-height-mm')), findsNothing);
-    expect(find.byKey(const Key('crop-aspect')), findsNothing);
-  });
+      expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
+      expect(find.byKey(const Key('crop-custom-height-mm')), findsNothing);
+      expect(find.byKey(const Key('crop-aspect')), findsNothing);
+    },
+  );
 
   for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
     testWidgets('${kind.name} prefills its estimated default; no entry needed', (

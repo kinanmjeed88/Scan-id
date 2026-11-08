@@ -1754,10 +1754,8 @@ class _CropScreenState extends State<CropScreen> {
       ),
       for (var i = 0; i < selection.points.length; i++)
         Positioned(
-          left:
-              boundaryCanvasInsetPx + selection.points[i].x * width - 12.0,
-          top:
-              boundaryCanvasInsetPx + selection.points[i].y * height - 12.0,
+          left: boundaryCanvasInsetPx + selection.points[i].x * width - 12.0,
+          top: boundaryCanvasInsetPx + selection.points[i].y * height - 12.0,
           child: _ScreenFixedSize(controller: _view, child: _tapMarker(i)),
         ),
     ];

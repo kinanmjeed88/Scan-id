@@ -343,9 +343,14 @@ void main() {
         await tester.tap(find.text('معاينة التصحيح'));
         await pumpCropPreviewResult(tester);
         final geometry = editor.lastPreview!.geometry;
+        const expectedAspect = 85.6 / 53.98;
         expect(
           geometry.outputWidth / geometry.outputHeight,
-          closeTo(85.6 / 53.98, 1e-9),
+          closeTo(
+            expectedAspect,
+            2 * expectedAspect / geometry.outputHeight,
+          ),
+          reason: 'integer raster rounding may not exceed one output pixel',
         );
       },
     );

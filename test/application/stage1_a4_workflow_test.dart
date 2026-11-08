@@ -865,10 +865,14 @@ void main() {
       final confirmedCrop = project.assets
           .firstWhere((asset) => asset.id == truncAsset.id)
           .crop!;
+      final expectedAspect = confirmedItem.width / confirmedItem.height;
       expect(
         confirmedCrop.outputWidth / confirmedCrop.outputHeight,
-        closeTo(confirmedItem.width / confirmedItem.height, 1e-9),
-        reason: 'matching output and slot ratios leave no contain white bands',
+        closeTo(
+          expectedAspect,
+          2 * expectedAspect / confirmedCrop.outputHeight,
+        ),
+        reason: 'integer raster rounding may not exceed one output pixel',
       );
       final fitted = containedDocumentRect(
         itemX: confirmedItem.x,
@@ -879,7 +883,14 @@ void main() {
         imageHeight: confirmedCrop.outputHeight,
       );
       expect(fitted.width, closeTo(confirmedItem.width, 1e-9));
-      expect(fitted.height, closeTo(confirmedItem.height, 1e-9));
+      expect(
+        fitted.height,
+        closeTo(
+          confirmedItem.height,
+          2 * confirmedItem.height / confirmedCrop.outputHeight,
+        ),
+        reason: 'a subpixel raster rounding margin is not a white band',
+      );
       expect(hasManualBoundaryOverride(confirmedRecord), isTrue);
       expect(hasUnresolvedBoundary(confirmedRecord), isFalse);
 

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
@@ -101,7 +102,9 @@ void main() {
           pending('back-item', back.id),
           fixed,
         ],
-      );
+        // Pairing/locked-obstacle behavior is independent of the new compact
+        // default; retain this test's original by-kind layout precondition.
+      ).copyWith(layout: LayoutSettings(strategy: ArrangementStrategy.ordered));
       project = classifyItemManually(
         project,
         itemId: 'front-item',

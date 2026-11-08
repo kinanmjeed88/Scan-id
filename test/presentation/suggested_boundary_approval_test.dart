@@ -85,10 +85,15 @@ void main() {
       expect(item.width, closeTo(92.4, .01));
       expect(item.height, closeTo(62.8, .01));
       final crop = harness.saved.assets.first.crop!;
+      final expectedAspect = item.width / item.height;
       expect(
         crop.outputWidth / crop.outputHeight,
-        closeTo(item.width / item.height, 1e-9),
-        reason: 'direct boundary approval must not create top/bottom bands',
+        closeTo(
+          expectedAspect,
+          2 * expectedAspect / crop.outputHeight,
+        ),
+        reason:
+            'direct approval leaves no band beyond integer pixel rounding',
       );
       expect(tester.takeException(), isNull);
     },

@@ -835,8 +835,10 @@ void main() {
           item.id: (item.x, item.y, item.pageIndex),
       },
     );
-    expect(PageLayout.item(actual, 'passport').y, 5);
-    expect(PageLayout.item(actual, 'id').y, lessThan(150));
+    expect(PageLayout.item(actual, 'id').y, 5);
+    expect(PageLayout.item(actual, 'passport').y, closeTo(63.98, 1e-9));
+    expect(PageLayout.item(actual, 'id').x, 5);
+    expect(PageLayout.item(actual, 'passport').x, 5);
     expect(inspectLayout(actual), isEmpty);
   });
 

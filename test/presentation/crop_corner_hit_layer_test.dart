@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/presentation/boundary_hit_layer.dart';
 import 'package:scan_id/presentation/crop_screen.dart';
 
 import '../fixtures.dart';
@@ -168,6 +169,12 @@ void main() {
       };
       final before = _normalized(tester, corner);
       final start = _handleCentre(tester, corner) + outward;
+      final hitPath = tester.hitTestOnBinding(start).path;
+      expect(
+        hitPath.any((entry) => entry.target is RenderBoundaryHitLayer),
+        isTrue,
+        reason: 'outside press $start must reach the boundary; path: $hitPath',
+      );
 
       await dragInSteps(tester, start, -outward);
 

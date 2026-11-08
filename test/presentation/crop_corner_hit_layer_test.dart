@@ -176,7 +176,9 @@ void main() {
         reason: 'outside press $start must reach the boundary; path: $hitPath',
       );
 
-      await dragInSteps(tester, start, -outward);
+      // Continue past the original corner into the image. Ending at -outward
+      // would correctly restore the original point and prove no movement.
+      await dragInSteps(tester, start, -outward * 2);
 
       final after = _normalized(tester, corner);
       expect((after - before).distance, greaterThan(.01));

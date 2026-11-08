@@ -862,6 +862,24 @@ void main() {
       );
       expect(confirmedItem.sizeConfirmed, isTrue);
       expect(confirmedItem.pageIndex, 0);
+      final confirmedCrop = project.assets
+          .firstWhere((asset) => asset.id == truncAsset.id)
+          .crop!;
+      expect(
+        confirmedCrop.outputWidth / confirmedCrop.outputHeight,
+        closeTo(confirmedItem.width / confirmedItem.height, 1e-9),
+        reason: 'matching output and slot ratios leave no contain white bands',
+      );
+      final fitted = containedDocumentRect(
+        itemX: confirmedItem.x,
+        itemY: confirmedItem.y,
+        itemWidth: confirmedItem.width,
+        itemHeight: confirmedItem.height,
+        imageWidth: confirmedCrop.outputWidth,
+        imageHeight: confirmedCrop.outputHeight,
+      );
+      expect(fitted.width, closeTo(confirmedItem.width, 1e-9));
+      expect(fitted.height, closeTo(confirmedItem.height, 1e-9));
       expect(hasManualBoundaryOverride(confirmedRecord), isTrue);
       expect(hasUnresolvedBoundary(confirmedRecord), isFalse);
 

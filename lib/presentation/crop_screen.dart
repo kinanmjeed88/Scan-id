@@ -632,12 +632,16 @@ class _CropScreenState extends State<CropScreen> {
     double edge(int a, int b) => math.sqrt(
       math.pow((c[a].x - c[b].x) * sx, 2) + math.pow((c[a].y - c[b].y) * sy, 2),
     );
-    return edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
+    final landscape =
+        edge(0, 1) + edge(3, 2) >= edge(0, 3) + edge(1, 2);
+    return _adjustments.quarterTurns.isOdd ? !landscape : landscape;
   }
 
   /// Catalog shapes turned to the orientation of the current selection.
   List<(String, double)> _aspectPresets() {
-    final landscape = _draftLandscape;
+    final landscape = _adjustments.quarterTurns.isOdd
+        ? !_draftLandscape
+        : _draftLandscape;
     return [
       for (final kind in const [
         DocumentKind.unifiedNationalId,
@@ -722,9 +726,12 @@ class _CropScreenState extends State<CropScreen> {
     _sizeError = null;
     final nextW = isWidth ? value : current.customWidthText;
     final nextH = isWidth ? current.customHeightText : value;
-    final ratio = _requiresManualSize(current.selectedKind)
+    final measuredRatio = _requiresManualSize(current.selectedKind)
         ? _tryParseCustomRatio(nextW, nextH)
         : null;
+    final ratio = measuredRatio != null && _adjustments.quarterTurns.isOdd
+        ? 1 / measuredRatio
+        : measuredRatio;
     final nextDraft = ratio != null && ratio != current.draft.aspectRatio
         ? CropDraft(
             corners: current.draft.corners,
@@ -770,12 +777,23 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   ImageEditRecipe _recipe() {
+    final catalogSize = _catalogSize(_selectedKind);
+    final physicalAspect = catalogSize == null
+        ? null
+        : catalogSize.width / catalogSize.height;
+    final aspectRatio =
+        _draft!.aspectRatio ??
+        (physicalAspect == null
+            ? null
+            : _adjustments.quarterTurns.isOdd
+            ? 1 / physicalAspect
+            : physicalAspect);
     final validation = requireValidManualBoundary(
       corners: _draft!.corners,
       sourceWidth: _source!.width,
       sourceHeight: _source!.height,
       adjustments: _draft!.adjustments,
-      aspectRatio: _draft!.aspectRatio,
+      aspectRatio: aspectRatio,
       catalog: widget.project.catalog,
     );
     return validation.recipe!;
@@ -842,14 +860,18 @@ class _CropScreenState extends State<CropScreen> {
         : _formatMillimeters(_catalogSize(kind)?.height ?? 0);
     final hasDefaultSize = _catalogSize(kind) != null;
     final double? nextRatio;
+    double beforeRotation(double ratio) =>
+        _adjustments.quarterTurns.isOdd ? 1 / ratio : ratio;
     if (natural != null && !_requiresManualSize(kind)) {
       final oriented = natural.oriented(landscape: _draftLandscape);
-      nextRatio = oriented.width / oriented.height;
+      nextRatio = beforeRotation(oriented.width / oriented.height);
     } else if (_requiresManualSize(kind) && _sizeTextEdited) {
       // Only a MEASUREMENT the user typed may reshape the warp. A prefilled
       // catalog default sizes the A4 slot; it never stretches the pixels.
-      nextRatio =
-          _tryParseCustomRatio(widthText, heightText) ?? _draft!.aspectRatio;
+      final measured = _tryParseCustomRatio(widthText, heightText);
+      nextRatio = measured == null
+          ? _draft!.aspectRatio
+          : beforeRotation(measured);
     } else {
       nextRatio = null;
     }

@@ -324,7 +324,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('known category does not silently reshape a new manual draft', (
+    testWidgets('known category previews at its physical aspect without bands', (
       tester,
     ) async {
       await pumpScreen(tester);
@@ -335,6 +335,15 @@ void main() {
       );
       expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
       expect(editor.openedTokens.single, isNotNull);
+      await tapFourCorners(tester);
+      await tester.ensureVisible(find.text('معاينة التصحيح'));
+      await tester.tap(find.text('معاينة التصحيح'));
+      await pumpCropPreviewResult(tester);
+      final geometry = editor.recipes.last.geometry;
+      expect(
+        geometry.outputWidth / geometry.outputHeight,
+        closeTo(85.6 / 53.98, 1e-9),
+      );
     });
 
     // C3: no usable boundary means an unapproved full frame, gated until four

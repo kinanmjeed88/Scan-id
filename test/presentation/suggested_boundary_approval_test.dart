@@ -85,7 +85,12 @@ void main() {
       expect(item.pageIndex, isNotNull);
       expect(item.width, closeTo(92.4, .01));
       expect(item.height, closeTo(62.8, .01));
-      expect(harness.saved.assets.first.crop, isNotNull);
+      final crop = harness.saved.assets.first.crop!;
+      expect(
+        crop.outputWidth / crop.outputHeight,
+        closeTo(item.width / item.height, 1e-9),
+        reason: 'direct boundary approval must not create top/bottom bands',
+      );
       expect(tester.takeException(), isNull);
     },
   );

@@ -919,11 +919,7 @@ void main() {
     'centering a newly added document keeps it below existing documents',
     () {
       final first = _sizedDoc('first', 85.6, 53.98).copyWith(x: 5, y: 5);
-      final second = _sizedDoc(
-        'second',
-        85.6,
-        53.98,
-      ).copyWith(x: 95.6, y: 5);
+      final second = _sizedDoc('second', 85.6, 53.98).copyWith(x: 95.6, y: 5);
       final added = _sizedDoc('added', 85.6, 53.98, page: null);
       final project = _project([first, second, added]).copyWith(
         layout: LayoutSettings(

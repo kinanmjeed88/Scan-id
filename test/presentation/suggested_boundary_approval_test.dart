@@ -88,12 +88,8 @@ void main() {
       final expectedAspect = item.width / item.height;
       expect(
         crop.outputWidth / crop.outputHeight,
-        closeTo(
-          expectedAspect,
-          2 * expectedAspect / crop.outputHeight,
-        ),
-        reason:
-            'direct approval leaves no band beyond integer pixel rounding',
+        closeTo(expectedAspect, 2 * expectedAspect / crop.outputHeight),
+        reason: 'direct approval leaves no band beyond integer pixel rounding',
       );
       expect(tester.takeException(), isNull);
     },

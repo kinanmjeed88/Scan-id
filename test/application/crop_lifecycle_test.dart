@@ -346,10 +346,7 @@ void main() {
         const expectedAspect = 85.6 / 53.98;
         expect(
           geometry.outputWidth / geometry.outputHeight,
-          closeTo(
-            expectedAspect,
-            2 * expectedAspect / geometry.outputHeight,
-          ),
+          closeTo(expectedAspect, 2 * expectedAspect / geometry.outputHeight),
           reason: 'integer raster rounding may not exceed one output pixel',
         );
       },

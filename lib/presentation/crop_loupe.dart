@@ -4,6 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../domain/geometry.dart';
 
+/// Places the loupe in the quadrant opposite the pointer.
+///
+/// Physical alignment is intentional: it does not flip with RTL. A top-right
+/// drag therefore shows the loupe at bottom-left, never beneath the finger.
+Alignment cropLoupeAlignment(Point2 focus) => Alignment(
+  focus.x <= .5 ? 1 : -1,
+  focus.y <= .5 ? 1 : -1,
+);
+
 /// A precision loupe shown WHILE a crop corner or edge is being dragged.
 ///
 /// It magnifies the source pixels around the exact point under the finger,

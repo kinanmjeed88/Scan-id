@@ -910,10 +910,13 @@ class _CropScreenState extends State<CropScreen> {
       );
       if (!mounted || operation != _operationGeneration) return;
       _change(draft.withAdjustments(value));
-      showMessage(
-        context,
-        'طُبّق اقتراح تحسين محلي قابل للتعديل؛ راجع النتيجة قبل الحفظ.',
-      );
+      // Adjustment sliders alone are not visible feedback on the source
+      // image. Render and open the corrected result in the same action so the
+      // user can actually compare it, adjust it, or undo it before saving.
+      await _render();
+      if (mounted && _hasCurrentPreview) {
+        showMessage(context, 'عُرضت نتيجة التحسين؛ عدّلها أو تراجع قبل الحفظ.');
+      }
     } catch (error) {
       if (_isCurrentOperation(operation)) {
         setState(() => _error = userError(error));
@@ -955,13 +958,11 @@ class _CropScreenState extends State<CropScreen> {
         });
         return;
       }
-      final detectionFailed =
-          points == null ||
-          !_usableSuggestedCorners(
-            points,
-            sourceWidth: source.width,
-            sourceHeight: source.height,
-          );
+      final usablePoints = _usableSuggestedCorners(
+        points,
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+      );
       if (points == null) {
         setState(() {
           _proposalNotice =
@@ -971,11 +972,7 @@ class _CropScreenState extends State<CropScreen> {
           context,
           'لم يُعثر على حدود مدعومة بالحواف؛ لم يتغير الإطار الحالي.',
         );
-      } else if (!_usableSuggestedCorners(
-        points,
-        sourceWidth: source.width,
-        sourceHeight: source.height,
-      )) {
+      } else if (!usablePoints) {
         setState(() {
           _proposalNotice =
               'الاقتراح لا يحتوي على أربع زوايا صالحة؛ بقي الإطار الحالي كما هو.';
@@ -998,7 +995,7 @@ class _CropScreenState extends State<CropScreen> {
           'اقتراح للمراجعة فقط؛ تراجع يستعيد الحدود السابقة. عاين النتيجة قبل الحفظ.',
         );
       }
-      if (detectionFailed) _enterManualFallback();
+      if (!usablePoints) _enterManualFallback();
     } catch (error) {
       if (_isCurrentOperation(operation)) {
         setState(() {
@@ -1470,9 +1467,17 @@ class _CropScreenState extends State<CropScreen> {
                   child: LayoutBuilder(
                     builder: (context, box) {
                       final ratio = _source!.width / _source!.height;
+                      final availableWidth = math.max(
+                        1.0,
+                        box.maxWidth - boundaryCanvasInsetPx * 2,
+                      );
+                      final availableHeight = math.max(
+                        1.0,
+                        box.maxHeight - boundaryCanvasInsetPx * 2,
+                      );
                       final width = math.min(
-                        box.maxWidth - 40,
-                        (box.maxHeight - 40) * ratio,
+                        availableWidth,
+                        availableHeight * ratio,
                       );
                       final height = width / ratio;
                       return Stack(
@@ -1488,14 +1493,14 @@ class _CropScreenState extends State<CropScreen> {
                                 child: SizedBox(
                                   // The hit-test box includes the entire corner handles,
                                   // not just the image. Clip.none alone only expands paint.
-                                  width: width + 40,
-                                  height: height + 40,
+                                  width: width + boundaryCanvasInsetPx * 2,
+                                  height: height + boundaryCanvasInsetPx * 2,
                                   child: Stack(
                                     clipBehavior: Clip.none,
                                     children: [
                                       Positioned(
-                                        left: 20,
-                                        top: 20,
+                                        left: boundaryCanvasInsetPx,
+                                        top: boundaryCanvasInsetPx,
                                         width: width,
                                         height: height,
                                         child: SizedBox(
@@ -1535,21 +1540,28 @@ class _CropScreenState extends State<CropScreen> {
                           if (_activeDragHandle != null &&
                               _loupeFocus != null &&
                               _source != null)
-                            Positioned.directional(
-                              textDirection: Directionality.of(context),
-                              start: 12,
-                              top: 12,
-                              child: IgnorePointer(
-                                child: ValueListenableBuilder<Matrix4>(
-                                  valueListenable: _view,
-                                  builder: (context, matrix, _) =>
-                                      CropPrecisionLoupe(
-                                        preview: _source!.preview,
-                                        corners: _draft!.corners,
-                                        focus: _loupeFocus!,
-                                        canvasSize: Size(width, height),
-                                        zoom: matrix.getMaxScaleOnAxis(),
-                                      ),
+                            Positioned.fill(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Align(
+                                  key: const Key('crop-loupe-alignment'),
+                                  alignment: cropLoupeAlignment(_loupeFocus!),
+                                  child: IgnorePointer(
+                                    child: ValueListenableBuilder<Matrix4>(
+                                      valueListenable: _view,
+                                      builder: (context, matrix, _) =>
+                                          CropPrecisionLoupe(
+                                            key: const Key(
+                                              'crop-precision-loupe',
+                                            ),
+                                            preview: _source!.preview,
+                                            corners: _draft!.corners,
+                                            focus: _loupeFocus!,
+                                            canvasSize: Size(width, height),
+                                            zoom: matrix.getMaxScaleOnAxis(),
+                                          ),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -1725,8 +1737,8 @@ class _CropScreenState extends State<CropScreen> {
     if (selection == null) return const [];
     return [
       Positioned(
-        left: 20.0,
-        top: 20.0,
+        left: boundaryCanvasInsetPx,
+        top: boundaryCanvasInsetPx,
         width: width,
         height: height,
         child: GestureDetector(
@@ -1742,8 +1754,10 @@ class _CropScreenState extends State<CropScreen> {
       ),
       for (var i = 0; i < selection.points.length; i++)
         Positioned(
-          left: 20.0 + selection.points[i].x * width - 12.0,
-          top: 20.0 + selection.points[i].y * height - 12.0,
+          left:
+              boundaryCanvasInsetPx + selection.points[i].x * width - 12.0,
+          top:
+              boundaryCanvasInsetPx + selection.points[i].y * height - 12.0,
           child: _ScreenFixedSize(controller: _view, child: _tapMarker(i)),
         ),
     ];
@@ -1762,8 +1776,8 @@ class _CropScreenState extends State<CropScreen> {
     return [
       for (var i = 0; i < 4; i++)
         Positioned(
-          left: corners[i].x * width,
-          top: corners[i].y * height,
+          left: boundaryCanvasInsetPx + corners[i].x * width - 20,
+          top: boundaryCanvasInsetPx + corners[i].y * height - 20,
           child: _ScreenFixedSize(
             controller: _view,
             child: IgnorePointer(child: _cornerVisual(i)),
@@ -1773,7 +1787,7 @@ class _CropScreenState extends State<CropScreen> {
         child: BoundaryHitLayer(
           corners: corners,
           canvasSize: Size(width, height),
-          inset: 20,
+          inset: boundaryCanvasInsetPx,
           zoom: () => _view.value.getMaxScaleOnAxis(),
           onDragStart: (handle) {
             _cornerDragMoved = false;
@@ -1866,9 +1880,10 @@ class _CropScreenState extends State<CropScreen> {
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: _busy ? null : _autoAdjust,
+            key: const Key('crop-auto-adjust'),
+            onPressed: _busy || _manualRequired ? null : _autoAdjust,
             icon: const Icon(Icons.auto_awesome),
-            label: const Text('تحسين تلقائي قابل للتعديل'),
+            label: const Text('تحسين الصورة تلقائياً'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -1903,7 +1918,7 @@ class _CropScreenState extends State<CropScreen> {
               ),
             ),
           const SizedBox(height: 12),
-          const Text('نوع المستمسك ومقاس الطباعة على A4'),
+          const Text('نوع المستمسك'),
           DropdownButton<DocumentKind>(
             key: const Key('crop-document-kind'),
             isExpanded: true,
@@ -1941,9 +1956,7 @@ class _CropScreenState extends State<CropScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                '${_selectedKind.sizeNote(widget.project.catalog)}\n'
-                'الحقول معبأة بالمقاس الافتراضي؛ اتركها كما هي أو أدخل '
-                'قياسك، ولن يُطلب منك إدخال مقاس إجبارياً.',
+                _selectedKind.sizeNote(widget.project.catalog),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -1996,35 +2009,42 @@ class _CropScreenState extends State<CropScreen> {
                 ),
               ),
           ],
-          const SizedBox(height: 12),
-          const Text('شكل المستمسك (يحدد نسبة الأبعاد بعد التصحيح)'),
-          DropdownButton<double?>(
-            key: const Key('crop-aspect'),
-            isExpanded: true,
-            value: _aspectChoice(),
-            items: [
-              const DropdownMenuItem(
-                value: null,
-                child: Text('تقدير من الزوايا'),
-              ),
-              for (final preset in _aspectPresets())
-                DropdownMenuItem(value: preset.$2, child: Text(preset.$1)),
-              const DropdownMenuItem(
-                value: -1,
-                enabled: false,
-                child: Text('النسبة المحفوظة'),
-              ),
-            ],
-            onChanged: _busy
-                ? null
-                : (ratio) => _change(
-                    CropDraft(
-                      corners: _draft!.corners,
-                      adjustments: adjustments,
-                      aspectRatio: ratio,
+          // A selected category already owns the output aspect ratio (from its
+          // catalog size or the measurement fields above). Showing a second
+          // shape selector duplicated that decision and allowed contradictory
+          // values. Freeform shape selection remains available only without a
+          // selected category.
+          if (_selectedKind == DocumentKind.unknown) ...[
+            const SizedBox(height: 12),
+            const Text('شكل القص (اختياري)'),
+            DropdownButton<double?>(
+              key: const Key('crop-aspect'),
+              isExpanded: true,
+              value: _aspectChoice(),
+              items: [
+                const DropdownMenuItem(
+                  value: null,
+                  child: Text('تقدير من الزوايا'),
+                ),
+                for (final preset in _aspectPresets())
+                  DropdownMenuItem(value: preset.$2, child: Text(preset.$1)),
+                const DropdownMenuItem(
+                  value: -1,
+                  enabled: false,
+                  child: Text('النسبة المحفوظة'),
+                ),
+              ],
+              onChanged: _busy
+                  ? null
+                  : (ratio) => _change(
+                      CropDraft(
+                        corners: _draft!.corners,
+                        adjustments: adjustments,
+                        aspectRatio: ratio,
+                      ),
                     ),
-                  ),
-          ),
+            ),
+          ],
           Text('الإضاءة: ${(adjustments.brightness * 100).round()}'),
           Slider(
             key: const Key('crop-brightness'),

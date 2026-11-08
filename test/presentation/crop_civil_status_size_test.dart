@@ -43,6 +43,17 @@ Future<void> _chooseKind(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('a documented kind supplies its size without duplicate controls', (
+    tester,
+  ) async {
+    await _pumpCrop(tester, assetId: 'asset-documented-size');
+    await _chooseKind(tester, DocumentKind.unifiedNationalId.label);
+
+    expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
+    expect(find.byKey(const Key('crop-custom-height-mm')), findsNothing);
+    expect(find.byKey(const Key('crop-aspect')), findsNothing);
+  });
+
   for (final kind in [DocumentKind.residenceCard, DocumentKind.rationCard]) {
     testWidgets('${kind.name} prefills its estimated default; no entry needed', (
       tester,
@@ -67,10 +78,6 @@ void main() {
       expect(double.parse(w), closeTo(expected.width, .05));
       expect(double.parse(h), closeTo(expected.height, .05));
       expect(find.textContaining('مقاس افتراضي قابل للتعديل'), findsOneWidget);
-      expect(
-        find.textContaining('لن يُطلب منك إدخال مقاس إجبارياً'),
-        findsOneWidget,
-      );
       expect(find.byKey(const Key('crop-size-error')), findsNothing);
     });
   }
@@ -90,10 +97,6 @@ void main() {
     expect(tester.widget<TextField>(width).controller!.text, isEmpty);
     expect(tester.widget<TextField>(height).controller!.text, isEmpty);
     expect(find.textContaining('لا يوجد مقاس موثق'), findsOneWidget);
-    expect(
-      find.textContaining('لن يُطلب منك إدخال مقاس إجبارياً'),
-      findsOneWidget,
-    );
     expect(DocumentKind.civilStatusId.hasOfficialSize, isFalse);
   });
 

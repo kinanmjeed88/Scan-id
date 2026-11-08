@@ -195,12 +195,14 @@ void main() {
       // loading state rather than pumpAndSettle on an indeterminate spinner.
       for (var attempt = 0; attempt < 80; attempt++) {
         await tester.pump(const Duration(milliseconds: 20));
-        if (find.byKey(const Key('crop-aspect')).evaluate().isNotEmpty) break;
+        if (find.byKey(const Key('crop-document-kind')).evaluate().isNotEmpty) {
+          break;
+        }
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 20)),
         );
       }
-      expect(find.byKey(const Key('crop-aspect')), findsOneWidget);
+      expect(find.byKey(const Key('crop-document-kind')), findsOneWidget);
     }
 
     ButtonStyleButton previewButton(WidgetTester tester) =>
@@ -326,10 +328,12 @@ void main() {
       tester,
     ) async {
       await pumpScreen(tester);
-      final aspect = tester.widget<DropdownButton<double?>>(
+      expect(
         find.byKey(const Key('crop-aspect')),
+        findsNothing,
+        reason: 'a selected category must not expose a competing shape choice',
       );
-      expect(aspect.value, isNull, reason: 'measured corners are the default');
+      expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
       expect(editor.openedTokens.single, isNotNull);
     });
 

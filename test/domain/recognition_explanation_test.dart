@@ -7,6 +7,7 @@ DocumentRecord record({
   double? boundary,
   double? classification,
   double? finalValue,
+  List<String> boundaryDiagnostics = const [],
   RecognitionStatus status = RecognitionStatus.recognized,
 }) => DocumentRecord(
   id: 'doc-a',
@@ -24,6 +25,7 @@ DocumentRecord record({
       detection: boundary == null
           ? null
           : DetectionRef(
+              boundaryDiagnostics: boundaryDiagnostics,
               detectionId: 'asset1-d0',
               producer: 'test',
               version: '1',
@@ -54,6 +56,29 @@ DocumentRecord record({
 );
 
 void main() {
+  test(
+    'persisted measured failure is not replaced by a primary score verdict',
+    () {
+      final source = record(
+        boundary: .764,
+        classification: .60,
+        finalValue: .99,
+        boundaryDiagnostics: [
+          'اختلف كاشفا الذكاء الاصطناعي على مواضع الزوايا.',
+        ],
+      );
+      final restored = DocumentRecord.fromJson(source.toJson());
+      final reasons = recognitionFailureReasons(
+        restored,
+        hasUsableSuggestion: true,
+      ).join(' ');
+      expect(reasons, contains('اختلف كاشفا'));
+      expect(reasons, isNot(contains('أقل من حد القبول')));
+      expect(reasons, isNot(contains('99.0')));
+      expect(reasons, contains('ليست إذناً تلقائياً'));
+    },
+  );
+
   test(
     'an image that was never analysed says so, without inventing a cause',
     () {

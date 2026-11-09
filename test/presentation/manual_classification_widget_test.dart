@@ -13,6 +13,70 @@ import 'crop_tap_helpers.dart';
 import 'editor_harness.dart';
 
 void main() {
+  for (final accepted in [true, false]) {
+    testWidgets(
+      'content type accepted=$accepted routes independently from crop and preserves deferred data',
+      (tester) async {
+        final template = editorProject(
+          items: [
+            DocumentItem(
+              id: 'pending',
+              assetId: 'asset1',
+              x: 0,
+              y: 0,
+              width: 60,
+              height: 40,
+              pageIndex: null,
+            ),
+          ],
+        );
+        var sequence = 0;
+        final manual = classifyItemManually(
+          template,
+          itemId: 'pending',
+          kind: DocumentKind.residenceCard,
+          side: SideKind.unknown,
+          nextId: () => 'bootstrap-${++sequence}',
+        );
+        final record = manual.documents.single.copyWith(
+          overrides: [],
+          recognition: RecognitionResult(
+            documentKind: DocumentKind.residenceCard,
+            status: accepted
+                ? RecognitionStatus.recognized
+                : RecognitionStatus.uncertain,
+            confidences: ConfidenceSet(
+              classification: Confidence(value: accepted ? .85 : .59),
+              finalConfidence: Confidence(value: .2),
+            ),
+            preset: const PresetSelection.awaiting(),
+          ),
+        );
+        final project = manual.copyWith(documents: [record]);
+        final harness = await EditorHarness.pump(
+          tester,
+          project: project,
+          imageEditor: FakeImageEditor(),
+          autoClassifyItemIds: const ['pending'],
+        );
+        expect(
+          find.byKey(const Key('manual-classification-dialog')),
+          accepted ? findsNothing : findsOneWidget,
+        );
+        if (!accepted) {
+          await tapKey(tester, const Key('manual-classification-later'));
+        }
+        expect(
+          harness.saved.assets.first.originalPath,
+          project.assets.first.originalPath,
+        );
+        expect(harness.saved.documents.single.overrides, isEmpty);
+        expect(harness.saved.items.single.pageIndex, isNull);
+        expect(harness.saved.items.single.sizeConfirmed, isFalse);
+      },
+    );
+  }
+
   testWidgets(
     'failed import immediately offers classification; defer can be resumed and crop confirms placement',
     (tester) async {

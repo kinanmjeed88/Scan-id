@@ -32,10 +32,10 @@ def request(url: str, *, accept: str = "application/vnd.github+json"):
     # A token only raises that quota for the public release metadata. It is
     # sent to api.github.com alone, never to the download host the API redirects
     # to, and it is never printed.
-    token = os.environ.get("GITHUB_TOKEN", "")
-    if token and url.startswith("https://api.github.com/"):
-        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers)
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token and url.startswith("https://api.github.com/"):
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
     return urllib.request.urlopen(req, timeout=60)
 
 
@@ -87,7 +87,12 @@ def main() -> int:
         try:
             digest = hashlib.sha256()
             size = 0
-            with request(asset["browser_download_url"], accept="application/octet-stream") as response:
+            download_url = (
+                asset.get("url") or asset["browser_download_url"]
+                if os.environ.get("GITHUB_TOKEN", "").strip()
+                else asset["browser_download_url"]
+            )
+            with request(download_url, accept="application/octet-stream") as response:
                 with temporary.open("wb") as output:
                     while block := response.read(1024 * 1024):
                         size += len(block)

@@ -112,6 +112,17 @@ endfunction()
 set(SCAN_ID_WINDOWS_CACHE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.dart_tool/windows-native-cache")
 set(SCAN_ID_PDFIUM_SHA256 "1fd8af952832dbb0eb16d9249f68fe09e5f5ebf7c3dd9f6066ea2720cc28487d")
 set(SCAN_ID_PDFIUM_CACHE_ARCHIVE "${SCAN_ID_WINDOWS_CACHE_DIR}/pdfium-win-x64-${PDFIUM_VERSION}.tgz")
+set(SCAN_ID_ORT_SHA256 "1d6fab48e85f948436af7c8c971d2c145cf224e2c444755dec894f8b0de11a83")
+set(SCAN_ID_ORT_CACHE_ARCHIVE "${SCAN_ID_WINDOWS_CACHE_DIR}/onnxruntime-win-x64-${ONNXRUNTIME_VERSION}.zip")
+if(NOT EXISTS "${SCAN_ID_PDFIUM_CACHE_ARCHIVE}" OR NOT EXISTS "${SCAN_ID_ORT_CACHE_ARCHIVE}")
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../tool/fetch_windows_native_deps.py"
+      RESULT_VARIABLE scan_id_py_fetch_rc
+    )
+  endif()
+endif()
 scan_id_fetch_verified_archive(
   "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_VERSION}/pdfium-win-x64.tgz"
   "${SCAN_ID_PDFIUM_CACHE_ARCHIVE}"

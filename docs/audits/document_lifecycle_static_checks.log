@@ -1,0 +1,8 @@
+PASS: 277 Dart files have resolvable local imports; domain boundaries checked.
+PASS: Android XML parses; the release manifest declares only the two update permissions and every provider is class-backed, unexported and single-path.
+PASS: the release certificate pin is declared once, compiled into the build, and compared against the package signer before the installer is offered it.
+PASS: Launcher artwork present at every density and referenced by both platforms (Windows icon carries 9 sizes).
+INVENTORY: 1150 declared Dart/Flutter tests. NOT executed by this audit.
+PASS: retired models remain absent; the pinned DocQuadNet and DocAligner offline ONNX Runtime adapters, model verification and CI inference paths are present; failed AI results fall back to the classical review-only proposer; schema v5 and annotation v2 remain.
+PASS: verification is read-only; release and cleanup writes are isolated to guarded jobs; no formatter or branch-deletion git-push path remains.
+PASS: all 12 GitHub Actions checkout(s) exclude Mostmskat/ and local-data/ with sparse partial checkout.

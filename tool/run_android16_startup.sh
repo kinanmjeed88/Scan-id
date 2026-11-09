@@ -24,8 +24,13 @@ adb shell monkey -p iq.scanid.scan_id.startupdiag \
   -c android.intent.category.LAUNCHER 1 > diagnostics/android16/launch.log 2>&1 || true
 
 reached_home=0
+: > diagnostics/android16/startup.log
 for _ in $(seq 1 30); do
-  adb logcat -d -v threadtime > diagnostics/android16/startup.log 2>/dev/null || true
+  adb wait-for-device >/dev/null 2>&1 || true
+  if adb logcat -d -v threadtime > diagnostics/android16/startup.log.tmp 2>/dev/null && [[ -s diagnostics/android16/startup.log.tmp ]]; then
+    mv diagnostics/android16/startup.log.tmp diagnostics/android16/startup.log
+  fi
+  rm -f diagnostics/android16/startup.log.tmp
   if grep -Fq 'app.first_home_frame' diagnostics/android16/startup.log; then
     reached_home=1
     break

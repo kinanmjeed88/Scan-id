@@ -492,7 +492,8 @@ class _CropScreenState extends State<CropScreen> {
         final activeDraft = CropDraft(
           corners: crop.corners,
           adjustments: asset.adjustments,
-          aspectRatio: crop.outputWidth / crop.outputHeight,
+          // A stored raster ratio is not a new explicit shape choice. Keep
+          // its exact geometry until corners change, then recover free shape.
           preservedGeometry: crop,
         );
         activeState = _CropEditorState(
@@ -758,7 +759,12 @@ class _CropScreenState extends State<CropScreen> {
       aspectRatio: _draft!.aspectRatio,
       catalog: widget.project.catalog,
     );
-    return validation.recipe!;
+    // Validation remains mandatory; unchanged saved geometry is preserved,
+    // while corner edits (which clear preservedGeometry) recover free shape.
+    return ImageEditRecipe(
+      _draft!.toRecipe(_source!.width, _source!.height).geometry,
+      validation.recipe!.adjustments,
+    );
   }
 
   bool _requiresManualSize(DocumentKind kind) =>

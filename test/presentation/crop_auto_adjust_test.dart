@@ -34,8 +34,8 @@ void main() {
         thumbnailPath: base.thumbnailPath,
         width: base.width,
         height: base.height,
-        // Regression: these landscape corners previously inherited a stale
-        // portrait output ratio and auto-enhancement rendered them squeezed.
+        // Legacy/explicit saved geometry is retained by enhancement alone.
+        // A category is not permission to replace it with a catalog ratio.
         crop: CropGeometry(
           corners: landscapeCorners,
           outputWidth: 40,
@@ -76,11 +76,11 @@ void main() {
 
       expect(find.byKey(const Key('crop-result')), findsOneWidget);
       final geometry = editor.lastPreview!.geometry;
-      expect(
-        geometry.outputWidth / geometry.outputHeight,
-        closeTo(85.6 / 53.98, 2 * (85.6 / 53.98) / geometry.outputHeight),
-        reason: 'enhancement must not restore the stale portrait crop shape',
-      );
+      expect(geometry.outputWidth, asset.crop!.outputWidth);
+      expect(geometry.outputHeight, asset.crop!.outputHeight);
+      // Enhancement changes colour/sharpness, not approved geometry. A
+      // previously distorted crop needs explicit recropping from the original.
+
       expect(
         tester
             .widget<FilledButton>(find.byKey(const Key('accept-crop')))

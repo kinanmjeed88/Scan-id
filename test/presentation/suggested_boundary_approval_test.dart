@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -87,11 +88,16 @@ void main() {
       expect(item.width, closeTo(92.4, .01));
       expect(item.height, closeTo(62.8, .01));
       final crop = harness.saved.assets.first.crop!;
-      final expectedAspect = item.width / item.height;
+      final source = await FakeImageEditor().open(asset);
+      final measured = CropDraft(
+        corners: suggested,
+      ).toRecipe(source.width, source.height).geometry;
+      expect(crop.outputWidth, measured.outputWidth);
+      expect(crop.outputHeight, measured.outputHeight);
       expect(
         crop.outputWidth / crop.outputHeight,
-        closeTo(expectedAspect, 2 * expectedAspect / crop.outputHeight),
-        reason: 'direct approval leaves no band beyond integer pixel rounding',
+        isNot(closeTo(item.width / item.height, .01)),
+        reason: 'estimated millimetres must not reshape the approved boundary',
       );
       expect(tester.takeException(), isNull);
     },

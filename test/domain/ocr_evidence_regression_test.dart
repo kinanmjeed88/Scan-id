@@ -20,9 +20,9 @@ OcrTextResult _ocr(List<String> texts, {double confidence = .9}) =>
     );
 
 List<DocumentKind> _kinds(List<String> texts, {double confidence = .9}) =>
-    ocrKeywordEvidence(_ocr(texts, confidence: confidence))
-        .map((entry) => entry.kind)
-        .toList();
+    ocrKeywordEvidence(
+      _ocr(texts, confidence: confidence),
+    ).map((entry) => entry.kind).toList();
 
 OcrKeywordEvidence _single(List<String> texts, {double confidence = .9}) {
   final evidence = ocrKeywordEvidence(_ocr(texts, confidence: confidence));
@@ -71,38 +71,25 @@ void main() {
     });
 
     test('title plus issuer alone evidences (two independent groups)', () {
-      final evidence = _single([
-        'البطاقة الوطنية',
-        'وزارة الداخلية',
-      ]);
+      final evidence = _single(['البطاقة الوطنية', 'وزارة الداخلية']);
       expect(evidence.kind, DocumentKind.unifiedNationalId);
       expect(evidence.matchedAnchorGroups, 2);
     });
 
     test('title plus a distinctive field evidences', () {
-      expect(
-        _kinds(['البطاقة الوطنية', 'فصيلة الدم']),
-        [DocumentKind.unifiedNationalId],
-      );
+      expect(_kinds(['البطاقة الوطنية', 'فصيلة الدم']), [
+        DocumentKind.unifiedNationalId,
+      ]);
     });
 
     test('personal fields without a title or MRZ never evidence', () {
-      expect(
-        _kinds(['الاسم', 'الجنس', 'فصيلة الدم']),
-        isEmpty,
-      );
-      expect(
-        _kinds(['الاسم', 'الأم', 'تاريخ الولادة']),
-        isEmpty,
-      );
+      expect(_kinds(['الاسم', 'الجنس', 'فصيلة الدم']), isEmpty);
+      expect(_kinds(['الاسم', 'الأم', 'تاريخ الولادة']), isEmpty);
     });
 
     test('a partial word inside a longer word is not a field hit', () {
       // «الاسماء» must not count as the «الاسم» field.
-      expect(
-        _kinds(['البطاقة الوطنية', 'الاسماء']),
-        isEmpty,
-      );
+      expect(_kinds(['البطاقة الوطنية', 'الاسماء']), isEmpty);
     });
 
     test('MRZ with an OCR-confused prefix letter still evidences', () {
@@ -132,24 +119,15 @@ void main() {
     });
 
     test('office heading plus the form number evidences', () {
-      expect(
-        _kinds([
-          'مديرية مكتب المعلومات المركزي',
-          'رقم الاستمارة',
-        ]),
-        [DocumentKind.residenceCard],
-      );
+      expect(_kinds(['مديرية مكتب المعلومات المركزي', 'رقم الاستمارة']), [
+        DocumentKind.residenceCard,
+      ]);
     });
 
     test('office heading split across adjacent lines evidences', () {
-      expect(
-        _kinds([
-          'مكتب',
-          'المعلومات المركزي',
-          'اسم رب الأسرة',
-        ]),
-        [DocumentKind.residenceCard],
-      );
+      expect(_kinds(['مكتب', 'المعلومات المركزي', 'اسم رب الأسرة']), [
+        DocumentKind.residenceCard,
+      ]);
     });
 
     test('the supporting form never evidences on its own', () {
@@ -226,44 +204,31 @@ void main() {
     });
 
     test('title plus a passport field evidences', () {
-      expect(
-        _kinds(['Passport', 'Date of Birth']),
-        [DocumentKind.passport],
-      );
+      expect(_kinds(['Passport', 'Date of Birth']), [DocumentKind.passport]);
     });
 
     test('mixed Arabic and English labels evidence', () {
-      expect(
-        _kinds(['جواز سفر', 'Passport No', 'Date of Birth']),
-        [DocumentKind.passport],
-      );
+      expect(_kinds(['جواز سفر', 'Passport No', 'Date of Birth']), [
+        DocumentKind.passport,
+      ]);
     });
 
     test('visual-order (reversed) passport labels evidence', () {
-      expect(
-        _kinds([
-          reversedRunes('جواز سفر'),
-          reversedRunes('رقم الجواز'),
-        ]),
-        [DocumentKind.passport],
-      );
+      expect(_kinds([reversedRunes('جواز سفر'), reversedRunes('رقم الجواز')]), [
+        DocumentKind.passport,
+      ]);
     });
 
     test('passport MRZ never evidences as a national ID', () {
-      expect(
-        _kinds(['P<IRQTEST<<NAME<<<<<<<<<<<<', 'Full Name']),
-        [DocumentKind.passport],
-      );
+      expect(_kinds(['P<IRQTEST<<NAME<<<<<<<<<<<<', 'Full Name']), [
+        DocumentKind.passport,
+      ]);
     });
 
     test('national-ID MRZ never evidences as a passport', () {
-      expect(
-        _kinds([
-          'IDIRQ A00000000 0000000000000<<<',
-          'تاريخ الولادة',
-        ]),
-        [DocumentKind.unifiedNationalId],
-      );
+      expect(_kinds(['IDIRQ A00000000 0000000000000<<<', 'تاريخ الولادة']), [
+        DocumentKind.unifiedNationalId,
+      ]);
     });
 
     test('a stray IRQ inside a line is not an MRZ', () {
@@ -271,10 +236,7 @@ void main() {
     });
 
     test('MRZ with an OCR-confused prefix letter still evidences', () {
-      final evidence = _single([
-        'P<IROTEST<<NAME<<<<<<<<<<<<',
-        'Full Name',
-      ]);
+      final evidence = _single(['P<IROTEST<<NAME<<<<<<<<<<<<', 'Full Name']);
       expect(evidence.kind, DocumentKind.passport);
       expect(evidence.matchedGroups, contains('mrz'));
     });
@@ -282,10 +244,7 @@ void main() {
 
   group('generic and negative cases', () {
     test('shared government words alone never evidence', () {
-      expect(
-        _kinds(['جمهورية العراق', 'وزارة الداخلية']),
-        isEmpty,
-      );
+      expect(_kinds(['جمهورية العراق', 'وزارة الداخلية']), isEmpty);
       expect(_kinds(['Republic of Iraq']), isEmpty);
       expect(_kinds(['وزارة الداخلية']), isEmpty);
     });
@@ -300,40 +259,26 @@ void main() {
     });
 
     test('title plus unrelated text never evidences', () {
-      expect(
-        _kinds(['البطاقة الوطنية', 'نص غير مرتبط تماما']),
-        isEmpty,
-      );
+      expect(_kinds(['البطاقة الوطنية', 'نص غير مرتبط تماما']), isEmpty);
     });
   });
 
   group('layout and repetition', () {
     test('title and support on the same line evidence', () {
-      expect(
-        _kinds(['البطاقة الوطنية الرقم الوطني']),
-        [DocumentKind.unifiedNationalId],
-      );
+      expect(_kinds(['البطاقة الوطنية الرقم الوطني']), [
+        DocumentKind.unifiedNationalId,
+      ]);
     });
 
     test('title split across adjacent lines evidences', () {
-      expect(
-        _kinds([
-          'البطاقة',
-          'الوطنية الموحدة',
-          'الرقم الوطني',
-        ]),
-        [DocumentKind.unifiedNationalId],
-      );
+      expect(_kinds(['البطاقة', 'الوطنية الموحدة', 'الرقم الوطني']), [
+        DocumentKind.unifiedNationalId,
+      ]);
     });
 
     test('title fragments on distant lines never evidence', () {
       expect(
-        _kinds([
-          'البطاقة',
-          'نص غير مرتبط',
-          'الوطنية الموحدة',
-          'الرقم الوطني',
-        ]),
+        _kinds(['البطاقة', 'نص غير مرتبط', 'الوطنية الموحدة', 'الرقم الوطني']),
         isEmpty,
       );
     });
@@ -364,10 +309,7 @@ void main() {
 
   group('limited OCR-error tolerance', () {
     test('a one-character spelling error still evidences, discounted', () {
-      final evidence = _single([
-        'البطاقة الوطنية',
-        'الرقم الوطن',
-      ]);
+      final evidence = _single(['البطاقة الوطنية', 'الرقم الوطن']);
       expect(evidence.kind, DocumentKind.unifiedNationalId);
       // Exact title confidence 0.9, fuzzy support discounted to 0.9 * 0.85.
       expect(evidence.score, closeTo(.765, 1e-9));
@@ -417,10 +359,7 @@ void main() {
 
     test('weak OCR confidence stays below the classification floor', () {
       final evidence = ocrKeywordEvidence(
-        _ocr(
-          ['البطاقة الوطنية', 'الرقم الوطني'],
-          confidence: .55,
-        ),
+        _ocr(['البطاقة الوطنية', 'الرقم الوطني'], confidence: .55),
       );
       expect(evidence, hasLength(1));
       expect(evidence.single.score, closeTo(.55, 1e-9));

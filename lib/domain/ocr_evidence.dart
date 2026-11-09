@@ -151,20 +151,16 @@ class _EvidenceGroup {
 /// - Civil status and ration keep their established lexicons unchanged.
 const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
   DocumentKind.unifiedNationalId: [
-    _EvidenceGroup(
-      'title',
-      [
-        'البطاقة الوطنية',
-        'البطاقة الوطنية الموحدة',
-        'البطاقة الوطنية الشخصية',
-        'بطاقة الوطنية',
-        'national card',
-        'national id',
-        'nationalcard',
-        'nationalid',
-      ],
-      role: _EvidenceRole.title,
-    ),
+    _EvidenceGroup('title', [
+      'البطاقة الوطنية',
+      'البطاقة الوطنية الموحدة',
+      'البطاقة الوطنية الشخصية',
+      'بطاقة الوطنية',
+      'national card',
+      'national id',
+      'nationalcard',
+      'nationalid',
+    ], role: _EvidenceRole.title),
     _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
     _EvidenceGroup('identifier', [
       'الرقم الوطني',
@@ -198,16 +194,12 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     ]),
   ],
   DocumentKind.civilStatusId: [
-    _EvidenceGroup(
-      'title',
-      [
-        'هوية الأحوال المدنية',
-        'بطاقة الأحوال المدنية',
-        'هوية الجنسية',
-        'civil status identity',
-      ],
-      role: _EvidenceRole.title,
-    ),
+    _EvidenceGroup('title', [
+      'هوية الأحوال المدنية',
+      'بطاقة الأحوال المدنية',
+      'هوية الجنسية',
+      'civil status identity',
+    ], role: _EvidenceRole.title),
     _EvidenceGroup('registry', [
       'سجل النفوس',
       'رقم السجل',
@@ -217,21 +209,17 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     _EvidenceGroup('citizenship', ['الجنسية', 'nationality']),
   ],
   DocumentKind.residenceCard: [
-    _EvidenceGroup(
-      'title',
-      [
-        'بطاقة السكن',
-        'هوية السكن',
-        'بطاقة سكن',
-        'residence card',
-        'residencecard',
-        'مكتب المعلومات المركزي',
-        'مديرية مكتب المعلومات المركزي',
-        'مكتب المعلومات',
-        'مكتب معلومات',
-      ],
-      role: _EvidenceRole.title,
-    ),
+    _EvidenceGroup('title', [
+      'بطاقة السكن',
+      'هوية السكن',
+      'بطاقة سكن',
+      'residence card',
+      'residencecard',
+      'مكتب المعلومات المركزي',
+      'مديرية مكتب المعلومات المركزي',
+      'مكتب المعلومات',
+      'مكتب معلومات',
+    ], role: _EvidenceRole.title),
     _EvidenceGroup('household', [
       'اسم رب الأسرة',
       'عنوان السكن',
@@ -248,19 +236,12 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     _EvidenceGroup('issuer', ['مديرية البلدية', 'بلدية']),
   ],
   DocumentKind.rationCard: [
-    _EvidenceGroup(
-      'title',
-      [
-        'البطاقة التموينية',
-        'بطاقة تموينية',
-        'ration card',
-      ],
-      role: _EvidenceRole.title,
-    ),
-    _EvidenceGroup(
-      'issuer',
-      ['وزارة التجارة', 'ministry of trade'],
-    ),
+    _EvidenceGroup('title', [
+      'البطاقة التموينية',
+      'بطاقة تموينية',
+      'ration card',
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('issuer', ['وزارة التجارة', 'ministry of trade']),
     _EvidenceGroup('rationDetails', [
       'الوكيل التمويني',
       'المركز التمويني',
@@ -269,11 +250,11 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     ]),
   ],
   DocumentKind.passport: [
-    _EvidenceGroup(
-      'title',
-      ['جواز السفر', 'جواز سفر', 'passport'],
-      role: _EvidenceRole.title,
-    ),
+    _EvidenceGroup('title', [
+      'جواز السفر',
+      'جواز سفر',
+      'passport',
+    ], role: _EvidenceRole.title),
     _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
     _EvidenceGroup('documentNumber', [
       'رقم الجواز',
@@ -327,10 +308,13 @@ String _normalizeToken(String token) => token
 /// Normalized word tokens of one OCR line. Diacritics are stripped before
 /// splitting so a vocalized word stays one token.
 List<String> _tokensOf(String line) {
-  final parts = _stripMarks(line).split(
-    RegExp(r'[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+'),
-  );
-  return [for (final part in parts) if (part.isNotEmpty) _normalizeToken(part)];
+  final parts = _stripMarks(
+    line,
+  ).split(RegExp(r'[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+'));
+  return [
+    for (final part in parts)
+      if (part.isNotEmpty) _normalizeToken(part),
+  ];
 }
 
 /// A dictionary phrase compiled to normalized tokens plus its space-stripped
@@ -430,21 +414,17 @@ List<_AnchorHit> _exactHits(List<_LineView> view, _CompiledPhrase phrase) {
       var start = line.stripped.indexOf(phrase.stripped);
       while (start >= 0) {
         final end = start + phrase.stripped.length;
-        if (line.boundaries.contains(start) &&
-            line.boundaries.contains(end)) {
+        if (line.boundaries.contains(start) && line.boundaries.contains(end)) {
           hits.add(_AnchorHit(offset + start, offset + end, line.confidence));
         }
         start = line.stripped.indexOf(phrase.stripped, start + 1);
       }
     }
-    if (next != null &&
-        line.stripped.isNotEmpty &&
-        next.stripped.isNotEmpty) {
+    if (next != null && line.stripped.isNotEmpty && next.stripped.isNotEmpty) {
       final window = line.stripped + next.stripped;
       final windowBoundaries = [
         ...line.boundaries,
-        for (final boundary in next.boundaries)
-          boundary + line.stripped.length,
+        for (final boundary in next.boundaries) boundary + line.stripped.length,
       ];
       var start = window.indexOf(phrase.stripped);
       while (start >= 0) {

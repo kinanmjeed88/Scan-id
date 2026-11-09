@@ -473,6 +473,30 @@ class ProjectService {
     );
   }
 
+  /// Camera receipts are committed before recognition. Replaying a receipt
+  /// must neither duplicate a document nor discard an original on OCR failure.
+  Future<Project> completeCameraIntake(Project project) async {
+    final represented = {
+      for (final item in project.items) item.assetId,
+      for (final record in project.documents) record.sourceImageId,
+    };
+    final ids = [
+      for (final asset in project.assets)
+        if (asset.captureId != null && !represented.contains(asset.id))
+          asset.id,
+    ];
+    if (ids.isEmpty) return project;
+    try {
+      await arrangeImportedImages(project, ids);
+    } finally {
+      // Always reload the committed revision; a partial analysis may have saved
+      // metadata before throwing. Retain failures as pending manual items.
+      final latest = await projects.get(project.id);
+      await retainUnrepresentedImports(latest, ids);
+    }
+    return projects.get(project.id);
+  }
+
   /// Preserve imports not represented by any layout item after an interrupted
   /// or failed automatic pass. These are pending manual decisions, not guessed
   /// types or approved boundaries; the original asset remains untouched.
@@ -1272,22 +1296,10 @@ class ProjectService {
         (natural == null
             ? null
             : project.catalog.sizeFor(documentKind, landscape: landscape));
-    // A confirmed physical size is also the output aspect contract. Building
-    // the rectified pixels at that ratio prevents BoxFit.contain from adding
-    // white bands to the A4 slot. Rotation is applied after the crop, so its
-    // ratio must be inverted here when the quarter-turn count is odd.
-    final outputAspect = resolvedSize == null
-        ? null
-        : (turned
-              ? resolvedSize.height / resolvedSize.width
-              : resolvedSize.width / resolvedSize.height);
-    final resolvedRecipe = outputAspect == null
-        ? recipe
-        : CropDraft(
-            corners: recipe.geometry.corners,
-            adjustments: recipe.adjustments,
-            aspectRatio: outputAspect,
-          ).toRecipe(resolvedWidth, resolvedHeight);
+    // Print millimetres size the A4 slot, not the source pixels. Preserve the
+    // exact previewed recipe (including an explicit shape choice, if any).
+    // Contain at export handles a slot/image mismatch without stretching.
+    final resolvedRecipe = recipe;
     requireValidManualBoundary(
       corners: resolvedRecipe.geometry.corners,
       sourceWidth: resolvedWidth,

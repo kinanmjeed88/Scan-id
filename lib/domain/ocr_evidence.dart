@@ -74,7 +74,7 @@ class OcrTextResult {
 }
 
 /// A document-kind keyword hit derived from OCR text. Carries the kind, the
-/// conservative score of a two-line/two-group anchor match, and the number of
+/// conservative score of a non-overlapping two-group anchor match, and the number of
 /// distinct anchor groups seen. The matched text never leaves the pipeline run.
 class OcrKeywordEvidence {
   OcrKeywordEvidence({
@@ -88,7 +88,7 @@ class OcrKeywordEvidence {
     );
     require(
       matchedAnchorGroups >= 2,
-      'يتطلب دليل OCR مجموعتي مراسي متميزتين على سطرين مختلفين.',
+      'يتطلب دليل OCR مجموعتي مراسي متميزتين غير متداخلتين.',
     );
   }
   final DocumentKind kind;
@@ -98,7 +98,7 @@ class OcrKeywordEvidence {
 
 /// One lexicon group: several spelling/recognition variants of the same
 /// semantic anchor. A type requires its primary group plus at least one
-/// different corroborating group on a different OCR line.
+/// different corroborating group at a non-overlapping text span.
 class _OcrAnchorGroup {
   const _OcrAnchorGroup(this.id, this.phrases, {this.primary = false});
 
@@ -199,10 +199,13 @@ String _normalize(String value) => value
     );
 
 class _AnchorHit {
-  const _AnchorHit(this.lineIndex, this.confidence);
+  const _AnchorHit(this.start, this.end, this.confidence);
 
-  final int lineIndex;
+  final int start;
+  final int end;
   final double confidence;
+
+  bool overlaps(_AnchorHit other) => start < other.end && other.start < end;
 }
 
 /// Shortest phrase that may act as an anchor, in normalised characters.
@@ -212,37 +215,46 @@ class _AnchorHit {
 /// floor exists to stop a future short entry from turning into a false anchor.
 const int minAnchorLength = 3;
 
+// Match in logical order and in per-line visual Arabic order separately. The
+// offsets are local to each view, so evidence is never paired across views.
+// A phrase may cross ONE OCR line break (split titles), not arbitrary lines.
 List<_AnchorHit> _hits(
   OcrTextResult result,
-  List<String> normalizedLines,
-  List<String> reversedLines,
+  List<String> lines,
   _OcrAnchorGroup group,
 ) {
   final hits = <_AnchorHit>[];
-  for (var index = 0; index < result.lines.length; index++) {
-    final line = normalizedLines[index];
-    if (line.isEmpty) continue;
-    // Arabic is read right-to-left and the exports differ in whether they emit
-    // logical or visual order. Matching both orders costs one reversed string
-    // per line and cannot invent a match: it only stops a correct recognition
-    // from being discarded because the text arrived the other way round.
-    final reversed = reversedLines[index];
-    var matched = false;
-    for (final phrase in group.phrases) {
-      if (phrase.length < minAnchorLength) continue;
-      if (line.contains(phrase) || reversed.contains(phrase)) {
-        matched = true;
-        break;
+  var offset = 0;
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
+    final next = index + 1 < lines.length ? lines[index + 1] : '';
+    final window = line + next;
+    if (line.isNotEmpty) {
+      for (final phrase in group.phrases) {
+        if (phrase.length < minAnchorLength) continue;
+        var start = window.indexOf(phrase);
+        while (start >= 0 && start < line.length) {
+          final end = start + phrase.length;
+          final confidence = end <= line.length
+              ? result.lines[index].confidence
+              : math
+                    .min(
+                      result.lines[index].confidence,
+                      result.lines[index + 1].confidence,
+                    )
+                    .toDouble();
+          hits.add(_AnchorHit(offset + start, offset + end, confidence));
+          start = window.indexOf(phrase, start + 1);
+        }
       }
     }
-    if (!matched) continue;
-    hits.add(_AnchorHit(index, result.lines[index].confidence));
+    offset += line.length;
   }
   return hits;
 }
 
 /// Derives keyword evidence from [result] only when a distinctive document
-/// title and an independent corroborating anchor occur on separate lines. The
+/// title and an independent, non-overlapping corroborating anchor occur. The
 /// score is the lower OCR-line confidence of that pair; it is not a calibrated
 /// probability that the document kind is correct. The recognized text itself
 /// is discarded and never stored.
@@ -261,36 +273,35 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   for (final kind in kinds) {
     final groups = _ocrAnchors[kind]!;
     final primary = groups.singleWhere((group) => group.primary);
-    final primaryHits = _hits(result, normalizedLines, reversedLines, primary);
-    if (primaryHits.isEmpty) continue;
-
     double? bestScore;
     var bestGroupCount = 0;
-    for (final primaryHit in primaryHits) {
-      final supportingGroups = <String>{};
-      var bestSupportConfidence = 0.0;
-      for (final group in groups.where((entry) => !entry.primary)) {
-        final support = _hits(
-          result,
-          normalizedLines,
-          reversedLines,
-          group,
-        ).where((hit) => hit.lineIndex != primaryHit.lineIndex).toList();
-        if (support.isEmpty) continue;
-        supportingGroups.add(group.id);
-        for (final hit in support) {
-          if (hit.confidence > bestSupportConfidence) {
-            bestSupportConfidence = hit.confidence;
+    for (final view in [normalizedLines, reversedLines]) {
+      final primaryHits = _hits(result, view, primary);
+      for (final primaryHit in primaryHits) {
+        final supportingGroups = <String>{};
+        var bestSupportConfidence = 0.0;
+        for (final group in groups.where((entry) => !entry.primary)) {
+          final support = _hits(
+            result,
+            view,
+            group,
+          ).where((hit) => !hit.overlaps(primaryHit)).toList();
+          if (support.isEmpty) continue;
+          supportingGroups.add(group.id);
+          for (final hit in support) {
+            if (hit.confidence > bestSupportConfidence) {
+              bestSupportConfidence = hit.confidence;
+            }
           }
         }
-      }
-      if (supportingGroups.isEmpty) continue;
-      final score = math
-          .min(primaryHit.confidence, bestSupportConfidence)
-          .toDouble();
-      if (bestScore == null || score > bestScore) {
-        bestScore = score;
-        bestGroupCount = 1 + supportingGroups.length;
+        if (supportingGroups.isEmpty) continue;
+        final score = math
+            .min(primaryHit.confidence, bestSupportConfidence)
+            .toDouble();
+        if (bestScore == null || score > bestScore) {
+          bestScore = score;
+          bestGroupCount = 1 + supportingGroups.length;
+        }
       }
     }
     if (bestScore == null) continue;

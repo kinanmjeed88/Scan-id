@@ -81,7 +81,8 @@ void main() {
 
     expect(first.calls, 1);
     expect(second.calls, 1);
-    expect(proposal, same(primaryProposal));
+    expectCorners(proposal?.corners, primaryProposal.corners!);
+    expect(proposal?.forceReview, isTrue);
     expect(
       verifyBoundary(
         proposal!,
@@ -120,6 +121,30 @@ void main() {
         contains(BoundaryReviewReason.modelDisagreement),
       );
       expect(decision.cropAuthorization, isNull);
+    },
+  );
+
+  test(
+    'high primary cannot borrow confidence from a weak agreeing second model',
+    () async {
+      final cascade = BoundaryProposalCascade(
+        primary: _FakeModel('primary', learned(quad(), score: .95)),
+        secondary: _FakeModel('secondary', learned(quad(), score: .55)),
+      );
+      final proposal = await cascade.suggestProposal(preview);
+      expect(proposal!.modelConfidence, .95);
+      expect(
+        proposal.forceReviewReason,
+        BoundaryReviewReason.modelNotCorroborated,
+      );
+      expect(
+        verifyBoundary(
+          proposal,
+          sourceWidth: 1000,
+          sourceHeight: 700,
+        ).cropAuthorization,
+        isNull,
+      );
     },
   );
 

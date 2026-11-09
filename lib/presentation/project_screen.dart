@@ -185,6 +185,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
             fallback: 'حُفظ الالتقاط والأصل محلياً. يمكنك الآن القص والتصحيح.',
           ),
         );
+        await _completeCameraIntake(saved);
       }
     } catch (error) {
       if (mounted) {
@@ -194,6 +195,27 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (mounted) {
         setState(() => _busy = false);
       }
+    }
+  }
+
+  Future<void> _completeCameraIntake(Project saved) async {
+    // Publish the committed original to the UI even if recognition fails.
+    if (!mounted) return;
+    setState(() => _project = saved);
+    try {
+      final processed = await widget.service.completeCameraIntake(saved);
+      if (!mounted) return;
+      setState(() => _project = processed);
+      await _layout(
+        autoClassifyItemIds: [
+          for (final item in processed.items)
+            if (item.pageIndex == null && !item.sizeConfirmed && !item.locked)
+              item.id,
+        ],
+      );
+    } finally {
+      final latest = await widget.service.projects.get(saved.id);
+      if (mounted) setState(() => _project = latest);
     }
   }
 
@@ -285,6 +307,7 @@ class _ProjectScreenState extends State<ProjectScreen> {
               fallback: 'تم حفظ الالتقاط دون تكرار صورة سبق حفظها في المشروع.',
             ),
           );
+          await _completeCameraIntake(saved);
         }
       } else if (action == 'discard' &&
           await confirm(

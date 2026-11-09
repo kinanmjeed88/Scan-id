@@ -10,6 +10,7 @@ import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
+import '../domain/recognition_routing.dart';
 import 'crop_screen.dart';
 import 'editor_controller.dart';
 import 'export_screen.dart';
@@ -212,6 +213,18 @@ class _LayoutScreenState extends State<LayoutScreen> {
         if (item == null ||
             item.locked ||
             (!editingExisting && item.sizeConfirmed)) {
+          continue;
+        }
+        final record = _c.project.documents
+            .where((entry) => entry.id == item.documentId)
+            .firstOrNull;
+        if (!editingExisting &&
+            record != null &&
+            hasAcceptedContentClassification(record)) {
+          // The type is already known from content. Review the independent
+          // crop/size decision instead of asking for the same type again.
+          _c.select(id);
+          await _editCrop(item);
           continue;
         }
         final choice = await showManualClassificationDialog(

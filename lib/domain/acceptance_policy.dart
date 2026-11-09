@@ -1,12 +1,20 @@
-/// User-requested automatic acceptance threshold. These model/evidence scores
-/// are routing heuristics, not calibrated probabilities or accuracy claims.
+/// Provisional routing scores, never calibrated probabilities. Keep production
+/// at the audited baseline until a labelled real-document evaluation justifies
+/// a lower threshold. Boundary and type decisions have separate policies.
 const double automaticAcceptanceThreshold = .70;
+const double boundaryAcceptanceThreshold = automaticAcceptanceThreshold;
+const double classificationAcceptanceThreshold = .70;
 
-/// Missing, non-finite, and out-of-range scores never grant permission. A tiny
-/// tolerance prevents weighted floating-point arithmetic from demoting an
-/// exactly 70% input to 69.99999999999999%.
-bool meetsAutomaticAcceptanceThreshold(double? score) =>
+/// Explicit threshold injection is for controlled policy comparisons. Invalid
+/// thresholds/scores fail closed. It does not bypass geometric safety gates.
+bool meetsAcceptanceThreshold(double? score, double threshold) =>
+    threshold.isFinite &&
+    threshold > 0 &&
+    threshold <= 1 &&
     score != null &&
     score.isFinite &&
-    score >= automaticAcceptanceThreshold - 1e-12 &&
+    score >= threshold - 1e-12 &&
     score <= 1;
+
+bool meetsAutomaticAcceptanceThreshold(double? score) =>
+    meetsAcceptanceThreshold(score, boundaryAcceptanceThreshold);

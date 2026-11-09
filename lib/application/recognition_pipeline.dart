@@ -27,7 +27,7 @@ import 'stage_budget.dart';
 import 'recognition_worker.dart';
 
 /// Version of the analysis pipeline, recorded in provenance.
-const recognitionPipelineVersion = 'smart-3';
+const recognitionPipelineVersion = 'smart-4';
 
 /// Everything the pipeline needs about one imported image.
 class PipelineImageInput {

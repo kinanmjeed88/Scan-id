@@ -71,8 +71,14 @@ bool qualifiesForAutomaticPlacement(
       outcome.status == RecognitionStatus.recognized &&
       outcome.candidates.length == 1 &&
       outcome.candidates.single == outcome.kind &&
-      meetsAutomaticAcceptanceThreshold(scores.classification?.value) &&
-      meetsAutomaticAcceptanceThreshold(scores.finalConfidence?.value) &&
+      meetsAcceptanceThreshold(
+        scores.classification?.value,
+        thresholds.classificationAcceptance,
+      ) &&
+      meetsAcceptanceThreshold(
+        scores.finalConfidence?.value,
+        thresholds.review,
+      ) &&
       [
         scores.detection?.value,
         scores.geometry?.value,
@@ -84,7 +90,7 @@ bool qualifiesForAutomaticPlacement(
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'explicit-evidence-2';
+const classifierVersion = 'explicit-evidence-3';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];
@@ -161,7 +167,10 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
   var kind = winner;
   var classification = classificationValue;
   if (classification != null &&
-      classification < input.thresholds.minClassification) {
+      !meetsAcceptanceThreshold(
+        classification,
+        input.thresholds.minClassification,
+      )) {
     kind = DocumentKind.unknown;
   }
 
@@ -187,7 +196,12 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
 
   final status = kind == DocumentKind.unknown
       ? RecognitionStatus.unknown
-      : (conflict || routing.band == RecognitionBand.unresolved)
+      : (conflict ||
+            orderedKinds.length != 1 ||
+            !meetsAcceptanceThreshold(
+              classification,
+              input.thresholds.classificationAcceptance,
+            ))
       ? RecognitionStatus.uncertain
       : RecognitionStatus.recognized;
 

@@ -702,19 +702,6 @@ class _CropScreenState extends State<CropScreen> {
     _commitState(current.copyWith(draft: next, manualRequired: manual));
   }
 
-  double? _tryParseCustomRatio(String widthText, String heightText) {
-    final w = double.tryParse(widthText.trim().replaceAll(',', '.'));
-    final h = double.tryParse(heightText.trim().replaceAll(',', '.'));
-    if (w == null || h == null || !w.isFinite || !h.isFinite) return null;
-    if (w < minDocumentEdgeMm ||
-        w > maxDocumentEdgeMm ||
-        h < minDocumentEdgeMm ||
-        h > maxDocumentEdgeMm) {
-      return null;
-    }
-    return w / h;
-  }
-
   void _onCustomSizeEdited(String value, {required bool isWidth}) {
     final current = _state!;
     final previous = isWidth
@@ -725,22 +712,8 @@ class _CropScreenState extends State<CropScreen> {
     _sizeError = null;
     final nextW = isWidth ? value : current.customWidthText;
     final nextH = isWidth ? current.customHeightText : value;
-    final measuredRatio = _requiresManualSize(current.selectedKind)
-        ? _tryParseCustomRatio(nextW, nextH)
-        : null;
-    final ratio =
-        measuredRatio != null && _draft!.adjustments.quarterTurns.isOdd
-        ? 1 / measuredRatio
-        : measuredRatio;
-    final nextDraft = ratio != null && ratio != current.draft.aspectRatio
-        ? CropDraft(
-            corners: current.draft.corners,
-            adjustments: current.draft.adjustments,
-            aspectRatio: ratio,
-          )
-        : current.draft;
+    // Physical print fields never alter the pixel geometry or explicit shape.
     final next = current.copyWith(
-      draft: nextDraft,
       customWidthText: nextW,
       customHeightText: nextH,
     );
@@ -777,28 +750,12 @@ class _CropScreenState extends State<CropScreen> {
   }
 
   ImageEditRecipe _recipe() {
-    final catalogSize = _catalogSize(_selectedKind);
-    final physicalAspect = catalogSize == null
-        ? null
-        : catalogSize.width / catalogSize.height;
-    final keepMeasuredRatio =
-        _requiresManualSize(_selectedKind) &&
-        (_sizeTextEdited || _initialSizeWasUserAuthored);
-    // A saved crop may have been portrait before the user moved its corners
-    // to a landscape document. Catalog geometry follows the CURRENT corners;
-    // only an explicitly measured custom size may keep the draft ratio.
-    final catalogAspect = physicalAspect == null || keepMeasuredRatio
-        ? null
-        : _draft!.adjustments.quarterTurns.isOdd
-        ? 1 / physicalAspect
-        : physicalAspect;
-    final aspectRatio = catalogAspect ?? _draft!.aspectRatio;
     final validation = requireValidManualBoundary(
       corners: _draft!.corners,
       sourceWidth: _source!.width,
       sourceHeight: _source!.height,
       adjustments: _draft!.adjustments,
-      aspectRatio: aspectRatio,
+      aspectRatio: _draft!.aspectRatio,
       catalog: widget.project.catalog,
     );
     return validation.recipe!;
@@ -853,7 +810,6 @@ class _CropScreenState extends State<CropScreen> {
   void _selectDocumentKind(DocumentKind? kind) {
     if (kind == null || kind == _selectedKind) return;
     final current = _state!;
-    final natural = widget.project.catalog.natural(kind);
     // Switching category fills the fields with THAT category's catalog size;
     // a measurement the user actually typed is always preserved.
     final keepUserSize = _sizeTextEdited || _initialSizeWasUserAuthored;
@@ -864,32 +820,8 @@ class _CropScreenState extends State<CropScreen> {
         ? current.customHeightText
         : _formatMillimeters(_catalogSize(kind)?.height ?? 0);
     final hasDefaultSize = _catalogSize(kind) != null;
-    final double? nextRatio;
-    double beforeRotation(double ratio) =>
-        _draft!.adjustments.quarterTurns.isOdd ? 1 / ratio : ratio;
-    if (natural != null && !_requiresManualSize(kind)) {
-      final oriented = natural.oriented(landscape: _draftLandscape);
-      nextRatio = beforeRotation(oriented.width / oriented.height);
-    } else if (_requiresManualSize(kind) && _sizeTextEdited) {
-      // Only a MEASUREMENT the user typed may reshape the warp. A prefilled
-      // catalog default sizes the A4 slot; it never stretches the pixels.
-      final measured = _tryParseCustomRatio(widthText, heightText);
-      nextRatio = measured == null
-          ? _draft!.aspectRatio
-          : beforeRotation(measured);
-    } else {
-      nextRatio = null;
-    }
-    final nextDraft = nextRatio == _draft!.aspectRatio
-        ? _draft!
-        : CropDraft(
-            corners: _draft!.corners,
-            adjustments: _draft!.adjustments,
-            aspectRatio: nextRatio,
-          );
     _commitState(
       current.copyWith(
-        draft: nextDraft,
         selectedKind: kind,
         customWidthText: hasDefaultSize || keepUserSize ? widthText : '',
         customHeightText: hasDefaultSize || keepUserSize ? heightText : '',

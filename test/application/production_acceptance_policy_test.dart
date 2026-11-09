@@ -149,7 +149,7 @@ void main() {
       expect(saved.items.single.sizeConfirmed, entry.placed);
       final recognition = saved.documents.single.recognition!;
       expect(recognition.confidences.finalConfidence, isNull);
-      if (entry.c != null && entry.c >= .60) {
+      if (entry.c != null && entry.c! >= .60) {
         expect(recognition.status, RecognitionStatus.recognized);
         expect(
           recognition.documentKind,

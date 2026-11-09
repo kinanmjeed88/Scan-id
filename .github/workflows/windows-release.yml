@@ -79,6 +79,8 @@ jobs:
           exit 1
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4; do
             echo "Preparing pinned DocAligner asset (attempt $attempt/4)"

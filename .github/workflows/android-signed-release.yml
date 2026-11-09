@@ -264,6 +264,8 @@ jobs:
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
         timeout-minutes: 12
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           for attempt in 1 2 3 4; do

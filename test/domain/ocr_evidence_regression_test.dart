@@ -1,9 +1,9 @@
-/// Regression tests for the keyword-driven Iraqi-document classifier.
-///
-/// Every fixture below is built ONLY from printed headings and field labels
-/// (plus synthetic MRZ lines with placeholder characters). No personal name,
-/// document number, birth date or other extracted value appears in any test,
-/// and no test image is shipped with the repository.
+// Regression tests for the keyword-driven Iraqi-document classifier.
+//
+// Every fixture below is built ONLY from printed headings and field labels
+// (plus synthetic MRZ lines with placeholder characters). No personal name,
+// document number, birth date or other extracted value appears in any test,
+// and no test image is shipped with the repository.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/ocr_decoding.dart';

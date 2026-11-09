@@ -327,7 +327,7 @@ void main() {
     });
 
     testWidgets(
-      'known category previews at its physical aspect without bands',
+      'known category preserves measured pixels independently of print aspect',
       (tester) async {
         await pumpScreen(tester);
         expect(
@@ -343,11 +343,15 @@ void main() {
         await tester.tap(find.text('معاينة التصحيح'));
         await pumpCropPreviewResult(tester);
         final geometry = editor.lastPreview!.geometry;
-        const expectedAspect = 85.6 / 53.98;
+        final measured = CropDraft(
+          corners: geometry.corners,
+        ).toRecipe(120, 80).geometry;
+        expect(geometry.outputWidth, measured.outputWidth);
+        expect(geometry.outputHeight, measured.outputHeight);
         expect(
           geometry.outputWidth / geometry.outputHeight,
-          closeTo(expectedAspect, 2 * expectedAspect / geometry.outputHeight),
-          reason: 'integer raster rounding may not exceed one output pixel',
+          isNot(closeTo(85.6 / 53.98, .01)),
+          reason: 'a print category must not silently reshape the preview',
         );
       },
     );

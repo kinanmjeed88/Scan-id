@@ -865,15 +865,8 @@ void main() {
       final confirmedCrop = project.assets
           .firstWhere((asset) => asset.id == truncAsset.id)
           .crop!;
-      final expectedAspect = confirmedItem.width / confirmedItem.height;
-      expect(
-        confirmedCrop.outputWidth / confirmedCrop.outputHeight,
-        closeTo(
-          expectedAspect,
-          2 * expectedAspect / confirmedCrop.outputHeight,
-        ),
-        reason: 'integer raster rounding may not exceed one output pixel',
-      );
+      expect(confirmedCrop.outputWidth, manualRecipe.geometry.outputWidth);
+      expect(confirmedCrop.outputHeight, manualRecipe.geometry.outputHeight);
       final fitted = containedDocumentRect(
         itemX: confirmedItem.x,
         itemY: confirmedItem.y,
@@ -882,21 +875,15 @@ void main() {
         imageWidth: confirmedCrop.outputWidth,
         imageHeight: confirmedCrop.outputHeight,
       );
+      expect(fitted.width, lessThanOrEqualTo(confirmedItem.width));
+      expect(fitted.height, lessThanOrEqualTo(confirmedItem.height));
+      expect(fitted.x, greaterThanOrEqualTo(confirmedItem.x));
+      expect(fitted.y, greaterThanOrEqualTo(confirmedItem.y));
       expect(
-        fitted.width,
-        closeTo(
-          confirmedItem.width,
-          2 * confirmedItem.width / confirmedCrop.outputWidth,
-        ),
-        reason: 'a subpixel raster rounding margin is not a white band',
-      );
-      expect(
-        fitted.height,
-        closeTo(
-          confirmedItem.height,
-          2 * confirmedItem.height / confirmedCrop.outputHeight,
-        ),
-        reason: 'a subpixel raster rounding margin is not a white band',
+        fitted.width / fitted.height,
+        closeTo(confirmedCrop.outputWidth / confirmedCrop.outputHeight, 1e-9),
+        reason:
+            'contain preserves pixel aspect; white bands are preferable to distortion',
       );
       expect(hasManualBoundaryOverride(confirmedRecord), isTrue);
       expect(hasUnresolvedBoundary(confirmedRecord), isFalse);

@@ -282,6 +282,7 @@ BoundaryDecision verifyBoundary(
   BoundaryProposal proposal, {
   required int sourceWidth,
   required int sourceHeight,
+  double acceptanceThreshold = boundaryAcceptanceThreshold,
 }) {
   final corners = proposal.corners;
   if (corners == null) {
@@ -399,7 +400,8 @@ BoundaryDecision verifyBoundary(
           !modelConf.isFinite ||
           modelConf < 0 ||
           modelConf > 1 ||
-          (learned && !meetsAutomaticAcceptanceThreshold(modelConf)) ||
+          (learned &&
+              !meetsAcceptanceThreshold(modelConf, acceptanceThreshold)) ||
           (minAutoConf != null &&
               (!minAutoConf.isFinite ||
                   minAutoConf < 0 ||

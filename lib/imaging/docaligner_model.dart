@@ -151,7 +151,7 @@ class DocAlignerFastViT implements BoundaryProposalModel {
           if (points == null) return null;
 
           // Heatmap peaks are not calibrated accuracy probabilities. The
-          // requested 70% is a routing threshold; geometry still has to pass.
+          // requested 55% is a routing threshold; geometry still has to pass.
           final proposal = BoundaryProposal(
             producer: BoundaryProducer.learnedModel,
             corners: points,

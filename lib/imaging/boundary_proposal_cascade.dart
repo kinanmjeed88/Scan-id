@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../application/cancellation.dart';
 import '../application/import_trace.dart';
 import '../domain/boundary_decision.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/geometry.dart';
 import 'docquad_model.dart';
 import 'prepare_image.dart';
@@ -68,7 +69,12 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
           forceReviewReason: BoundaryReviewReason.modelDisagreement,
         );
       }
-      // Do not combine outputs. Keep the primary score and its 70% gate.
+      // Agreement alone is not corroboration by a weak or review-only model.
+      // Both independent decisions must authorize their geometry and score.
+      if (!_accepted(first, sourceWidth, sourceHeight) ||
+          !_accepted(second, sourceWidth, sourceHeight)) {
+        return _uncorroborated(first);
+      }
       return first;
     }
     // Preserve either lone proposal for the user without turning an absent
@@ -114,6 +120,15 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
       return null;
     }
   }
+
+  bool _accepted(BoundaryProposal? proposal, int width, int height) =>
+      proposal != null &&
+      meetsAcceptanceThreshold(
+        proposal.modelConfidence,
+        boundaryAcceptanceThreshold,
+      ) &&
+      verifyBoundary(proposal, sourceWidth: width, sourceHeight: height).kind ==
+          BoundaryDecisionKind.accepted;
 
   bool _usable(BoundaryProposal? proposal, int width, int height) {
     if (proposal == null) return false;

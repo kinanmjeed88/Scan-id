@@ -112,7 +112,7 @@ class _ReviewDialog extends StatelessWidget {
         : c.project.assets.where((a) => a.id == cropItem.assetId).firstOrNull;
     final kind = c.effectiveKindOf(record);
     final side = c.effectiveSideOf(record);
-    final confidence = record.recognition?.confidences.finalConfidence?.value;
+    final confidence = record.recognition?.confidences.classification?.value;
     final reasons = c.reviewReasonsFor(record);
     final pairProposed =
         record.pairedDocumentId != null &&
@@ -131,7 +131,7 @@ class _ReviewDialog extends StatelessWidget {
             ),
             if (confidence != null)
               Text(
-                'الثقة ${(confidence * 100).round()}٪',
+                'ثقة النوع ${(confidence * 100).round()}٪',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
           ],

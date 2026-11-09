@@ -45,6 +45,39 @@ void main() {
     await root.delete(recursive: true);
   });
   test(
+    'camera intake preserves originals and resumes unknown OCR without duplicate items',
+    () async {
+      final service = ProjectService(
+        projects,
+        assets,
+        imageEditor: LocalImageEditor(projects.files),
+        smartRecognitionEnabled: true,
+      );
+      final project = await service.create('كاميرا مع التعرف');
+      final file = await File(
+        '${root.path}/intake.jpg',
+      ).writeAsBytes(img.encodeJpg(img.Image(width: 100, height: 60)));
+      port.photo = PendingCapture(
+        id: 'intake-camera',
+        projectId: project.id,
+        file: file,
+      );
+      final captured = (await camera.capture(project.id))!;
+      final original = captured.assets.single.originalPath;
+      final saved = await service.completeCameraIntake(captured);
+      expect(saved.items, hasLength(1));
+      expect(saved.items.single.sizeConfirmed, isFalse);
+      expect(saved.items.single.pageIndex, isNull);
+      expect(await (await assets.resolve(original)).exists(), isTrue);
+      final repeated = await service.completeCameraIntake(
+        await projects.get(saved.id),
+      );
+      expect(repeated.items.single.id, saved.items.single.id);
+      expect(repeated.assets, hasLength(saved.assets.length));
+    },
+  );
+
+  test(
     'camera cancellation creates no image and changes no project revision',
     () async {
       final project = await ProjectService(projects, assets).create('كاميرا');

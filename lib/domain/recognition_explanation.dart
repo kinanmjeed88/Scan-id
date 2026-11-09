@@ -43,9 +43,12 @@ List<String> recognitionFailureReasons(
       'لم يُقرأ نص كافٍ لتحديد النوع؛ التطبيق لا يخمّن النوع من الشكل أو '
       'المقاس أو اسم الملف.',
     );
-  } else if (classification < .6) {
+  } else if (!meetsAcceptanceThreshold(
+    classification,
+    classificationAcceptanceThreshold,
+  )) {
     reasons.add(
-      'أدلة النص على النوع ضعيفة (${_percent(classification)})؛ '
+      'أدلة النص على النوع ضعيفة (${_percent(classification)})، حد التصنيف ${(classificationAcceptanceThreshold * 100).round()}٪؛ '
       'يحتاج القرار إلى اختيارك الصريح.',
     );
   }
@@ -53,12 +56,19 @@ List<String> recognitionFailureReasons(
     reasons.add('تعارضت أدلة التصنيف؛ لم يُعتمد نوع تلقائياً.');
   }
 
+  final measuredReasons = record.sides
+      .expand((side) => side.detection?.boundaryDiagnostics ?? const <String>[])
+      .toSet();
+  reasons.addAll(measuredReasons);
+
   final boundary = record.sides
       .where((side) => side.detection != null)
       .map((side) => side.detection!.detectionConfidence?.value)
       .whereType<double>()
       .firstOrNull;
-  if (boundary == null) {
+  if (measuredReasons.isNotEmpty) {
+    // The recorded decision is authoritative; never reconstruct it from D alone.
+  } else if (boundary == null) {
     reasons.add(
       'درجة كشف الحدود غير متاحة؛ لا يُعتمد قصّ تلقائي دون دليل موثوق.',
     );
@@ -70,17 +80,9 @@ List<String> recognitionFailureReasons(
     );
   }
 
-  final overall = scores?.finalConfidence?.value;
-  if (overall != null && !meetsAutomaticAcceptanceThreshold(overall)) {
-    reasons.add(
-      'الدرجة الإجمالية ${_percent(overall)} أقل من حد القبول؛ '
-      'الإضافة التلقائية متوقفة إلى أن تؤكد أنت النوع.',
-    );
-  }
-
   reasons.add(
     hasUsableSuggestion
-        ? 'الحدود المقترحة صالحة هندسياً: يمكنك اعتمادها بضغطة واحدة أو '
+        ? 'توجد زوايا قابلة للمراجعة اليدوية، وليست إذناً تلقائياً بالقص: يمكنك اعتمادها صراحةً أو '
               'ضبطها يدوياً قبل الحفظ.'
         : 'لم تتوفر حدود مقترحة صالحة؛ اضبط الزوايا الأربع يدوياً. '
               'الصورة الأصلية محفوظة كما هي.',

@@ -75,7 +75,11 @@ for attempt in 1 2 3; do
 done
 if (( install_ok != 1 )); then
   cat "$startup_log" >&2 || true
-  echo "::error title=startup-diagnostic::Could not install diagnostic APK after 3 attempts."
+  # Preserve the actual adb refusal for API-only reviewers when Actions log
+  # blob storage is unreachable. Do not hide a failed install or change the
+  # device/test policy: this is diagnostic output only, not another retry.
+  install_error="$(tail -c 1800 "$startup_log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | tr '\n' '~')"
+  echo "::error title=startup-diagnostic::Could not install diagnostic APK after 3 attempts. adb: $install_error"
   exit 1
 fi
 timeout 30 adb -s "$serial" shell monkey -p iq.scanid.scan_id.startupdiag \

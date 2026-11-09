@@ -81,7 +81,8 @@ void main() {
 
     expect(first.calls, 1);
     expect(second.calls, 1);
-    expect(proposal, same(primaryProposal));
+    expectCorners(proposal?.corners, primaryProposal.corners!);
+    expect(proposal?.forceReview, isTrue);
     expect(
       verifyBoundary(
         proposal!,
@@ -95,10 +96,10 @@ void main() {
   test(
     'flags materially different model boundaries without averaging',
     () async {
-      final first = _FakeModel('DocQuadNet', learned(quad()));
+      final first = _FakeModel('DocQuadNet', learned(quad(), score: .95));
       final second = _FakeModel(
         'DocAligner',
-        learned(quad(left: .2, right: .96)),
+        learned(quad(left: .2, right: .96), score: .95),
       );
       final cascade = BoundaryProposalCascade(
         primary: first,
@@ -123,6 +124,30 @@ void main() {
     },
   );
 
+  test(
+    'high primary cannot borrow confidence from a weak agreeing second model',
+    () async {
+      final cascade = BoundaryProposalCascade(
+        primary: _FakeModel('primary', learned(quad(), score: .95)),
+        secondary: _FakeModel('secondary', learned(quad(), score: .549)),
+      );
+      final proposal = await cascade.suggestProposal(preview);
+      expect(proposal!.modelConfidence, .95);
+      expect(
+        proposal.forceReviewReason,
+        BoundaryReviewReason.modelNotCorroborated,
+      );
+      expect(
+        verifyBoundary(
+          proposal,
+          sourceWidth: 1000,
+          sourceHeight: 700,
+        ).cropAuthorization,
+        isNull,
+      );
+    },
+  );
+
   test('both AI failures reach the existing classical detector', () async {
     final first = _FakeModel('DocQuadNet')..fail = true;
     final second = _FakeModel('DocAligner')..fail = true;
@@ -144,9 +169,9 @@ void main() {
   });
 
   test(
-    'a corroborated 70% proposal is accepted when geometry is safe',
+    'a corroborated 55% proposal is accepted when geometry is safe',
     () async {
-      final first = _FakeModel('DocQuadNet', learned(quad(), score: .70));
+      final first = _FakeModel('DocQuadNet', learned(quad(), score: .55));
       final second = _FakeModel('DocAligner', learned(quad(), score: .75));
       final cascade = BoundaryProposalCascade(
         primary: first,

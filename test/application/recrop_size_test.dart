@@ -106,6 +106,72 @@ void _expectPassportOnSheet(Project reloaded) {
 }
 
 void main() {
+  test(
+    'choosing an estimated kind alone never confirms print millimetres',
+    () async {
+      final h = _Harness();
+      final project = await h.start();
+      final saved = await h.service.confirmManualBoundary(
+        project,
+        project.assets.single,
+        ImageEditRecipe(_square, ImageAdjustments()),
+        documentKind: DocumentKind.residenceCard,
+        targetItemId: 'doc',
+        sourceWidth: 400,
+        sourceHeight: 250,
+      );
+      expect(saved.items.single.sizeConfirmed, isFalse);
+      expect(saved.items.single.pageIndex, isNull);
+      expect(saved.assets.single.crop!.outputWidth, 300);
+      expect(saved.assets.single.crop!.outputHeight, 300);
+      expect(
+        saved.assets.single.originalPath,
+        project.assets.single.originalPath,
+      );
+    },
+  );
+
+  test(
+    'manual confirmation never replaces preview geometry with print aspect',
+    () async {
+      for (final kind in [
+        DocumentKind.unifiedNationalId,
+        DocumentKind.residenceCard,
+        DocumentKind.rationCard,
+        DocumentKind.other,
+      ]) {
+        final h = _Harness();
+        final project = await h.start();
+        final original = project.assets.single.originalPath;
+        final recipe = ImageEditRecipe(_square, ImageAdjustments());
+        final saved = await h.service.confirmManualBoundary(
+          project,
+          project.assets.single,
+          recipe,
+          documentKind: kind,
+          customSizeMm: kind == DocumentKind.other
+              ? PhysicalSizeMm(120, 80)
+              : presetStatusFor(kind) == PresetStatus.estimated
+              ? const DocumentSizeCatalog().natural(kind)
+              : null,
+          targetItemId: 'doc',
+          sourceWidth: 400,
+          sourceHeight: 250,
+        );
+        final asset = saved.assets.single;
+        expect(asset.originalPath, original);
+        expect(asset.crop!.outputWidth, 300);
+        expect(asset.crop!.outputHeight, 300);
+        expect(asset.width / asset.height, 1);
+        expect(saved.items.single.sizeConfirmed, isTrue);
+        final reloaded = await h.repo.get(saved.id);
+        expect(reloaded.assets.single.crop!.outputWidth, 300);
+        expect(reloaded.assets.single.crop!.outputHeight, 300);
+        expect(reloaded.items.single.width, saved.items.single.width);
+      }
+    },
+  );
+
   test('a confirmed catalog size survives a re-crop', () async {
     final h = _Harness();
     var p = await h.start();

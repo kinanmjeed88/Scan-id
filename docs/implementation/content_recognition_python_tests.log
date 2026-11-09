@@ -1,0 +1,25 @@
+::warning::Failed to delete feature/old through the scoped API: 403 Resource not accessible by integration
+/home/user/Scan-id/test/tool/../../tool/validate_local_annotations.py:472: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  pixels = list(oriented.getdata())
+/home/user/Scan-id/test/tool/../../tool/validate_local_annotations.py:472: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  pixels = list(oriented.getdata())
+----------------------------------------------------------------------
+Ran 58 tests in 0.722s
+
+OK
+PASS parse 0.1.0
+PASS prerelease
+PASS leading zero major rejected
+PASS numeric prerelease leading zero
+PASS compare greater
+PASS compare less
+PASS release > prerelease
+PASS extract v prefix
+PASS same core not greater fails
+PASS newer version ok
+PASS bad build number
+PASS short notes
+PASS duplicate tag via string containment - expected fail if tag list passed as string
+PASS duplicate tag exact
+ALL TESTS PASS
+Re-verifying branch feature/old before delete...

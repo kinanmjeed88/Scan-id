@@ -155,7 +155,7 @@ class DocQuadNet256 implements BoundaryProposalModel {
             producer: BoundaryProducer.learnedModel,
             corners: corners,
             modelConfidence: evidence,
-            // A score of 70% is the requested routing threshold, not an
+            // A score of 55% is the requested routing threshold, not an
             // accuracy claim. Geometry and cascade agreement still apply.
             minAutoAcceptConfidence: automaticAcceptanceThreshold,
           );

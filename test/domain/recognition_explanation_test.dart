@@ -7,6 +7,7 @@ DocumentRecord record({
   double? boundary,
   double? classification,
   double? finalValue,
+  List<String> boundaryDiagnostics = const [],
   RecognitionStatus status = RecognitionStatus.recognized,
 }) => DocumentRecord(
   id: 'doc-a',
@@ -24,6 +25,7 @@ DocumentRecord record({
       detection: boundary == null
           ? null
           : DetectionRef(
+              boundaryDiagnostics: boundaryDiagnostics,
               detectionId: 'asset1-d0',
               producer: 'test',
               version: '1',
@@ -55,6 +57,29 @@ DocumentRecord record({
 
 void main() {
   test(
+    'persisted measured failure is not replaced by a primary score verdict',
+    () {
+      final source = record(
+        boundary: .764,
+        classification: .60,
+        finalValue: .99,
+        boundaryDiagnostics: [
+          'اختلف كاشفا الذكاء الاصطناعي على مواضع الزوايا.',
+        ],
+      );
+      final restored = DocumentRecord.fromJson(source.toJson());
+      final reasons = recognitionFailureReasons(
+        restored,
+        hasUsableSuggestion: true,
+      ).join(' ');
+      expect(reasons, contains('اختلف كاشفا'));
+      expect(reasons, isNot(contains('أقل من حد القبول')));
+      expect(reasons, isNot(contains('99.0')));
+      expect(reasons, contains('ليست إذناً تلقائياً'));
+    },
+  );
+
+  test(
     'an image that was never analysed says so, without inventing a cause',
     () {
       final reasons = recognitionFailureReasons(
@@ -66,16 +91,17 @@ void main() {
     },
   );
 
-  test('the recorded low boundary score is quoted with the 70% threshold', () {
+  test('the recorded low boundary score is quoted with the 55% threshold', () {
     final reasons = recognitionFailureReasons(
       record(boundary: .46, classification: null, finalValue: .614),
       hasUsableSuggestion: false,
     );
     final text = reasons.join(' ');
     expect(text, contains('46.0٪'));
-    expect(text, contains('70٪'));
+    expect(text, contains('55٪'));
     expect(text, contains('ليست ضماناً للدقة'));
-    expect(text, contains('61.4٪'));
+    expect(text, isNot(contains('61.4٪')));
+    expect(text, isNot(contains('الدرجة الإجمالية')));
   });
 
   test('missing OCR evidence is named as the real classification cause', () {
@@ -86,7 +112,7 @@ void main() {
     final text = reasons.join(' ');
     expect(text, contains('لم يُقرأ نص كافٍ'));
     expect(text, contains('لا يخمّن النوع'));
-    expect(text, contains('بضغطة واحدة'));
+    expect(text, contains('ليست إذناً تلقائياً'));
   });
 
   test('uncertain classification is explained explicitly', () {

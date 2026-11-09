@@ -38,6 +38,7 @@ DocumentRecord _record({
         : DocumentKind.unifiedNationalId,
     status: status,
     confidences: ConfidenceSet(
+      classification: finalValue == null ? null : Confidence(value: finalValue),
       finalConfidence: finalValue == null
           ? null
           : Confidence(value: finalValue),
@@ -58,12 +59,17 @@ DocumentRecord _record({
 
 void main() {
   group('bands', () {
-    test('thresholds split at .9 and .7', () {
+    test('diagnostic bands split at .9 and independent C .6', () {
       expect(bandFor(.95), RecognitionBand.autoCandidate);
       expect(bandFor(.9), RecognitionBand.autoCandidate);
       expect(bandFor(.89), RecognitionBand.review);
-      expect(bandFor(.7), RecognitionBand.review);
-      expect(bandFor(.69), RecognitionBand.unresolved);
+      expect(bandFor(.6), RecognitionBand.review);
+      expect(bandFor(.59), RecognitionBand.unresolved);
+      expect(
+        bandFor(.55),
+        RecognitionBand.unresolved,
+        reason: 'the boundary threshold must not become the text threshold',
+      );
       expect(bandFor(0), RecognitionBand.unresolved);
     });
   });
@@ -243,8 +249,8 @@ void main() {
       expect(recordNeedsReview(record), isFalse);
     });
 
-    test('missing final confidence queues explicitly', () {
-      expect(reviewReasons(_record()), contains('بلا ثقة نهائية'));
+    test('missing classification confidence queues explicitly', () {
+      expect(reviewReasons(_record()), contains('بلا ثقة تصنيف'));
     });
   });
 }

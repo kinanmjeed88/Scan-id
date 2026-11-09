@@ -57,11 +57,9 @@ class ClassificationOutcome {
   final List<DocumentKind> candidates;
 }
 
-/// A known, unambiguous type may use its documented catalog size when both
-/// the type evidence and the fused score meet the user-requested threshold.
-/// A strong boundary alone must not make an unreadable or conflicting kind
-/// eligible. OCR-only classifications may be placed, but remain reviewable:
-/// this is a routing policy, not a claim of calibrated recognition accuracy.
+/// Text eligibility only. Crop authorization, documented size and shape match
+/// are checked independently by SmartIntake. D/G/F cannot vote for a type or
+/// veto readable content, and accepted content cannot authorize a crop.
 bool qualifiesForAutomaticPlacement(
   ClassificationOutcome outcome, {
   RecognitionThresholds thresholds = defaultThresholds,
@@ -71,20 +69,14 @@ bool qualifiesForAutomaticPlacement(
       outcome.status == RecognitionStatus.recognized &&
       outcome.candidates.length == 1 &&
       outcome.candidates.single == outcome.kind &&
-      meetsAutomaticAcceptanceThreshold(scores.classification?.value) &&
-      meetsAutomaticAcceptanceThreshold(scores.finalConfidence?.value) &&
-      [
-        scores.detection?.value,
-        scores.geometry?.value,
+      meetsAcceptanceThreshold(
         scores.classification?.value,
-      ].whereType<double>().every(
-        (score) =>
-            score.isFinite && score >= thresholds.componentFloor && score <= 1,
+        thresholds.classificationAcceptance,
       );
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'explicit-evidence-2';
+const classifierVersion = 'explicit-evidence-4';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];
@@ -135,59 +127,43 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
       votes.length > 1 &&
       winnerScore - runnerUpScore < input.thresholds.conflictGap;
 
-  // Preserve the existing source-weight policy for any evidence types that
-  // are available. Absent sources stay absent; in this build only OCR keywords
-  // can vote for a kind. A conflict caps routing rather than zeroing the mean.
-  double? sourceScore(EvidenceSource source) {
-    final list = votes[winner];
-    if (list == null) return null;
-    double? best;
-    for (final (s, score) in list) {
-      if (s == source && (best == null || score > best)) best = score;
-    }
-    return best;
-  }
-
+  // Only independently corroborated OCR keyword evidence can label a type.
+  // Keep its conservative semantic score as C; never blend D/G/OCR mean into C.
   final classificationValue = winner == DocumentKind.unknown
       ? null
-      : weightedGeometricMean([
-          (.4, sourceScore(EvidenceSource.aspect)),
-          (.3, sourceScore(EvidenceSource.ocr)),
-          (.3, sourceScore(EvidenceSource.structure)),
-        ]);
+      : winnerScore;
 
   // R4: a winning classification below the floor becomes unknown (but the
   // collected evidence is preserved for review).
   var kind = winner;
   var classification = classificationValue;
   if (classification != null &&
-      classification < input.thresholds.minClassification) {
+      !meetsAcceptanceThreshold(
+        classification,
+        input.thresholds.minClassification,
+      )) {
     kind = DocumentKind.unknown;
   }
 
-  final finalValue = weightedGeometricMean([
-    (.2, input.detectionConfidence),
-    (.3, input.geometryConfidence),
-    (.5, classification),
-  ]);
-
-  final sources = {for (final e in evidence) e.source};
+  // Legacy routing bands remain review diagnostics, based on C alone. New
+  // results do not manufacture a fused F; older stored F values remain readable.
   final routing = routeRecognition(
-    finalValue: finalValue ?? 0,
-    independentSources: sources.length,
-    nonOcrSources: sources.where((s) => s != EvidenceSource.ocr).length,
-    availableComponents: [
-      if (input.detectionConfidence != null) input.detectionConfidence!,
-      if (input.geometryConfidence != null) input.geometryConfidence!,
-      if (classification != null) classification,
-    ],
-    classConflict: conflict,
+    finalValue: classification ?? 0,
+    independentSources: 1,
+    nonOcrSources: 0,
+    availableComponents: [if (classification != null) classification],
+    classConflict: conflict || orderedKinds.length > 1,
     thresholds: input.thresholds,
   );
 
   final status = kind == DocumentKind.unknown
       ? RecognitionStatus.unknown
-      : (conflict || routing.band == RecognitionBand.unresolved)
+      : (conflict ||
+            orderedKinds.length != 1 ||
+            !meetsAcceptanceThreshold(
+              classification,
+              input.thresholds.classificationAcceptance,
+            ))
       ? RecognitionStatus.uncertain
       : RecognitionStatus.recognized;
 
@@ -228,8 +204,7 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
               producer: 'ocr-engine',
               version: classifierVersion,
             ),
-      classification: wrap(classification, 'weighted evidence fusion'),
-      finalConfidence: wrap(finalValue, routing.reasons.join(',')),
+      classification: wrap(classification, 'independent semantic OCR anchors'),
     ),
     evidence: List.unmodifiable(evidence),
     routing: routing,

@@ -70,6 +70,30 @@ BoundaryMeasurements measurements({
 );
 
 void main() {
+  test(
+    'a high-scoring sharp learned inner frame stays review-only when an outer boundary is plausible',
+    () {
+      for (final score in [.55, .60, .99]) {
+        final result = arbitrateBoundaryProposal(
+          learned: learned(confidence: score),
+          measurements: measurements(
+            learnedEvidence: candidate(learnedQuad, .99, .99, score: 100),
+            classicalEvidence: candidate(classicalQuad, .7, .6, score: 10),
+          ),
+        );
+        expect(result!.forceReview, isTrue);
+        expect(
+          verifyBoundary(
+            result,
+            sourceWidth: 400,
+            sourceHeight: 250,
+          ).cropAuthorization,
+          isNull,
+        );
+      }
+    },
+  );
+
   test('a weaker-measured learned quad is replaced by the edge-based quad', () {
     final result = arbitrateBoundaryProposal(
       learned: learned(),

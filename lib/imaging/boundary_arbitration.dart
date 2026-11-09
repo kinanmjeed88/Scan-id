@@ -324,7 +324,7 @@ BoundaryProposal? arbitrateBoundaryProposal({
       boundaryAgreementTolerance;
   if (agrees) {
     // Independent agreement: keep the learned score and flags untouched, so
-    // the existing 70% acceptance path and all of `verifyBoundary`'s safety
+    // the existing 55% acceptance path and all of `verifyBoundary`'s safety
     // checks still apply unchanged.
     return _withCorners(learned, displayedLearned);
   }

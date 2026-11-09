@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -57,6 +58,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('سبب عدم الإضافة التلقائية'), findsOneWidget);
+      expect(find.textContaining('حد الحدود المتعلمة 55٪'), findsOneWidget);
+      expect(find.textContaining('حد التصنيف النصي 60٪'), findsOneWidget);
+      expect(find.textContaining('٧٠٪'), findsNothing);
+      expect(find.textContaining('(لا تُستخدم للقبول)'), findsOneWidget);
       expect(
         find.byKey(const Key('manual-classification-apply-boundary')),
         findsOneWidget,
@@ -71,27 +76,32 @@ void main() {
       );
 
       await tapKey(tester, const Key('manual-classification-kind'));
-      await tester.tap(find.text(DocumentKind.residenceCard.label).last);
+      await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();
 
-      // No crop editor, no mandatory size entry, and the estimated catalog
+      // No crop editor, no mandatory size entry, and the documented catalog
       // default was applied automatically.
       expect(find.byKey(const Key('crop-source-image')), findsNothing);
       expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
       final item = harness.saved.items.firstWhere((i) => i.id == 'pending');
-      expect(item.documentKind, DocumentKind.residenceCard);
+      expect(item.documentKind, DocumentKind.unifiedNationalId);
       expect(item.sizeConfirmed, isTrue);
       expect(item.pageIndex, isNotNull);
-      expect(item.width, closeTo(92.4, .01));
-      expect(item.height, closeTo(62.8, .01));
+      expect(item.width, closeTo(85.6, .01));
+      expect(item.height, closeTo(53.98, .01));
       final crop = harness.saved.assets.first.crop!;
-      final expectedAspect = item.width / item.height;
+      final source = await FakeImageEditor().open(asset);
+      final measured = CropDraft(
+        corners: suggested,
+      ).toRecipe(source.width, source.height).geometry;
+      expect(crop.outputWidth, measured.outputWidth);
+      expect(crop.outputHeight, measured.outputHeight);
       expect(
         crop.outputWidth / crop.outputHeight,
-        closeTo(expectedAspect, 2 * expectedAspect / crop.outputHeight),
-        reason: 'direct approval leaves no band beyond integer pixel rounding',
+        isNot(closeTo(item.width / item.height, .001)),
+        reason: 'catalog millimetres must not reshape the approved boundary',
       );
       expect(tester.takeException(), isNull);
     },
@@ -131,7 +141,9 @@ void main() {
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('crop-source-image')), findsNothing);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.tap(find.byTooltip('إلغاء القص'));
+      await tester.pumpAndSettle();
       final item = harness.saved.items.firstWhere((i) => i.id == 'pending');
       expect(item.documentKind, DocumentKind.civilStatusId);
       expect(item.sizeConfirmed, isFalse);

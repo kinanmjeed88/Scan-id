@@ -9,6 +9,8 @@ library;
 import 'dart:math' as math;
 
 import 'recognition.dart';
+import 'document_kind.dart';
+import 'acceptance_policy.dart';
 
 /// How recognition conclusions are routed to the user.
 enum AutomationMode {
@@ -37,9 +39,10 @@ const automationMode = AutomationMode.reviewAll;
 class RecognitionThresholds {
   const RecognitionThresholds({
     this.autoAccept = .9,
-    this.review = .7,
+    this.review = classificationAcceptanceThreshold,
+    this.classificationAcceptance = classificationAcceptanceThreshold,
     this.componentFloor = .5,
-    this.minClassification = .6,
+    this.minClassification = classificationAcceptanceThreshold,
     this.conflictGap = .15,
   });
 
@@ -48,6 +51,9 @@ class RecognitionThresholds {
 
   /// finalConfidence at or above this (but below [autoAccept]) is review.
   final double review;
+
+  /// Text-only type acceptance, independent of detector and fused scores.
+  final double classificationAcceptance;
 
   /// R2: any available component below this floor caps routing to review.
   final double componentFloor;
@@ -135,6 +141,22 @@ RoutingDecision routeRecognition({
   }
   if (reasons.isEmpty) reasons.add('band:${band.name}');
   return RoutingDecision(band: band, reasons: List.unmodifiable(reasons));
+}
+
+/// A content-based type may be used without asking the user to classify it
+/// again. This says nothing about boundary acceptance or physical size.
+bool hasAcceptedContentClassification(
+  DocumentRecord record, {
+  RecognitionThresholds thresholds = defaultThresholds,
+}) {
+  final recognition = record.recognition;
+  return recognition != null &&
+      recognition.status == RecognitionStatus.recognized &&
+      recognition.documentKind != DocumentKind.unknown &&
+      meetsAcceptanceThreshold(
+        recognition.confidences.classification?.value,
+        thresholds.classificationAcceptance,
+      );
 }
 
 /// Marker recorded in [UserOverride.fields] when the user confirms a
@@ -232,11 +254,11 @@ List<String> reviewReasons(
     (override) => override.documentKind != null,
   );
   if (!kindWasOverridden) {
-    final finalConfidence = recognition.confidences.finalConfidence?.value;
-    if (finalConfidence == null) {
-      reasons.add('بلا ثقة نهائية');
+    final classification = recognition.confidences.classification?.value;
+    if (classification == null) {
+      reasons.add('بلا ثقة تصنيف');
     } else {
-      switch (bandFor(finalConfidence, thresholds)) {
+      switch (bandFor(classification, thresholds)) {
         case RecognitionBand.autoCandidate:
           if (automationMode == AutomationMode.reviewAll) {
             reasons.add('مؤهل تلقائياً — بانتظار التأكيد');

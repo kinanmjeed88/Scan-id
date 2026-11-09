@@ -344,7 +344,7 @@ void main() {
       );
     },
   );
-  group('70% learned boundary policy', () {
+  group('55% learned boundary policy', () {
     BoundaryDecision decide(
       double? score, {
       bool edge = false,
@@ -365,15 +365,16 @@ void main() {
       sourceHeight: height,
     );
 
-    test('below 70 is reviewed; exactly 70 and above are accepted', () {
-      final below = decide(.699);
+    test('below 55 is reviewed; exactly 55 and above are accepted', () {
+      final below = decide(.549);
+      expect(decide(.124).cropAuthorization, isNull);
       expect(below.kind, BoundaryDecisionKind.needsReview);
       expect(below.cropAuthorization, isNull);
       expect(
         below.verification.reasons,
         contains(BoundaryReviewReason.lowModelConfidence),
       );
-      for (final score in [.70, .71, 1.0]) {
+      for (final score in [.55, .572, .60, .764, 1.0]) {
         final accepted = decide(score);
         expect(accepted.kind, BoundaryDecisionKind.accepted, reason: '$score');
         expect(accepted.cropAuthorization, isNotNull);
@@ -397,7 +398,7 @@ void main() {
       }
     });
 
-    test('learned proposals cannot omit or lower the shared 70% floor', () {
+    test('learned proposals cannot omit or lower the shared 55% floor', () {
       for (final proposal in [
         BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
@@ -406,12 +407,12 @@ void main() {
         BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
           corners: goodQuad(),
-          modelConfidence: .69,
+          modelConfidence: .549,
         ),
         BoundaryProposal(
           producer: BoundaryProducer.learnedModel,
           corners: goodQuad(),
-          modelConfidence: .69,
+          modelConfidence: .549,
           minAutoAcceptConfidence: .50,
         ),
         BoundaryProposal(

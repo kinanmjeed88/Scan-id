@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import '../domain/classification_gap.dart';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/crop_draft.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
@@ -1113,7 +1114,7 @@ class SmartIntake {
         zIndex: _nextZ(current, newItems),
         documentKind: kind,
         recognitionConfidence:
-            detection.classification.confidences.finalConfidence?.value ?? 0,
+            detection.classification.confidences.classification?.value ?? 0,
         sizeConfirmed: catalogSize != null,
         documentId: record.id,
         sideId: record.sides.single.id,
@@ -1175,7 +1176,7 @@ class SmartIntake {
       landscape: asset.width >= asset.height,
     );
     final confidence =
-        detection.classification.confidences.finalConfidence?.value ??
+        detection.classification.confidences.classification?.value ??
         item.recognitionConfidence;
     if (item.hasUserSelectedKind || item.hasUserConfirmedSize) {
       return item.copyWith(recognitionConfidence: confidence);
@@ -1541,7 +1542,7 @@ class SmartIntake {
         zIndex: _nextZ(current, newItems),
         documentKind: kind,
         recognitionConfidence:
-            detection.classification.confidences.finalConfidence?.value ?? 0,
+            detection.classification.confidences.classification?.value ?? 0,
         sizeConfirmed: catalogSize != null,
         documentId: record.id,
         sideId: record.sides.single.id,
@@ -1670,8 +1671,7 @@ class SmartIntake {
             zIndex: _nextZ(current, newItems),
             documentKind: kind,
             recognitionConfidence:
-                detection.classification.confidences.finalConfidence?.value ??
-                0,
+                detection.classification.confidences.classification?.value ?? 0,
             sizeConfirmed: catalogSize != null,
             documentId: record.id,
             sideId: record.sides.single.id,
@@ -2034,10 +2034,9 @@ class SmartIntake {
       thresholds: thresholds,
     )) {
       final typeScore = classification.confidences.classification?.value;
-      final totalScore = classification.confidences.finalConfidence?.value;
-      return '${kind.label}: لا يكفي دليل التصنيف للإضافة التلقائية (الحد ٧٠٪؛ '
-          'التصنيف ${typeScore == null ? 'غير متاح' : '${(typeScore * 100).toStringAsFixed(1)}٪'}، '
-          'الدرجة الإجمالية ${totalScore == null ? 'غير متاحة' : '${(totalScore * 100).toStringAsFixed(1)}٪'})؛ '
+      return '${kind.label}: لا يكفي دليل التصنيف للإضافة التلقائية '
+          '(حد التصنيف ${(thresholds.classificationAcceptance * 100).round()}٪؛ '
+          'التصنيف ${typeScore == null ? 'غير متاح' : '${(typeScore * 100).toStringAsFixed(1)}٪'})؛ '
           'اختر التصنيف يدوياً قبل اعتماد المقاس.';
     }
     if (warped && !_catalogShapeMatches(current, detection)) {
@@ -2198,7 +2197,19 @@ class SmartIntake {
     final isAi =
         detection.boundaryDecision?.proposal.producer ==
         BoundaryProducer.learnedModel;
+    final decision = detection.boundaryDecision;
     return DetectionRef(
+      boundaryDiagnostics: [
+        if (decision != null)
+          for (final reason in decision.verification.reasons)
+            boundaryReviewReasonMessage(
+              reason,
+              modelConfidence: decision.proposal.modelConfidence,
+              minAutoAcceptConfidence:
+                  decision.proposal.minAutoAcceptConfidence ??
+                  boundaryAcceptanceThreshold,
+            ),
+      ],
       detectionId: detection.detectionId,
       producer: producer,
       version: isAi ? producer : recognitionPipelineVersion,

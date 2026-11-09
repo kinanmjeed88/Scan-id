@@ -1,0 +1,91 @@
+test_agent_branches_same_policy (branch_cleanup_test.TestBranchCleanupPolicy.test_agent_branches_same_policy)
+11. Agent branches with unexpected names -> same policy ... ok
+test_api_failure_no_delete (branch_cleanup_test.TestBranchCleanupPolicy.test_api_failure_no_delete)
+8. API failure -> no delete when cannot verify ... ok
+test_branch_changed_after_check_should_reverify (branch_cleanup_test.TestBranchCleanupPolicy.test_branch_changed_after_check_should_reverify)
+9. Branch changed after initial check -> re-verify then skip if not safe ... ok
+test_branch_with_no_evidence_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_branch_with_no_evidence_keep)
+Branch with unknown ancestor and no PR -> keep ... ok
+test_default_branch_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_default_branch_keep)
+5. Default branch always keep ... ok
+test_fetch_error_skip (branch_cleanup_test.TestBranchCleanupPolicy.test_fetch_error_skip)
+7. Cannot fetch branch data -> skip ... ok
+test_fully_merged_branch_eligible_for_deletion (branch_cleanup_test.TestBranchCleanupPolicy.test_fully_merged_branch_eligible_for_deletion)
+1. Branch fully merged (ancestor) -> delete if no other blocks ... ok
+test_open_pr_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_open_pr_keep)
+4. Branch with open PR -> keep ... ok
+test_pagination_large_branches_all_checked (branch_cleanup_test.TestBranchCleanupPolicy.test_pagination_large_branches_all_checked)
+10. Large number of branches with pagination -> all evaluated ... ok
+test_protected_branch_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_protected_branch_keep)
+6. Protected branch -> keep ... ok
+test_squash_merge_proven_via_pr (branch_cleanup_test.TestBranchCleanupPolicy.test_squash_merge_proven_via_pr)
+Branch squash-merged -> delete via PR evidence ... ok
+test_squash_merge_with_current_unmerged_change_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_squash_merge_with_current_unmerged_change_keep)
+3. Squash merge previously but current change not merged -> keep ... ok
+test_unmerged_commit_keep (branch_cleanup_test.TestBranchCleanupPolicy.test_unmerged_commit_keep)
+2. Branch with unique commit not merged -> keep ... ok
+test_unrelated_branch_with_merged_pr_but_diff_empty_still_delete (branch_cleanup_test.TestBranchCleanupPolicy.test_unrelated_branch_with_merged_pr_but_diff_empty_still_delete)
+Diff empty + merged PR fallback should delete (squash case) ... ok
+test_api_failure_never_falls_back_to_git_push (branch_cleanup_test.TestRemoteDeletionPermissions.test_api_failure_never_falls_back_to_git_push) ... ::warning::Failed to delete feature/old through the scoped API: 403 Resource not accessible by integration
+ok
+test_completed_old_deleted (branch_cleanup_test.TestRunsCleanupLogic.test_completed_old_deleted)
+13. Completed old run deleted per policy ... ok
+test_current_run_never_deleted (branch_cleanup_test.TestRunsCleanupLogic.test_current_run_never_deleted) ... ok
+test_recent_completed_not_deleted (branch_cleanup_test.TestRunsCleanupLogic.test_recent_completed_not_deleted) ... ok
+test_running_run_not_deleted (branch_cleanup_test.TestRunsCleanupLogic.test_running_run_not_deleted)
+12. Runs in progress not deleted ... ok
+test_comment_only_file_is_not_a_jni_keep_contract (test_android_r8.AndroidR8RulesTest.test_comment_only_file_is_not_a_jni_keep_contract) ... ok
+test_inline_comment_and_whitespace_are_accepted (test_android_r8.AndroidR8RulesTest.test_inline_comment_and_whitespace_are_accepted) ... ok
+test_missing_rules_reproduce_the_release_packaging_defect (test_android_r8.AndroidR8RulesTest.test_missing_rules_reproduce_the_release_packaging_defect) ... ok
+test_name_only_keep_does_not_preserve_constructors_and_fields (test_android_r8.AndroidR8RulesTest.test_name_only_keep_does_not_preserve_constructors_and_fields) ... ok
+test_release_regression_does_not_add_production_test_hooks (test_android_r8.AndroidR8RulesTest.test_release_regression_does_not_add_production_test_hooks) ... ok
+test_release_regression_is_a_required_emulator_step (test_android_r8.AndroidR8RulesTest.test_release_regression_is_a_required_emulator_step) ... ok
+test_repository_keeps_the_rule_at_the_path_flutter_loads (test_android_r8.AndroidR8RulesTest.test_repository_keeps_the_rule_at_the_path_flutter_loads) ... ok
+test_required_rule_preserves_jni_classes_and_members (test_android_r8.AndroidR8RulesTest.test_required_rule_preserves_jni_classes_and_members) ... ok
+test_runtime_regression_uses_actual_release_and_never_uploads_an_apk (test_android_r8.AndroidR8RulesTest.test_runtime_regression_uses_actual_release_and_never_uploads_an_apk) ... ok
+test_unrelated_package_does_not_protect_onnx_jni (test_android_r8.AndroidR8RulesTest.test_unrelated_package_does_not_protect_onnx_jni) ... ok
+test_failing_command_keeps_its_exit_status (test_ci_gate.CiGateTest.test_failing_command_keeps_its_exit_status) ... ok
+test_nested_annotation_is_forwarded_and_decoded (test_ci_gate.CiGateTest.test_nested_annotation_is_forwarded_and_decoded) ... ok
+test_success_is_reported_as_a_notice (test_ci_gate.CiGateTest.test_success_is_reported_as_a_notice) ... ok
+test_changed_prefix_still_reaches_the_diff_reporter (test_format_report.FormatReportTest.test_changed_prefix_still_reaches_the_diff_reporter) ... ok
+test_formatter_diff_is_published_as_an_annotation (test_format_report.FormatReportTest.test_formatter_diff_is_published_as_an_annotation) ... ok
+test_formatter_failure_is_returned_without_mutation (test_format_report.FormatReportTest.test_formatter_failure_is_returned_without_mutation) ... ok
+test_identical_file_publishes_nothing (test_format_report.FormatReportTest.test_identical_file_publishes_nothing) ... ok
+test_read_only_formatter_passes_exact_command (test_format_report.FormatReportTest.test_read_only_formatter_passes_exact_command) ... ok
+test_local_annotation_validator (unittest.loader._FailedTest.test_local_annotation_validator) ... ERROR
+
+======================================================================
+ERROR: test_local_annotation_validator (unittest.loader._FailedTest.test_local_annotation_validator)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_local_annotation_validator
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/unittest/loader.py", line 407, in _find_test_path
+    module = self._get_module_from_name(name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/unittest/loader.py", line 350, in _get_module_from_name
+    __import__(name)
+  File "/home/user/Scan-id/test/tool/test_local_annotation_validator.py", line 21, in <module>
+    from PIL import Image, ImageDraw
+ModuleNotFoundError: No module named 'PIL'
+
+
+----------------------------------------------------------------------
+Ran 38 tests in 0.133s
+
+FAILED (errors=1)
+PASS parse 0.1.0
+PASS prerelease
+PASS leading zero major rejected
+PASS numeric prerelease leading zero
+PASS compare greater
+PASS compare less
+PASS release > prerelease
+PASS extract v prefix
+PASS same core not greater fails
+PASS newer version ok
+PASS bad build number
+PASS short notes
+PASS duplicate tag via string containment - expected fail if tag list passed as string
+PASS duplicate tag exact
+ALL TESTS PASS
+Re-verifying branch feature/old before delete...

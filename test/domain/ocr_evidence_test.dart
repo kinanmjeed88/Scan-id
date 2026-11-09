@@ -4,6 +4,53 @@ import 'package:scan_id/domain/ocr_decoding.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
 
 void main() {
+  test(
+    'split and merged titles use disjoint semantic anchors in either line order',
+    () {
+      for (final texts in [
+        ['بطاقة السكن المحلة'],
+        ['هوية الأحوال المدنية رقم السجل'],
+        ['البطاقة', 'الوطنية الموحدة', 'الرقم الوطني'],
+        ['الرقم الوطني', 'البطاقة', 'الوطنية الموحدة'],
+        ['National card National number 12345678'],
+        [reversedRunes('البطاقة الوطنية الرقم الوطني')],
+      ]) {
+        final evidence = ocrKeywordEvidence(
+          OcrTextResult.available(
+            engineVersion: 'layout-regression',
+            lines: [
+              for (final text in texts) OcrLine(text: text, confidence: .81),
+            ],
+          ),
+        );
+        expect(evidence, hasLength(1), reason: texts.join(' | '));
+        expect(evidence.single.score, .81);
+      }
+    },
+  );
+
+  test(
+    'overlapping issuer/title and arbitrary distant fragments do not invent support',
+    () {
+      for (final texts in [
+        ['مديرية شؤون البطاقة الوطنية'],
+        ['البطاقة', 'نص غير مرتبط', 'الوطنية الموحدة', 'الرقم الوطني'],
+      ]) {
+        expect(
+          ocrKeywordEvidence(
+            OcrTextResult.available(
+              engineVersion: 'negative-layout',
+              lines: [
+                for (final text in texts) OcrLine(text: text, confidence: .99),
+              ],
+            ),
+          ),
+          isEmpty,
+        );
+      }
+    },
+  );
+
   test('unavailable OCR yields no evidence and no confidence', () {
     final result = OcrTextResult.unavailable(
       unavailableReason: 'no-offline-engine-packaged',
@@ -71,26 +118,19 @@ void main() {
     },
   );
 
-  test(
-    'single title, issuer, country name, or one-line pair is insufficient',
-    () {
-      for (final lines in const [
-        ['البطاقة الوطنية الموحدة'],
-        ['وزارة الداخلية'],
-        ['جمهورية العراق'],
-        ['بطاقة السكن المحلة'],
-        ['هوية الأحوال المدنية رقم السجل'],
-      ]) {
-        final result = OcrTextResult.available(
-          lines: [
-            for (final text in lines) OcrLine(text: text, confidence: .99),
-          ],
-          engineVersion: 'lexicon-test-1',
-        );
-        expect(ocrKeywordEvidence(result), isEmpty, reason: lines.join(' | '));
-      }
-    },
-  );
+  test('single title, issuer, or country name is insufficient', () {
+    for (final lines in const [
+      ['البطاقة الوطنية الموحدة'],
+      ['وزارة الداخلية'],
+      ['جمهورية العراق'],
+    ]) {
+      final result = OcrTextResult.available(
+        lines: [for (final text in lines) OcrLine(text: text, confidence: .99)],
+        engineVersion: 'lexicon-test-1',
+      );
+      expect(ocrKeywordEvidence(result), isEmpty, reason: lines.join(' | '));
+    }
+  });
 
   test(
     'Arabic diacritics, alef variants, spacing and punctuation normalize',

@@ -42,7 +42,7 @@ class RecognitionThresholds {
     this.review = classificationAcceptanceThreshold,
     this.classificationAcceptance = classificationAcceptanceThreshold,
     this.componentFloor = .5,
-    this.minClassification = .6,
+    this.minClassification = classificationAcceptanceThreshold,
     this.conflictGap = .15,
   });
 
@@ -254,11 +254,11 @@ List<String> reviewReasons(
     (override) => override.documentKind != null,
   );
   if (!kindWasOverridden) {
-    final finalConfidence = recognition.confidences.finalConfidence?.value;
-    if (finalConfidence == null) {
-      reasons.add('بلا ثقة نهائية');
+    final classification = recognition.confidences.classification?.value;
+    if (classification == null) {
+      reasons.add('بلا ثقة تصنيف');
     } else {
-      switch (bandFor(finalConfidence, thresholds)) {
+      switch (bandFor(classification, thresholds)) {
         case RecognitionBand.autoCandidate:
           if (automationMode == AutomationMode.reviewAll) {
             reasons.add('مؤهل تلقائياً — بانتظار التأكيد');

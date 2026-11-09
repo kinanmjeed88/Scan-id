@@ -1,9 +1,9 @@
-/// Provisional routing scores, never calibrated probabilities. Keep production
-/// at the audited baseline until a labelled real-document evaluation justifies
-/// a lower threshold. Boundary and type decisions have separate policies.
-const double automaticAcceptanceThreshold = .70;
+/// Production decision thresholds requested for independent text and boundary
+/// acceptance. Scores are routing evidence, not calibrated probabilities.
+/// Neither threshold bypasses semantic uniqueness or geometric safety.
+const double automaticAcceptanceThreshold = .55;
 const double boundaryAcceptanceThreshold = automaticAcceptanceThreshold;
-const double classificationAcceptanceThreshold = .70;
+const double classificationAcceptanceThreshold = .60;
 
 /// Explicit threshold injection is for controlled policy comparisons. Invalid
 /// thresholds/scores fail closed. It does not bypass geometric safety gates.

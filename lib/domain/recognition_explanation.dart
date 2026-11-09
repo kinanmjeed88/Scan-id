@@ -43,7 +43,10 @@ List<String> recognitionFailureReasons(
       'لم يُقرأ نص كافٍ لتحديد النوع؛ التطبيق لا يخمّن النوع من الشكل أو '
       'المقاس أو اسم الملف.',
     );
-  } else if (classification < .6) {
+  } else if (!meetsAcceptanceThreshold(
+    classification,
+    classificationAcceptanceThreshold,
+  )) {
     reasons.add(
       'أدلة النص على النوع ضعيفة (${_percent(classification)})؛ '
       'يحتاج القرار إلى اختيارك الصريح.',
@@ -67,14 +70,6 @@ List<String> recognitionFailureReasons(
       'درجة كشف الحدود ${_percent(boundary)} أقل من حد القبول '
       '${(automaticAcceptanceThreshold * 100).round()}٪؛ حُفظت الزوايا '
       'المقترحة للمراجعة بدل القصّ التلقائي. الدرجة ليست ضماناً للدقة.',
-    );
-  }
-
-  final overall = scores?.finalConfidence?.value;
-  if (overall != null && !meetsAutomaticAcceptanceThreshold(overall)) {
-    reasons.add(
-      'الدرجة الإجمالية ${_percent(overall)} أقل من حد القبول؛ '
-      'الإضافة التلقائية متوقفة إلى أن تؤكد أنت النوع.',
     );
   }
 

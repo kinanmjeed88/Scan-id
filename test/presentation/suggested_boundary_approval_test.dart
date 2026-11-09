@@ -72,21 +72,21 @@ void main() {
       );
 
       await tapKey(tester, const Key('manual-classification-kind'));
-      await tester.tap(find.text(DocumentKind.residenceCard.label).last);
+      await tester.tap(find.text(DocumentKind.unifiedNationalId.label).last);
       await tester.pumpAndSettle();
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();
 
-      // No crop editor, no mandatory size entry, and the estimated catalog
+      // No crop editor, no mandatory size entry, and the documented catalog
       // default was applied automatically.
       expect(find.byKey(const Key('crop-source-image')), findsNothing);
       expect(find.byKey(const Key('crop-custom-width-mm')), findsNothing);
       final item = harness.saved.items.firstWhere((i) => i.id == 'pending');
-      expect(item.documentKind, DocumentKind.residenceCard);
+      expect(item.documentKind, DocumentKind.unifiedNationalId);
       expect(item.sizeConfirmed, isTrue);
       expect(item.pageIndex, isNotNull);
-      expect(item.width, closeTo(92.4, .01));
-      expect(item.height, closeTo(62.8, .01));
+      expect(item.width, closeTo(85.6, .01));
+      expect(item.height, closeTo(53.98, .01));
       final crop = harness.saved.assets.first.crop!;
       final source = await FakeImageEditor().open(asset);
       final measured = CropDraft(
@@ -96,8 +96,8 @@ void main() {
       expect(crop.outputHeight, measured.outputHeight);
       expect(
         crop.outputWidth / crop.outputHeight,
-        isNot(closeTo(item.width / item.height, .01)),
-        reason: 'estimated millimetres must not reshape the approved boundary',
+        isNot(closeTo(item.width / item.height, .001)),
+        reason: 'catalog millimetres must not reshape the approved boundary',
       );
       expect(tester.takeException(), isNull);
     },

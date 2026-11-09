@@ -53,7 +53,7 @@ void main() {
         );
         expect(
           qualifiesForAutomaticPlacement(outcome, thresholds: thresholds),
-          isFalse,
+          expected,
         );
         if (outcome.status == RecognitionStatus.recognized) types++;
 

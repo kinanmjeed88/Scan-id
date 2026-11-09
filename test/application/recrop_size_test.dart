@@ -126,6 +126,8 @@ void main() {
           documentKind: kind,
           customSizeMm: kind == DocumentKind.other
               ? PhysicalSizeMm(120, 80)
+              : presetStatusFor(kind) == PresetStatus.estimated
+              ? const DocumentSizeCatalog().natural(kind)
               : null,
           targetItemId: 'doc',
           sourceWidth: 400,

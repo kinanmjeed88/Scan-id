@@ -183,7 +183,7 @@ void main() {
     expect(a.routing.band, b.routing.band);
   });
 
-  test('final confidence fuses only available independent components', () {
+  test('upstream confidences stay separate and never produce a fused F', () {
     final evidence = [
       OcrKeywordEvidence(
         kind: DocumentKind.unifiedNationalId,
@@ -206,14 +206,16 @@ void main() {
     expect(withUpstream.confidences.geometry, isNotNull);
     expect(ocrOnly.confidences.detection, isNull);
     expect(ocrOnly.confidences.geometry, isNull);
+    expect(withUpstream.confidences.finalConfidence, isNull);
+    expect(ocrOnly.confidences.finalConfidence, isNull);
     expect(
-      withUpstream.confidences.finalConfidence!.value,
-      isNot(ocrOnly.confidences.finalConfidence!.value),
+      withUpstream.confidences.classification!.value,
+      ocrOnly.confidences.classification!.value,
     );
   });
   group('automatic placement confidence gate', () {
     ClassificationOutcome outcome({
-      double? type = .70,
+      double? type = .60,
       double? total = .70,
       double? detection = .70,
       DocumentKind kind = DocumentKind.unifiedNationalId,
@@ -232,42 +234,39 @@ void main() {
       routing: const RoutingDecision(band: RecognitionBand.review, reasons: []),
     );
 
-    test('a real fusion of exact 70% evidence remains eligible', () {
+    test('exact 60% semantic evidence remains eligible with weak D and G', () {
       final fused = classifyDocument(
         ClassificationInput(
-          detectionConfidence: .70,
-          geometryConfidence: .70,
+          detectionConfidence: .1,
+          geometryConfidence: .1,
           ocrKeywords: [
             OcrKeywordEvidence(
               kind: DocumentKind.unifiedNationalId,
-              score: .70,
+              score: .60,
               matchedAnchorGroups: 2,
             ),
           ],
-          ocrConfidence: .70,
+          ocrConfidence: .60,
         ),
       );
       expect(qualifiesForAutomaticPlacement(fused), isTrue);
     });
 
-    test('at and above 70 qualifies while lower scores do not', () {
+    test('at and above 60 qualifies regardless of F, D or G', () {
       expect(qualifiesForAutomaticPlacement(outcome()), isTrue);
       expect(
         qualifiesForAutomaticPlacement(outcome(type: .71, total: .71)),
         isTrue,
       );
-      expect(qualifiesForAutomaticPlacement(outcome(type: .699)), isFalse);
-      expect(qualifiesForAutomaticPlacement(outcome(total: .699)), isFalse);
+      expect(qualifiesForAutomaticPlacement(outcome(type: .599)), isFalse);
+      expect(qualifiesForAutomaticPlacement(outcome(total: .1)), isTrue);
     });
     test(
-      'unknown, conflict, missing type or total and weak component stay pending',
+      'unknown, conflict and missing C stay pending; missing F and weak D do not',
       () {
         expect(qualifiesForAutomaticPlacement(outcome(type: null)), isFalse);
-        expect(qualifiesForAutomaticPlacement(outcome(total: null)), isFalse);
-        expect(
-          qualifiesForAutomaticPlacement(outcome(detection: .49)),
-          isFalse,
-        );
+        expect(qualifiesForAutomaticPlacement(outcome(total: null)), isTrue);
+        expect(qualifiesForAutomaticPlacement(outcome(detection: .01)), isTrue);
         expect(
           qualifiesForAutomaticPlacement(outcome(kind: DocumentKind.unknown)),
           isFalse,

@@ -66,16 +66,17 @@ void main() {
     },
   );
 
-  test('the recorded low boundary score is quoted with the 70% threshold', () {
+  test('the recorded low boundary score is quoted with the 55% threshold', () {
     final reasons = recognitionFailureReasons(
       record(boundary: .46, classification: null, finalValue: .614),
       hasUsableSuggestion: false,
     );
     final text = reasons.join(' ');
     expect(text, contains('46.0٪'));
-    expect(text, contains('70٪'));
+    expect(text, contains('55٪'));
     expect(text, contains('ليست ضماناً للدقة'));
-    expect(text, contains('61.4٪'));
+    expect(text, isNot(contains('61.4٪')));
+    expect(text, isNot(contains('الدرجة الإجمالية')));
   });
 
   test('missing OCR evidence is named as the real classification cause', () {

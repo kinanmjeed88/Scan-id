@@ -1281,11 +1281,9 @@ class ProjectService {
       sourceWidth: sourceWidth,
       sourceHeight: sourceHeight,
     );
-    // Validate BEFORE any file is written. The catalog default (including an
-    // editable ESTIMATE) is a real, resolved size: the user chose the category
-    // explicitly, so no keyboard entry is needed. Only a kind without any
-    // catalog size leaves the footprint unconfirmed; the crop is still
-    // approved and the item simply stays off A4.
+    // Validate before writing. Only documented dimensions or an explicitly
+    // supplied measurement can confirm millimetres. A category/estimated
+    // default alone preserves the crop but leaves it off A4 until size review.
     final turned = recipe.adjustments.quarterTurns.isOdd;
     final landscape =
         (turned ? recipe.geometry.outputHeight : recipe.geometry.outputWidth) >=
@@ -1293,7 +1291,8 @@ class ProjectService {
     final natural = project.catalog.natural(documentKind);
     final PhysicalSizeMm? resolvedSize =
         customSizeMm ??
-        (natural == null
+        (natural == null ||
+                !documentSizeRecordFor(documentKind).mayBeConfirmedAutomatically
             ? null
             : project.catalog.sizeFor(documentKind, landscape: landscape));
     // Print millimetres size the A4 slot, not the source pixels. Preserve the
@@ -1395,7 +1394,8 @@ class ProjectService {
     final natural = project.catalog.natural(documentKind);
     final PhysicalSizeMm? resolvedSize =
         customSizeMm ??
-        (natural == null
+        (natural == null ||
+                !documentSizeRecordFor(documentKind).mayBeConfirmedAutomatically
             ? null
             : project.catalog.sizeFor(documentKind, landscape: landscape));
     requireValidManualBoundary(

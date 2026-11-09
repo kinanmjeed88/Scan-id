@@ -219,8 +219,11 @@ def verify() -> list[str]:
         errors.append("DocQuadNet-256 ORT asset SHA-256 does not match the reviewed weight")
 
     policy = (ROOT / "lib/domain/acceptance_policy.dart").read_text(encoding="utf-8")
-    if not re.search(r"const\s+double\s+automaticAcceptanceThreshold\s*=\s*\.70\s*;", policy):
-        errors.append("the shared automatic acceptance threshold must remain 70%")
+    if not re.search(r"const\s+double\s+automaticAcceptanceThreshold\s*=\s*\.55\s*;", policy):
+        errors.append("the production learned-boundary acceptance threshold must be 55%")
+
+    if not re.search(r"const\s+double\s+classificationAcceptanceThreshold\s*=\s*\.60\s*;", policy):
+        errors.append("the independent text classification threshold must be 60%")
 
     model_source_path = ROOT / "lib/imaging/docquad_model.dart"
     if not model_source_path.is_file():

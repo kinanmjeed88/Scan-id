@@ -129,7 +129,7 @@ void main() {
     () async {
       final cascade = BoundaryProposalCascade(
         primary: _FakeModel('primary', learned(quad(), score: .95)),
-        secondary: _FakeModel('secondary', learned(quad(), score: .55)),
+        secondary: _FakeModel('secondary', learned(quad(), score: .549)),
       );
       final proposal = await cascade.suggestProposal(preview);
       expect(proposal!.modelConfidence, .95);
@@ -169,9 +169,9 @@ void main() {
   });
 
   test(
-    'a corroborated 70% proposal is accepted when geometry is safe',
+    'a corroborated 55% proposal is accepted when geometry is safe',
     () async {
-      final first = _FakeModel('DocQuadNet', learned(quad(), score: .70));
+      final first = _FakeModel('DocQuadNet', learned(quad(), score: .55));
       final second = _FakeModel('DocAligner', learned(quad(), score: .75));
       final cascade = BoundaryProposalCascade(
         primary: first,

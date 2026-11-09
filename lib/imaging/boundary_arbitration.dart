@@ -324,7 +324,7 @@ BoundaryProposal? arbitrateBoundaryProposal({
       boundaryAgreementTolerance;
   if (agrees) {
     // Independent agreement: keep the learned score and flags untouched, so
-    // the existing 70% acceptance path and all of `verifyBoundary`'s safety
+    // the existing 55% acceptance path and all of `verifyBoundary`'s safety
     // checks still apply unchanged.
     return _withCorners(learned, displayedLearned);
   }
@@ -349,6 +349,12 @@ BoundaryProposal? arbitrateBoundaryProposal({
   // An inner quad with sharper gradients is a printed frame, not the card.
   if (containsQuad(displayedLearned, classicalCorners)) {
     return _keepLearned(learned, displayedLearned);
+  }
+  // Even sharp learned edges can be a printed inner frame. A plausible,
+  // materially different containing outer boundary is contradictory evidence,
+  // not permission to discard document margins based on score strength.
+  if (containsQuad(classicalCorners, displayedLearned)) {
+    return _classicalWins(measuredClassical);
   }
   final learnedPlausible =
       measuredLearned != null &&

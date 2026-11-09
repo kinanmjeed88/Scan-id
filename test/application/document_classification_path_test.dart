@@ -527,8 +527,8 @@ void main() {
             expect(item.sizeConfirmed, eligible, reason: entry.kind.name);
             if (eligible) {
               expect(
-                result.confidences.finalConfidence!.value,
-                greaterThanOrEqualTo(.70),
+                result.confidences.classification!.value,
+                greaterThanOrEqualTo(.60),
               );
               expect(record.sides.single.detection!.polygon, hasLength(4));
               expect(item.pageIndex, isNotNull);

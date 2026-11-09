@@ -63,7 +63,7 @@ void main() {
       expect(bandFor(.9), RecognitionBand.autoCandidate);
       expect(bandFor(.89), RecognitionBand.review);
       expect(bandFor(.7), RecognitionBand.review);
-      expect(bandFor(.69), RecognitionBand.unresolved);
+      expect(bandFor(.59), RecognitionBand.unresolved);
       expect(bandFor(0), RecognitionBand.unresolved);
     });
   });

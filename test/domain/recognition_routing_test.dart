@@ -65,6 +65,11 @@ void main() {
       expect(bandFor(.89), RecognitionBand.review);
       expect(bandFor(.6), RecognitionBand.review);
       expect(bandFor(.59), RecognitionBand.unresolved);
+      expect(
+        bandFor(.55),
+        RecognitionBand.unresolved,
+        reason: 'the boundary threshold must not become the text threshold',
+      );
       expect(bandFor(0), RecognitionBand.unresolved);
     });
   });

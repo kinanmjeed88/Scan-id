@@ -367,13 +367,14 @@ void main() {
 
     test('below 55 is reviewed; exactly 55 and above are accepted', () {
       final below = decide(.549);
+      expect(decide(.124).cropAuthorization, isNull);
       expect(below.kind, BoundaryDecisionKind.needsReview);
       expect(below.cropAuthorization, isNull);
       expect(
         below.verification.reasons,
         contains(BoundaryReviewReason.lowModelConfidence),
       );
-      for (final score in [.55, .60, .70, 1.0]) {
+      for (final score in [.55, .572, .60, .764, 1.0]) {
         final accepted = decide(score);
         expect(accepted.kind, BoundaryDecisionKind.accepted, reason: '$score');
         expect(accepted.cropAuthorization, isNotNull);

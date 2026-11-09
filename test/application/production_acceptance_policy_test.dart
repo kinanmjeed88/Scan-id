@@ -68,6 +68,30 @@ class _Text implements OcrEngine {
 void main() {
   for (final entry in [
     (
+      name: 'C60 B572 goes to A4',
+      c: .60,
+      b: .572,
+      estimated: false,
+      crop: true,
+      placed: true,
+    ),
+    (
+      name: 'C60 B764 goes to A4',
+      c: .60,
+      b: .764,
+      estimated: false,
+      crop: true,
+      placed: true,
+    ),
+    (
+      name: 'C60 B124 remains manual',
+      c: .60,
+      b: .124,
+      estimated: false,
+      crop: false,
+      placed: false,
+    ),
+    (
       name: 'C60 B55 documented goes to A4',
       c: .60,
       b: .55,

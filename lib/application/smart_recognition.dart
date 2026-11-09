@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import '../domain/classification_gap.dart';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/crop_draft.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
@@ -2196,7 +2197,19 @@ class SmartIntake {
     final isAi =
         detection.boundaryDecision?.proposal.producer ==
         BoundaryProducer.learnedModel;
+    final decision = detection.boundaryDecision;
     return DetectionRef(
+      boundaryDiagnostics: [
+        if (decision != null)
+          for (final reason in decision.verification.reasons)
+            boundaryReviewReasonMessage(
+              reason,
+              modelConfidence: decision.proposal.modelConfidence,
+              minAutoAcceptConfidence:
+                  decision.proposal.minAutoAcceptConfidence ??
+                  boundaryAcceptanceThreshold,
+            ),
+      ],
       detectionId: detection.detectionId,
       producer: producer,
       version: isAi ? producer : recognitionPipelineVersion,

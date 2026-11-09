@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../domain/boundary_suggestion.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/document_kind.dart';
 import '../domain/recognition_explanation.dart';
 import '../domain/manual_classification.dart';
@@ -172,7 +173,8 @@ class _ManualClassificationDialogState
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       'درجة الحدود: ${_score(boundaryScore)} · درجة التصنيف: ${_score(kindScore)} · '
-                      'الدرجة الإجمالية: ${_score(finalScore)}. حد القبول التلقائي ٧٠٪؛ هذه الدرجات ليست ضماناً للدقة.',
+                      'حد الحدود المتعلمة ${(boundaryAcceptanceThreshold * 100).round()}٪ مع اجتياز السلامة وتأييد النموذجين؛ حد التصنيف النصي ${(classificationAcceptanceThreshold * 100).round()}٪. '
+                      'الدرجة الإجمالية القديمة: ${_score(finalScore)} (لا تُستخدم للقبول). هذه الدرجات ليست ضماناً للدقة.',
                       key: const Key('manual-classification-confidence'),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),

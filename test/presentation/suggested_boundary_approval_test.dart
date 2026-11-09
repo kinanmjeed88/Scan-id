@@ -58,6 +58,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('سبب عدم الإضافة التلقائية'), findsOneWidget);
+      expect(find.textContaining('حد الحدود المتعلمة 55٪'), findsOneWidget);
+      expect(find.textContaining('حد التصنيف النصي 60٪'), findsOneWidget);
+      expect(find.textContaining('٧٠٪'), findsNothing);
+      expect(find.textContaining('(لا تُستخدم للقبول)'), findsOneWidget);
       expect(
         find.byKey(const Key('manual-classification-apply-boundary')),
         findsOneWidget,

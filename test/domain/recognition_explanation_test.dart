@@ -87,7 +87,7 @@ void main() {
     final text = reasons.join(' ');
     expect(text, contains('لم يُقرأ نص كافٍ'));
     expect(text, contains('لا يخمّن النوع'));
-    expect(text, contains('بضغطة واحدة'));
+    expect(text, contains('ليست إذناً تلقائياً'));
   });
 
   test('uncertain classification is explained explicitly', () {

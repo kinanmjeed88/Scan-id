@@ -283,8 +283,12 @@ class DetectionRef {
     this.detectionConfidence,
     this.polygon,
     this.suggestedPolygon,
+    this.boundaryDiagnostics = const [],
     this.bbox,
   }) {
+    for (final message in boundaryDiagnostics) {
+      validNote(message);
+    }
     validId(detectionId);
     validNote(producer);
     validNote(version);
@@ -306,6 +310,10 @@ class DetectionRef {
       }
     }
   }
+
+  /// Measured decision failures, persisted without source text or image data.
+  /// Empty for legacy records; absence must not be interpreted as acceptance.
+  final List<String> boundaryDiagnostics;
   final String detectionId;
   final Confidence? detectionConfidence;
   final String producer;
@@ -322,6 +330,8 @@ class DetectionRef {
   final RectMm? bbox;
 
   Map<String, Object?> toJson() => {
+    if (boundaryDiagnostics.isNotEmpty)
+      'boundaryDiagnostics': boundaryDiagnostics,
     'detectionId': detectionId,
     'detectionConfidence': detectionConfidence?.toJson(),
     'producer': producer,
@@ -334,6 +344,11 @@ class DetectionRef {
   factory DetectionRef.fromJson(Object? json) {
     final m = objectMap(json);
     return DetectionRef(
+      boundaryDiagnostics: m['boundaryDiagnostics'] == null
+          ? const []
+          : objectList(
+              m['boundaryDiagnostics'],
+            ).map((value) => text(value, 'boundaryDiagnostic')).toList(),
       detectionId: text(m['detectionId'], 'detectionId'),
       detectionConfidence: m['detectionConfidence'] == null
           ? null

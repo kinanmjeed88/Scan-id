@@ -350,12 +350,6 @@ BoundaryProposal? arbitrateBoundaryProposal({
   if (containsQuad(displayedLearned, classicalCorners)) {
     return _keepLearned(learned, displayedLearned);
   }
-  // Even sharp learned edges can be a printed inner frame. A plausible,
-  // materially different containing outer boundary is contradictory evidence,
-  // not permission to discard document margins based on score strength.
-  if (containsQuad(classicalCorners, displayedLearned)) {
-    return _classicalWins(measuredClassical);
-  }
   final learnedPlausible =
       measuredLearned != null &&
       isPlausibleBoundary(

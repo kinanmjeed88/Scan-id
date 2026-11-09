@@ -38,6 +38,7 @@ DocumentRecord _record({
         : DocumentKind.unifiedNationalId,
     status: status,
     confidences: ConfidenceSet(
+      classification: finalValue == null ? null : Confidence(value: finalValue),
       finalConfidence: finalValue == null
           ? null
           : Confidence(value: finalValue),
@@ -243,8 +244,8 @@ void main() {
       expect(recordNeedsReview(record), isFalse);
     });
 
-    test('missing final confidence queues explicitly', () {
-      expect(reviewReasons(_record()), contains('بلا ثقة نهائية'));
+    test('missing classification confidence queues explicitly', () {
+      expect(reviewReasons(_record()), contains('بلا ثقة تصنيف'));
     });
   });
 }

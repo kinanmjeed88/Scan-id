@@ -96,10 +96,10 @@ void main() {
   test(
     'flags materially different model boundaries without averaging',
     () async {
-      final first = _FakeModel('DocQuadNet', learned(quad()));
+      final first = _FakeModel('DocQuadNet', learned(quad(), score: .95));
       final second = _FakeModel(
         'DocAligner',
-        learned(quad(left: .2, right: .96)),
+        learned(quad(left: .2, right: .96), score: .95),
       );
       final cascade = BoundaryProposalCascade(
         primary: first,

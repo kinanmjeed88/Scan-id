@@ -137,7 +137,9 @@ void main() {
       await tapKey(tester, const Key('manual-classification-continue'));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('crop-source-image')), findsNothing);
+      expect(find.byKey(const Key('crop-source-image')), findsOneWidget);
+      await tester.tap(find.byTooltip('إلغاء القص'));
+      await tester.pumpAndSettle();
       final item = harness.saved.items.firstWhere((i) => i.id == 'pending');
       expect(item.documentKind, DocumentKind.civilStatusId);
       expect(item.sizeConfirmed, isFalse);

@@ -107,6 +107,31 @@ void _expectPassportOnSheet(Project reloaded) {
 
 void main() {
   test(
+    'choosing an estimated kind alone never confirms print millimetres',
+    () async {
+      final h = _Harness();
+      final project = await h.start();
+      final saved = await h.service.confirmManualBoundary(
+        project,
+        project.assets.single,
+        ImageEditRecipe(_square, ImageAdjustments()),
+        documentKind: DocumentKind.residenceCard,
+        targetItemId: 'doc',
+        sourceWidth: 400,
+        sourceHeight: 250,
+      );
+      expect(saved.items.single.sizeConfirmed, isFalse);
+      expect(saved.items.single.pageIndex, isNull);
+      expect(saved.assets.single.crop!.outputWidth, 300);
+      expect(saved.assets.single.crop!.outputHeight, 300);
+      expect(
+        saved.assets.single.originalPath,
+        project.assets.single.originalPath,
+      );
+    },
+  );
+
+  test(
     'manual confirmation never replaces preview geometry with print aspect',
     () async {
       for (final kind in [

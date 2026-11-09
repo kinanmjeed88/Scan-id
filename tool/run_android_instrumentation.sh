@@ -59,15 +59,40 @@ if [[ ! -f "$startup_apk" ]]; then
   echo "::error title=startup-diagnostic::Diagnostic APK was not built or staged (looked in install-apks/diagnostic/ and build/app/outputs/flutter-apk/)."
   exit 1
 fi
-adb wait-for-device
-adb logcat -c
-adb install -r "$startup_apk" > "$startup_log" 2>&1
-adb shell monkey -p iq.scanid.scan_id.startupdiag \
-  -c android.intent.category.LAUNCHER 1 >> "$startup_log" 2>&1
-for attempt in $(seq 1 20); do
-  adb logcat -d -v threadtime > "$startup_logcat"
+serial="${ANDROID_SERIAL:-emulator-5554}"
+timeout 60 adb -s "$serial" wait-for-device >/dev/null 2>&1 || true
+logcat_file=diagnostics/android-instrumentation/android-crop-metrics-logcat.log
+timeout 20 adb -s "$serial" logcat -d -v raw -s AndroidCropMetric:I '*:S' > "$logcat_file" 2>/dev/null || true
+timeout 20 adb -s "$serial" logcat -c || true
+install_ok=0
+for attempt in 1 2 3; do
+  timeout 60 adb -s "$serial" wait-for-device >/dev/null 2>&1 || true
+  if timeout 120 adb -s "$serial" install -r "$startup_apk" > "$startup_log" 2>&1; then
+    install_ok=1
+    break
+  fi
+  sleep 2
+done
+if (( install_ok != 1 )); then
+  cat "$startup_log" >&2 || true
+  echo "::error title=startup-diagnostic::Could not install diagnostic APK after 3 attempts."
+  exit 1
+fi
+timeout 30 adb -s "$serial" shell monkey -p iq.scanid.scan_id.startupdiag \
+  -c android.intent.category.LAUNCHER 1 >> "$startup_log" 2>&1 || true
+: > "$startup_logcat"
+for attempt in $(seq 1 30); do
+  timeout 30 adb -s "$serial" wait-for-device >/dev/null 2>&1 || true
+  if timeout 20 adb -s "$serial" logcat -d -v threadtime > "$startup_logcat.tmp" 2>/dev/null && [[ -s "$startup_logcat.tmp" ]]; then
+    mv "$startup_logcat.tmp" "$startup_logcat"
+  fi
+  rm -f "$startup_logcat.tmp"
   if grep -Fq 'app.first_home_frame' "$startup_logcat"; then
     break
+  fi
+  if (( attempt == 10 )) && ! grep -Fq 'activity.onCreate.begin' "$startup_logcat"; then
+    timeout 30 adb -s "$serial" shell monkey -p iq.scanid.scan_id.startupdiag \
+      -c android.intent.category.LAUNCHER 1 >> "$startup_log" 2>&1 || true
   fi
   sleep 1
 done
@@ -104,13 +129,15 @@ startup_trace="$(grep -E 'ScanIdStartup|SCANID_STARTUP' \
 echo "::notice title=startup-diagnostic-x86_64::Diagnostic APK reached the first home frame on the CI x86_64 emulator; this is not ARM64 device evidence. $startup_trace"
 
 metrics_file=diagnostics/android-instrumentation/native-jpeg-crop-metrics.log
-logcat_file=diagnostics/android-instrumentation/android-crop-metrics-logcat.log
-adb exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
+timeout 30 adb -s "$serial" wait-for-device >/dev/null 2>&1 || true
+adb -s "$serial" exec-out run-as iq.scanid.scan_id cat files/native-jpeg-crop-metrics.log \
   > "$metrics_file" \
   || echo "::warning title=android-crop-metrics::instrumentation metrics file was not available to pull"
 if ! grep -q '^case=' "$metrics_file"; then
-  adb logcat -d -v raw -s AndroidCropMetric:I '*:S' > "$logcat_file" \
-    || echo "::warning title=android-crop-metrics::AndroidCropMetric logcat was not available"
+  if [[ ! -s "$logcat_file" ]]; then
+    adb -s "$serial" logcat -d -v raw -s AndroidCropMetric:I '*:S' > "$logcat_file" \
+      || echo "::warning title=android-crop-metrics::AndroidCropMetric logcat was not available"
+  fi
   awk 'index($0, "case=") { sub(/^.*case=/, "case="); print }' "$logcat_file" \
     > "$metrics_file"
   if grep -q '^case=' "$metrics_file"; then

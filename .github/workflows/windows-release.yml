@@ -56,6 +56,20 @@ jobs:
             assets/models/ppocrv5_arabic_mobile_rec.onnx
           key: ocr-models-ppocrv5-a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d-799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110
 
+      - name: Restore pinned Windows native archives
+        id: windows-native-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: .dart_tool/windows-native-cache
+          key: windows-native-deps-pdfium-8086-1fd8af952832dbb0eb16d9249f68fe09e5f5ebf7c3dd9f6066ea2720cc28487d-ort-1.28.3-1d6fab48e85f948436af7c8c971d2c145cf224e2c444755dec894f8b0de11a83
+
+      - name: Prepare verified Windows native archives
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tool/fetch_windows_native_deps.py
+
       - name: Prepare verified PP-OCRv5 models
         shell: bash
         run: |
@@ -71,6 +85,8 @@ jobs:
           exit 1
       - name: Prepare verified DocAligner 1.1.1 model asset
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4; do
             echo "Preparing pinned DocAligner asset (attempt $attempt/4)"

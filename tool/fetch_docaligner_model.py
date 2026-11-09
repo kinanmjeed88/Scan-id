@@ -32,34 +32,15 @@ def request(url: str, *, accept: str = "application/vnd.github+json"):
     # A token only raises that quota for the public release metadata. It is
     # sent to api.github.com alone, never to the download host the API redirects
     # to, and it is never printed.
-    token = os.environ.get("GITHUB_TOKEN", "")
-    if token and url.startswith("https://api.github.com/"):
-        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, headers=headers)
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token and url.startswith("https://api.github.com/"):
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
     return urllib.request.urlopen(req, timeout=60)
 
 
 def main() -> int:
     try:
-        with request(API_URL) as response:
-            release = json.load(response)
-        if release.get("tag_name") != RELEASE_TAG:
-            raise RuntimeError(f"unexpected upstream release tag: {release.get('tag_name')!r}")
-        assets = [asset for asset in release.get("assets", []) if asset.get("name") == ASSET_NAME]
-        if len(assets) != 1:
-            raise RuntimeError(f"expected one upstream asset named {ASSET_NAME!r}; found {len(assets)}")
-        asset = assets[0]
-        if (
-            asset.get("id") != ASSET_ID
-            or asset.get("size") != EXPECTED_BYTES
-            or asset.get("digest") != f"sha256:{EXPECTED_SHA256}"
-        ):
-            raise RuntimeError(
-                "upstream GitHub Release metadata no longer matches the pinned "
-                f"asset id/size/digest: id={asset.get('id')}, size={asset.get('size')}, "
-                f"digest={asset.get('digest')}"
-            )
-
         DESTINATION.parent.mkdir(parents=True, exist_ok=True)
         if DESTINATION.exists():
             digest = hashlib.sha256()
@@ -79,6 +60,25 @@ def main() -> int:
             )
             return 0
 
+        with request(API_URL) as response:
+            release = json.load(response)
+        if release.get("tag_name") != RELEASE_TAG:
+            raise RuntimeError(f"unexpected upstream release tag: {release.get('tag_name')!r}")
+        assets = [asset for asset in release.get("assets", []) if asset.get("name") == ASSET_NAME]
+        if len(assets) != 1:
+            raise RuntimeError(f"expected one upstream asset named {ASSET_NAME!r}; found {len(assets)}")
+        asset = assets[0]
+        if (
+            asset.get("id") != ASSET_ID
+            or asset.get("size") != EXPECTED_BYTES
+            or asset.get("digest") != f"sha256:{EXPECTED_SHA256}"
+        ):
+            raise RuntimeError(
+                "upstream GitHub Release metadata no longer matches the pinned "
+                f"asset id/size/digest: id={asset.get('id')}, size={asset.get('size')}, "
+                f"digest={asset.get('digest')}"
+            )
+
         fd, temporary_name = tempfile.mkstemp(
             prefix=".docaligner-", suffix=".download", dir=DESTINATION.parent
         )
@@ -87,7 +87,12 @@ def main() -> int:
         try:
             digest = hashlib.sha256()
             size = 0
-            with request(asset["browser_download_url"], accept="application/octet-stream") as response:
+            download_url = (
+                asset.get("url") or asset["browser_download_url"]
+                if os.environ.get("GITHUB_TOKEN", "").strip()
+                else asset["browser_download_url"]
+            )
+            with request(download_url, accept="application/octet-stream") as response:
                 with temporary.open("wb") as output:
                     while block := response.read(1024 * 1024):
                         size += len(block)

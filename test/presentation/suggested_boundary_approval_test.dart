@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_overrides.dart' as rec;
 
 import '../fixtures.dart';
 import 'editor_harness.dart';
@@ -90,6 +92,82 @@ void main() {
         crop.outputWidth / crop.outputHeight,
         closeTo(expectedAspect, 2 * expectedAspect / crop.outputHeight),
         reason: 'direct approval leaves no band beyond integer pixel rounding',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'unknown-size kinds stay off A4 while type and both sides stay editable',
+    (tester) async {
+      final base = editorProject(
+        items: [
+          DocumentItem(
+            id: 'pending',
+            assetId: 'asset1',
+            x: 0,
+            y: 0,
+            width: 60,
+            height: 40,
+            pageIndex: null,
+          ),
+        ],
+      );
+      final asset = assetFixture(id: 'asset1').withSuggestedCrop(suggested);
+      final project = base.copyWith(assets: [asset, ...base.assets.skip(1)]);
+      final harness = await EditorHarness.pump(
+        tester,
+        project: project,
+        imageEditor: FakeImageEditor(),
+        autoClassifyItemIds: const ['pending'],
+      );
+
+      await tapKey(tester, const Key('manual-classification-kind'));
+      await tester.tap(find.text(DocumentKind.civilStatusId.label).last);
+      await tester.pumpAndSettle();
+      await tapKey(tester, const Key('manual-classification-side'));
+      await tester.tap(find.text('الوجه الأول (أمامي)').last);
+      await tester.pumpAndSettle();
+      await tapKey(tester, const Key('manual-classification-continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('crop-source-image')), findsNothing);
+      final item = harness.saved.items.firstWhere((i) => i.id == 'pending');
+      expect(item.documentKind, DocumentKind.civilStatusId);
+      expect(item.sizeConfirmed, isFalse);
+      expect(item.pageIndex, isNull);
+      expect(harness.saved.assets.first.hasApprovedCrop, isTrue);
+      final firstRecord = harness.saved.documents.single;
+      expect(
+        rec.effectiveSide(firstRecord, firstRecord.sides.single),
+        SideKind.front,
+      );
+
+      await tapKey(tester, const Key('offsheet-pending'));
+      await tapKey(tester, const Key('ribbon-tab-document'));
+      await tapKey(tester, const Key('rb-doc-classify'));
+      expect(find.text('تعديل تصنيف المستمسك'), findsOneWidget);
+      await tapKey(tester, const Key('manual-classification-kind'));
+      await tester.tap(find.text(DocumentKind.other.label).last);
+      await tester.pumpAndSettle();
+      await tapKey(tester, const Key('manual-classification-side'));
+      await tester.tap(find.text('الوجه الثاني (خلفي)').last);
+      await tester.pumpAndSettle();
+      await tapKey(tester, const Key('manual-classification-continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('crop-source-image')), findsNothing);
+      final updatedItem = harness.saved.items.firstWhere(
+        (i) => i.id == 'pending',
+      );
+      expect(updatedItem.documentKind, DocumentKind.other);
+      expect(updatedItem.sizeConfirmed, isFalse);
+      expect(updatedItem.pageIndex, isNull);
+      final updatedRecord = harness.saved.documents.single;
+      expect(rec.effectiveKind(updatedRecord), DocumentKind.other);
+      expect(
+        rec.effectiveSide(updatedRecord, updatedRecord.sides.single),
+        SideKind.back,
       );
       expect(tester.takeException(), isNull);
     },

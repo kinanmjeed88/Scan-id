@@ -122,6 +122,7 @@ MeasuredBoundaryCandidate? _measure(img.Image image, List<Point2> corners) {
   final refined = refineQuadToEdges(image, corners);
   if (refined != null &&
       quadFitsImage(refined, image) &&
+      (!touchesFrameEdge(refined) || touchesFrameEdge(corners)) &&
       withinRefinementDisplacement(
         corners,
         refined,
@@ -233,6 +234,26 @@ double areaFractionOf(List<Point2> corners, int width, int height) =>
     ).areaFraction ??
     0.0;
 
+double? aspectClaimDisagreement(
+  List<Point2> corners,
+  int width,
+  int height,
+  double? imposedAspect,
+) {
+  if (imposedAspect == null || !imposedAspect.isFinite || imposedAspect <= 0) {
+    return null;
+  }
+  final aspect = assessQuad(
+    corners,
+    sourceWidth: width,
+    sourceHeight: height,
+  ).aspect;
+  if (aspect == null || !aspect.isFinite || aspect <= 0) {
+    return double.infinity;
+  }
+  return (aspect - imposedAspect).abs() / imposedAspect;
+}
+
 /// A candidate may REPLACE another claim only when it is a plausible whole
 /// document boundary: strong edges on every side, a real area, no frame-edge
 /// ambiguity, and no contradiction of a classifier's physical aspect claim.
@@ -329,9 +350,42 @@ BoundaryProposal? arbitrateBoundaryProposal({
   if (containsQuad(displayedLearned, classicalCorners)) {
     return _keepLearned(learned, displayedLearned);
   }
-  // The learned quad is an inner frame: the containing outer quad wins when it
-  // measures at least as well, without demanding the full margin.
-  if (containsQuad(classicalCorners, displayedLearned) &&
+  final learnedPlausible =
+      measuredLearned != null &&
+      isPlausibleBoundary(
+        measuredLearned,
+        width,
+        height,
+        imposedAspect: learned.imposedAspect,
+      );
+  if (learnedPlausible) {
+    final learnedAspectError = aspectClaimDisagreement(
+      displayedLearned,
+      width,
+      height,
+      learned.imposedAspect,
+    );
+    final classicalAspectError = aspectClaimDisagreement(
+      classicalCorners,
+      width,
+      height,
+      learned.imposedAspect,
+    );
+    if (learnedAspectError != null &&
+        classicalAspectError != null &&
+        classicalAspectError > learnedAspectError + 1e-6) {
+      return _keepLearned(learned, displayedLearned);
+    }
+    if (measuredLearned.evidence.score > 0 &&
+        measuredClassical.evidence.score > 0 &&
+        measuredClassical.evidence.score < measuredLearned.evidence.score) {
+      return _keepLearned(learned, displayedLearned);
+    }
+  }
+  // When the learned quad is an unsupported inner frame, the containing outer
+  // quad wins when it measures at least as well.
+  if (!learnedPlausible &&
+      containsQuad(classicalCorners, displayedLearned) &&
       measuredClassical.evidence.quality >=
           (measuredLearned?.evidence.quality ?? 0)) {
     return _classicalWins(measuredClassical);

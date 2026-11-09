@@ -380,4 +380,21 @@ void main() {
     expect(find.text(_crossingMessage), findsNothing);
     expect(_normalized(tester, 2).dx, greaterThan(0.7));
   });
+
+  testWidgets('dragging a side midpoint moves both of its corners together', (
+    tester,
+  ) async {
+    await _pumpCrop(tester);
+    final r = _canvas(tester);
+    final topMidpoint = Offset((r.left + r.right) / 2, r.top);
+    await dragInSteps(tester, topMidpoint, Offset(0, 0.2 * r.height));
+    await tester.pump();
+
+    final y0 = _normalized(tester, 0).dy;
+    expect(y0, greaterThan(0.15));
+    expect(_normalized(tester, 1).dy, closeTo(y0, 1e-9));
+    expect(_normalized(tester, 2).dy, closeTo(1.0, _pxTol / r.height));
+    expect(_normalized(tester, 3).dy, closeTo(1.0, _pxTol / r.height));
+    expect(tester.takeException(), isNull);
+  });
 }

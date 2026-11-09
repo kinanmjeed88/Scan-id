@@ -35,10 +35,11 @@ MeasuredBoundaryCandidate candidate(
   double mean,
   double min, {
   bool refined = false,
+  double score = 0,
 }) => MeasuredBoundaryCandidate(
   corners: corners,
   originalCorners: corners,
-  evidence: QuadEdgeEvidence(meanSupport: mean, minSupport: min, score: 0),
+  evidence: QuadEdgeEvidence(meanSupport: mean, minSupport: min, score: score),
   wasRefined: refined,
 );
 
@@ -178,6 +179,57 @@ void main() {
         measurements: measurements(
           learnedEvidence: candidate(learnedQuad, .2, .1),
           classicalEvidence: candidate(classicalQuad, .95, .9),
+        ),
+      );
+      expect(result!.producer, BoundaryProducer.learnedModel);
+      expect(result.corners, learnedQuad);
+    },
+  );
+
+  test(
+    'an outer frame does not replace a plausible card without quality margin',
+    () {
+      final result = arbitrateBoundaryProposal(
+        learned: learned(),
+        measurements: measurements(
+          learnedEvidence: candidate(learnedQuad, .80, .70),
+          classicalEvidence: candidate(classicalQuad, .82, .72),
+        ),
+      );
+      expect(result!.producer, BoundaryProducer.learnedModel);
+      expect(result.corners, learnedQuad);
+    },
+  );
+
+  test(
+    'sharper edges do not replace a plausible boundary with better aspect fit',
+    () {
+      final squareMat = <Point2>[
+        Point2(.1, .05),
+        Point2(.66, .05),
+        Point2(.66, .95),
+        Point2(.1, .95),
+      ];
+      final result = arbitrateBoundaryProposal(
+        learned: learned(imposedAspect: 1.6),
+        measurements: measurements(
+          learnedEvidence: candidate(learnedQuad, .75, .65),
+          classicalEvidence: candidate(squareMat, .95, .90),
+        ),
+      );
+      expect(result!.producer, BoundaryProducer.learnedModel);
+      expect(result.corners, learnedQuad);
+    },
+  );
+
+  test(
+    'higher edge support does not override a worse holistic contrast score',
+    () {
+      final result = arbitrateBoundaryProposal(
+        learned: learned(),
+        measurements: measurements(
+          learnedEvidence: candidate(learnedQuad, .75, .65, score: .72),
+          classicalEvidence: candidate(classicalQuad, .92, .88, score: .55),
         ),
       );
       expect(result!.producer, BoundaryProducer.learnedModel);

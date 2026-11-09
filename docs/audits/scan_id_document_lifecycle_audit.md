@@ -220,13 +220,13 @@ Cascade:نموذجان بالتتابع؛ max correspondingcorner displacement/i
 
 `LocalImageEditor.suggestProposal:114–162` يقيس الكلاسيكي دائماً ثم arbitrate؛ ليست منظومة AI فقط. الكلاسيكي (`document_detector.dart:104–151,278–280,465–550`):coarse480/fine1200،structuretensorgradients لونية،blurbinomial،مرشح segmentation خلفية/Otsu و Hough موجه،edge support/strength وتباين داخل/خارج وعقوبة texture،rerank حدة حواف وتحسين subpixel وخطوط متقاطعة. `runScored:475–509`:p75/p90،high=max(12,p90)،low=max(3,.45*high*sensitivity)،texture<30 و area<.985؛pass1(1,.5,.3) و pass2(.5,.7,.5)،الثاني يفوز إذا فارق score>.04 (`104–122`).
 
-جودة المقارنة `Q=.6*meanSupport+.4*minSupport`،looksLikeBoundary=mean≥.5 و min≥.3 (`document_detector.dart:1482–1508`). التحكيم (`boundary_arbitration.dart:69–148,261–427`):refine≤.04 قطر ولا يقل Q،agreement<.04 يحفظ flags،استبدال كلاسيكي يحتاج area≥.05 وحواف الأضلاع وعدم frame-touch.016 وصلاحية ومنطقة/نسبة إنادعيت؛لايفوز innerframe أشد gradient إذا كان داخل quad المتعلم،ولا يصغر القص بقوة gradient وحدها؛qualitymargin.10. فوز الكلاسيكي review-only.
+جودة المقارنة `Q=.6*meanSupport+.4*minSupport`،looksLikeBoundary=mean≥.5 و min≥.3 (`document_detector.dart:1482–1508`). التحكيم (`boundary_arbitration.dart:69–148,261–427`):refine≤.04 قطر ولا يقل Q،agreement<.04 يحفظ flags،استبدال كلاسيكي يحتاج area≥.05 وحواف الأضلاع وعدم frame-touch.016 وصلاحية ومنطقة/نسبة إن ادُّعيت؛لا يفوز innerframe أشد gradient إذا كان داخل quad المتعلم،ولا يصغر القص بقوة gradient وحدها؛qualitymargin.10. فوز الكلاسيكي review-only.
 
 توجد قواعد مقاومة texture والظل،لكن **لم يُعثر على دليل في الكود الحالي** على ضمان الخلفية نفس اللون أو نموذج glare-removal أو تصحيح انعكاس مرآتي دلالي. ضعف الإضاءة/الانعكاس قد يقلل الأدلة؛ المعدلات غير مقاسة.
 
 | القياس | القيمة/المعادلة | المصدر والمعنى |
 |---|---|---|
-|normalized quad|4finitepoints0..1،convex/winding،مساحة غير منها رة،homography غير مفرد|`geometry.dart`واستدعاء`quad_assessment.dart:79–109` |
+|normalized quad|4finitepoints0..1،convex/winding،مساحة غير منهارة،homography غير مفرد|`geometry.dart`واستدعاء`quad_assessment.dart:79–109` |
 |مساحة تلقائية|area/frame≥.02|`quad_assessment.dart:111–116` |
 |ضلع|≥4px|`117–124` |
 |أضلاع ضدية|max/min≤2.5|`125–130` |
@@ -238,7 +238,7 @@ Cascade:نموذجان بالتتابع؛ max correspondingcorner displacement/i
 |إذن learned|finite0..1 و≥.70 وكل أسباب المراجعة فارغة|`boundary_decision.dart:385–418`،`acceptance_policy.dart:3–12` |
 |تماس إطار|x/y≤.016 أو≥.984 للـ learned بلا region|`boundary_decision.dart:385–392` |
 |اتفاق region|المركز داخلها وتداخل boundingboxes|`356–382` |
-|imposedaspect اختياري|max(measured,imposed)/min≤2.5|`346–353`؛لا يمر ره kind في pipeline الحالي |
+|imposedaspect اختياري|max(measured,imposed)/min≤2.5|`346–353`؛لا يمرره kind في pipeline الحالي |
 |توافق A4|abs(measured/catalog−1)≤.04|`smart_recognition.dart:1999–2008` |
 |هندسة يدوية|ضلع≥4px،area≥16px²ونسبة≥.002،convex/no crossing/invertible|`manual_boundary.dart:24–33,98–241` |
 
@@ -283,7 +283,7 @@ flowchart LR
 
 القائمة ثابتة`reviewKindChoices`في`presentation/review_screen.dart` من enum،لا fetch أو نتائج OCR؛ Dropdown يبنى منها (`manual_classification_dialog.dart:225–237`). front/back/unknown،unknown افتراضي صالح (`61–85,240–263`).
 
-1. controller بعد الاستيراد يجمع newitemsoff-sheet غير مؤكدة وغير locked،لا unknown وحده (`editor_controller.dart:844–853`). مسار شاشة المشروع يقود إلى التخطيط/المعلق ات (`project_screen.dart:100–153`). تعديل تصنيف المحدد صراحة ولو نجح التلقائي (`layout_screen.dart:194–198`).
+1. controller بعد الاستيراد يجمع newitemsoff-sheet غير مؤكدة وغير locked،لا unknown وحده (`editor_controller.dart:844–853`). مسار شاشة المشروع يقود إلى التخطيط/المعلقات (`project_screen.dart:100–153`). تعديل تصنيف المحدد صراحة ولو نجح التلقائي (`layout_screen.dart:194–198`).
 2. حوار non-barrier-dismissible يعرض thumbnail/اسم/نوع/وجه/شريك،وتفاصيل أسباب ودرجة حدودو C و F منفصلة اختيارية (`manual_classification_dialog.dart:100–218`). لا transcript لأنه غير محفوظ.
 3. متابعة تحتاج kind و side غير null فقط؛sideunknown الافتراضي كافٍ؛لاحد confidence يدوي. لاحقاً يعيد null وينهي الحلقة ولا يمسح الصورة (`294–321`،`layout_screen.dart:223`).
 4. `classifyItemManually:14–120`يحفظ أولاً نوعاً ووجهاً بـ Overrides؛ينشئ manualrecord إذا fallback بلاسجل،لا detector مزيف. تغيير نوع/وجه زوج يفكالربطمتناظراً (`74–78`).
@@ -604,7 +604,7 @@ Backup.scanid:manifestJSON و SHA-256 لكلملف،streaming/isolate؛restoreID
 2. dataset محلي خاص وم وافق عليه، ت نوع الأنواع/الوجوه/لغات/إصدارات/glare/long/negative؛ labels مستقلة،split على الشخص/المستمسك حتى لا تتسربالوجوه.
 3. فصل تعريفات OCRline/keywordC/geometryG/detectorD/fusedF/pairingP/A4eligibility في التشخيص والواجهة؛manualapproval ليس confidence مصطنعة.
 4. تجربة 55/60% **لكل مقياس على حدة** مع إبقاء الهندسة/frame/disagreement/وثاقة المقاس؛sweep مقابل.7،قياس precision/recall/falseautoaccept/unknown/review و IoU/cornererror وفقد جزء مستمسك/نوعخطأ وزمن/RAM. أولوية تكلفة القبول الخاطئ في القص الحساس.
-5. تغيير centralacceptance وحده لا يكفي:C<.6 يبقى unknown،F<.7unresolved قديعطي uncertain،مرشحان يمنعان الوضع،OCR-only يبقى reviewcap،estimated/missing لا يصيران موثقين،classical يبقى review-only. تفاعل ات الحدود تحتاج تجربة مضبوطة،لا استبدال اً عشوائياً للثوابت.
+5. تغيير centralacceptance وحده لا يكفي:C<.6 يبقى unknown،F<.7unresolved قد يعطي uncertain،مرشحان يمنعان الوضع،OCR-only يبقى reviewcap،estimated/missing لا يصيران موثقين،classical يبقى review-only. تفاعلات الحدود تحتاج تجربة مضبوطة،لا استبدالاً عشوائياً للثوابت.
 6. اختبار agreement خاطئ على innerframe و weaksecondmodel والتحسين الكلاسيكي بعد الاتفاق؛نموذجان لا تعني ان استقلال اً إحصائياً. لا خفض للتحقق الهندسي لتمرير score ضعيف.
 7. فصل قرار physicalslot عن outputpixelratio ومراجعة F01،وإقرار صريح عند فرض ratio،خصوصاً estimated؛قياس mm خطأفي PDF والورقة.
 8. تحديد invariants لا كتساب camera/import/receipt/recover/pending:كل asset هلله record/item أو مكتبة فقط بقصد؟ اختبار powerloss حداً بحد.

@@ -9,9 +9,9 @@ import 'package:scan_id/domain/recognition.dart';
 ImageAsset assetNamed(String id, String name) => ImageAsset(
   id: id,
   name: name,
-  originalPath: 'projects/p1/assets/$id/original.png',
-  workingPath: 'projects/p1/assets/$id/working.png',
-  thumbnailPath: 'projects/p1/assets/$id/thumb.jpg',
+  originalPath: 'projects/project1/assets/$id/original.png',
+  workingPath: 'projects/project1/assets/$id/working.png',
+  thumbnailPath: 'projects/project1/assets/$id/thumb.jpg',
   width: 1200,
   height: 1600,
 );
@@ -25,8 +25,8 @@ DocumentSide side({
   id: id,
   side: SideKind.unknown,
   processedAsset: ProcessedAssetRef(
-    workingPath: 'projects/p1/processed/$id.png',
-    thumbnailPath: 'projects/p1/processed/$id-thumb.jpg',
+    workingPath: 'projects/project1/processed/$id.png',
+    thumbnailPath: 'projects/project1/processed/$id-thumb.jpg',
     width: 400,
     height: 250,
     outputWidth: 1011,
@@ -286,13 +286,15 @@ void main() {
       expect(detection.detail, contains('الحافة قريبة'));
     });
 
-    test('a long recorded reason is clipped', () {
+    test('several recorded reasons are summarised', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
         items: [placedItem(pageIndex: null)],
         documents: [
           record(
-            documentSide: side(diagnostics: ['سبب طويل ' * 40]),
+            documentSide: side(
+              diagnostics: const ['الحافة قريبة.', 'التحقق لم يكتمل.'],
+            ),
             recognition: recognized(),
           ),
         ],
@@ -302,8 +304,9 @@ void main() {
         images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final detail = byStage(journey)[JourneyStage.detection]!.detail;
+      expect(detail, contains('الحافة قريبة.'));
+      expect(detail, contains('ملاحظة أخرى'));
       expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
-      expect(detail.endsWith('…'), isTrue);
       expect(detail.contains('\n'), isFalse);
     });
 
@@ -336,9 +339,9 @@ void main() {
           ImageAsset(
             id: 'crop1',
             name: 'أول.jpg',
-            originalPath: 'projects/p1/assets/crop1/original.png',
-            workingPath: 'projects/p1/assets/crop1/working.png',
-            thumbnailPath: 'projects/p1/assets/crop1/thumb.jpg',
+            originalPath: 'projects/project1/assets/crop1/original.png',
+            workingPath: 'projects/project1/assets/crop1/working.png',
+            thumbnailPath: 'projects/project1/assets/crop1/thumb.jpg',
             width: 600,
             height: 400,
             derivedFrom: 'a1',

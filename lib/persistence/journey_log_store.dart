@@ -44,7 +44,8 @@ class LocalJourneyLog implements JourneyLog {
 
   final Future<Directory> Function() _supportDirectory;
   Future<void> _tail = Future<void>.value();
-  File? _file;
+  Directory? _folder;
+  bool _folderReady = false;
 
   @override
   Future<List<ImageJourney>> read() => _exclusive(_readUnlocked);
@@ -161,17 +162,18 @@ class LocalJourneyLog implements JourneyLog {
       .length;
 
   Future<File?> _resolveFile({required bool create}) async {
-    final cached = _file;
-    if (cached != null) return cached;
     try {
-      final support = await _supportDirectory();
-      final folder = Directory(
-        '${support.path}${Platform.pathSeparator}image_journeys',
+      final folder = _folder ??= Directory(
+        '${(await _supportDirectory()).path}'
+        '${Platform.pathSeparator}image_journeys',
       );
-      if (create) await folder.create(recursive: true);
-      final file = File('${folder.path}${Platform.pathSeparator}$fileName');
-      _file = file;
-      return file;
+      // Resolving a path for a read must not create anything; creating it later
+      // must actually call create, even when the path was resolved before.
+      if (create && !_folderReady) {
+        await folder.create(recursive: true);
+        _folderReady = true;
+      }
+      return File('${folder.path}${Platform.pathSeparator}$fileName');
     } on Object {
       return null;
     }

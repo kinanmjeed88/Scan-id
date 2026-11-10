@@ -9,6 +9,7 @@
 library;
 
 import '../domain/arrangement.dart';
+import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_journey.dart';
 import '../domain/ocr_evidence.dart';

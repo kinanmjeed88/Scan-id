@@ -146,10 +146,7 @@ class ImageJourney {
     required List<JourneyStep> steps,
     this.sheetRevision,
   }) : steps = List.unmodifiable(steps) {
-    require(
-      id.length >= 8 && id.length <= 160,
-      'معرّف رحلة الصورة غير صالح.',
-    );
+    require(id.length >= 8 && id.length <= 160, 'معرّف رحلة الصورة غير صالح.');
     require(
       batchId.length >= 8 && batchId.length <= 160,
       'معرّف دفعة الاستيراد غير صالح.',
@@ -225,8 +222,7 @@ class ImageJourney {
   /// The overall verdict: the worst thing that happened, so a summary can be
   /// coloured without re-reading every step.
   JourneyOutcome get verdict {
-    if (placedOnSheet &&
-        steps.every((step) => !step.outcome.needsAttention)) {
+    if (placedOnSheet && steps.every((step) => !step.outcome.needsAttention)) {
       return JourneyOutcome.passed;
     }
     if (!imported) return JourneyOutcome.blocked;
@@ -264,10 +260,7 @@ class ImageJourney {
   static ImageJourney fromJson(Object? json) {
     final map = objectMap(json);
     final version = integer(map['version'], 'version');
-    require(
-      version == schemaVersion,
-      'نسخة سجل غير مدعومة.',
-    );
+    require(version == schemaVersion, 'نسخة سجل غير مدعومة.');
     final project = objectMap(map['project']);
     final started = DateTime.tryParse(text(map['started_utc'], 'started_utc'));
     require(started != null, 'وقت بدء السجل غير صالح.');

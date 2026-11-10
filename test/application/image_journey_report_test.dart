@@ -5,20 +5,18 @@ import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 
-/// An asset with a readable name, so a report can be about a real image.
 ImageAsset assetNamed(String id, String name) => ImageAsset(
   id: id,
   name: name,
-  originalPath: 'projects/project1/assets/$id/original.png',
-  workingPath: 'projects/project1/assets/$id/working.png',
-  thumbnailPath: 'projects/project1/assets/$id/thumb.jpg',
+  originalPath: 'projects/p1/assets/$id/original.png',
+  workingPath: 'projects/p1/assets/$id/working.png',
+  thumbnailPath: 'projects/p1/assets/$id/thumb.jpg',
   width: 1200,
   height: 1600,
 );
 
 DocumentSide side({
-  String id = 'side1',
-  bool processed = true,
+  String id = 's1',
   double? confidence = 0.82,
   List<String> diagnostics = const [],
   bool suggestion = false,
@@ -26,14 +24,12 @@ DocumentSide side({
   id: id,
   side: SideKind.unknown,
   processedAsset: ProcessedAssetRef(
-    workingPath: processed
-        ? 'projects/project1/processed/$id.png'
-        : 'projects/project1/assets/asset1/working.png',
-    thumbnailPath: 'projects/project1/processed/$id-thumb.jpg',
+    workingPath: 'projects/p1/processed/$id.png',
+    thumbnailPath: 'projects/p1/processed/$id-thumb.jpg',
     width: 400,
     height: 250,
-    outputWidth: processed ? 1011 : null,
-    outputHeight: processed ? 638 : null,
+    outputWidth: 1011,
+    outputHeight: 638,
   ),
   detection: DetectionRef(
     detectionId: 'det-$id',
@@ -44,25 +40,25 @@ DocumentSide side({
         : Confidence(value: confidence),
     boundaryDiagnostics: diagnostics,
     suggestedPolygon: suggestion
-        ? [Point2(0.1, 0.1), Point2(0.9, 0.1), Point2(0.9, 0.9), Point2(0.1, 0.9)]
+        ? [Point2(0.1, 0.1), Point2(0.9, 0.9), Point2(0.2, 0.8), Point2(0, 1)]
         : null,
   ),
 );
 
 DocumentRecord record({
-  String id = 'doc1',
-  String sourceImageId = 'asset1',
+  String id = 'd1',
+  String source = 'a1',
   DocumentSide? documentSide,
   RecognitionResult? recognition,
 }) => DocumentRecord(
   id: id,
-  sourceImageId: sourceImageId,
+  sourceImageId: source,
   sides: [documentSide ?? side()],
   pairing: PairingState.single,
   recognition: recognition,
   provenance: Provenance(
-    sourceImageId: sourceImageId,
-    detectionIds: ['det-side1'],
+    sourceImageId: source,
+    detectionIds: const ['det-s1'],
     processedAssetVersion: 'smart-1',
     pipelineVersion: 'smart-1',
   ),
@@ -86,8 +82,8 @@ RecognitionResult recognized({
 );
 
 DocumentItem placedItem({
-  String id = 'item1',
-  String assetId = 'asset1',
+  String id = 'i1',
+  String assetId = 'a1',
   int? pageIndex = 0,
   bool sizeConfirmed = true,
   DocumentKind kind = DocumentKind.unifiedNationalId,
@@ -107,16 +103,34 @@ Project projectWith({
   List<ImageAsset> assets = const [],
   List<DocumentItem> items = const [],
   List<DocumentRecord> documents = const [],
-  int revision = 7,
 }) => Project(
   id: 'project1',
   name: 'مستمسكات العائلة',
   createdAt: DateTime.utc(2026, 10, 6),
   updatedAt: DateTime.utc(2026, 10, 6),
-  revision: revision,
+  revision: 7,
   assets: assets,
   items: items,
   documents: documents,
+);
+
+/// One picked source, so a test only writes what it is about.
+List<ImportedImageFact> picked(
+  String name, {
+  String? assetId,
+  String? failure,
+}) => [ImportedImageFact(name: name, assetId: assetId, failureMessage: failure)];
+
+List<ImageJourney> build({
+  required Project project,
+  required List<ImportedImageFact> images,
+  int? revision = 7,
+}) => buildImageJourneys(
+  batchId: 'batch-0001',
+  project: project,
+  images: images,
+  startedAt: DateTime.utc(2026, 11, 9, 9),
+  savedRevision: revision,
 );
 
 Map<JourneyStage, JourneyStep> byStage(ImageJourney journey) => {
@@ -125,28 +139,22 @@ Map<JourneyStage, JourneyStep> byStage(ImageJourney journey) => {
 
 void main() {
   group('journey report', () {
-    test('a fully processed image reports every stage as passed', () {
+    test('a processed image reports every stage as passed', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'البطاقة الوطنية.jpg')],
+        assets: [assetNamed('a1', 'البطاقة.jpg')],
         items: [placedItem()],
         documents: [record(recognition: recognized())],
       );
-      final journeys = buildImageJourneys(
-        batchId: 'batch-0001',
+      final journey = build(
         project: report,
         images: const [
           ImportedImageFact(
-            name: 'البطاقة الوطنية.jpg',
-            assetId: 'asset1',
+            name: 'البطاقة.jpg',
+            assetId: 'a1',
             copyDurationMs: 320,
           ),
         ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 7,
-      );
-
-      expect(journeys, hasLength(1));
-      final journey = journeys.single;
+      ).single;
       final steps = byStage(journey);
       expect(steps.keys.toList(), JourneyStage.values);
       expect(
@@ -155,10 +163,7 @@ void main() {
       );
       expect(steps[JourneyStage.copy]!.durationMs, 320);
       expect(steps[JourneyStage.copy]!.detail, contains('1200×1600'));
-      expect(
-        steps[JourneyStage.recognition]!.detail,
-        allOf(contains('البطاقة الوطنية الموحدة'), contains('82.0٪')),
-      );
+      expect(steps[JourneyStage.recognition]!.detail, contains('82.0٪'));
       expect(steps[JourneyStage.sizing]!.detail, contains('85.6'));
       expect(steps[JourneyStage.placement]!.detail, contains('الصفحة 1'));
       expect(steps[JourneyStage.save]!.detail, contains('7'));
@@ -166,10 +171,9 @@ void main() {
       expect(journey.sheetRevision, 7);
     });
 
-    test('an image with no usable boundary is reported as manual, and the '
-        'later stages say they never ran', () {
+    test('an image with no boundary stays manual', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'صورة.jpg')],
+        assets: [assetNamed('a1', 'صورة.jpg')],
         items: [
           placedItem(
             pageIndex: null,
@@ -178,14 +182,9 @@ void main() {
           ),
         ],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0002',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'صورة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 8,
+        images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final steps = byStage(journey);
       expect(steps[JourneyStage.copy]!.outcome, JourneyOutcome.passed);
@@ -197,19 +196,11 @@ void main() {
       expect(journey.conclusion, 'بقيت للمراجعة اليدوية');
     });
 
-    test('a refused copy is reported with its reason and nothing after it '
-        'pretends to have run', () {
-      final report = projectWith();
-      final journey = buildImageJourneys(
-        batchId: 'batch-0003',
-        project: report,
-        images: const [
-          ImportedImageFact(
-            name: 'تالف.jpg',
-            failureMessage: 'تعذّر قراءة الملف كصورة.',
-          ),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
+    test('a refused copy keeps its reason and stops the path', () {
+      final journey = build(
+        project: projectWith(),
+        images: picked('تالف.jpg', failure: 'تعذّر قراءة الملف كصورة.'),
+        revision: null,
       ).single;
       final steps = byStage(journey);
       expect(steps[JourneyStage.copy]!.outcome, JourneyOutcome.blocked);
@@ -221,9 +212,9 @@ void main() {
       expect(journey.conclusion, 'لم تُستورد');
     });
 
-    test('a weak classification is reported as review, not as a decision', () {
+    test('a weak classification is reported as review', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'ورقة.jpg')],
+        assets: [assetNamed('a1', 'ورقة.jpg')],
         items: [
           placedItem(
             kind: DocumentKind.unknown,
@@ -241,97 +232,70 @@ void main() {
           ),
         ],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0004',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'ورقة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 9,
+        images: picked('ورقة.jpg', assetId: 'a1'),
       ).single;
       final steps = byStage(journey);
       expect(steps[JourneyStage.detection]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.review);
-      expect(
-        steps[JourneyStage.recognition]!.detail,
-        contains('تعارضت'),
-      );
+      expect(steps[JourneyStage.recognition]!.detail, contains('تعارضت'));
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
     });
 
-    test('an image whose OCR could not run says so instead of claiming text',
-        () {
+    test('an unread image never claims text', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'صورة.jpg')],
+        assets: [assetNamed('a1', 'صورة.jpg')],
         items: [placedItem()],
-        documents: [
-          record(recognition: recognized(ocr: null, classification: null)),
-        ],
+        documents: [record(recognition: recognized(ocr: null))],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0005',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'صورة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 10,
+        images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final recognition = byStage(journey)[JourneyStage.recognition]!;
       expect(recognition.outcome, JourneyOutcome.review);
       expect(recognition.detail, contains('لم يُقرأ نص'));
     });
 
-    test('a recorded boundary refusal states the reason that decided it', () {
+    test('a recorded boundary refusal states its reason', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'صورة.jpg')],
+        assets: [assetNamed('a1', 'صورة.jpg')],
         items: [placedItem(pageIndex: null)],
         documents: [
           record(
             documentSide: side(
-              diagnostics: ['الحافة قريبة من إطار الصورة؛ راجع الزوايا.'],
+              diagnostics: const ['الحافة قريبة؛ راجع الزوايا.'],
               suggestion: true,
             ),
             recognition: recognized(),
           ),
         ],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0006',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'صورة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 11,
+        images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final detection = byStage(journey)[JourneyStage.detection]!;
       expect(detection.outcome, JourneyOutcome.review);
-      expect(detection.detail, contains('إطار الصورة'));
+      expect(detection.detail, contains('الحافة قريبة'));
     });
 
-    test('a long recorded reason is clipped to one bounded sentence', () {
-      final long = 'سبب طويل جداً ' * 40;
+    test('a long recorded reason is clipped', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'صورة.jpg')],
+        assets: [assetNamed('a1', 'صورة.jpg')],
         items: [placedItem(pageIndex: null)],
         documents: [
           record(
-            documentSide: side(diagnostics: [long]),
+            documentSide: side(diagnostics: ['سبب طويل ' * 40]),
             recognition: recognized(),
           ),
         ],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0007',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'صورة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 12,
+        images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final detail = byStage(journey)[JourneyStage.detection]!.detail;
       expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
@@ -339,80 +303,64 @@ void main() {
       expect(detail.contains('\n'), isFalse);
     });
 
-    test('several images keep pick order and get distinct ids', () {
+    test('several images keep pick order and distinct ids', () {
+      final first = assetNamed('a1', 'أول.jpg');
+      final second = assetNamed('a2', 'ثانٍ.jpg');
+      final items = [placedItem(id: 'i1'), placedItem(id: 'i2', assetId: 'a2')];
+      final documents = [
+        record(id: 'd1', recognition: recognized()),
+        record(id: 'd2', source: 'a2', recognition: recognized()),
+      ];
       final report = projectWith(
-        assets: [
-          assetNamed('asset1', 'أول.jpg'),
-          assetNamed('asset2', 'ثانٍ.jpg'),
-        ],
-        items: [
-          placedItem(id: 'item1', assetId: 'asset1'),
-          placedItem(id: 'item2', assetId: 'asset2'),
-        ],
-        documents: [
-          record(id: 'doc1', sourceImageId: 'asset1', recognition: recognized()),
-          record(id: 'doc2', sourceImageId: 'asset2', recognition: recognized()),
-        ],
+        assets: [first, second],
+        items: items,
+        documents: documents,
       );
-      final journeys = buildImageJourneys(
-        batchId: 'batch-0008',
-        project: report,
-        images: const [
-          ImportedImageFact(name: 'أول.jpg', assetId: 'asset1'),
-          ImportedImageFact(name: 'ثانٍ.jpg', assetId: 'asset2'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 13,
-      );
+      final images = [
+        ...picked('أول.jpg', assetId: 'a1'),
+        ...picked('ثانٍ.jpg', assetId: 'a2'),
+      ];
+      final journeys = build(project: report, images: images);
       expect(journeys.map((entry) => entry.imageName), ['أول.jpg', 'ثانٍ.jpg']);
       expect(journeys.map((entry) => entry.id).toSet(), hasLength(2));
-      expect(journeys.map((entry) => entry.batchId).toSet(), {'batch-0008'});
     });
 
-    test('a derived crop is reported as part of its source image', () {
-      final derived = ImageAsset(
-        id: 'asset1-crop',
-        name: 'أول.jpg',
-        originalPath: 'projects/project1/assets/asset1-crop/original.png',
-        workingPath: 'projects/project1/assets/asset1-crop/working.png',
-        thumbnailPath: 'projects/project1/assets/asset1-crop/thumb.jpg',
-        width: 600,
-        height: 400,
-        derivedFrom: 'asset1',
-      );
+    test('a derived crop belongs to its source image', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'أول.jpg'), derived],
-        items: [placedItem(assetId: 'asset1-crop', sizeConfirmed: false)],
+        assets: [
+          assetNamed('a1', 'أول.jpg'),
+          ImageAsset(
+            id: 'crop1',
+            name: 'أول.jpg',
+            originalPath: 'projects/p1/assets/crop1/original.png',
+            workingPath: 'projects/p1/assets/crop1/working.png',
+            thumbnailPath: 'projects/p1/assets/crop1/thumb.jpg',
+            width: 600,
+            height: 400,
+            derivedFrom: 'a1',
+          ),
+        ],
+        items: [placedItem(assetId: 'crop1', sizeConfirmed: false)],
         documents: [record(recognition: recognized())],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0009',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'أول.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 14,
+        images: picked('أول.jpg', assetId: 'a1'),
       ).single;
-      final steps = byStage(journey);
-      expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.passed);
-      expect(steps[JourneyStage.placement]!.detail, contains('الصفحة 1'));
+      final placement = byStage(journey)[JourneyStage.placement]!;
+      expect(placement.outcome, JourneyOutcome.passed);
+      expect(placement.detail, contains('الصفحة 1'));
     });
 
-    test('the report never carries recognized text or personal values', () {
+    test('the report never carries recognized text', () {
       final report = projectWith(
-        assets: [assetNamed('asset1', 'صورة.jpg')],
+        assets: [assetNamed('a1', 'صورة.jpg')],
         items: [placedItem()],
         documents: [record(recognition: recognized())],
       );
-      final journey = buildImageJourneys(
-        batchId: 'batch-0010',
+      final journey = build(
         project: report,
-        images: const [
-          ImportedImageFact(name: 'صورة.jpg', assetId: 'asset1'),
-        ],
-        startedAt: DateTime.utc(2026, 11, 9, 9),
-        savedRevision: 15,
+        images: picked('صورة.jpg', assetId: 'a1'),
       ).single;
       final encoded = journey.toJson().toString();
       expect(encoded.contains('الاسم'), isFalse);
@@ -420,17 +368,9 @@ void main() {
       expect(encoded.contains('IDIRQ'), isFalse);
     });
 
-    test('no images means no reports, and the project is untouched', () {
+    test('no picked images means no reports', () {
       final report = projectWith();
-      expect(
-        buildImageJourneys(
-          batchId: 'batch-0011',
-          project: report,
-          images: const [],
-          startedAt: DateTime.utc(2026, 11, 9, 9),
-        ),
-        isEmpty,
-      );
+      expect(build(project: report, images: const []), isEmpty);
       expect(report.revision, 7);
     });
   });

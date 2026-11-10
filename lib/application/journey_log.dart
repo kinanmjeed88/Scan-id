@@ -44,5 +44,4 @@ abstract interface class JourneyLog {
 
   /// Removes the whole log. The projects it describes are untouched.
   Future<void> clear();
-
 }

@@ -106,7 +106,9 @@ List<JourneyStep> _stepsFor(
 
   steps.add(_copyStep(fact, asset));
   if (asset == null) {
-    steps.add(_notReached(JourneyStage.detection, 'لم تصل الصورة إلى المشروع.'));
+    steps.add(
+      _notReached(JourneyStage.detection, 'لم تصل الصورة إلى المشروع.'),
+    );
     steps.add(_notReached(JourneyStage.crop, 'لا صورة محفوظة لتُقصّ.'));
     steps.add(_notReached(JourneyStage.recognition, 'لا صورة محفوظة لتُقرأ.'));
     steps.add(_notReached(JourneyStage.sizing, 'لا مستند بعد.'));
@@ -161,7 +163,8 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
   return JourneyStep(
     stage: JourneyStage.copy,
     outcome: JourneyOutcome.passed,
-    detail: 'نُسخت إلى مساحة التطبيق '
+    detail:
+        'نُسخت إلى مساحة التطبيق '
         '(${asset.width}×${asset.height} بكسل)$scaled',
     durationMs: fact.copyDurationMs?.clamp(0, JourneyStep.maxDurationMs),
   );
@@ -191,7 +194,8 @@ JourneyStep _detectionStep(
     return JourneyStep(
       stage: JourneyStage.detection,
       outcome: JourneyOutcome.review,
-      detail: 'لم تُسجَّل نتيجة كشف لهذه الصورة؛ لا يُعتمد قصّ تلقائي دون دليل.',
+      detail:
+          'لم تُسجَّل نتيجة كشف لهذه الصورة؛ لا يُعتمد قصّ تلقائي دون دليل.',
     );
   }
   final diagnostics = <String>{
@@ -225,9 +229,7 @@ JourneyStep _detectionStep(
   return JourneyStep(
     stage: JourneyStage.detection,
     outcome: JourneyOutcome.passed,
-    detail: _clip(
-      'اجتازت بوابة الحدود بدرجة ${_percent(confidence)}$count.',
-    ),
+    detail: _clip('اجتازت بوابة الحدود بدرجة ${_percent(confidence)}$count.'),
   );
 }
 
@@ -242,7 +244,8 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
   ];
   if (processed.isNotEmpty) {
     final first = processed.first;
-    final size = '${first.outputWidth ?? first.width}×'
+    final size =
+        '${first.outputWidth ?? first.width}×'
         '${first.outputHeight ?? first.height} بكسل';
     final count = processed.length > 1
         ? ' (${processed.length} نسخ معالجة)'
@@ -254,9 +257,8 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
     );
   }
   final hasSuggestion = records.any(
-    (record) => record.sides.any(
-      (side) => side.detection?.suggestedPolygon != null,
-    ),
+    (record) =>
+        record.sides.any((side) => side.detection?.suggestedPolygon != null),
   );
   return JourneyStep(
     stage: JourneyStage.crop,
@@ -286,7 +288,8 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail: 'لم يُقرأ نص من هذه الصورة (المحرك غير متاح أو لم يجد سطوراً)؛ '
+      detail:
+          'لم يُقرأ نص من هذه الصورة (المحرك غير متاح أو لم يجد سطوراً)؛ '
           'النوع يحتاج اختيارك صراحةً.',
     );
   }
@@ -294,7 +297,8 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail: 'قُرئ النص (${_percent(ocr)}) لكن لم تكفِ الأدلة لتحديد النوع؛ '
+      detail:
+          'قُرئ النص (${_percent(ocr)}) لكن لم تكفِ الأدلة لتحديد النوع؛ '
           'اختر النوع صراحةً.',
     );
   }
@@ -304,7 +308,8 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail: 'قُرئ النص (${_percent(ocr)}) لكن أدلة النوع تعارضت '
+      detail:
+          'قُرئ النص (${_percent(ocr)}) لكن أدلة النوع تعارضت '
           '($kindLabel، $score)؛ لم يُعتمد نوع تلقائياً.',
     );
   }
@@ -312,14 +317,16 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail: 'قُرئ النص (${_percent(ocr)}) ولم يطابق أي نوع معروف '
+      detail:
+          'قُرئ النص (${_percent(ocr)}) ولم يطابق أي نوع معروف '
           '($score)؛ اختر النوع يدوياً.',
     );
   }
   return JourneyStep(
     stage: JourneyStage.recognition,
     outcome: JourneyOutcome.passed,
-    detail: 'قُرئ النص ($_percent(ocr)) وصُنّف النوع «$kindLabel» '
+    detail:
+        'قُرئ النص ($_percent(ocr)) وصُنّف النوع «$kindLabel» '
         'بدرجة $score.',
   );
 }
@@ -336,7 +343,8 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
     return JourneyStep(
       stage: JourneyStage.sizing,
       outcome: JourneyOutcome.passed,
-      detail: 'المقاس من كتالوج النوع «${item.documentKind.label}»: '
+      detail:
+          'المقاس من كتالوج النوع «${item.documentKind.label}»: '
           '${catalogSize.width.toStringAsFixed(1)} × '
           '${catalogSize.height.toStringAsFixed(1)} مم.',
     );
@@ -351,7 +359,8 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
   return JourneyStep(
     stage: JourneyStage.sizing,
     outcome: JourneyOutcome.review,
-    detail: 'المقاس الفعلي غير مؤكّد لهذا النوع؛ لن يُوضع تلقائياً حتى '
+    detail:
+        'المقاس الفعلي غير مؤكّد لهذا النوع؛ لن يُوضع تلقائياً حتى '
         'تحدّده أو تدخله بالمليمتر.',
   );
 }
@@ -405,11 +414,8 @@ JourneyStep _saveStep(int? savedRevision, {required bool isLast}) {
   );
 }
 
-JourneyStep _notReached(JourneyStage stage, String detail) => JourneyStep(
-  stage: stage,
-  outcome: JourneyOutcome.skipped,
-  detail: detail,
-);
+JourneyStep _notReached(JourneyStage stage, String detail) =>
+    JourneyStep(stage: stage, outcome: JourneyOutcome.skipped, detail: detail);
 
 PhysicalSizeMm? _catalogSizeOf(DocumentKind kind) =>
     kind == DocumentKind.unknown || kind == DocumentKind.other

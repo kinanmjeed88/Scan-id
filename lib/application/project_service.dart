@@ -462,7 +462,8 @@ class ProjectService {
         // The in-memory project is stale; continuing would create more orphans.
         for (final skipped in sources.skip(index + 1)) {
           await _cleanupSource(skipped);
-          const stopped = 'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
+          const stopped =
+              'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
               'حفظ المشروع.';
           failures.add(ImportFailure(skipped.name, stopped));
           reportSource(

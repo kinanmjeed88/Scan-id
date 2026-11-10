@@ -101,9 +101,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openJourneyLog() async {
     final log = widget.journeyLog;
     if (log == null) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => JourneyLogScreen(log: log)),
-    );
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => JourneyLogScreen(log: log)));
     await _refreshJourneyStats();
   }
 

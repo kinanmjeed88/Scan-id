@@ -253,7 +253,10 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
       ),
       children: [
         for (var index = 0; index < journey.steps.length; index++)
-          _stepRow(journey.steps[index], isLast: index == journey.steps.length - 1),
+          _stepRow(
+            journey.steps[index],
+            isLast: index == journey.steps.length - 1,
+          ),
       ],
     ),
   );
@@ -320,7 +323,10 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(step.detail, style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    step.detail,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -338,27 +344,19 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
     ),
     child: Text(
       outcome.label,
-      style: Theme.of(
-        context,
-      ).textTheme.labelSmall?.copyWith(color: color),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
     ),
   );
 
   Widget _statusIcon(JourneyOutcome verdict) {
     final scheme = Theme.of(context).colorScheme;
     return switch (verdict) {
-      JourneyOutcome.passed => Icon(
-        Icons.check_circle,
-        color: scheme.primary,
-      ),
+      JourneyOutcome.passed => Icon(Icons.check_circle, color: scheme.primary),
       JourneyOutcome.review => Icon(
         Icons.report_problem_outlined,
         color: scheme.tertiary,
       ),
-      JourneyOutcome.blocked => Icon(
-        Icons.error_outline,
-        color: scheme.error,
-      ),
+      JourneyOutcome.blocked => Icon(Icons.error_outline, color: scheme.error),
       JourneyOutcome.skipped => Icon(
         Icons.remove_circle_outline,
         color: scheme.outline,

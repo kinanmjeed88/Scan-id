@@ -146,6 +146,7 @@ class IntakeRunner {
         // The import already succeeded; the report can be missing.
       }
     }
+
     var terminal = 'failed';
     void reportProgress(BatchProgress progress) {
       final phase = progress.stage == importStageLabel

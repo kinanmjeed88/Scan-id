@@ -156,9 +156,9 @@ class LocalJourneyLog implements JourneyLog {
     }
   }
 
-  int _encodedBytes(List<ImageJourney> journeys) => utf8.encode(
-    jsonEncode([for (final journey in journeys) journey.toJson()]),
-  ).length;
+  int _encodedBytes(List<ImageJourney> journeys) => utf8
+      .encode(jsonEncode([for (final journey in journeys) journey.toJson()]))
+      .length;
 
   Future<File?> _resolveFile({required bool create}) async {
     final cached = _file;

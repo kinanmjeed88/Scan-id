@@ -43,10 +43,7 @@ void main() {
     await support.delete(recursive: true);
   });
 
-  List<ImportSource> sources(
-    int count, {
-    List<int> broken = const [],
-  }) => [
+  List<ImportSource> sources(int count, {List<int> broken = const []}) => [
     for (var i = 0; i < count; i++)
       ImportSource(
         'صورة$i.png',
@@ -56,30 +53,32 @@ void main() {
       ),
   ];
 
-  test('an intake files one report per image, from the picker to the save',
-      () async {
-    final project = await service.create('سجل');
-    final runner = IntakeRunner(service: service, project: project);
-    final run = await runner.run(sources(1));
+  test(
+    'an intake files one report per image, from the picker to the save',
+    () async {
+      final project = await service.create('سجل');
+      final runner = IntakeRunner(service: service, project: project);
+      final run = await runner.run(sources(1));
 
-    expect(run.importedCount, 1);
-    final stored = await log.read();
-    expect(stored, hasLength(1));
-    final journey = stored.single;
-    expect(journey.imageName, 'صورة0.png');
-    expect(journey.projectName, 'سجل');
-    expect(journey.batchId, runner.lastTrace!.taskId);
-    expect(journey.steps.first.stage, JourneyStage.selection);
-    expect(journey.steps.last.stage, JourneyStage.save);
-    expect(journey.imported, isTrue);
-    final stageIndexes = journey.steps
-        .map((step) => step.stage.index)
-        .toList();
-    expect(stageIndexes, orderedEquals([...stageIndexes]..sort()));
-    // The durable copy is the one Settings reads; the runner exposes the same
-    // reports so the screen that imported them can point at them.
-    expect(runner.lastJourneys.map((entry) => entry.id), [journey.id]);
-  });
+      expect(run.importedCount, 1);
+      final stored = await log.read();
+      expect(stored, hasLength(1));
+      final journey = stored.single;
+      expect(journey.imageName, 'صورة0.png');
+      expect(journey.projectName, 'سجل');
+      expect(journey.batchId, runner.lastTrace!.taskId);
+      expect(journey.steps.first.stage, JourneyStage.selection);
+      expect(journey.steps.last.stage, JourneyStage.save);
+      expect(journey.imported, isTrue);
+      final stageIndexes = journey.steps
+          .map((step) => step.stage.index)
+          .toList();
+      expect(stageIndexes, orderedEquals([...stageIndexes]..sort()));
+      // The durable copy is the one Settings reads; the runner exposes the same
+      // reports so the screen that imported them can point at them.
+      expect(runner.lastJourneys.map((entry) => entry.id), [journey.id]);
+    },
+  );
 
   test('a broken source is reported as not imported, and the next image still '
       'gets its own report', () async {
@@ -90,13 +89,21 @@ void main() {
     expect(run.failures, hasLength(1));
     final stored = await log.read();
     expect(stored.map((entry) => entry.imageName), ['صورة0.png', 'صورة1.png']);
-    final refused = stored.firstWhere((entry) => entry.imageName == 'صورة0.png');
+    final refused = stored.firstWhere(
+      (entry) => entry.imageName == 'صورة0.png',
+    );
     final imported = stored.firstWhere(
       (entry) => entry.imageName == 'صورة1.png',
     );
     expect(refused.imported, isFalse);
-    expect(refused.steps.any((step) => step.stage == JourneyStage.copy &&
-        step.outcome == JourneyOutcome.blocked), isTrue);
+    expect(
+      refused.steps.any(
+        (step) =>
+            step.stage == JourneyStage.copy &&
+            step.outcome == JourneyOutcome.blocked,
+      ),
+      isTrue,
+    );
     expect(imported.imported, isTrue);
   });
 
@@ -108,9 +115,10 @@ void main() {
       smartRecognitionEnabled: true,
     );
     final project = await plain.create('بلا سجل');
-    final run = await IntakeRunner(service: plain, project: project).run(
-      sources(1),
-    );
+    final run = await IntakeRunner(
+      service: plain,
+      project: project,
+    ).run(sources(1));
 
     expect(run.importedCount, 1);
     expect(await log.read(), isEmpty);

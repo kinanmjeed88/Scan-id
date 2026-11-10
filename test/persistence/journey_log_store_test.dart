@@ -81,16 +81,18 @@ void main() {
       expect(stats.sizeLabel, isNotEmpty);
     });
 
-    test('re-appending the same report replaces it instead of duplicating it',
-        () async {
-      final log = logWith();
-      final journey = journeyFor('only');
-      await log.append([journey]);
-      await log.append([journey]);
-      final entries = await log.read();
-      expect(entries, hasLength(1));
-      expect(entries.single.id, journey.id);
-    });
+    test(
+      're-appending the same report replaces it instead of duplicating it',
+      () async {
+        final log = logWith();
+        final journey = journeyFor('only');
+        await log.append([journey]);
+        await log.append([journey]);
+        final entries = await log.read();
+        expect(entries, hasLength(1));
+        expect(entries.single.id, journey.id);
+      },
+    );
 
     test('the entry cap drops the oldest reports', () async {
       final log = logWith(maxEntries: 2);
@@ -104,16 +106,19 @@ void main() {
       ]);
     });
 
-    test('the byte cap trims from the oldest end and keeps the newest', () async {
-      final log = logWith(maxBytes: 900);
-      for (final key in ['first', 'second', 'third']) {
-        await log.append([journeyFor(key)]);
-      }
-      final entries = await log.read();
-      expect(entries, isNotEmpty);
-      expect(entries.first.imageName, 'third.png');
-      expect(entries.length, lessThan(3));
-    });
+    test(
+      'the byte cap trims from the oldest end and keeps the newest',
+      () async {
+        final log = logWith(maxBytes: 900);
+        for (final key in ['first', 'second', 'third']) {
+          await log.append([journeyFor(key)]);
+        }
+        final entries = await log.read();
+        expect(entries, isNotEmpty);
+        expect(entries.first.imageName, 'third.png');
+        expect(entries.length, lessThan(3));
+      },
+    );
 
     test('clearing removes the file and leaves the directory', () async {
       final log = logWith();
@@ -139,7 +144,10 @@ void main() {
       );
       await directory.create(recursive: true);
       await logFile().writeAsString(
-        jsonEncode({'version': 99, 'journeys': [journeyFor('x').toJson()]}),
+        jsonEncode({
+          'version': 99,
+          'journeys': [journeyFor('x').toJson()],
+        }),
       );
       expect(await log.read(), isEmpty);
     });
@@ -191,15 +199,17 @@ void main() {
       expect(decoded['version'], 1);
     });
 
-    test('an unwritable location reports empty instead of failing the import',
-        () async {
-      final log = LocalJourneyLog(
-        supportDirectory: () async =>
-            Directory('/proc/definitely-not-writable/scan-id'),
-      );
-      await log.append([journeyFor('first')]);
-      expect(await log.read(), isEmpty);
-      expect((await log.stats()).entries, 0);
-    });
+    test(
+      'an unwritable location reports empty instead of failing the import',
+      () async {
+        final log = LocalJourneyLog(
+          supportDirectory: () async =>
+              Directory('/proc/definitely-not-writable/scan-id'),
+        );
+        await log.append([journeyFor('first')]);
+        expect(await log.read(), isEmpty);
+        expect((await log.stats()).entries, 0);
+      },
+    );
   });
 }

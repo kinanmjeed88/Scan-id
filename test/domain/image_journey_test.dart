@@ -76,9 +76,7 @@ void main() {
       );
       final report = journey();
       expect(
-        () => report.steps.add(
-          step(JourneyStage.save, JourneyOutcome.passed),
-        ),
+        () => report.steps.add(step(JourneyStage.save, JourneyOutcome.passed)),
         throwsA(isA<UnsupportedError>()),
       );
     });
@@ -107,11 +105,7 @@ void main() {
       expect(unmeasured.durationMs, isNull);
       expect(unmeasured.toJson().containsKey('duration_ms'), isFalse);
       expect(
-        () => step(
-          JourneyStage.copy,
-          JourneyOutcome.passed,
-          durationMs: -1,
-        ),
+        () => step(JourneyStage.copy, JourneyOutcome.passed, durationMs: -1),
         throwsA(isA<ValidationException>()),
       );
     });

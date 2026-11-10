@@ -26,10 +26,8 @@ class _FakeJourneyLog implements JourneyLog {
   }
 
   @override
-  Future<JourneyLogStats> stats() async => JourneyLogStats(
-    entries: _entries.length,
-    bytes: _entries.length * 640,
-  );
+  Future<JourneyLogStats> stats() async =>
+      JourneyLogStats(entries: _entries.length, bytes: _entries.length * 640);
 
   @override
   Future<void> append(Iterable<ImageJourney> journeys) async {
@@ -63,7 +61,11 @@ ImageJourney _journey({
   steps:
       steps ??
       [
-        _step(JourneyStage.selection, JourneyOutcome.passed, 'اختيرت من جهازك.'),
+        _step(
+          JourneyStage.selection,
+          JourneyOutcome.passed,
+          'اختيرت من جهازك.',
+        ),
         _step(JourneyStage.copy, JourneyOutcome.passed, 'نُسخت إلى التطبيق.'),
         _step(
           JourneyStage.placement,
@@ -82,9 +84,7 @@ Future<void> _pumpLog(
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(
-    AppShell(home: JourneyLogScreen(log: log)),
-  );
+  await tester.pumpWidget(AppShell(home: JourneyLogScreen(log: log)));
   await tester.pumpAndSettle();
 }
 
@@ -111,16 +111,14 @@ void main() {
     await _pumpLog(tester, _FakeJourneyLog());
 
     expect(find.text('سجل معالجة الصور'), findsOneWidget);
-    expect(
-      find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'),
-      findsOneWidget,
-    );
+    expect(find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('each image reports its stages in pipeline order, top to bottom',
-      (tester) async {
+  testWidgets('each image reports its stages in pipeline order, top to bottom', (
+    tester,
+  ) async {
     await _pumpLog(
       tester,
       _FakeJourneyLog([
@@ -223,8 +221,9 @@ void main() {
     expect(find.text('ثانٍ.jpg'), findsOneWidget);
   });
 
-  testWidgets('clearing asks first, then empties the log and nothing else',
-      (tester) async {
+  testWidgets('clearing asks first, then empties the log and nothing else', (
+    tester,
+  ) async {
     final log = _FakeJourneyLog([_journey()]);
     await _pumpLog(tester, log);
 
@@ -246,10 +245,7 @@ void main() {
 
     expect(log.cleared, 1);
     expect(find.text('البطاقة.jpg'), findsNothing);
-    expect(
-      find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'),
-      findsOneWidget,
-    );
+    expect(find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'), findsOneWidget);
   });
 
   testWidgets('settings shows the log with its size and opens it on tap', (

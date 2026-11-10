@@ -119,7 +119,9 @@ List<ImportedImageFact> picked(
   String name, {
   String? assetId,
   String? failure,
-}) => [ImportedImageFact(name: name, assetId: assetId, failureMessage: failure)];
+}) => [
+  ImportedImageFact(name: name, assetId: assetId, failureMessage: failure),
+];
 
 List<ImageJourney> build({
   required Project project,

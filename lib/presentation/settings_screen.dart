@@ -8,6 +8,7 @@ import '../application/app_release.dart';
 import '../application/backup_transfer.dart';
 import '../application/cancellation.dart';
 import '../application/contracts.dart';
+import '../application/journey_export.dart';
 import '../application/journey_log.dart';
 import '../application/ota_update.dart';
 import '../application/project_service.dart';
@@ -41,6 +42,7 @@ class SettingsScreen extends StatefulWidget {
     this.updateInstaller,
     this.updateService,
     this.journeyLog,
+    this.journeyExporter,
     super.key,
   });
 
@@ -66,6 +68,10 @@ class SettingsScreen extends StatefulWidget {
   /// then states that instead of showing an empty screen. The shipped app
   /// supplies the on-device log at its composition root.
   final JourneyLog? journeyLog;
+
+  /// Writes the log to a file the person chooses. `null` builds the real
+  /// exporter, which uses the same native save dialog as a project backup.
+  final JourneyExporter? journeyExporter;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -251,7 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       notice:
           'السجل لا يحتوي نصاً مقروءاً من أي مستند ولا بيانات شخصية ولا صور؛ '
           'كل سطر يصف مرحلة وقرارها ودرجتها فقط، ويُحفظ داخل مساحة التطبيق '
-          'على جهازك.',
+          'على جهازك. وهو ليس جزءاً من النسخة الاحتياطية للمشروع: تُنسخ الصور '
+          'والمخططات وحدها. لمشاركته أو نقله إلى جهاز آخر استخدم التصدير.',
       children: [
         if (log == null)
           const ListTile(
@@ -281,6 +288,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           if (stats != null && !stats.isEmpty)
             ExplainedAction(
+              icon: Icons.ios_share,
+              title: 'تصدير سجل معالجة الصور',
+              summary: 'يحفظ كل التقارير في ملف JSON واحد تختار مكانه.',
+              details:
+                  'ما الذي يُحفظ: ملف واحد فيه كل التقارير المحفوظة، بصيغة '
+                  'مقروءة تحمل اسم الصيغة وإصدارها ووقت التصدير وعدد الصور، '
+                  'ثم مراحل كل صورة كما هي في السجل.\n\n'
+                  'أين يُحفظ: حيث تختاره أنت من نافذة الحفظ؛ لا يُرسل إلى أي '
+                  'جهة ولا يُرفع إلى خادم.\n\n'
+                  'لماذا هو منفصل عن النسخة الاحتياطية: النسخة تعيد بناء مشروع '
+                  'بصوره ومخططه، أما هذا السجل فأثر تشخيصي يخص هذا الجهاز، '
+                  'ويُنقل صراحةً عند الحاجة بدل أن يُخلط بمحتوى المشروع.\n\n'
+                  'ما لا يحتويه: نص المستند المقروء، أو أي بيانات شخصية، أو '
+                  'صور.',
+              onTap: _busy ? null : _exportJourneyLog,
+            ),
+          if (stats != null && !stats.isEmpty)
+            ExplainedAction(
               icon: Icons.delete_outline,
               title: 'حذف سجل معالجة الصور',
               summary: 'يحذف التقارير وحدها؛ لا صورة ولا مشروعاً ولا ورقة.',
@@ -297,6 +322,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ],
     );
+  }
+
+  /// Exports the log through a picker the person controls. Reading the log is
+  /// done here, not cached, so an export always reflects what is on disk now.
+  Future<void> _exportJourneyLog() async {
+    final log = widget.journeyLog;
+    if (log == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final journeys = await log.read();
+      final exporter = widget.journeyExporter ?? JourneyExporter();
+      final outcome = await exporter.export(journeys);
+      if (!mounted) return;
+      showMessage(
+        context,
+        switch (outcome.status) {
+          JourneyExportStatus.saved =>
+            'حُفظ السجل: ${outcome.entries} تقريراً في «${outcome.fileName}».',
+          JourneyExportStatus.cancelled =>
+            'أُلغي التصدير؛ لم يُحفظ أي ملف ولم يتغيّر السجل.',
+          JourneyExportStatus.empty =>
+            'لا توجد تقارير لتصديرها بعد؛ ستظهر بعد أول استيراد.',
+        },
+      );
+    } on Object catch (error) {
+      if (mounted) showMessage(context, userError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _clearJourneyLog() async {

@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/journey_export.dart';
 import 'package:scan_id/application/journey_log.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/image_journey.dart';
@@ -88,7 +91,11 @@ Future<void> _pumpLog(
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpSettings(WidgetTester tester, JourneyLog log) async {
+Future<void> _pumpSettings(
+  WidgetTester tester,
+  JourneyLog log, {
+  JourneyExporter? exporter,
+}) async {
   tester.view.physicalSize = const Size(360, 3000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
@@ -99,6 +106,7 @@ Future<void> _pumpSettings(WidgetTester tester, JourneyLog log) async {
         service: ProjectService(MemoryProjects(), NoAssets()),
         currentVersion: '0.1.0',
         journeyLog: log,
+        journeyExporter: exporter,
       ),
     ),
   );
@@ -262,6 +270,61 @@ void main() {
 
     expect(find.byType(JourneyLogScreen), findsOneWidget);
     expect(find.text('البطاقة.jpg'), findsOneWidget);
+  });
+
+  testWidgets('the log is exported to one chosen file', (tester) async {
+    final folder = await Directory.systemTemp.createTemp('journey-ui-');
+    addTearDown(() => folder.delete(recursive: true));
+    String? written;
+    final exporter = JourneyExporter(
+      saveFile: (file, mime) async {
+        written = await file.readAsString();
+        return true;
+      },
+      temporaryDirectory: () async => folder,
+      clock: () => DateTime(2026, 11, 9, 13, 45),
+    );
+    await _pumpSettings(
+      tester,
+      _FakeJourneyLog([_journey()]),
+      exporter: exporter,
+    );
+
+    await tester.tap(find.text('تصدير سجل معالجة الصور'));
+    await tester.pumpAndSettle();
+
+    expect(written, isNotNull);
+    expect(written, contains('scan-id-journey-log'));
+    expect(find.textContaining('حُفظ السجل: 1 تقريراً'), findsOneWidget);
+    expect(find.textContaining('2026-11-09-1345'), findsOneWidget);
+  });
+
+  testWidgets('a cancelled export reports it and writes nothing', (
+    tester,
+  ) async {
+    final folder = await Directory.systemTemp.createTemp('journey-ui-');
+    addTearDown(() => folder.delete(recursive: true));
+    await _pumpSettings(
+      tester,
+      _FakeJourneyLog([_journey()]),
+      exporter: JourneyExporter(
+        saveFile: (file, mime) async => false,
+        temporaryDirectory: () async => folder,
+      ),
+    );
+
+    await tester.tap(find.text('تصدير سجل معالجة الصور'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('أُلغي التصدير'), findsOneWidget);
+    expect(await folder.list().toList(), isEmpty);
+  });
+
+  testWidgets('an empty log offers no export at all', (tester) async {
+    await _pumpSettings(tester, _FakeJourneyLog());
+
+    expect(find.text('تصدير سجل معالجة الصور'), findsNothing);
+    expect(find.text('حذف سجل معالجة الصور'), findsNothing);
   });
 
   testWidgets('a host without a log says so instead of failing', (

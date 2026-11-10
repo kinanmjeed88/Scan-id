@@ -345,8 +345,7 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
   );
   final measured = _describeDetectionTrace({
     for (final record in records)
-      for (final side in record.sides)
-        ...?side.detection?.detectionTrace,
+      for (final side in record.sides) ...?side.detection?.detectionTrace,
   });
   final String detail;
   if (hasSuggestion) {

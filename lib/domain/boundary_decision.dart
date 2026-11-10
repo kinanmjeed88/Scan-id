@@ -206,8 +206,10 @@ class BoundaryDetectorTrace {
       modelId: modelId,
       outcome: outcome,
       confidence:
-          confidence != null && confidence.isFinite &&
-              confidence >= 0 && confidence <= 1
+          confidence != null &&
+              confidence.isFinite &&
+              confidence >= 0 &&
+              confidence <= 1
           ? confidence
           : null,
       errorType: outcome == BoundaryDetectorOutcome.failed ? errorType : null,

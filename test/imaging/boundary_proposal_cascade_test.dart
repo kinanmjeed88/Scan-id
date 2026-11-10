@@ -87,10 +87,10 @@ void main() {
       proposal.forceReviewReason,
       BoundaryReviewReason.modelNotCorroborated,
     );
-    expect(
-      proposal.traces.map((trace) => trace.outcome),
-      [BoundaryDetectorOutcome.failed, BoundaryDetectorOutcome.noQuad],
-    );
+    expect(proposal.traces.map((trace) => trace.outcome), [
+      BoundaryDetectorOutcome.failed,
+      BoundaryDetectorOutcome.noQuad,
+    ]);
     final decision = verifyBoundary(
       proposal,
       sourceWidth: 1000,

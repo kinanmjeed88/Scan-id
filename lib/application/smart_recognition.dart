@@ -2206,8 +2206,7 @@ class SmartIntake {
     final area = measuredShape?.areaFraction;
     final geometry = measuredShape?.geometryConfidence;
     final rejection = measuredShape?.rejection;
-    final traces =
-        decision?.proposal.traces ?? const <BoundaryDetectorTrace>[];
+    final traces = decision?.proposal.traces ?? const <BoundaryDetectorTrace>[];
     return DetectionRef(
       boundaryDiagnostics: [
         if (decision != null)

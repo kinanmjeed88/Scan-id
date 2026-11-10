@@ -71,10 +71,7 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
       );
       if (_materiallyDisagrees(disagreement)) {
         return first
-            .withDiagnostics(
-              traces: traces,
-              disagreementFraction: disagreement,
-            )
+            .withDiagnostics(traces: traces, disagreementFraction: disagreement)
             .withReview(
               forceReview: true,
               forceReviewReason: BoundaryReviewReason.modelDisagreement,

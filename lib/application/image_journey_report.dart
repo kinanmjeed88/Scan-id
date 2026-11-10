@@ -11,6 +11,7 @@ library;
 import '../domain/arrangement.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_journey.dart';
+import '../domain/ocr_evidence.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 
@@ -307,12 +308,15 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
   final kindLabel = kind.label;
   final score = _percent(classification);
   if (recognition.status == RecognitionStatus.uncertain) {
+    final categories = _evidenceCategories(recognition.evidence);
+    final suffix = categories.isEmpty ? '' : ' الأدلة المرصودة: $categories.';
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail:
-          'قُرئ النص (${_percent(ocr)}) لكن أدلة النوع تعارضت '
-          '($kindLabel، $score)؛ لم يُعتمد نوع تلقائياً.',
+      detail: _clip(
+        'قُرئ النص (${_percent(ocr)}) لكن أدلة النوع تعارضت '
+        '($kindLabel، $score)؛ لم يُعتمد نوع تلقائياً.$suffix',
+      ),
     );
   }
   if (kind == DocumentKind.unknown) {
@@ -328,7 +332,7 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     stage: JourneyStage.recognition,
     outcome: JourneyOutcome.passed,
     detail:
-        'قُرئ النص ($_percent(ocr)) وصُنّف النوع «$kindLabel» '
+        'قُرئ النص (${_percent(ocr)}) وصُنّف النوع «$kindLabel» '
         'بدرجة $score.',
   );
 }
@@ -423,6 +427,29 @@ PhysicalSizeMm? _catalogSizeOf(DocumentKind kind) =>
     kind == DocumentKind.unknown || kind == DocumentKind.other
     ? null
     : const DocumentSizeCatalog().natural(kind);
+
+/// Arabic evidence categories recorded by the classifier, without repetition
+/// and in the order the classifier stored them. It reads only the fixed group
+/// ids in each reason — never recognized text.
+String _evidenceCategories(List<RecognitionEvidence> evidence) {
+  final labels = <String>[];
+  for (final item in evidence) {
+    if (item.kind != 'ocr-keyword') continue;
+    final reason = item.reason;
+    if (reason == null) continue;
+    // ':groups=' — the anchor count is written as 'anchor-groups=', so the
+    // leading colon is what separates the group list from the count.
+    final marker = reason.indexOf(':groups=');
+    if (marker < 0) continue;
+    for (final raw in reason.substring(marker + ':groups='.length).split(',')) {
+      final id = raw.trim();
+      if (id.isEmpty) continue;
+      final label = evidenceGroupLabel(id);
+      if (!labels.contains(label)) labels.add(label);
+    }
+  }
+  return labels.join('، ');
+}
 
 String _percent(double value) =>
     '${(value.clamp(0.0, 1.0) * 100).toStringAsFixed(1)}٪';

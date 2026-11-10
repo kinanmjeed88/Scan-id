@@ -71,6 +71,7 @@ RecognitionResult recognized({
   RecognitionStatus status = RecognitionStatus.recognized,
   double? ocr = 0.9,
   double? classification = 0.82,
+  List<RecognitionEvidence> evidence = const [],
 }) => RecognitionResult(
   documentKind: kind,
   status: status,
@@ -80,6 +81,7 @@ RecognitionResult recognized({
         ? null
         : Confidence(value: classification),
   ),
+  evidence: evidence,
   preset: const PresetSelection.resolved('unified-national-id'),
 );
 
@@ -248,7 +250,67 @@ void main() {
       expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.review);
       expect(steps[JourneyStage.recognition]!.detail, contains('تعارضت'));
+      expect(
+        steps[JourneyStage.recognition]!.detail,
+        isNot(contains('Closure')),
+      );
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
+    });
+
+    test('a classified image reports the measured percentage', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [placedItem(documentId: 'd1')],
+        documents: [record(recognition: recognized())],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final recognition = byStage(journey)[JourneyStage.recognition]!;
+      expect(recognition.outcome, JourneyOutcome.passed);
+      expect(recognition.detail, contains('90.0٪'));
+      expect(recognition.detail, contains('82.0٪'));
+      expect(recognition.detail, isNot(contains('Closure')));
+    });
+
+    test('an uncertain kind lists the evidence categories it saw', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [
+          placedItem(
+            kind: DocumentKind.unknown,
+            sizeConfirmed: false,
+            pageIndex: null,
+            documentId: 'd1',
+          ),
+        ],
+        documents: [
+          record(
+            recognition: recognized(
+              kind: DocumentKind.unknown,
+              status: RecognitionStatus.uncertain,
+              classification: 0.41,
+              evidence: [
+                RecognitionEvidence(
+                  source: EvidenceSource.ocr,
+                  kind: 'ocr-keyword',
+                  score: 0.41,
+                  reason: 'passport:anchor-groups=2:groups=title,fields',
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final recognition = byStage(journey)[JourneyStage.recognition]!;
+      expect(recognition.detail, contains('العنوان المطبوع'));
+      expect(recognition.detail, contains('حقول الهوية'));
+      expect(recognition.detail, isNot(contains('Closure')));
     });
 
     test('an unread image never claims text', () {

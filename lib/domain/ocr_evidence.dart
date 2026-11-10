@@ -164,6 +164,7 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
     _EvidenceGroup('identifier', [
       'الرقم الوطني',
+      'رقم البطاقة الوطنية',
       'رقم البطاقة',
       'national number',
       'id number',
@@ -181,16 +182,20 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
       'الجنس',
       'تاريخ الولادة',
       'فصيلة الدم',
+      'الزمرة',
+      'زمرة الدم',
       'الرقم العائلي',
       'جهة الإصدار',
       'تاريخ الإصدار',
       'تاريخ الانتهاء',
+      'تاريخ النفاذ',
       'محل الولادة',
     ]),
     _EvidenceGroup('issuer', [
       'وزارة الداخلية',
       'مديرية الأحوال المدنية والجوازات والإقامة',
       'مديرية شؤون البطاقة الوطنية',
+      'مديرية الجنسية والمعلومات المدنية',
     ]),
   ],
   DocumentKind.civilStatusId: [
@@ -213,10 +218,13 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
       'بطاقة السكن',
       'هوية السكن',
       'بطاقة سكن',
+      'بطاقة معلومات السكن',
+      'بطاقة معلومات سكن',
       'residence card',
       'residencecard',
       'مكتب المعلومات المركزي',
       'مديرية مكتب المعلومات المركزي',
+      'مديرية مكتب المعلومات',
       'مكتب المعلومات',
       'مكتب معلومات',
     ], role: _EvidenceRole.title),
@@ -233,7 +241,11 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
       'رقم العقار',
       'residential address',
     ]),
-    _EvidenceGroup('issuer', ['مديرية البلدية', 'بلدية']),
+    _EvidenceGroup('issuer', [
+      'مديرية البلدية',
+      'مديرية الجنسية العامة',
+      'بلدية',
+    ]),
   ],
   DocumentKind.rationCard: [
     _EvidenceGroup('title', [
@@ -253,7 +265,9 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
     _EvidenceGroup('title', [
       'جواز السفر',
       'جواز سفر',
+      'جواز سفر عراقي',
       'passport',
+      'iraqi passport',
     ], role: _EvidenceRole.title),
     _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
     _EvidenceGroup('documentNumber', [
@@ -269,9 +283,15 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
       'date of issue',
       'date of expiry',
       'issuing authority',
+      'place of birth',
+      'mother name',
+      'country code',
+      'document number',
       'الجنسية',
       'تاريخ الولادة',
       'الاسم الكامل',
+      'اسم الأم',
+      'محل الولادة',
       'جهة الإصدار',
       'تاريخ الإصدار',
       'تاريخ الانتهاء',
@@ -688,3 +708,29 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   }
   return List.unmodifiable(evidence);
 }
+
+/// Arabic labels for the fixed evidence-group ids of the shipped lexicons.
+///
+/// This is the audit vocabulary shown to the person — "which kinds of evidence
+/// were seen" — never the recognized text itself. The ids are dictionary keys
+/// fixed at compile time, so no name, number or line of a document can travel
+/// through this map.
+const evidenceGroupLabels = <String, String>{
+  'title': 'العنوان المطبوع',
+  'mrz': 'منطقة القراءة الآلية',
+  'identifier': 'حقل الرقم',
+  'fields': 'حقول الهوية',
+  'issuer': 'الجهة المُصدِرة',
+  'registry': 'السجل المدني',
+  'citizenship': 'الجنسية',
+  'household': 'حقول رب الأسرة',
+  'address': 'حقول العنوان',
+  'form': 'حقول الاستمارة',
+  'rationDetails': 'بيانات التموين',
+  'documentNumber': 'رقم الوثيقة',
+  'personalDataLabels': 'حقول البيانات الشخصية',
+};
+
+/// Arabic label for one evidence-group id. A future lexicon group without a
+/// label is reported generically instead of leaking its internal id.
+String evidenceGroupLabel(String id) => evidenceGroupLabels[id] ?? 'دليل آخر';

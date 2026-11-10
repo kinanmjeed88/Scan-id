@@ -13,6 +13,7 @@
 library;
 
 import 'document_kind.dart';
+import 'ocr_evidence.dart';
 import 'recognition.dart';
 
 /// A concise, user-facing cause for an `unknown` outcome, or null when the
@@ -46,14 +47,36 @@ String? classificationUnknownReason({
 
   final ocr = confidences.ocr?.value;
   final readable = ocr != null;
+  // Which fixed dictionary groups fired, for an auditable explanation. Only
+  // the group ids are persisted, so naming them here stays free of recognized
+  // text — the person learns what KIND of evidence was seen, never its content.
+  final categories = <String>[];
+  for (final item in evidence) {
+    if (item.kind != 'ocr-keyword') continue;
+    final reason = item.reason;
+    if (reason == null) continue;
+    // ':groups=' — the anchor count is written as 'anchor-groups=', so the
+    // leading colon is what separates the group list from the count.
+    final marker = reason.indexOf(':groups=');
+    if (marker < 0) continue;
+    for (final raw in reason.substring(marker + ':groups='.length).split(',')) {
+      final id = raw.trim();
+      if (id.isEmpty) continue;
+      final label = evidenceGroupLabel(id);
+      if (!categories.contains(label)) categories.add(label);
+    }
+  }
+  final seen = categories.isEmpty
+      ? ''
+      : '، والأدلة المرصودة: ${categories.join('، ')}';
   if (voted.length > 1) {
     final names = voted.map((candidate) => candidate.label).join('، ');
     return 'وُجدت إشارات لأكثر من نوع ($names)، '
-        'ولم تحسم دون حد التصنيف';
+        'ولم تحسم دون حد التصنيف$seen';
   }
   if (voted.length == 1) {
     return 'إشارات النوع (${voted.first.label}) موجودة '
-        'لكنها دون حد التصنيف المطلوب';
+        'لكنها دون حد التصنيف المطلوب$seen';
   }
   if (!readable) {
     return 'لم تُقرأ أسطر نصية يمكن الاعتماد عليها '
@@ -61,5 +84,5 @@ String? classificationUnknownReason({
         'أو النص غير واضح في الصورة)';
   }
   return 'النص مقروء (ثقة ${(ocr * 100).round()}٪) لكنه لا يحمل '
-      'عنواناً مميزاً لنوع معروف مع مرساة مؤكدة على سطر آخر';
+      'عنواناً مميزاً لنوع معروف مع مرساة مؤكدة على سطر آخر$seen';
 }

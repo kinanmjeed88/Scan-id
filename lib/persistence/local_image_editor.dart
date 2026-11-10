@@ -156,9 +156,21 @@ class LocalImageEditor
       cancellation,
     );
     cancellation?.throwIfCancelled();
-    return arbitrateBoundaryProposal(
+    final learnedTraces =
+        learnedProposal?.traces ?? const <BoundaryDetectorTrace>[];
+    final learnedDisagreement = learnedProposal?.disagreementFraction;
+    final arbitrated = arbitrateBoundaryProposal(
       learned: learnedProposal,
       measurements: measurements,
+    );
+    // The audit trail travels with whichever proposal survives arbitration:
+    // a classical win, a kept learned quad or a rejection must still say what
+    // each learned model returned. Empty traces leave the proposal untouched.
+    final proposal = arbitrated ?? learnedProposal;
+    if (proposal == null) return null;
+    return proposal.withDiagnostics(
+      traces: learnedTraces,
+      disagreementFraction: learnedDisagreement,
     );
   }
 

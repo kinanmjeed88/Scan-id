@@ -363,9 +363,10 @@ class RecognitionPipeline {
       var forceReview = false;
       BoundaryReviewReason? forceReviewReason;
       var producer = BoundaryProducer.wholeFrameDetector;
+      BoundaryProposal? prop;
       try {
         if (suggestProposal != null) {
-          final prop = await ImportTrace.stage(
+          prop = await ImportTrace.stage(
             'detection',
             () => suggestProposal!(input.previewBytes),
             phase: 'boundary',
@@ -407,6 +408,8 @@ class RecognitionPipeline {
           touchesFrameEdge: touchesEdge,
           forceReview: forceReview,
           forceReviewReason: forceReviewReason,
+          traces: prop?.traces ?? const [],
+          disagreementFraction: prop?.disagreementFraction,
           issues: issues,
           token: token,
         ),
@@ -440,6 +443,8 @@ class RecognitionPipeline {
     List<double>? region,
     int regionIndex = 0,
     bool isolatedRegion = false,
+    List<BoundaryDetectorTrace> traces = const [],
+    double? disagreementFraction,
   }) async {
     QuadAssessment? assessment;
     var usableCorners = corners;
@@ -511,6 +516,8 @@ class RecognitionPipeline {
         touchesFrameEdge: touchesFrameEdge,
         forceReview: forceReview,
         forceReviewReason: forceReviewReason,
+        traces: traces,
+        disagreementFraction: disagreementFraction,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,

@@ -199,17 +199,23 @@ JourneyStep _detectionStep(
           'لم تُسجَّل نتيجة كشف لهذه الصورة؛ لا يُعتمد قصّ تلقائي دون دليل.',
     );
   }
+  final traces = <String>{
+    for (final detection in detections) ...detection.detectionTrace,
+  };
   final diagnostics = <String>{
     for (final detection in detections) ...detection.boundaryDiagnostics,
   };
-  if (diagnostics.isNotEmpty) {
-    final more = diagnostics.length > 1
-        ? ' (و${diagnostics.length - 1} ملاحظة أخرى في بطاقة المراجعة)'
-        : '';
+  if (traces.isNotEmpty || diagnostics.isNotEmpty) {
+    final measured = _describeDetectionTrace(traces);
+    final reasons = diagnostics.join(' · ');
+    final detail = [
+      if (measured.isNotEmpty) 'الكشف: $measured',
+      if (reasons.isNotEmpty) reasons,
+    ].join(' — ');
     return JourneyStep(
       stage: JourneyStage.detection,
       outcome: JourneyOutcome.review,
-      detail: _clip('${diagnostics.first}$more'),
+      detail: _clip(detail),
     );
   }
   double? confidence;
@@ -227,11 +233,84 @@ JourneyStep _detectionStep(
   final count = detections.length > 1
       ? ' (${detections.length} مستندات في الصورة الواحدة)'
       : '';
+  final measured = _describeDetectionTrace(traces);
   return JourneyStep(
     stage: JourneyStage.detection,
     outcome: JourneyOutcome.passed,
-    detail: _clip('اجتازت بوابة الحدود بدرجة ${_percent(confidence)}$count.'),
+    detail: _clip(
+      'اجتازت بوابة الحدود بدرجة ${_percent(confidence)}$count.'
+      '${measured.isEmpty ? '' : ' $measured.'}',
+    ),
   );
+}
+
+/// Fixed, user-facing name of a detector. The raw model id stays in the record
+/// for audits; a person reading the report needs the product name only.
+String _detectorName(String modelId) {
+  final id = modelId.toLowerCase();
+  if (id.contains('docquad')) return 'DocQuadNet';
+  if (id.contains('docaligner')) return 'DocAligner';
+  if (id.contains('segment')) return 'مقسّم المناطق';
+  return 'كاشف';
+}
+
+/// Arabic name of a measured geometry refusal.
+String _quadRejectionLabel(String name) => switch (name) {
+  'invalidSourceDimensions' => 'أبعاد مصدر غير صالحة',
+  'nonFiniteCoordinates' => 'إحداثيات غير صالحة',
+  'singularPerspective' => 'منظور غير قابل للتصحيح',
+  'wrongPointCount' => 'عدد زوايا غير صحيح',
+  'outOfBounds' => 'زوايا خارج الصورة',
+  'notConvex' => 'شكل غير محدّب',
+  'tooSmall' => 'حدود صغيرة جداً',
+  'degenerateEdges' => 'أضلاع منكمشة',
+  'implausibleAspect' => 'نسبة أبعاد غير معقولة',
+  _ => 'رفض هندسي',
+};
+
+/// One Arabic line built from the measured detection codes: which model ran
+/// and what it returned, how far its quadrilateral sat from the other one, and
+/// the measured shape. Every value is a fixed id or a measured number — never
+/// recognized text, a path or an error message.
+String _describeDetectionTrace(Iterable<String> codes) {
+  final parts = <String>[];
+  for (final code in codes) {
+    final trace = BoundaryDetectorTrace.decode(code);
+    if (trace != null) {
+      final name = _detectorName(trace.modelId);
+      final score = trace.confidence == null
+          ? ''
+          : ' بدرجة ${_percent(trace.confidence!)}';
+      if (trace.outcome == BoundaryDetectorOutcome.proposal) {
+        parts.add('$name اقترح زوايا$score');
+      } else if (trace.outcome == BoundaryDetectorOutcome.noQuad) {
+        parts.add('$name لم يجد مستنداً');
+      } else if (trace.outcome == BoundaryDetectorOutcome.geometryRejected) {
+        parts.add('$name اقترح زوايا مرفوضة هندسياً$score');
+      } else {
+        final type = trace.errorType == null ? '' : ' (${trace.errorType})';
+        parts.add('$name تعذّر تشغيله$type');
+      }
+      continue;
+    }
+    final index = code.indexOf('=');
+    if (index <= 0) continue;
+    final key = code.substring(0, index);
+    final raw = code.substring(index + 1);
+    final number = double.tryParse(raw);
+    if (key == 'disagreement' && number != null) {
+      parts.add('تباعد الزوايا بين الكاشفين ${_percent(number)}');
+    } else if (key == 'aspect' && number != null) {
+      parts.add('نسبة الحدود ${number.toStringAsFixed(2)}:1');
+    } else if (key == 'area' && number != null) {
+      parts.add('مساحة الحدود ${_percent(number)} من الصورة');
+    } else if (key == 'geometry' && number != null) {
+      parts.add('جودة الهندسة ${_percent(number)}');
+    } else if (key == 'rejection') {
+      parts.add(_quadRejectionLabel(raw));
+    }
+  }
+  return parts.join(' · ');
 }
 
 JourneyStep _cropStep(List<DocumentRecord> records) {
@@ -263,12 +342,25 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
     (record) =>
         record.sides.any((side) => side.detection?.suggestedPolygon != null),
   );
+  final measured = _describeDetectionTrace({
+    for (final record in records)
+      for (final side in record.sides)
+        ...?side.detection?.detectionTrace,
+  });
+  final String detail;
+  if (hasSuggestion) {
+    detail =
+        'لم يُقصّ تلقائياً؛ الزوايا المقترحة محفوظة لتعتمدها أو تعدّلها.'
+        '${measured.isEmpty ? '' : ' القياس المقترح: $measured.'}';
+  } else {
+    detail =
+        'لم يُقصّ تلقائياً ولا توجد زوايا مقترحة؛ '
+        'حدّد الزوايا الأربع يدوياً.';
+  }
   return JourneyStep(
     stage: JourneyStage.crop,
     outcome: JourneyOutcome.review,
-    detail: hasSuggestion
-        ? 'لم يُقصّ تلقائياً؛ الزوايا المقترحة محفوظة لتعتمدها أو تعدّلها.'
-        : 'لم يُقصّ تلقائياً ولا توجد زوايا مقترحة؛ حدّد الزوايا الأربع يدوياً.',
+    detail: _clip(detail),
   );
 }
 
@@ -320,12 +412,20 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
     );
   }
   if (kind == DocumentKind.unknown) {
+    final signals = _votedKindLabels(recognition.evidence);
+    final categories = _evidenceCategories(recognition.evidence);
+    final suffix = categories.isEmpty ? '' : ' الأدلة المرصودة: $categories.';
     return JourneyStep(
       stage: JourneyStage.recognition,
       outcome: JourneyOutcome.review,
-      detail:
-          'قُرئ النص (${_percent(ocr)}) ولم يطابق أي نوع معروف '
-          '($score)؛ اختر النوع يدوياً.',
+      detail: _clip(
+        signals.isEmpty
+            ? 'قُرئ النص (${_percent(ocr)}) ولم يطابق أي نوع معروف '
+                  '($score)؛ اختر النوع يدوياً.'
+            : 'قُرئ النص (${_percent(ocr)}) ووُجدت إشارات لـ«'
+                  '${signals.join('»، «')}» لكنها دون حد القبول '
+                  '($score)؛ اختر النوع يدوياً.$suffix',
+      ),
     );
   }
   return JourneyStep(
@@ -342,17 +442,21 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
     return _notReached(JourneyStage.sizing, 'لا مستند بعد لتأكيد مقاسه.');
   }
   final item = items.first;
-  final catalogSize = item.sizeConfirmed
-      ? _catalogSizeOf(item.documentKind)
-      : null;
-  if (catalogSize != null) {
+  final natural = _catalogSizeOf(item.documentKind);
+  final sizeText = natural == null
+      ? null
+      : '${natural.width.toStringAsFixed(1)} × '
+            '${natural.height.toStringAsFixed(1)} مم';
+  if (item.sizeConfirmed && natural != null) {
+    final provenance = documentSizeRecordFor(item.documentKind).provenance;
+    final basis = provenance == SizeProvenance.documented
+        ? 'مقاس مطبوع موثّق'
+        : 'مقاس تقديري قابل للتعديل';
     return JourneyStep(
       stage: JourneyStage.sizing,
       outcome: JourneyOutcome.passed,
       detail:
-          'المقاس من كتالوج النوع «${item.documentKind.label}»: '
-          '${catalogSize.width.toStringAsFixed(1)} × '
-          '${catalogSize.height.toStringAsFixed(1)} مم.',
+          'ثُبِّت مقاس النوع «${item.documentKind.label}» ($basis): $sizeText.',
     );
   }
   if (item.documentKind == DocumentKind.unknown) {
@@ -362,12 +466,25 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
       detail: 'النوع غير محدد، فلا مقاس مطبوع بعد؛ حدّده ليُحسب المقاس.',
     );
   }
+  if (natural == null) {
+    return JourneyStep(
+      stage: JourneyStage.sizing,
+      outcome: JourneyOutcome.review,
+      detail:
+          'لا مقاس منشور لنوع «${item.documentKind.label}»؛ '
+          'أدخل القياس بالمليمتر وثبّته قبل الوضع على A4.',
+    );
+  }
+  // A size exists for this kind but was not confirmed: either the boundary was
+  // not accepted (no trusted warp), or the measured shape contradicted it, or
+  // the person has not confirmed it yet. Name the size so the gap is visible.
   return JourneyStep(
     stage: JourneyStage.sizing,
     outcome: JourneyOutcome.review,
     detail:
-        'المقاس الفعلي غير مؤكّد لهذا النوع؛ لن يُوضع تلقائياً حتى '
-        'تحدّده أو تدخله بالمليمتر.',
+        'المقاس المرجعي لنوع «${item.documentKind.label}» هو $sizeText، '
+        'لكنه لم يُثبَّت بعد؛ يلزم قصّ حدود معتمد أو تأكيدك للمقاس '
+        'قبل الوضع التلقائي على A4.',
   );
 }
 
@@ -427,6 +544,24 @@ PhysicalSizeMm? _catalogSizeOf(DocumentKind kind) =>
     kind == DocumentKind.unknown || kind == DocumentKind.other
     ? null
     : const DocumentSizeCatalog().natural(kind);
+
+/// Kinds that received at least one keyword vote, named in Arabic, in the
+/// order the classifier recorded them. Recovered from the fixed `reason` code
+/// (`<kind>:anchor-groups=…`), so no recognized text is read.
+List<String> _votedKindLabels(List<RecognitionEvidence> evidence) {
+  final labels = <String>[];
+  for (final item in evidence) {
+    if (item.kind != 'ocr-keyword') continue;
+    final reason = item.reason;
+    if (reason == null) continue;
+    final name = reason.split(':').first;
+    for (final candidate in DocumentKind.values) {
+      if (candidate == DocumentKind.unknown || candidate.name != name) continue;
+      if (!labels.contains(candidate.label)) labels.add(candidate.label);
+    }
+  }
+  return labels;
+}
 
 /// Arabic evidence categories recorded by the classifier, without repetition
 /// and in the order the classifier stored them. It reads only the fixed group

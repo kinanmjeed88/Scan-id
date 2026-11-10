@@ -284,10 +284,14 @@ class DetectionRef {
     this.polygon,
     this.suggestedPolygon,
     this.boundaryDiagnostics = const [],
+    this.detectionTrace = const [],
     this.bbox,
   }) {
     for (final message in boundaryDiagnostics) {
       validNote(message);
+    }
+    for (final trace in detectionTrace) {
+      validNote(trace);
     }
     validId(detectionId);
     validNote(producer);
@@ -314,6 +318,12 @@ class DetectionRef {
   /// Measured decision failures, persisted without source text or image data.
   /// Empty for legacy records; absence must not be interpreted as acceptance.
   final List<String> boundaryDiagnostics;
+
+  /// Measured detection facts as compact codes: which detector ran and what it
+  /// returned, the model scores, the corner disagreement, and the measured
+  /// aspect, area and geometry quality. Numbers and fixed ids only — never a
+  /// path, an error message or recognized text.
+  final List<String> detectionTrace;
   final String detectionId;
   final Confidence? detectionConfidence;
   final String producer;
@@ -332,6 +342,7 @@ class DetectionRef {
   Map<String, Object?> toJson() => {
     if (boundaryDiagnostics.isNotEmpty)
       'boundaryDiagnostics': boundaryDiagnostics,
+    if (detectionTrace.isNotEmpty) 'detectionTrace': detectionTrace,
     'detectionId': detectionId,
     'detectionConfidence': detectionConfidence?.toJson(),
     'producer': producer,
@@ -349,6 +360,11 @@ class DetectionRef {
           : objectList(
               m['boundaryDiagnostics'],
             ).map((value) => text(value, 'boundaryDiagnostic')).toList(),
+      detectionTrace: m['detectionTrace'] == null
+          ? const []
+          : objectList(
+              m['detectionTrace'],
+            ).map((value) => text(value, 'detectionTrace')).toList(),
       detectionId: text(m['detectionId'], 'detectionId'),
       detectionConfidence: m['detectionConfidence'] == null
           ? null

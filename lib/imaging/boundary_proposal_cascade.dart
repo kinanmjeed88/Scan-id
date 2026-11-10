@@ -1,4 +1,5 @@
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../application/cancellation.dart';
@@ -43,70 +44,128 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
       () => _previewDimensions(preview, cancellation),
       phase: 'boundary-preview',
     );
-    final first = await _attempt(primary, preview, cancellation);
+    final (first, firstError) = await _attempt(primary, preview, cancellation);
     cancellation?.throwIfCancelled();
     // Always execute the second AI detector: current confidence scores are not
     // calibrated on Iraqi cards, so geometry-valid DocQuad output is still an
     // uncertain proposal and cannot suppress the independent second opinion.
-    final second = await _attempt(secondary, preview, cancellation);
+    final (second, secondError) = await _attempt(
+      secondary,
+      preview,
+      cancellation,
+    );
     cancellation?.throwIfCancelled();
 
     final firstValid = _usable(first, sourceWidth, sourceHeight);
     final secondValid = _usable(second, sourceWidth, sourceHeight);
+    final traces = [
+      _traceOf(primary, first, errorType: firstError, usable: firstValid),
+      _traceOf(secondary, second, errorType: secondError, usable: secondValid),
+    ];
     if (firstValid && secondValid) {
-      if (_materiallyDisagrees(
+      final disagreement = _disagreementFraction(
         first!.corners!,
         second!.corners!,
         sourceWidth,
         sourceHeight,
-      )) {
-        return BoundaryProposal(
-          producer: first.producer,
-          corners: first.corners,
-          modelConfidence: first.modelConfidence,
-          minAutoAcceptConfidence: first.minAutoAcceptConfidence,
-          forceReview: true,
-          forceReviewReason: BoundaryReviewReason.modelDisagreement,
-        );
+      );
+      if (disagreement > materialDisagreementFraction) {
+        return first
+            .withDiagnostics(
+              traces: traces,
+              disagreementFraction: disagreement,
+            )
+            .withReview(
+              forceReview: true,
+              forceReviewReason: BoundaryReviewReason.modelDisagreement,
+            );
       }
       // Agreement alone is not corroboration by a weak or review-only model.
       // Both independent decisions must authorize their geometry and score.
       if (!_accepted(first, sourceWidth, sourceHeight) ||
           !_accepted(second, sourceWidth, sourceHeight)) {
-        return _uncorroborated(first);
+        return _uncorroborated(
+          first,
+          traces: traces,
+          disagreement: disagreement,
+        );
       }
-      return first;
+      return first.withDiagnostics(
+        traces: traces,
+        disagreementFraction: disagreement,
+      );
     }
     // Preserve either lone proposal for the user without turning an absent
     // second opinion into permission for an automatic perspective crop.
-    if (firstValid) return _uncorroborated(first!);
-    if (secondValid) return _uncorroborated(second!);
-    return null;
+    if (firstValid) {
+      return _uncorroborated(first!, traces: traces);
+    }
+    if (secondValid) {
+      return _uncorroborated(second!, traces: traces);
+    }
+    // Neither detector produced usable geometry. The proposal carries no
+    // corners but keeps the factual trace, so the decision and the journey
+    // report can say WHICH detector was missing and WHY.
+    return BoundaryProposal(
+      producer: BoundaryProducer.learnedModel,
+      forceReview: true,
+      forceReviewReason: BoundaryReviewReason.modelNotCorroborated,
+      traces: traces,
+    );
   }
 
-  BoundaryProposal _uncorroborated(BoundaryProposal proposal) =>
-      BoundaryProposal(
-        producer: proposal.producer,
-        corners: proposal.corners,
-        region: proposal.region,
-        imposedAspect: proposal.imposedAspect,
-        imposedKindLabel: proposal.imposedKindLabel,
-        modelConfidence: proposal.modelConfidence,
-        minAutoAcceptConfidence: proposal.minAutoAcceptConfidence,
-        touchesFrameEdge: proposal.touchesFrameEdge,
+  BoundaryDetectorTrace _traceOf(
+    BoundaryProposalModel model,
+    BoundaryProposal? proposal, {
+    required String? errorType,
+    required bool usable,
+  }) {
+    if (errorType != null) {
+      return BoundaryDetectorTrace(
+        modelId: model.modelId,
+        outcome: BoundaryDetectorOutcome.failed,
+        errorType: errorType,
+      );
+    }
+    if (proposal?.corners == null) {
+      return BoundaryDetectorTrace(
+        modelId: model.modelId,
+        outcome: BoundaryDetectorOutcome.noQuad,
+      );
+    }
+    return BoundaryDetectorTrace(
+      modelId: model.modelId,
+      outcome: usable
+          ? BoundaryDetectorOutcome.proposal
+          : BoundaryDetectorOutcome.geometryRejected,
+      confidence: proposal!.modelConfidence,
+    );
+  }
+
+  BoundaryProposal _uncorroborated(
+    BoundaryProposal proposal, {
+    List<BoundaryDetectorTrace> traces = const [],
+    double? disagreement,
+  }) => proposal
+      .withDiagnostics(traces: traces, disagreementFraction: disagreement)
+      .withReview(
         forceReview: true,
         forceReviewReason:
             proposal.forceReviewReason ??
             BoundaryReviewReason.modelNotCorroborated,
       );
 
-  Future<BoundaryProposal?> _attempt(
+  Future<(BoundaryProposal?, String?)> _attempt(
     BoundaryProposalModel model,
     Uint8List preview,
     CancellationToken? cancellation,
   ) async {
     try {
-      return await model.suggestProposal(preview, cancellation: cancellation);
+      final proposal = await model.suggestProposal(
+        preview,
+        cancellation: cancellation,
+      );
+      return (proposal, null);
     } on OperationCancelled {
       rethrow;
     } on Object catch (error) {
@@ -117,7 +176,7 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
         'type=${error.runtimeType}; continuing cascade.',
         name: 'scan_id.boundary',
       );
-      return null;
+      return (null, '${error.runtimeType}');
     }
   }
 
@@ -143,23 +202,27 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
     }
   }
 
-  bool _materiallyDisagrees(
+  /// Largest corner displacement between the two models, as a fraction of the
+  /// image diagonal. A malformed pair reports total disagreement (1.0) rather
+  /// than a friendly zero.
+  double _disagreementFraction(
     List<Point2> first,
     List<Point2> second,
     int width,
     int height,
   ) {
-    final diagonal = (width * width + height * height).toDouble();
-    if (first.length != 4 || second.length != 4 || diagonal <= 0) return true;
+    final diagonalSquared = (width * width + height * height).toDouble();
+    if (first.length != 4 || second.length != 4 || diagonalSquared <= 0) {
+      return 1;
+    }
+    var worst = 0.0;
     for (var i = 0; i < 4; i++) {
       final dx = (first[i].x - second[i].x) * width;
       final dy = (first[i].y - second[i].y) * height;
-      if ((dx * dx + dy * dy) / diagonal >
-          materialDisagreementFraction * materialDisagreementFraction) {
-        return true;
-      }
+      final fraction = math.sqrt((dx * dx + dy * dy) / diagonalSquared);
+      if (fraction > worst) worst = fraction;
     }
-    return false;
+    return worst;
   }
 }
 

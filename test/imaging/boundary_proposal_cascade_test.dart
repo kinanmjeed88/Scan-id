@@ -55,6 +55,54 @@ void main() {
     }
   }
 
+  test('a missing detector is recorded, not silently dropped', () async {
+    final first = _FakeModel('docquadnet256', learned(quad()));
+    final second = _FakeModel('docaligner')..fail = true;
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
+
+    final proposal = await cascade.suggestProposal(preview);
+
+    expect(proposal, isNotNull);
+    expect(proposal!.traces, hasLength(2));
+    expect(proposal.traces.first.modelId, 'docquadnet256');
+    expect(proposal.traces.first.outcome, BoundaryDetectorOutcome.proposal);
+    expect(proposal.traces.first.confidence, .4);
+    expect(proposal.traces.last.outcome, BoundaryDetectorOutcome.failed);
+    expect(proposal.traces.last.errorType, 'StateError');
+    // A lone proposal still never authorizes an automatic crop.
+    expect(proposal.forceReview, isTrue);
+    expect(proposal.traces.first.encode(), contains('outcome=proposal'));
+  });
+
+  test('both detectors failing keeps the trace and names the reason', () async {
+    final first = _FakeModel('docquadnet256')..fail = true;
+    final second = _FakeModel('docaligner');
+    final cascade = BoundaryProposalCascade(primary: first, secondary: second);
+
+    final proposal = await cascade.suggestProposal(preview);
+
+    expect(proposal, isNotNull);
+    expect(proposal!.corners, isNull);
+    expect(
+      proposal.forceReviewReason,
+      BoundaryReviewReason.modelNotCorroborated,
+    );
+    expect(
+      proposal.traces.map((trace) => trace.outcome),
+      [BoundaryDetectorOutcome.failed, BoundaryDetectorOutcome.noQuad],
+    );
+    final decision = verifyBoundary(
+      proposal,
+      sourceWidth: 1000,
+      sourceHeight: 700,
+    );
+    expect(decision.cropAuthorization, isNull);
+    expect(
+      decision.verification.reasons,
+      contains(BoundaryReviewReason.noBoundary),
+    );
+  });
+
   test('runs DocAligner when DocQuadNet returns no boundary', () async {
     final first = _FakeModel('DocQuadNet');
     final second = _FakeModel('DocAligner', learned(quad()));

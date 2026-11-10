@@ -134,6 +134,94 @@ enum BoundaryReviewReason {
   modelNotCorroborated,
 }
 
+/// What one boundary detector actually did in one cascade run.
+///
+/// This is a factual trace, not a score: the fixed model id, a machine
+/// outcome, the model's own score when it emitted one, and the error TYPE
+/// only. Messages are never captured — they can carry paths, and the trace is
+/// persisted in the project and shown in the journey report.
+enum BoundaryDetectorOutcome {
+  /// Returned a quadrilateral that passed the geometry checks.
+  proposal,
+
+  /// Ran, but found no document quadrilateral.
+  noQuad,
+
+  /// Returned a quadrilateral the geometry checks refused.
+  geometryRejected,
+
+  /// Could not run at all: missing asset, native session, timeout or crash.
+  failed,
+}
+
+class BoundaryDetectorTrace {
+  const BoundaryDetectorTrace({
+    required this.modelId,
+    required this.outcome,
+    this.confidence,
+    this.errorType,
+  }) : assert(errorType == null || outcome == BoundaryDetectorOutcome.failed);
+
+  final String modelId;
+  final BoundaryDetectorOutcome outcome;
+
+  /// The model's own emitted score, when it produced one. Uncalibrated.
+  final double? confidence;
+
+  /// Runtime type of the failure (never its message).
+  final String? errorType;
+
+  /// Compact, stable encoding for persistence: ids, enum names and numbers
+  /// only — never recognized text, a path or an error message.
+  String encode() => [
+    'model=$modelId',
+    'outcome=${outcome.name}',
+    if (confidence != null) 'confidence=${confidence!.toStringAsFixed(3)}',
+    if (errorType != null) 'error=$errorType',
+  ].join(';');
+
+  /// Reads [encode] output; unknown or damaged traces decode to null instead
+  /// of inventing an outcome.
+  static BoundaryDetectorTrace? decode(String code) {
+    String? value(String key) {
+      for (final part in code.split(';')) {
+        final index = part.indexOf('=');
+        if (index <= 0) continue;
+        if (part.substring(0, index) == key) return part.substring(index + 1);
+      }
+      return null;
+    }
+
+    final modelId = value('model');
+    final outcomeName = value('outcome');
+    if (modelId == null || modelId.isEmpty || outcomeName == null) return null;
+    BoundaryDetectorOutcome? outcome;
+    for (final candidate in BoundaryDetectorOutcome.values) {
+      if (candidate.name == outcomeName) outcome = candidate;
+    }
+    if (outcome == null) return null;
+    final confidence = double.tryParse(value('confidence') ?? '');
+    final errorType = value('error');
+    return BoundaryDetectorTrace(
+      modelId: modelId,
+      outcome: outcome,
+      confidence:
+          confidence != null && confidence.isFinite &&
+              confidence >= 0 && confidence <= 1
+          ? confidence
+          : null,
+      errorType: outcome == BoundaryDetectorOutcome.failed ? errorType : null,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'modelId': modelId,
+    'outcome': outcome.name,
+    if (confidence != null) 'confidence': confidence,
+    if (errorType != null) 'errorType': errorType,
+  };
+}
+
 /// One boundary CLAIM about one document inside one source image.
 class BoundaryProposal {
   const BoundaryProposal({
@@ -147,6 +235,8 @@ class BoundaryProposal {
     this.touchesFrameEdge = false,
     this.forceReview = false,
     this.forceReviewReason,
+    this.traces = const [],
+    this.disagreementFraction,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -184,6 +274,54 @@ class BoundaryProposal {
   /// Specific reason for [forceReview], when it is not the legacy multi-scene
   /// corroboration gate.
   final BoundaryReviewReason? forceReviewReason;
+
+  /// What each detector in the cascade did, in execution order. Empty when the
+  /// proposer is a single classical path with nothing to report.
+  final List<BoundaryDetectorTrace> traces;
+
+  /// Largest corresponding-corner displacement divided by the image diagonal,
+  /// when two learned detectors both produced usable geometry. Measured from
+  /// their own points — never a probability.
+  final double? disagreementFraction;
+
+  /// The same claim with cascade diagnostics attached, keeping corners,
+  /// confidence and review flags untouched.
+  BoundaryProposal withDiagnostics({
+    List<BoundaryDetectorTrace> traces = const [],
+    double? disagreementFraction,
+  }) => BoundaryProposal(
+    producer: producer,
+    corners: corners,
+    region: region,
+    imposedAspect: imposedAspect,
+    imposedKindLabel: imposedKindLabel,
+    modelConfidence: modelConfidence,
+    minAutoAcceptConfidence: minAutoAcceptConfidence,
+    touchesFrameEdge: touchesFrameEdge,
+    forceReview: forceReview,
+    forceReviewReason: forceReviewReason,
+    traces: traces.isEmpty ? this.traces : traces,
+    disagreementFraction: disagreementFraction ?? this.disagreementFraction,
+  );
+
+  /// The same claim with its review flags replaced; nothing else moves.
+  BoundaryProposal withReview({
+    required bool forceReview,
+    BoundaryReviewReason? forceReviewReason,
+  }) => BoundaryProposal(
+    producer: producer,
+    corners: corners,
+    region: region,
+    imposedAspect: imposedAspect,
+    imposedKindLabel: imposedKindLabel,
+    modelConfidence: modelConfidence,
+    minAutoAcceptConfidence: minAutoAcceptConfidence,
+    touchesFrameEdge: touchesFrameEdge,
+    forceReview: forceReview,
+    forceReviewReason: forceReviewReason ?? this.forceReviewReason,
+    traces: traces,
+    disagreementFraction: disagreementFraction,
+  );
 }
 
 /// What verification measured about a proposal. Every field is a measured

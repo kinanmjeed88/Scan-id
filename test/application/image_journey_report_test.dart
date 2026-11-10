@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/image_journey_report.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -30,6 +31,7 @@ DocumentSide side({
     height: 250,
     outputWidth: 1011,
     outputHeight: 638,
+    corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
   ),
   detection: DetectionRef(
     detectionId: 'det-$id',

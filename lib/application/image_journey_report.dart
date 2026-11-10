@@ -237,10 +237,12 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
   if (records.isEmpty) {
     return _notReached(JourneyStage.crop, 'لا حدود مقبولة لتُقصّ.');
   }
+  // A processed asset that carries no crop geometry is the untouched source,
+  // kept so the reviewer sees something — not evidence that a crop happened.
   final processed = [
     for (final record in records)
       for (final side in record.sides)
-        if (side.processedAsset != null) side.processedAsset!,
+        if (side.processedAsset.corners != null) side.processedAsset,
   ];
   if (processed.isNotEmpty) {
     final first = processed.first;

@@ -71,17 +71,15 @@ class ImportNotice {
 class ImportedSourceResult {
   const ImportedSourceResult.success({
     required this.name,
-    required ImageAsset asset,
+    required ImageAsset this.asset,
     required this.durationMs,
-  }) : asset = asset,
-       failure = null;
+  }) : failure = null;
 
   const ImportedSourceResult.failure({
     required this.name,
-    required String failure,
+    required String this.failure,
     required this.durationMs,
-  }) : asset = null,
-       failure = failure;
+  }) : asset = null;
 
   final String name;
   final ImageAsset? asset;

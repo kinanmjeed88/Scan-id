@@ -4,6 +4,15 @@
 /// recognized text itself is never persisted, never logged and never placed in
 /// a backup; only derived keyword scores (without the text) reach
 /// `RecognitionEvidence`.
+///
+/// Classification is dictionary-driven (see [_evidenceGroups]): each document
+/// kind owns independent evidence groups — a title, an optional structural
+/// pattern (MRZ), and supporting field/issuer groups. A kind is evidenced
+/// only when an anchor (title or structural) pairs with a non-overlapping
+/// supporting group, so a generic government word, a personal name, a number
+/// or a filename can never classify a document on its own. When two kinds
+/// both evidence, the classifier reports a conflict and the document goes to
+/// manual classification; nothing is forced.
 library;
 
 import 'dart:math' as math;
@@ -74,13 +83,15 @@ class OcrTextResult {
 }
 
 /// A document-kind keyword hit derived from OCR text. Carries the kind, the
-/// conservative score of a non-overlapping two-group anchor match, and the number of
-/// distinct anchor groups seen. The matched text never leaves the pipeline run.
+/// conservative score of an anchor-plus-support match, the number of distinct
+/// evidence groups seen, and the matched group ids (fixed dictionary ids —
+/// never recognized text, names or numbers).
 class OcrKeywordEvidence {
   OcrKeywordEvidence({
     required this.kind,
     required this.score,
     required this.matchedAnchorGroups,
+    this.matchedGroups = const [],
   }) {
     require(
       score.isFinite && score >= 0 && score <= 1,
@@ -94,109 +105,291 @@ class OcrKeywordEvidence {
   final DocumentKind kind;
   final double score;
   final int matchedAnchorGroups;
+
+  /// Ids of the evidence groups that matched, in dictionary order. Fixed
+  /// strings from the lexicon — never recognized text, names or numbers.
+  final List<String> matchedGroups;
 }
 
+/// Role of one evidence group. A kind is evidenced only when an anchor
+/// ([_EvidenceRole.title] or [_EvidenceRole.structural]) pairs with a
+/// non-overlapping hit from a different group.
+enum _EvidenceRole { title, structural, support }
+
 /// One lexicon group: several spelling/recognition variants of the same
-/// semantic anchor. A type requires its primary group plus at least one
+/// semantic anchor. A type requires its anchor group plus at least one
 /// different corroborating group at a non-overlapping text span.
-class _OcrAnchorGroup {
-  const _OcrAnchorGroup(this.id, this.phrases, {this.primary = false});
+class _EvidenceGroup {
+  const _EvidenceGroup(
+    this.id,
+    this.phrases, {
+    this.role = _EvidenceRole.support,
+  });
 
   final String id;
   final List<String> phrases;
-  final bool primary;
+  final _EvidenceRole role;
 }
 
 /// Conservative Iraqi-document text anchors. Issuer names and generic country
 /// names are never sufficient alone. These rules are lexicon unit tests, not
 /// an OCR engine or a measured field-accuracy claim.
-const _ocrAnchors = <DocumentKind, List<_OcrAnchorGroup>>{
+///
+/// Phrases are written in ordinary orthography and normalized at compile time
+/// (diacritics stripped, alef variants unified, ة→ه, ى→ي), so the dictionary
+/// stays readable and the normalization rules live in exactly one place.
+///
+/// - National ID: the printed title plus its distinctive fields (الرقم
+///   الوطني، فصيلة الدم، …) or the IDIRQ machine-readable zone.
+/// - Residence (information card): the مكتب المعلومات المركزي office
+///   headings plus household fields (اسم رب الأسرة، عنوان السكن، رقم
+///   الاستمارة). The supporting استمارة form carries only the office stamp
+///   and form fields (تاريخ تنظيم الاستمارة، التوقيع) and therefore never
+///   evidences on its own.
+/// - Passport: the printed title plus passport fields, or the P<IRQ
+///   machine-readable zone.
+/// - Civil status and ration keep their established lexicons unchanged.
+const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
   DocumentKind.unifiedNationalId: [
-    _OcrAnchorGroup('title', [
-      'البطاقهالوطنيهالموحده',
-      'البطاقهالوطنيه',
-      'بطاقهوطنيه',
+    _EvidenceGroup('title', [
+      'البطاقة الوطنية',
+      'البطاقة الوطنية الموحدة',
+      'البطاقة الوطنية الشخصية',
+      'بطاقة الوطنية',
+      'national card',
+      'national id',
       'nationalcard',
       'nationalid',
-    ], primary: true),
-    _OcrAnchorGroup('identifier', [
-      'الرقمالوطني',
-      'رقمالبطاقه',
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
+    _EvidenceGroup('identifier', [
+      'الرقم الوطني',
+      'رقم البطاقة',
+      'national number',
+      'id number',
       'nationalnumber',
       'idnumber',
     ]),
-    _OcrAnchorGroup('issuer', ['وزارهالداخليه', 'مديريهشؤونالبطاقهالوطنيه']),
+    _EvidenceGroup('fields', [
+      'الاسم',
+      'اسم الأب',
+      'الأب',
+      'اسم الجد',
+      'الجد',
+      'اللقب',
+      'الأم',
+      'الجنس',
+      'تاريخ الولادة',
+      'فصيلة الدم',
+      'الرقم العائلي',
+      'جهة الإصدار',
+      'تاريخ الإصدار',
+      'تاريخ الانتهاء',
+      'محل الولادة',
+    ]),
+    _EvidenceGroup('issuer', [
+      'وزارة الداخلية',
+      'مديرية الأحوال المدنية والجوازات والإقامة',
+      'مديرية شؤون البطاقة الوطنية',
+    ]),
   ],
   DocumentKind.civilStatusId: [
-    _OcrAnchorGroup('title', [
-      'هويهالاحوالالمدنيه',
-      'بطاقهالاحوالالمدنيه',
-      'هويهالجنسيه',
-      'civilstatusidentity',
-    ], primary: true),
-    _OcrAnchorGroup('registry', [
-      'سجلالنفوس',
-      'رقمالسجل',
-      'رقمالصحيفه',
-      'civilregistry',
+    _EvidenceGroup('title', [
+      'هوية الأحوال المدنية',
+      'بطاقة الأحوال المدنية',
+      'هوية الجنسية',
+      'civil status identity',
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('registry', [
+      'سجل النفوس',
+      'رقم السجل',
+      'رقم الصحيفة',
+      'civil registry',
     ]),
-    _OcrAnchorGroup('citizenship', ['الجنسيه', 'nationality']),
+    _EvidenceGroup('citizenship', ['الجنسية', 'nationality']),
   ],
   DocumentKind.residenceCard: [
-    _OcrAnchorGroup('title', [
-      'بطاقهالسكن',
-      'هويهالسكن',
-      'بطاقهسكن',
+    _EvidenceGroup('title', [
+      'بطاقة السكن',
+      'هوية السكن',
+      'بطاقة سكن',
+      'residence card',
       'residencecard',
-    ], primary: true),
-    _OcrAnchorGroup('address', [
-      'المحله',
-      'الزقاق',
-      'رقمالدار',
-      'رقمالعقار',
-      'residentialaddress',
+      'مكتب المعلومات المركزي',
+      'مديرية مكتب المعلومات المركزي',
+      'مكتب المعلومات',
+      'مكتب معلومات',
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('household', [
+      'اسم رب الأسرة',
+      'عنوان السكن',
+      'رقم الاستمارة',
+      'رقم السكن',
     ]),
-    _OcrAnchorGroup('issuer', ['مديريهالبلديه', 'بلديه']),
+    _EvidenceGroup('address', [
+      'المحلة',
+      'الزقاق',
+      'رقم الدار',
+      'رقم العقار',
+      'residential address',
+    ]),
+    _EvidenceGroup('issuer', ['مديرية البلدية', 'بلدية']),
   ],
   DocumentKind.rationCard: [
-    _OcrAnchorGroup('title', [
-      'البطاقهالتموينيه',
-      'بطاقهتموينيه',
-      'rationcard',
-    ], primary: true),
-    _OcrAnchorGroup('issuer', ['وزارهالتجاره', 'ministryoftrade']),
-    _OcrAnchorGroup('rationDetails', [
-      'الوكيلالتمويني',
-      'المركزالتمويني',
-      'الحصهالتموينيه',
-      'rationcenter',
+    _EvidenceGroup('title', [
+      'البطاقة التموينية',
+      'بطاقة تموينية',
+      'ration card',
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('issuer', ['وزارة التجارة', 'ministry of trade']),
+    _EvidenceGroup('rationDetails', [
+      'الوكيل التمويني',
+      'المركز التمويني',
+      'الحصة التموينية',
+      'ration center',
     ]),
   ],
   DocumentKind.passport: [
-    _OcrAnchorGroup('title', [
-      'جوازالسفر',
-      'جوازسفر',
+    _EvidenceGroup('title', [
+      'جواز السفر',
+      'جواز سفر',
       'passport',
-    ], primary: true),
-    _OcrAnchorGroup('documentNumber', ['رقمالجواز', 'passportno']),
-    _OcrAnchorGroup('personalDataLabels', ['dateofbirth', 'nationality']),
+    ], role: _EvidenceRole.title),
+    _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
+    _EvidenceGroup('documentNumber', [
+      'رقم الجواز',
+      'passport no',
+      'passportno',
+    ]),
+    _EvidenceGroup('personalDataLabels', [
+      'date of birth',
+      'nationality',
+      'full name',
+      'surname',
+      'date of issue',
+      'date of expiry',
+      'issuing authority',
+      'الجنسية',
+      'تاريخ الولادة',
+      'الاسم الكامل',
+      'جهة الإصدار',
+      'تاريخ الإصدار',
+      'تاريخ الانتهاء',
+      'نوع الجواز',
+    ]),
   ],
 };
 
-String _normalize(String value) => value
+/// Shortest phrase that may act as an anchor, in normalised characters.
+///
+/// A two-letter fragment matches inside unrelated words, so an anchor must be a
+/// recognisable word or phrase; the shipped lexicons are all far longer, and the
+/// floor exists to stop a future short entry from turning into a false anchor.
+const int minAnchorLength = 3;
+
+/// Confidence discount for a fuzzy (OCR-error-tolerant) hit, by edit distance.
+/// Fuzzy evidence is always weaker than an exact read of the same line.
+const double _fuzzyDiscount1 = .85;
+const double _fuzzyDiscount2 = .7;
+
+String _stripMarks(String value) =>
+    value.replaceAll(RegExp(r'[\u064B-\u065F\u0670\u0640]'), '');
+
+String _normalizeToken(String token) => token
     .toLowerCase()
-    .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u0640]'), '')
     .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
     .replaceAll('ؤ', 'و')
     .replaceAll('ئ', 'ي')
     .replaceAll('ة', 'ه')
     .replaceAll('ى', 'ي')
     .replaceAll('ک', 'ك')
-    .replaceAll('ی', 'ي')
-    .replaceAll(
-      RegExp(r'[^a-z0-9\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]'),
-      '',
-    );
+    .replaceAll('ی', 'ي');
+
+/// Normalized word tokens of one OCR line. Diacritics are stripped before
+/// splitting so a vocalized word stays one token.
+List<String> _tokensOf(String line) {
+  final parts = _stripMarks(
+    line,
+  ).split(RegExp(r'[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+'));
+  return [
+    for (final part in parts)
+      if (part.isNotEmpty) _normalizeToken(part),
+  ];
+}
+
+/// A dictionary phrase compiled to normalized tokens plus its space-stripped
+/// form (the form searched in space-stripped lines, so merged OCR words still
+/// match while partial-word matches are rejected by boundary alignment).
+class _CompiledPhrase {
+  const _CompiledPhrase(this.tokens, this.stripped);
+
+  final List<String> tokens;
+  final String stripped;
+}
+
+_CompiledPhrase _compilePhrase(String raw) {
+  final tokens = _tokensOf(raw);
+  return _CompiledPhrase(tokens, tokens.join());
+}
+
+class _CompiledGroup {
+  const _CompiledGroup(this.id, this.role, this.phrases);
+
+  final String id;
+  final _EvidenceRole role;
+  final List<_CompiledPhrase> phrases;
+}
+
+List<_CompiledGroup> _compileGroups(List<_EvidenceGroup> groups) {
+  final compiled = <_CompiledGroup>[];
+  for (final group in groups) {
+    final phrases = <_CompiledPhrase>[];
+    for (final phrase in group.phrases) {
+      final compiledPhrase = _compilePhrase(phrase);
+      if (compiledPhrase.stripped.length >= minAnchorLength) {
+        phrases.add(compiledPhrase);
+      }
+    }
+    compiled.add(_CompiledGroup(group.id, group.role, phrases));
+  }
+  return compiled;
+}
+
+Map<DocumentKind, List<_CompiledGroup>> _compileAll(
+  Map<DocumentKind, List<_EvidenceGroup>> groups,
+) {
+  final compiled = <DocumentKind, List<_CompiledGroup>>{};
+  for (final entry in groups.entries) {
+    compiled[entry.key] = _compileGroups(entry.value);
+  }
+  return compiled;
+}
+
+final _compiledGroups = _compileAll(_evidenceGroups);
+
+/// One OCR line in one reading-order view: normalized tokens, their
+/// space-stripped form, the token-boundary offsets inside that form, and the
+/// measured line confidence.
+class _LineView {
+  _LineView(this.tokens, this.confidence)
+    : stripped = tokens.join(),
+      boundaries = _boundariesOf(tokens);
+
+  final List<String> tokens;
+  final String stripped;
+  final List<int> boundaries;
+  final double confidence;
+}
+
+List<int> _boundariesOf(List<String> tokens) {
+  final boundaries = <int>[0];
+  var offset = 0;
+  for (final token in tokens) {
+    offset += token.length;
+    boundaries.add(offset);
+  }
+  return boundaries;
+}
 
 class _AnchorHit {
   const _AnchorHit(this.start, this.end, this.confidence);
@@ -208,99 +401,278 @@ class _AnchorHit {
   bool overlaps(_AnchorHit other) => start < other.end && other.start < end;
 }
 
-/// Shortest phrase that may act as an anchor, in normalised characters.
-///
-/// A two-letter fragment matches inside unrelated words, so an anchor must be a
-/// recognisable word or phrase; the shipped lexicons are all far longer, and the
-/// floor exists to stop a future short entry from turning into a false anchor.
-const int minAnchorLength = 3;
-
-// Match in logical order and in per-line visual Arabic order separately. The
-// offsets are local to each view, so evidence is never paired across views.
-// A phrase may cross ONE OCR line break (split titles), not arbitrary lines.
-List<_AnchorHit> _hits(
-  OcrTextResult result,
-  List<String> lines,
-  _OcrAnchorGroup group,
-) {
+/// Exact hits of [phrase] in one view. A phrase may cross ONE OCR line break
+/// (split titles), not arbitrary lines. Every hit must start and end on token
+/// boundaries, so a phrase never matches inside a longer word.
+List<_AnchorHit> _exactHits(List<_LineView> view, _CompiledPhrase phrase) {
   final hits = <_AnchorHit>[];
   var offset = 0;
-  for (var index = 0; index < lines.length; index++) {
-    final line = lines[index];
-    final next = index + 1 < lines.length ? lines[index + 1] : '';
-    final window = line + next;
-    if (line.isNotEmpty) {
-      for (final phrase in group.phrases) {
-        if (phrase.length < minAnchorLength) continue;
-        var start = window.indexOf(phrase);
-        while (start >= 0 && start < line.length) {
-          final end = start + phrase.length;
-          final confidence = end <= line.length
-              ? result.lines[index].confidence
-              : math
-                    .min(
-                      result.lines[index].confidence,
-                      result.lines[index + 1].confidence,
-                    )
-                    .toDouble();
-          hits.add(_AnchorHit(offset + start, offset + end, confidence));
-          start = window.indexOf(phrase, start + 1);
+  for (var index = 0; index < view.length; index++) {
+    final line = view[index];
+    final next = index + 1 < view.length ? view[index + 1] : null;
+    if (line.stripped.isNotEmpty) {
+      var start = line.stripped.indexOf(phrase.stripped);
+      while (start >= 0) {
+        final end = start + phrase.stripped.length;
+        if (line.boundaries.contains(start) && line.boundaries.contains(end)) {
+          hits.add(_AnchorHit(offset + start, offset + end, line.confidence));
         }
+        start = line.stripped.indexOf(phrase.stripped, start + 1);
       }
     }
-    offset += line.length;
+    if (next != null && line.stripped.isNotEmpty && next.stripped.isNotEmpty) {
+      final window = line.stripped + next.stripped;
+      final windowBoundaries = [
+        ...line.boundaries,
+        for (final boundary in next.boundaries) boundary + line.stripped.length,
+      ];
+      var start = window.indexOf(phrase.stripped);
+      while (start >= 0) {
+        final end = start + phrase.stripped.length;
+        // Only hits that actually cross the line break are new here; hits
+        // fully inside one line were already recorded above.
+        if (start < line.stripped.length &&
+            end > line.stripped.length &&
+            windowBoundaries.contains(start) &&
+            windowBoundaries.contains(end)) {
+          hits.add(
+            _AnchorHit(
+              offset + start,
+              offset + end,
+              math.min(line.confidence, next.confidence).toDouble(),
+            ),
+          );
+        }
+        start = window.indexOf(phrase.stripped, start + 1);
+      }
+    }
+    offset += line.stripped.length;
   }
   return hits;
 }
 
-/// Derives keyword evidence from [result] only when a distinctive document
-/// title and an independent, non-overlapping corroborating anchor occur. The
-/// score is the lower OCR-line confidence of that pair; it is not a calibrated
+/// Levenshtein distance, abandoning early once it exceeds [maxDistance].
+/// Operates on UTF-16 code units; Arabic and Latin text here is BMP.
+int _levenshtein(String a, String b, int maxDistance) {
+  final m = a.length;
+  final n = b.length;
+  if ((m - n).abs() > maxDistance) return maxDistance + 1;
+  var previous = List<int>.generate(n + 1, (j) => j);
+  for (var i = 1; i <= m; i++) {
+    final current = List<int>.filled(n + 1, 0);
+    current[0] = i;
+    var rowMinimum = current[0];
+    for (var j = 1; j <= n; j++) {
+      final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+      current[j] = math.min(
+        math.min(previous[j] + 1, current[j - 1] + 1),
+        previous[j - 1] + cost,
+      );
+      rowMinimum = math.min(rowMinimum, current[j]);
+    }
+    if (rowMinimum > maxDistance) return maxDistance + 1;
+    previous = current;
+  }
+  return previous[n];
+}
+
+/// OCR-error-tolerant hits of [phrase] in one view: whole-token windows whose
+/// stripped form is within a small edit distance of the phrase. Only phrases
+/// of at least six characters are fuzzied, and the hit confidence is
+/// discounted, so approximate similarity alone can never carry a kind — the
+/// two-independent-groups rule still applies.
+List<_AnchorHit> _fuzzyHits(List<_LineView> view, _CompiledPhrase phrase) {
+  final hits = <_AnchorHit>[];
+  final length = phrase.stripped.length;
+  if (length < 6) return hits;
+  final maxEdits = length >= 10 ? 2 : 1;
+  var offset = 0;
+  for (final line in view) {
+    final tokens = line.tokens;
+    final count = phrase.tokens.length;
+    if (tokens.length >= count) {
+      final starts = <int>[];
+      var position = 0;
+      for (final token in tokens) {
+        starts.add(position);
+        position += token.length;
+      }
+      for (var window = 0; window + count <= tokens.length; window++) {
+        final candidate = tokens.sublist(window, window + count).join();
+        final distance = _levenshtein(candidate, phrase.stripped, maxEdits);
+        if (distance == 0 || distance > maxEdits) continue;
+        final start = starts[window];
+        final end =
+            starts[window + count - 1] + tokens[window + count - 1].length;
+        final discount = distance == 1 ? _fuzzyDiscount1 : _fuzzyDiscount2;
+        hits.add(
+          _AnchorHit(offset + start, offset + end, line.confidence * discount),
+        );
+      }
+    }
+    offset += line.stripped.length;
+  }
+  return hits;
+}
+
+/// A validated machine-readable-zone (MRZ) line: the kind it structurally
+/// belongs to and the line confidence (discounted when the prefix needed an
+/// OCR-confusion tolerance).
+class _MrzHit {
+  const _MrzHit(this.kind, this.confidence);
+
+  final DocumentKind kind;
+  final double confidence;
+}
+
+final _passportMrzPrefix = RegExp(r'^P<IR[QO0]');
+final _nationalMrzPrefix = RegExp(r'^IDIR[QO0]');
+final _mrzCharset = RegExp(r'^[A-Z0-9<]+$');
+
+/// Validates one raw OCR line as an MRZ line of a known kind.
+///
+/// The check is structural, never a bare substring: a passport line must start
+/// with `P<IRQ` (Q may be misread as O/0), be at least twenty characters, use
+/// only the MRZ alphabet and contain the `<<` name separator; a national-ID
+/// line must start with `IDIRQ`, be at least twelve characters, use only the
+/// MRZ alphabet and contain a digit. A stray `IRQ` in the middle of a line is
+/// not an MRZ. The check runs on the raw line because normalization strips
+/// the `<` separators the format depends on.
+_MrzHit? _mrzOf(String rawLine, double confidence) {
+  final compact = rawLine.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+  if (compact.length < 12 || !_mrzCharset.hasMatch(compact)) return null;
+  if (_passportMrzPrefix.hasMatch(compact)) {
+    if (compact.length >= 20 && compact.contains('<<')) {
+      final tolerant = !compact.startsWith('P<IRQ');
+      return _MrzHit(
+        DocumentKind.passport,
+        tolerant ? confidence * .9 : confidence,
+      );
+    }
+    return null;
+  }
+  if (_nationalMrzPrefix.hasMatch(compact)) {
+    if (compact.contains(RegExp(r'\d'))) {
+      final tolerant = !compact.startsWith('IDIRQ');
+      return _MrzHit(
+        DocumentKind.unifiedNationalId,
+        tolerant ? confidence * .9 : confidence,
+      );
+    }
+    return null;
+  }
+  return null;
+}
+
+/// Structural MRZ hits of [kind] in view 0 (the as-emitted reading order;
+/// MRZ lines are Latin and never rune-reversed). Each hit spans its whole
+/// line, so it cannot overlap a text phrase on another line.
+List<_AnchorHit> _mrzHits(
+  OcrTextResult result,
+  List<_LineView> view,
+  DocumentKind kind,
+) {
+  final hits = <_AnchorHit>[];
+  var offset = 0;
+  for (var index = 0; index < result.lines.length; index++) {
+    final line = result.lines[index];
+    final mrz = _mrzOf(line.text, line.confidence);
+    if (mrz != null && mrz.kind == kind) {
+      hits.add(
+        _AnchorHit(
+          offset,
+          offset + view[index].stripped.length,
+          mrz.confidence,
+        ),
+      );
+    }
+    offset += view[index].stripped.length;
+  }
+  return hits;
+}
+
+/// Derives keyword evidence from [result] only when an anchor (title or MRZ)
+/// and an independent, non-overlapping corroborating group occur. The score
+/// is the lower OCR-line confidence of that pair; it is not a calibrated
 /// probability that the document kind is correct. The recognized text itself
 /// is discarded and never stored.
 List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   if (!result.isAvailable) return const [];
-  final normalizedLines = [
-    for (final line in result.lines) _normalize(line.text),
-  ];
-  final reversedLines = [
-    for (final line in normalizedLines) reversedRunes(line),
+  // Match in logical order and in per-line visual Arabic order separately.
+  // The offsets are local to each view, so evidence is never paired across
+  // views. A phrase may cross ONE OCR line break (split titles), not
+  // arbitrary lines.
+  final views = <List<_LineView>>[
+    [
+      for (final line in result.lines)
+        _LineView(_tokensOf(line.text), line.confidence),
+    ],
+    [
+      for (final line in result.lines)
+        _LineView(_tokensOf(reversedRunes(line.text)), line.confidence),
+    ],
   ];
   final evidence = <OcrKeywordEvidence>[];
-  final kinds = _ocrAnchors.keys.toList()
+  final kinds = _compiledGroups.keys.toList()
     ..sort((a, b) => a.index.compareTo(b.index));
 
   for (final kind in kinds) {
-    final groups = _ocrAnchors[kind]!;
-    final primary = groups.singleWhere((group) => group.primary);
+    final groups = _compiledGroups[kind]!;
     double? bestScore;
     var bestGroupCount = 0;
-    for (final view in [normalizedLines, reversedLines]) {
-      final primaryHits = _hits(result, view, primary);
-      for (final primaryHit in primaryHits) {
-        final supportingGroups = <String>{};
-        var bestSupportConfidence = 0.0;
-        for (final group in groups.where((entry) => !entry.primary)) {
-          final support = _hits(
-            result,
-            view,
-            group,
-          ).where((hit) => !hit.overlaps(primaryHit)).toList();
-          if (support.isEmpty) continue;
-          supportingGroups.add(group.id);
-          for (final hit in support) {
-            if (hit.confidence > bestSupportConfidence) {
-              bestSupportConfidence = hit.confidence;
-            }
+    var bestGroups = <String>[];
+    for (var viewIndex = 0; viewIndex < views.length; viewIndex++) {
+      final view = views[viewIndex];
+      final hitsByGroup = <String, List<_AnchorHit>>{};
+      for (final group in groups) {
+        final hits = <_AnchorHit>[];
+        for (final phrase in group.phrases) {
+          final exact = _exactHits(view, phrase);
+          if (exact.isNotEmpty) {
+            hits.addAll(exact);
+          } else {
+            hits.addAll(_fuzzyHits(view, phrase));
           }
         }
-        if (supportingGroups.isEmpty) continue;
-        final score = math
-            .min(primaryHit.confidence, bestSupportConfidence)
-            .toDouble();
-        if (bestScore == null || score > bestScore) {
-          bestScore = score;
-          bestGroupCount = 1 + supportingGroups.length;
+        if (group.role == _EvidenceRole.structural && viewIndex == 0) {
+          hits.addAll(_mrzHits(result, view, kind));
+        }
+        if (hits.isNotEmpty) hitsByGroup[group.id] = hits;
+      }
+      for (final group in groups) {
+        if (group.role == _EvidenceRole.support) continue;
+        final anchors = hitsByGroup[group.id];
+        if (anchors == null) continue;
+        for (final anchor in anchors) {
+          final accepted = <_AnchorHit>[anchor];
+          final matched = <String>{group.id};
+          var bestSupport = 0.0;
+          // Candidate supports: every hit from other groups, strongest
+          // first. A hit overlapping an already accepted span (the anchor
+          // or a stronger support) never counts as independent evidence.
+          final candidates = <(String, _AnchorHit)>[
+            for (final entry in hitsByGroup.entries)
+              if (entry.key != group.id)
+                for (final hit in entry.value) (entry.key, hit),
+          ]..sort((a, b) => b.$2.confidence.compareTo(a.$2.confidence));
+          for (final (groupId, hit) in candidates) {
+            if (accepted.any(hit.overlaps)) continue;
+            accepted.add(hit);
+            matched.add(groupId);
+            if (hit.confidence > bestSupport) bestSupport = hit.confidence;
+          }
+          if (matched.length < 2) continue;
+          final score = math.min(anchor.confidence, bestSupport).toDouble();
+          if (bestScore == null ||
+              score > bestScore ||
+              (score == bestScore && matched.length > bestGroupCount)) {
+            bestScore = score;
+            bestGroupCount = matched.length;
+            bestGroups = [
+              for (final entry in groups)
+                if (matched.contains(entry.id)) entry.id,
+            ];
+          }
         }
       }
     }
@@ -310,6 +682,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
         kind: kind,
         score: bestScore,
         matchedAnchorGroups: bestGroupCount,
+        matchedGroups: List.unmodifiable(bestGroups),
       ),
     );
   }

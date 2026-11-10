@@ -23,6 +23,7 @@ import 'imaging/docquad_model.dart';
 import 'imaging/docaligner_model.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
+import 'persistence/journey_log_store.dart';
 import 'persistence/local_project_repository.dart';
 import 'persistence/local_image_editor.dart';
 import 'persistence/local_project_recovery.dart';
@@ -144,6 +145,9 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
     // a missing model reports an explicit unavailable state instead of crashing
     // the startup path.
     ocr: createPlatformOcrEngine(),
+    // The per-image report Settings shows. Construction writes nothing: the
+    // file is created by the first import that has a journey to file.
+    journeyLog: LocalJourneyLog(),
   );
   StartupDiagnostics.mark('services.construct.complete');
   StartupDiagnostics.mark('storage.open.complete');

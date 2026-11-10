@@ -22,6 +22,7 @@ import 'project_recovery.dart';
 import 'ids.dart';
 import 'import_trace.dart';
 import 'image_reader.dart';
+import 'journey_log.dart';
 import 'full_resolution_jpeg_cropper.dart';
 import 'ocr_engine.dart';
 import 'recognition_pipeline.dart';
@@ -60,6 +61,32 @@ class ImportNotice {
   const ImportNotice(this.name, this.message);
   final String name;
   final String message;
+}
+
+/// What the copy phase did with ONE picked source.
+///
+/// Exactly one of [asset] and [failure] is set. This is the only place that
+/// knows the true source-to-asset mapping, which is why the journey log reads it
+/// from here instead of trying to reconstruct it from list order later.
+class ImportedSourceResult {
+  const ImportedSourceResult.success({
+    required this.name,
+    required ImageAsset this.asset,
+    required this.durationMs,
+  }) : failure = null;
+
+  const ImportedSourceResult.failure({
+    required this.name,
+    required String this.failure,
+    required this.durationMs,
+  }) : asset = null;
+
+  final String name;
+  final ImageAsset? asset;
+  final String? failure;
+
+  /// Time spent reading and committing this source, measured per source.
+  final int durationMs;
 }
 
 class ImportReport {
@@ -203,6 +230,7 @@ class ProjectService {
     this.segmenter,
     this.ocr = const UnavailableOcrEngine(),
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
+    this.journeyLog,
     this.smartRecognitionEnabled =
         smart_recognition_flag.smartRecognitionEnabled,
     this.multiDocumentSegmentationEnabled =
@@ -228,6 +256,11 @@ class ProjectService {
   /// native density. Kept injectable because a real platform channel is not
   /// available to the Dart test runner.
   final FullResolutionJpegCropper fullResolutionJpegCropper;
+
+  /// Bounded per-image report the Settings screen reads. Optional because a
+  /// host that has no writable support directory — or a test that does not care
+  /// about reports — must be able to run the pipeline unchanged.
+  final JourneyLog? journeyLog;
 
   /// Recognition gate for this host. An unspecified host defaults to false;
   /// the shipped application explicitly enables it at its composition root.
@@ -319,6 +352,7 @@ class ProjectService {
     List<ImportSource> sources, {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    void Function(ImportedSourceResult result)? onSourceResult,
   }) async {
     var current = project;
     var imported = 0;
@@ -333,17 +367,40 @@ class ProjectService {
       ),
     );
 
+    void reportSource(ImportedSourceResult result) {
+      try {
+        onSourceResult?.call(result);
+      } catch (_) {
+        // A reporting seam must never change what the import committed.
+      }
+    }
+
     report(0);
     for (var index = 0; index < sources.length; index++) {
       final source = sources[index];
+      final sourceClock = Stopwatch()..start();
       if (cancellation?.isCancelled ?? false) {
         // Stop before opening another file: every committed image stays
         // committed and the rest are reported as not imported.
         await _cleanupSource(source);
         failures.add(ImportFailure(source.name, importCancelledMessage));
+        reportSource(
+          ImportedSourceResult.failure(
+            name: source.name,
+            failure: importCancelledMessage,
+            durationMs: sourceClock.elapsedMilliseconds,
+          ),
+        );
         for (final skipped in sources.skip(index + 1)) {
           await _cleanupSource(skipped);
           failures.add(ImportFailure(skipped.name, importCancelledMessage));
+          reportSource(
+            ImportedSourceResult.failure(
+              name: skipped.name,
+              failure: importCancelledMessage,
+              durationMs: 0,
+            ),
+          );
         }
         break;
       }
@@ -369,6 +426,13 @@ class ProjectService {
           phase: 'source',
         );
         imported++;
+        reportSource(
+          ImportedSourceResult.success(
+            name: source.name,
+            asset: asset,
+            durationMs: sourceClock.elapsedMilliseconds,
+          ),
+        );
         if (asset.hasScaledLargeSource) {
           notices.add(
             ImportNotice(
@@ -386,13 +450,25 @@ class ProjectService {
           error: error,
         );
         failures.add(ImportFailure(source.name, error.message));
+        reportSource(
+          ImportedSourceResult.failure(
+            name: source.name,
+            failure: error.message,
+            durationMs: sourceClock.elapsedMilliseconds,
+          ),
+        );
         // The in-memory project is stale; continuing would create more orphans.
         for (final skipped in sources.skip(index + 1)) {
           await _cleanupSource(skipped);
-          failures.add(
-            ImportFailure(
-              skipped.name,
-              'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض حفظ المشروع.',
+          const stopped =
+              'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
+              'حفظ المشروع.';
+          failures.add(ImportFailure(skipped.name, stopped));
+          reportSource(
+            ImportedSourceResult.failure(
+              name: skipped.name,
+              failure: stopped,
+              durationMs: 0,
             ),
           );
         }
@@ -403,7 +479,15 @@ class ProjectService {
           phase: 'import',
           error: error,
         );
-        failures.add(ImportFailure(source.name, userError(error)));
+        final message = userError(error);
+        failures.add(ImportFailure(source.name, message));
+        reportSource(
+          ImportedSourceResult.failure(
+            name: source.name,
+            failure: message,
+            durationMs: sourceClock.elapsedMilliseconds,
+          ),
+        );
       } finally {
         await _cleanupSource(source);
         report(index + 1);

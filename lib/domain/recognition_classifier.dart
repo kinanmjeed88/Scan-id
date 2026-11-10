@@ -76,7 +76,7 @@ bool qualifiesForAutomaticPlacement(
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'explicit-evidence-4';
+const classifierVersion = 'explicit-evidence-5';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];
@@ -96,8 +96,12 @@ ClassificationOutcome classifyDocument(ClassificationInput input) {
         source: EvidenceSource.ocr,
         kind: 'ocr-keyword',
         score: keyword.score,
-        reason:
-            '${keyword.kind.name}:anchor-groups=${keyword.matchedAnchorGroups}',
+        // Group ids are fixed dictionary identifiers (title, mrz, fields, …),
+        // never recognized text: they record which independent evidence
+        // groups fired without leaking names, numbers or raw OCR output.
+        reason: keyword.matchedGroups.isEmpty
+            ? '${keyword.kind.name}:anchor-groups=${keyword.matchedAnchorGroups}'
+            : '${keyword.kind.name}:anchor-groups=${keyword.matchedAnchorGroups}:groups=${keyword.matchedGroups.join(',')}',
       ),
     );
     vote(keyword.kind, EvidenceSource.ocr, keyword.score);

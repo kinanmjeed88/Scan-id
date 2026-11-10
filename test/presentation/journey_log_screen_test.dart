@@ -113,6 +113,19 @@ Future<void> _pumpSettings(
   await tester.pumpAndSettle();
 }
 
+/// Lets real file writes finish: a widget test runs on a fake clock, so the
+/// export's staging file needs real turns of the event loop between pumps.
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 200 && finder.evaluate().isEmpty; attempt++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 10));
+  }
+  await tester.pumpAndSettle();
+  expect(finder, findsOneWidget);
+}
+
 void main() {
   testWidgets('an empty log explains how reports appear instead of showing a '
       'blank list', (tester) async {
@@ -273,12 +286,12 @@ void main() {
   });
 
   testWidgets('the log is exported to one chosen file', (tester) async {
-    final folder = await Directory.systemTemp.createTemp('journey-ui-');
-    addTearDown(() => folder.delete(recursive: true));
+    final folder = Directory.systemTemp.createTempSync('journey-ui-');
+    addTearDown(() => folder.deleteSync(recursive: true));
     String? written;
     final exporter = JourneyExporter(
       saveFile: (file, mime) async {
-        written = await file.readAsString();
+        written = file.readAsStringSync();
         return true;
       },
       temporaryDirectory: () async => folder,
@@ -291,19 +304,19 @@ void main() {
     );
 
     await tester.tap(find.text('تصدير سجل معالجة الصور'));
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(tester, find.textContaining('حُفظ السجل: 1 تقريراً'));
 
     expect(written, isNotNull);
     expect(written, contains('scan-id-journey-log'));
-    expect(find.textContaining('حُفظ السجل: 1 تقريراً'), findsOneWidget);
     expect(find.textContaining('2026-11-09-1345'), findsOneWidget);
+    expect(folder.listSync(), isEmpty);
   });
 
   testWidgets('a cancelled export reports it and writes nothing', (
     tester,
   ) async {
-    final folder = await Directory.systemTemp.createTemp('journey-ui-');
-    addTearDown(() => folder.delete(recursive: true));
+    final folder = Directory.systemTemp.createTempSync('journey-ui-');
+    addTearDown(() => folder.deleteSync(recursive: true));
     await _pumpSettings(
       tester,
       _FakeJourneyLog([_journey()]),
@@ -314,10 +327,9 @@ void main() {
     );
 
     await tester.tap(find.text('تصدير سجل معالجة الصور'));
-    await tester.pumpAndSettle();
+    await _pumpUntilFound(tester, find.textContaining('أُلغي التصدير'));
 
-    expect(find.textContaining('أُلغي التصدير'), findsOneWidget);
-    expect(await folder.list().toList(), isEmpty);
+    expect(folder.listSync(), isEmpty);
   });
 
   testWidgets('an empty log offers no export at all', (tester) async {

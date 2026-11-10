@@ -6,11 +6,17 @@ import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 
-ImageAsset assetNamed(String id, String name) => ImageAsset(
+ImageAsset assetNamed(
+  String id,
+  String name, {
+  String? derivedFrom,
+  String? workingPath,
+}) => ImageAsset(
   id: id,
   name: name,
+  derivedFrom: derivedFrom,
   originalPath: 'projects/project1/assets/$id/original.png',
-  workingPath: 'projects/project1/assets/$id/working.png',
+  workingPath: workingPath ?? 'projects/project1/assets/$id/working.png',
   thumbnailPath: 'projects/project1/assets/$id/thumb.jpg',
   width: 1200,
   height: 1600,
@@ -23,16 +29,17 @@ DocumentSide side({
   List<String> trace = const [],
   bool suggestion = false,
   bool cropped = true,
+  String? processedPath,
 }) => DocumentSide(
   id: id,
   side: SideKind.unknown,
   processedAsset: ProcessedAssetRef(
-    workingPath: 'projects/project1/processed/$id.png',
+    workingPath: processedPath ?? 'projects/project1/processed/$id.png',
     thumbnailPath: 'projects/project1/processed/$id-thumb.jpg',
     width: 400,
     height: 250,
-    outputWidth: 1011,
-    outputHeight: 638,
+    outputWidth: cropped ? 1011 : null,
+    outputHeight: cropped ? 638 : null,
     corners: cropped
         ? [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)]
         : null,
@@ -381,6 +388,43 @@ void main() {
       expect(detail.contains('\n'), isFalse);
     });
 
+    test('an extracted region without corners is not reported as a perspective warp', () {
+      final report = projectWith(
+        assets: [
+          assetNamed('a1', 'صورة.jpg'),
+          assetNamed(
+            'derived1',
+            'مشتق.png',
+            derivedFrom: 'a1',
+            workingPath: 'projects/project1/processed/s1.png',
+          ),
+        ],
+        items: [
+          placedItem(
+            assetId: 'derived1',
+            pageIndex: null,
+            sizeConfirmed: false,
+            documentId: 'd1',
+          ),
+        ],
+        documents: [
+          record(
+            documentSide: side(cropped: false),
+            recognition: recognized(),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final crop = byStage(journey)[JourneyStage.crop]!;
+      expect(crop.outcome, JourneyOutcome.review);
+      expect(crop.detail, contains('اقتُطعت المنطقة المقاسة'));
+      expect(crop.detail, contains('دون تصحيح منظور'));
+      expect(crop.detail, contains('400×250 بكسل'));
+    });
+
     test('the detection step names each detector and what it measured', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
@@ -396,6 +440,8 @@ void main() {
                 'aspect=1.583',
                 'area=0.410',
                 'geometry=0.870',
+                'catalogAspect=1.587',
+                'catalogShape=mismatch',
               ],
             ),
             recognition: recognized(),
@@ -413,6 +459,8 @@ void main() {
       expect(detail, contains('نسبة الحدود 1.58:1'));
       expect(detail, contains('مساحة الحدود 41.0٪'));
       expect(detail, contains('جودة الهندسة 87.0٪'));
+      expect(detail, contains('نسبة الكتالوج 1.59:1'));
+      expect(detail, contains('النسبة المقاسة لا تطابق الكتالوج'));
       expect(detail, contains('لم تتوفر حدود صالحة من كاشف ثانٍ'));
       expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
     });

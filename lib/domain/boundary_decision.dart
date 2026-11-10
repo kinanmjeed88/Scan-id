@@ -55,6 +55,8 @@ import 'document_kind.dart';
 import 'geometry.dart';
 import 'image_adjustments.dart';
 import 'quad_assessment.dart';
+import 'recognition_classifier.dart';
+import 'recognition_routing.dart';
 import 'validation.dart';
 
 /// Outer refusal for a catalog claim. Dimensionless ratio of two long/short
@@ -119,9 +121,9 @@ enum BoundaryReviewReason {
   /// corroboration was insufficient. Keep it, but do not auto-crop it.
   multiSceneNotCorroborated,
 
-  /// Classical candidate ranking is not a calibrated probability. Preserve a
-  /// valid proposal for manual review until a local labelled calibration set
-  /// establishes a defensible automatic-accept policy.
+  /// Classical candidate ranking is not a calibrated probability. A valid
+  /// proposal stays in review unless the separate, narrow catalog-shape
+  /// corroboration gate succeeds.
   uncalibratedClassicalScore,
 
   /// Two learned models returned materially different quadrilaterals. Keep one
@@ -328,11 +330,15 @@ class BoundaryProposal {
 
 /// What verification measured about a proposal. Every field is a measured
 /// value or an explicit absence — nothing is fabricated to fill a gap.
+enum BoundaryCorroboration { classicalCatalogAspect }
+
 class BoundaryVerification {
   const BoundaryVerification({
     required this.assessment,
     required this.reasons,
     this.measuredAspect,
+    this.corroboration,
+    this.corroboratingAspect,
   });
 
   /// Geometry assessment of the corners, null when there were none to assess.
@@ -344,6 +350,12 @@ class BoundaryVerification {
   /// Long/short aspect measured from the quadrilateral in pixel space,
   /// present only for an accepted-geometry proposal.
   final double? measuredAspect;
+
+  /// Explicit independent evidence used to resolve a narrow review reason.
+  final BoundaryCorroboration? corroboration;
+
+  /// Catalog long/short aspect used by that corroboration, when any.
+  final double? corroboratingAspect;
 
   bool get hasUsableGeometry => assessment?.acceptable ?? false;
 }
@@ -400,6 +412,75 @@ class BoundaryDecision {
     }
     return (measured / imposed - 1).abs() <= shapeTolerance;
   }
+}
+
+/// Resolves only a geometrically usable classical proposal whose sole review
+/// reason is its uncalibrated score. A uniquely classified, qualified kind and
+/// its catalog aspect provide independent semantic corroboration; the measured
+/// quad still has to match within [shapeTolerance]. Learned proposals,
+/// arbitration-forced review, frame-touching, region disagreement and every
+/// other refusal remain review-only.
+BoundaryDecision corroborateClassicalBoundaryWithCatalog({
+  required BoundaryDecision decision,
+  required ClassificationOutcome classification,
+  required DocumentSizeCatalog catalog,
+  RecognitionThresholds thresholds = defaultThresholds,
+}) {
+  final proposal = decision.proposal;
+  if (decision.kind != BoundaryDecisionKind.needsReview ||
+      proposal.producer != BoundaryProducer.detector ||
+      proposal.forceReview ||
+      decision.verification.reasons.length != 1 ||
+      decision.verification.reasons.single !=
+          BoundaryReviewReason.uncalibratedClassicalScore ||
+      !decision.verification.hasUsableGeometry ||
+      !qualifiesForAutomaticPlacement(classification, thresholds: thresholds)) {
+    return decision;
+  }
+  final size = catalog.natural(classification.kind);
+  final measured = decision.verification.measuredAspect;
+  if (size == null || measured == null || !measured.isFinite || measured <= 0) {
+    return decision;
+  }
+  final expected = size.aspect;
+  if ((measured / expected - 1).abs() > shapeTolerance) return decision;
+  final priorAspect = proposal.imposedAspect;
+  if (priorAspect != null &&
+      (!priorAspect.isFinite ||
+          priorAspect <= 0 ||
+          (expected / priorAspect - 1).abs() > shapeTolerance)) {
+    return decision;
+  }
+  if (proposal.imposedKindLabel != null &&
+      proposal.imposedKindLabel != classification.kind.label) {
+    return decision;
+  }
+
+  final corroboratedProposal = BoundaryProposal(
+    producer: proposal.producer,
+    corners: proposal.corners,
+    region: proposal.region,
+    imposedAspect: expected,
+    imposedKindLabel: classification.kind.label,
+    modelConfidence: proposal.modelConfidence,
+    minAutoAcceptConfidence: proposal.minAutoAcceptConfidence,
+    touchesFrameEdge: proposal.touchesFrameEdge,
+    forceReview: proposal.forceReview,
+    forceReviewReason: proposal.forceReviewReason,
+    traces: proposal.traces,
+    disagreementFraction: proposal.disagreementFraction,
+  );
+  return BoundaryDecision(
+    kind: BoundaryDecisionKind.accepted,
+    proposal: corroboratedProposal,
+    verification: BoundaryVerification(
+      assessment: decision.verification.assessment,
+      reasons: const [],
+      measuredAspect: measured,
+      corroboration: BoundaryCorroboration.classicalCatalogAspect,
+      corroboratingAspect: expected,
+    ),
+  );
 }
 
 /// The only permission an automatic intake path may use to warp a source.

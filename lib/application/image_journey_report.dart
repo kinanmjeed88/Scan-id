@@ -140,9 +140,9 @@ List<JourneyStep> _stepsFor(
   ];
 
   steps.add(_detectionStep(records, items));
-  steps.add(_cropStep(records));
+  steps.add(_cropStep(records, project.assets));
   steps.add(_recognitionStep(records));
-  steps.add(_sizingStep(items));
+  steps.add(_sizingStep(items, records));
   steps.add(_placementStep(project, items));
   steps.add(_saveStep(savedRevision, isLast: isLast));
   return steps;
@@ -213,9 +213,10 @@ JourneyStep _detectionStep(
       if (measured.isNotEmpty) 'الكشف: $measured',
       if (reasons.isNotEmpty) reasons,
     ].join(' — ');
+    final accepted = detections.any((detection) => detection.polygon != null);
     return JourneyStep(
       stage: JourneyStage.detection,
-      outcome: JourneyOutcome.review,
+      outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
       detail: _clip(detail),
     );
   }
@@ -307,6 +308,15 @@ String _describeDetectionTrace(Iterable<String> codes) {
       parts.add('مساحة الحدود ${_percent(number)} من الصورة');
     } else if (key == 'geometry' && number != null) {
       parts.add('جودة الهندسة ${_percent(number)}');
+    } else if (key == 'catalogAspect' && number != null) {
+      parts.add('نسبة الكتالوج ${number.toStringAsFixed(2)}:1');
+    } else if (key == 'catalogShape' && raw == 'match') {
+      parts.add('النسبة المقاسة تطابق الكتالوج');
+    } else if (key == 'catalogShape' && raw == 'mismatch') {
+      parts.add('النسبة المقاسة لا تطابق الكتالوج');
+    } else if (key == 'corroboration' &&
+        raw == BoundaryCorroboration.classicalCatalogAspect.name) {
+      parts.add('تأييد الكاشف الكلاسيكي بنسبة النوع');
     } else if (key == 'rejection') {
       parts.add(_quadRejectionLabel(raw));
     }
@@ -314,12 +324,12 @@ String _describeDetectionTrace(Iterable<String> codes) {
   return parts.join(' · ');
 }
 
-JourneyStep _cropStep(List<DocumentRecord> records) {
+JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
   if (records.isEmpty) {
     return _notReached(JourneyStage.crop, 'لا حدود مقبولة لتُقصّ.');
   }
-  // A processed asset that carries no crop geometry is the untouched source,
-  // kept so the reviewer sees something — not evidence that a crop happened.
+  // Four saved corners identify a perspective warp. A region extraction with
+  // no corners is classified separately below, never mislabeled as a warp.
   final processed = [
     for (final record in records)
       for (final side in record.sides)
@@ -336,7 +346,30 @@ JourneyStep _cropStep(List<DocumentRecord> records) {
     return JourneyStep(
       stage: JourneyStage.crop,
       outcome: JourneyOutcome.passed,
-      detail: 'قُصّت الزوايا الأربع وأُنتجت نسخة معالجة $size$count.',
+      detail:
+          'صُحّح المنظور بالزوايا الأربع وأُنتجت نسخة $size$count.',
+    );
+  }
+  final extractedRegions = [
+    for (final record in records)
+      for (final side in record.sides)
+        if (side.processedAsset.corners == null &&
+            assets.any(
+              (asset) =>
+                  asset.workingPath == side.processedAsset.workingPath &&
+                  asset.derivedFrom == record.sourceImageId,
+            ))
+          side.processedAsset,
+  ];
+  if (extractedRegions.isNotEmpty) {
+    final first = extractedRegions.first;
+    final size = '${first.width}×${first.height} بكسل';
+    return JourneyStep(
+      stage: JourneyStage.crop,
+      outcome: JourneyOutcome.review,
+      detail:
+          'اقتُطعت المنطقة المقاسة دون تصحيح منظور ($size)؛ '
+          'الزوايا الأربع ما زالت تحتاج مراجعة يدوية.',
     );
   }
   final hasSuggestion = records.any(
@@ -437,7 +470,10 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
   );
 }
 
-JourneyStep _sizingStep(List<DocumentItem> items) {
+JourneyStep _sizingStep(
+  List<DocumentItem> items,
+  List<DocumentRecord> records,
+) {
   if (items.isEmpty) {
     return _notReached(JourneyStage.sizing, 'لا مستند بعد لتأكيد مقاسه.');
   }
@@ -447,16 +483,26 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
       ? null
       : '${natural.width.toStringAsFixed(1)} × '
             '${natural.height.toStringAsFixed(1)} مم';
+  final traces = {
+    for (final record in records)
+      for (final side in record.sides) ...?side.detection?.detectionTrace,
+  };
   if (item.sizeConfirmed && natural != null) {
     final provenance = documentSizeRecordFor(item.documentKind).provenance;
-    final basis = provenance == SizeProvenance.documented
+    final basis = item.hasUserConfirmedSize
+        ? 'تأكيد يدوي'
+        : provenance == SizeProvenance.documented
         ? 'مقاس مطبوع موثّق'
         : 'مقاس تقديري قابل للتعديل';
+    final shape = traces.contains('catalogShape=match')
+        ? 'بعد تطابق شكل القص المقاس'
+        : 'وفق المقاس المثبّت';
     return JourneyStep(
       stage: JourneyStage.sizing,
       outcome: JourneyOutcome.passed,
       detail:
-          'ثُبِّت مقاس النوع «${item.documentKind.label}» ($basis): $sizeText.',
+          'ثُبِّت مقاس النوع «${item.documentKind.label}» ($basis، $shape) '
+          'دون تمديد: $sizeText.',
     );
   }
   if (item.documentKind == DocumentKind.unknown) {
@@ -475,16 +521,31 @@ JourneyStep _sizingStep(List<DocumentItem> items) {
           'أدخل القياس بالمليمتر وثبّته قبل الوضع على A4.',
     );
   }
-  // A size exists for this kind but was not confirmed: either the boundary was
-  // not accepted (no trusted warp), or the measured shape contradicted it, or
-  // the person has not confirmed it yet. Name the size so the gap is visible.
+  final provenance = documentSizeRecordFor(item.documentKind).provenance;
+  if (provenance == SizeProvenance.estimated) {
+    return JourneyStep(
+      stage: JourneyStage.sizing,
+      outcome: JourneyOutcome.review,
+      detail:
+          'مقاس «${item.documentKind.label}» تقديري قابل للتعديل ($sizeText)؛ '
+          'المقاس المؤقت ${item.width.toStringAsFixed(1)} × '
+          '${item.height.toStringAsFixed(1)} مم. أكّده يدوياً قبل الوضع على A4.',
+    );
+  }
+  // A documented size exists but was not confirmed. The measured shape and
+  // absence of an approved crop remain distinct reasons in the trace.
+  final shapeMismatch = traces.contains('catalogShape=mismatch');
+  final reason = shapeMismatch
+      ? 'النسبة المقاسة لا تطابق الكتالوج؛ لم يُمدَّد القص.'
+      : 'لم يتوفر قصّ منظور معتمد.';
   return JourneyStep(
     stage: JourneyStage.sizing,
     outcome: JourneyOutcome.review,
     detail:
-        'المقاس المرجعي لنوع «${item.documentKind.label}» هو $sizeText، '
-        'لكنه لم يُثبَّت بعد؛ يلزم قصّ حدود معتمد أو تأكيدك للمقاس '
-        'قبل الوضع التلقائي على A4.',
+        'المقاس المرجعي لنوع «${item.documentKind.label}» هو $sizeText '
+        'ولم يُثبَّت ($reason). المقاس المؤقت '
+        '${item.width.toStringAsFixed(1)} × '
+        '${item.height.toStringAsFixed(1)} مم؛ أكّده قبل الوضع التلقائي على A4.',
   );
 }
 

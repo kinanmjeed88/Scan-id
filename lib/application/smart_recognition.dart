@@ -2132,6 +2132,7 @@ class SmartIntake {
           detection: _detectionRef(
             detection,
             producer: producer,
+            catalog: current.catalog,
             suggestedPolygon: suggestedPolygon,
           ),
         ),
@@ -2172,6 +2173,7 @@ class SmartIntake {
           detection: _detectionRef(
             detection,
             producer: producer,
+            catalog: current.catalog,
             suggestedPolygon: suggestedPolygon,
           ),
         ),
@@ -2194,6 +2196,7 @@ class SmartIntake {
   DetectionRef _detectionRef(
     DetectionAnalysis detection, {
     required String producer,
+    required DocumentSizeCatalog catalog,
     List<Point2>? suggestedPolygon,
   }) {
     final isAi =
@@ -2206,6 +2209,11 @@ class SmartIntake {
     final area = measuredShape?.areaFraction;
     final geometry = measuredShape?.geometryConfidence;
     final rejection = measuredShape?.rejection;
+    final catalogAspect = catalog.natural(detection.classification.kind)?.aspect;
+    final catalogShapeMatches =
+        aspect != null &&
+        catalogAspect != null &&
+        (aspect / catalogAspect - 1).abs() <= shapeTolerance;
     final traces = decision?.proposal.traces ?? const <BoundaryDetectorTrace>[];
     return DetectionRef(
       boundaryDiagnostics: [
@@ -2227,6 +2235,11 @@ class SmartIntake {
         for (final entry in traces) entry.encode(),
         if (disagreement != null) 'disagreement=${_fixed(disagreement)}',
         if (aspect != null) 'aspect=${_fixed(aspect)}',
+        if (catalogAspect != null) 'catalogAspect=${_fixed(catalogAspect)}',
+        if (aspect != null && catalogAspect != null)
+          'catalogShape=${catalogShapeMatches ? 'match' : 'mismatch'}',
+        if (decision?.verification.corroboration != null)
+          'corroboration=${decision!.verification.corroboration!.name}',
         if (area != null) 'area=${_fixed(area)}',
         if (geometry != null) 'geometry=${_fixed(geometry)}',
         if (rejection != null) 'rejection=${rejection.name}',

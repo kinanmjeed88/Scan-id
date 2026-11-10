@@ -335,17 +335,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final exporter = widget.journeyExporter ?? JourneyExporter();
       final outcome = await exporter.export(journeys);
       if (!mounted) return;
-      showMessage(
-        context,
-        switch (outcome.status) {
-          JourneyExportStatus.saved =>
-            'حُفظ السجل: ${outcome.entries} تقريراً في «${outcome.fileName}».',
-          JourneyExportStatus.cancelled =>
-            'أُلغي التصدير؛ لم يُحفظ أي ملف ولم يتغيّر السجل.',
-          JourneyExportStatus.empty =>
-            'لا توجد تقارير لتصديرها بعد؛ ستظهر بعد أول استيراد.',
-        },
-      );
+      showMessage(context, switch (outcome.status) {
+        JourneyExportStatus.saved =>
+          'حُفظ السجل: ${outcome.entries} تقريراً في «${outcome.fileName}».',
+        JourneyExportStatus.cancelled =>
+          'أُلغي التصدير؛ لم يُحفظ أي ملف ولم يتغيّر السجل.',
+        JourneyExportStatus.empty =>
+          'لا توجد تقارير لتصديرها بعد؛ ستظهر بعد أول استيراد.',
+      });
     } on Object catch (error) {
       if (mounted) showMessage(context, userError(error));
     } finally {

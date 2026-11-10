@@ -58,10 +58,10 @@ void main() {
     });
 
     test('the document is versioned, counted and readable', () {
-      final document = encodeJourneyExport(
-        [journeyFor('first'), journeyFor('second')],
-        exportedAt: DateTime.utc(2026, 11, 9, 10, 45),
-      );
+      final document = encodeJourneyExport([
+        journeyFor('first'),
+        journeyFor('second'),
+      ], exportedAt: DateTime.utc(2026, 11, 9, 10, 45));
       final decoded = jsonDecode(document) as Map<String, Object?>;
       expect(decoded['format'], journeyExportFormat);
       expect(decoded['version'], journeyExportVersion);
@@ -75,10 +75,9 @@ void main() {
     });
 
     test('the export keeps the log order and adds no document text', () {
-      final document = encodeJourneyExport(
-        [journeyFor('first')],
-        exportedAt: DateTime.utc(2026, 11, 9),
-      );
+      final document = encodeJourneyExport([
+        journeyFor('first'),
+      ], exportedAt: DateTime.utc(2026, 11, 9));
       expect(document.contains('first.png'), isTrue);
       expect(document.contains('الاسم'), isFalse);
       expect(document.contains('الرقم الوطني'), isFalse);
@@ -138,12 +137,12 @@ void main() {
     });
 
     test('the staging folder is removed after the dialog closes', () async {
-      await exporter(save: (file, type) async => true).export([
-        journeyFor('first'),
-      ]);
-      await exporter(save: (file, type) async => false).export([
-        journeyFor('second'),
-      ]);
+      await exporter(
+        save: (file, type) async => true,
+      ).export([journeyFor('first')]);
+      await exporter(
+        save: (file, type) async => false,
+      ).export([journeyFor('second')]);
       expect(await temporary.list().toList(), isEmpty);
     });
 

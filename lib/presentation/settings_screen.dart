@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,11 +8,13 @@ import '../application/app_release.dart';
 import '../application/backup_transfer.dart';
 import '../application/cancellation.dart';
 import '../application/contracts.dart';
+import '../application/journey_log.dart';
 import '../application/ota_update.dart';
 import '../application/project_service.dart';
 import '../application/update_installer.dart';
 import '../application/update_setup.dart';
 import '../domain/project.dart';
+import 'journey_log_screen.dart';
 import 'shared.dart';
 import 'update_prompt.dart';
 
@@ -37,6 +40,7 @@ class SettingsScreen extends StatefulWidget {
     this.currentVersion,
     this.updateInstaller,
     this.updateService,
+    this.journeyLog,
     super.key,
   });
 
@@ -58,12 +62,50 @@ class SettingsScreen extends StatefulWidget {
   /// to leave the screen while it runs. `null` builds the real one.
   final UpdateService? updateService;
 
+  /// The per-image report log. `null` means this host keeps no log; the section
+  /// then states that instead of showing an empty screen. The shipped app
+  /// supplies the on-device log at its composition root.
+  final JourneyLog? journeyLog;
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
+  JourneyLogStats _journeyStats = JourneyLogStats.empty;
+  bool _journeyStatsLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshJourneyStats());
+  }
+
+  Future<void> _refreshJourneyStats() async {
+    final log = widget.journeyLog;
+    if (log == null) return;
+    JourneyLogStats stats;
+    try {
+      stats = await log.stats();
+    } on Object {
+      stats = JourneyLogStats.empty;
+    }
+    if (!mounted) return;
+    setState(() {
+      _journeyStats = stats;
+      _journeyStatsLoaded = true;
+    });
+  }
+
+  Future<void> _openJourneyLog() async {
+    final log = widget.journeyLog;
+    if (log == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => JourneyLogScreen(log: log)),
+    );
+    await _refreshJourneyStats();
+  }
 
   bool get _canSave =>
       widget.service.backups != null || widget.saveBackup != null;
@@ -90,6 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             slivers: [
               SliverToBoxAdapter(child: _backupSection()),
               SliverToBoxAdapter(child: _storageSection()),
+              SliverToBoxAdapter(child: _journeySection()),
               SliverToBoxAdapter(child: _developerSection()),
               SliverToBoxAdapter(child: _updateSection()),
               if (_busy)
@@ -184,6 +227,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
     ],
   );
+
+  /// The report log: one entry per imported image, with the path it took from
+  /// the picker to the sheet. Reading it is a diagnostic; deleting it touches
+  /// nothing but the log itself, which the card says in those words.
+  Widget _journeySection() {
+    final log = widget.journeyLog;
+    final stats = _journeyStatsLoaded ? _journeyStats : null;
+    final String summary;
+    if (stats == null) {
+      summary = 'جارٍ قراءة حجم السجل…';
+    } else if (stats.isEmpty) {
+      summary = 'لا توجد تقارير محفوظة بعد.';
+    } else {
+      summary = 'تقارير محفوظة: ${stats.entries} صورة · ${stats.sizeLabel}';
+    }
+    return _SettingsCard(
+      title: 'سجل معالجة الصور',
+      intro:
+          'لكل صورة تُضاف تقرير مفصّل يبيّن ما جرى لها بالترتيب: من اختيارها، '
+          'إلى نسخها، إلى قرار الحدود والقص، إلى قراءة النص وتحديد النوع '
+          'والمقاس، إلى وضعها على ورقة A4 وحفظ المشروع.',
+      notice:
+          'السجل لا يحتوي نصاً مقروءاً من أي مستند ولا بيانات شخصية ولا صور؛ '
+          'كل سطر يصف مرحلة وقرارها ودرجتها فقط، ويُحفظ داخل مساحة التطبيق '
+          'على جهازك.',
+      children: [
+        if (log == null)
+          const ListTile(
+            enabled: false,
+            leading: Icon(Icons.receipt_long_outlined),
+            title: Text('السجل غير مفعّل في هذه النسخة'),
+            subtitle: Text(
+              'لم يزوّد هذا التشغيل سجلاً للتخزين، فلا يوجد تقرير لعرضه.',
+            ),
+          )
+        else ...[
+          ExplainedAction(
+            icon: Icons.receipt_long_outlined,
+            title: 'فتح سجل معالجة الصور',
+            summary: summary,
+            details:
+                'ما تجده: بطاقة لكل صورة اختيرت في أي استيراد، وفيها مراحلها '
+                'بالترتيب من «اختيار الصورة» حتى «حفظ المشروع»، ومع كل مرحلة '
+                'نتيجتها وسببها والزمن المقاس إن قيس.\n\n'
+                'كيف يُبنى: من السجلات المحفوظة فعلاً — الصورة المستوردة، وقرار '
+                'الحدود، ونسخة القص، ودرجة تصنيف النوع، ومقاس المستند، وموضع '
+                'العنصر على الورقة. لا يُخمَّن شيء ولا يُعاد تشغيل المعالجة.\n\n'
+                'ما لا تجده: نص المستند المقروء، أو أي بيانات شخصية منه. '
+                'المرحلة تذكر القرار ودرجته فقط، حتى تقرأ سبب الرفض دون كشف '
+                'محتوى المستمسك.',
+            onTap: _openJourneyLog,
+          ),
+          if (stats != null && !stats.isEmpty)
+            ExplainedAction(
+              icon: Icons.delete_outline,
+              title: 'حذف سجل معالجة الصور',
+              summary: 'يحذف التقارير وحدها؛ لا صورة ولا مشروعاً ولا ورقة.',
+              details:
+                  'ما الذي يُحذف: ملف السجل فقط. تبقى صورك ومشاريعك ومواضع '
+                  'المستمسكات على الورق كما هي تماماً.\n\n'
+                  'متى تحتاجه: إذا أردت تقارير مختصرة تبدأ من الآن. تُكتب '
+                  'التقارير من جديد مع كل استيراد تالٍ.\n\n'
+                  'لا يوجد تراجع عن الحذف؛ لكن السجل لا يحمل أي بيانات لا '
+                  'تملكها في مكان آخر.',
+              destructive: true,
+              onTap: _busy ? null : _clearJourneyLog,
+            ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _clearJourneyLog() async {
+    final log = widget.journeyLog;
+    if (log == null || _busy) return;
+    final yes = await confirm(
+      context,
+      'حذف سجل معالجة الصور؟',
+      'يُحذف السجل فقط: لن تُحذف أي صورة، ولن يتغيّر أي مشروع أو ورقة. '
+          'التقارير الجديدة تُكتب عند الاستيراد التالي.',
+      confirmLabel: 'حذف السجل',
+      destructive: true,
+    );
+    if (!yes || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await log.clear();
+    } on Object {
+      // Leave the log as it was; the refreshed count tells the truth.
+    }
+    await _refreshJourneyStats();
+    if (mounted) setState(() => _busy = false);
+  }
 
   Widget _developerSection() => _SettingsCard(
     title: 'البيانات الشخصية للمطور',

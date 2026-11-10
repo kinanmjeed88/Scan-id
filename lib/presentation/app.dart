@@ -250,6 +250,7 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
           service: widget.service,
           recoverStorage: widget.recoverStorage,
           restoreBackup: widget.restoreBackup,
+          journeyLog: widget.service.journeyLog,
         ),
       ),
     );

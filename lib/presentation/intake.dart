@@ -26,9 +26,11 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../application/cancellation.dart';
+import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
+import '../domain/image_journey.dart';
 import '../domain/project.dart';
 
 /// The outcome of one intake run.
@@ -84,6 +86,12 @@ class IntakeRunner {
   bool get isRunning => _running;
   ImportTrace? get lastTrace => _lastTrace;
 
+  /// The reports filed for the run that just finished, in pick order. Exposed
+  /// so a screen can offer «افتح السجل» right where the import happened; the
+  /// durable copy is the one Settings reads.
+  List<ImageJourney> get lastJourneys => _lastJourneys;
+  List<ImageJourney> _lastJourneys = const [];
+
   /// Whether a cancellation has been requested and is waiting for the next
   /// checkpoint.
   bool get isCancelling => _token.isCancelled;
@@ -110,10 +118,34 @@ class IntakeRunner {
   }) async {
     if (_running) throw StateError('IntakeRunner is already running');
     _lastTrace = context;
+    _lastJourneys = const [];
     final token = _token = CancellationToken();
     final taskId = context.taskId;
+    final startedAt = DateTime.now().toUtc();
+    final picked = <ImportedImageFact>[];
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
+
+    // Files this run's reports. Reporting is a courtesy: a full disk, a
+    // revoked directory or a malformed entry must never turn a successful
+    // import into a failed one, so failures here are swallowed on purpose.
+    Future<void> fileJourneys(Project latest, {bool committed = true}) async {
+      final log = service.journeyLog;
+      if (log == null || picked.isEmpty) return;
+      final journeys = buildImageJourneys(
+        batchId: taskId,
+        project: latest,
+        images: picked,
+        startedAt: startedAt,
+        savedRevision: committed ? latest.revision : null,
+      );
+      _lastJourneys = journeys;
+      try {
+        await log.append(journeys);
+      } on Object {
+        // The import already succeeded; the report can be missing.
+      }
+    }
     var terminal = 'failed';
     void reportProgress(BatchProgress progress) {
       final phase = progress.stage == importStageLabel
@@ -151,6 +183,14 @@ class IntakeRunner {
           sources,
           cancellation: token,
           onProgress: reportProgress,
+          onSourceResult: (result) => picked.add(
+            ImportedImageFact(
+              name: result.name,
+              assetId: result.asset?.id,
+              failureMessage: result.failure,
+              copyDurationMs: result.durationMs,
+            ),
+          ),
         );
       } catch (error) {
         trace('import', 'failed', error);
@@ -174,6 +214,7 @@ class IntakeRunner {
         } on Object catch (recoveryError) {
           trace('manual-recovery', 'failed', recoveryError);
         }
+        await fileJourneys(latest, committed: importedIds.isNotEmpty);
         return IntakeRun(
           project: latest,
           import: ImportReport(latest, importedIds.length, const []),
@@ -272,6 +313,7 @@ class IntakeRunner {
           : failure != null || import.failures.isNotEmpty
           ? 'failed'
           : 'completed';
+      await fileJourneys(latest, committed: importedIds.isNotEmpty);
       return IntakeRun(
         project: latest,
         import: import,

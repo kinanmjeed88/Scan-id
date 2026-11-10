@@ -89,6 +89,7 @@ DocumentItem placedItem({
   int? pageIndex = 0,
   bool sizeConfirmed = true,
   DocumentKind kind = DocumentKind.unifiedNationalId,
+  String? documentId,
 }) => DocumentItem(
   id: id,
   assetId: assetId,
@@ -99,6 +100,7 @@ DocumentItem placedItem({
   pageIndex: pageIndex,
   sizeConfirmed: sizeConfirmed,
   documentKind: kind,
+  documentId: documentId,
 );
 
 Project projectWith({
@@ -146,7 +148,7 @@ void main() {
     test('a processed image reports every stage as passed', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'البطاقة.jpg')],
-        items: [placedItem()],
+        items: [placedItem(documentId: 'd1')],
         documents: [record(recognition: recognized())],
       );
       final journey = build(
@@ -224,6 +226,7 @@ void main() {
             kind: DocumentKind.unknown,
             sizeConfirmed: false,
             pageIndex: null,
+            documentId: 'd1',
           ),
         ],
         documents: [
@@ -251,7 +254,7 @@ void main() {
     test('an unread image never claims text', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
-        items: [placedItem()],
+        items: [placedItem(documentId: 'd1')],
         documents: [record(recognition: recognized(ocr: null))],
       );
       final journey = build(
@@ -266,7 +269,7 @@ void main() {
     test('a recorded boundary refusal states its reason', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
-        items: [placedItem(pageIndex: null)],
+        items: [placedItem(pageIndex: null, documentId: 'd1')],
         documents: [
           record(
             documentSide: side(
@@ -289,7 +292,7 @@ void main() {
     test('several recorded reasons are summarised', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
-        items: [placedItem(pageIndex: null)],
+        items: [placedItem(pageIndex: null, documentId: 'd1')],
         documents: [
           record(
             documentSide: side(
@@ -313,7 +316,10 @@ void main() {
     test('several images keep pick order and distinct ids', () {
       final first = assetNamed('a1', 'أول.jpg');
       final second = assetNamed('a2', 'ثانٍ.jpg');
-      final items = [placedItem(id: 'i1'), placedItem(id: 'i2', assetId: 'a2')];
+      final items = [
+        placedItem(id: 'i1', documentId: 'd1'),
+        placedItem(id: 'i2', assetId: 'a2', documentId: 'd2'),
+      ];
       final documents = [
         record(id: 'd1', recognition: recognized()),
         record(id: 'd2', source: 'a2', recognition: recognized()),
@@ -347,7 +353,9 @@ void main() {
             derivedFrom: 'a1',
           ),
         ],
-        items: [placedItem(assetId: 'crop1', sizeConfirmed: false)],
+        items: [
+          placedItem(assetId: 'crop1', sizeConfirmed: false, documentId: 'd1'),
+        ],
         documents: [record(recognition: recognized())],
       );
       final journey = build(
@@ -362,7 +370,7 @@ void main() {
     test('the report never carries recognized text', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
-        items: [placedItem()],
+        items: [placedItem(documentId: 'd1')],
         documents: [record(recognition: recognized())],
       );
       final journey = build(

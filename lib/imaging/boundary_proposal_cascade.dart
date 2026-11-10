@@ -69,7 +69,7 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
         sourceWidth,
         sourceHeight,
       );
-      if (disagreement > materialDisagreementFraction) {
+      if (_materiallyDisagrees(disagreement)) {
         return first
             .withDiagnostics(
               traces: traces,
@@ -113,6 +113,12 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
       traces: traces,
     );
   }
+
+  /// True when the measured corner displacement exceeds the shared tolerance,
+  /// so the two models are describing different quadrilaterals. The number
+  /// itself is kept for the audit trail; this predicate is the decision.
+  bool _materiallyDisagrees(double disagreementFraction) =>
+      disagreementFraction > materialDisagreementFraction;
 
   BoundaryDetectorTrace _traceOf(
     BoundaryProposalModel model,

@@ -257,6 +257,17 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
             journey.steps[index],
             isLast: index == journey.steps.length - 1,
           ),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SelectableText(
+              'معرّف ثابت للصورة: ${journey.id}',
+              style: Theme.of(context).textTheme.bodySmall,
+              textDirection: TextDirection.ltr,
+            ),
+          ),
+        ),
       ],
     ),
   );

@@ -2132,6 +2132,7 @@ class SmartIntake {
           detection: _detectionRef(
             detection,
             producer: producer,
+            catalog: current.catalog,
             suggestedPolygon: suggestedPolygon,
           ),
         ),
@@ -2172,6 +2173,7 @@ class SmartIntake {
           detection: _detectionRef(
             detection,
             producer: producer,
+            catalog: current.catalog,
             suggestedPolygon: suggestedPolygon,
           ),
         ),
@@ -2189,15 +2191,32 @@ class SmartIntake {
     );
   }
 
+  static String _fixed(double value) => value.toStringAsFixed(3);
+
   DetectionRef _detectionRef(
     DetectionAnalysis detection, {
     required String producer,
+    required DocumentSizeCatalog catalog,
     List<Point2>? suggestedPolygon,
   }) {
     final isAi =
         detection.boundaryDecision?.proposal.producer ==
         BoundaryProducer.learnedModel;
     final decision = detection.boundaryDecision;
+    final disagreement = decision?.proposal.disagreementFraction;
+    final measuredShape = decision?.verification.assessment;
+    final aspect = measuredShape?.aspect;
+    final area = measuredShape?.areaFraction;
+    final geometry = measuredShape?.geometryConfidence;
+    final rejection = measuredShape?.rejection;
+    final catalogAspect = catalog
+        .natural(detection.classification.kind)
+        ?.aspect;
+    final catalogShapeMatches =
+        aspect != null &&
+        catalogAspect != null &&
+        (aspect / catalogAspect - 1).abs() <= shapeTolerance;
+    final traces = decision?.proposal.traces ?? const <BoundaryDetectorTrace>[];
     return DetectionRef(
       boundaryDiagnostics: [
         if (decision != null)
@@ -2209,6 +2228,23 @@ class SmartIntake {
                   decision.proposal.minAutoAcceptConfidence ??
                   boundaryAcceptanceThreshold,
             ),
+      ],
+      // Measured facts, in the order the decision used them: what each model
+      // returned, how far apart the two quads were, and the measured shape.
+      // Codes and numbers only, so the journey report can explain a refusal
+      // without ever storing recognized text or a path.
+      detectionTrace: [
+        for (final entry in traces) entry.encode(),
+        if (disagreement != null) 'disagreement=${_fixed(disagreement)}',
+        if (aspect != null) 'aspect=${_fixed(aspect)}',
+        if (catalogAspect != null) 'catalogAspect=${_fixed(catalogAspect)}',
+        if (aspect != null && catalogAspect != null)
+          'catalogShape=${catalogShapeMatches ? 'match' : 'mismatch'}',
+        if (decision?.verification.corroboration != null)
+          'corroboration=${decision!.verification.corroboration!.name}',
+        if (area != null) 'area=${_fixed(area)}',
+        if (geometry != null) 'geometry=${_fixed(geometry)}',
+        if (rejection != null) 'rejection=${rejection.name}',
       ],
       detectionId: detection.detectionId,
       producer: producer,

@@ -186,6 +186,10 @@ void main() {
     expect(detection, lessThan(placement));
 
     expect(find.text('الحافة قريبة من إطار الصورة.'), findsOneWidget);
+    expect(
+      find.textContaining('معرّف ثابت للصورة: batch-0001-asset1'),
+      findsOneWidget,
+    );
     expect(find.text('تحتاج مراجعة'), findsOneWidget);
     expect(find.text('تمّت'), findsWidgets);
   });

@@ -6,11 +6,17 @@ import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 
-ImageAsset assetNamed(String id, String name) => ImageAsset(
+ImageAsset assetNamed(
+  String id,
+  String name, {
+  String? derivedFrom,
+  String? workingPath,
+}) => ImageAsset(
   id: id,
   name: name,
+  derivedFrom: derivedFrom,
   originalPath: 'projects/project1/assets/$id/original.png',
-  workingPath: 'projects/project1/assets/$id/working.png',
+  workingPath: workingPath ?? 'projects/project1/assets/$id/working.png',
   thumbnailPath: 'projects/project1/assets/$id/thumb.jpg',
   width: 1200,
   height: 1600,
@@ -20,18 +26,23 @@ DocumentSide side({
   String id = 's1',
   double? confidence = 0.82,
   List<String> diagnostics = const [],
+  List<String> trace = const [],
   bool suggestion = false,
+  bool cropped = true,
+  String? processedPath,
 }) => DocumentSide(
   id: id,
   side: SideKind.unknown,
   processedAsset: ProcessedAssetRef(
-    workingPath: 'projects/project1/processed/$id.png',
+    workingPath: processedPath ?? 'projects/project1/processed/$id.png',
     thumbnailPath: 'projects/project1/processed/$id-thumb.jpg',
     width: 400,
     height: 250,
-    outputWidth: 1011,
-    outputHeight: 638,
-    corners: [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+    outputWidth: cropped ? 1011 : null,
+    outputHeight: cropped ? 638 : null,
+    corners: cropped
+        ? [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)]
+        : null,
   ),
   detection: DetectionRef(
     detectionId: 'det-$id',
@@ -41,6 +52,7 @@ DocumentSide side({
         ? null
         : Confidence(value: confidence),
     boundaryDiagnostics: diagnostics,
+    detectionTrace: trace,
     suggestedPolygon: suggestion
         ? [Point2(0.1, 0.1), Point2(0.9, 0.9), Point2(0.2, 0.8), Point2(0, 1)]
         : null,
@@ -71,6 +83,7 @@ RecognitionResult recognized({
   RecognitionStatus status = RecognitionStatus.recognized,
   double? ocr = 0.9,
   double? classification = 0.82,
+  List<RecognitionEvidence> evidence = const [],
 }) => RecognitionResult(
   documentKind: kind,
   status: status,
@@ -80,6 +93,7 @@ RecognitionResult recognized({
         ? null
         : Confidence(value: classification),
   ),
+  evidence: evidence,
   preset: const PresetSelection.resolved('unified-national-id'),
 );
 
@@ -248,7 +262,67 @@ void main() {
       expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.review);
       expect(steps[JourneyStage.recognition]!.detail, contains('تعارضت'));
+      expect(
+        steps[JourneyStage.recognition]!.detail,
+        isNot(contains('Closure')),
+      );
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
+    });
+
+    test('a classified image reports the measured percentage', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [placedItem(documentId: 'd1')],
+        documents: [record(recognition: recognized())],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final recognition = byStage(journey)[JourneyStage.recognition]!;
+      expect(recognition.outcome, JourneyOutcome.passed);
+      expect(recognition.detail, contains('90.0٪'));
+      expect(recognition.detail, contains('82.0٪'));
+      expect(recognition.detail, isNot(contains('Closure')));
+    });
+
+    test('an uncertain kind lists the evidence categories it saw', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [
+          placedItem(
+            kind: DocumentKind.unknown,
+            sizeConfirmed: false,
+            pageIndex: null,
+            documentId: 'd1',
+          ),
+        ],
+        documents: [
+          record(
+            recognition: recognized(
+              kind: DocumentKind.unknown,
+              status: RecognitionStatus.uncertain,
+              classification: 0.41,
+              evidence: [
+                RecognitionEvidence(
+                  source: EvidenceSource.ocr,
+                  kind: 'ocr-keyword',
+                  score: 0.41,
+                  reason: 'passport:anchor-groups=2:groups=title,fields',
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final recognition = byStage(journey)[JourneyStage.recognition]!;
+      expect(recognition.detail, contains('العنوان المطبوع'));
+      expect(recognition.detail, contains('حقول الهوية'));
+      expect(recognition.detail, isNot(contains('Closure')));
     });
 
     test('an unread image never claims text', () {
@@ -308,9 +382,184 @@ void main() {
       ).single;
       final detail = byStage(journey)[JourneyStage.detection]!.detail;
       expect(detail, contains('الحافة قريبة.'));
-      expect(detail, contains('ملاحظة أخرى'));
+      expect(detail, contains('التحقق لم يكتمل.'));
+      expect(detail, isNot(contains('ملاحظة أخرى')));
       expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
       expect(detail.contains('\n'), isFalse);
+    });
+
+    test(
+      'an extracted region without corners is not reported as a perspective warp',
+      () {
+        final report = projectWith(
+          assets: [
+            assetNamed('a1', 'صورة.jpg'),
+            assetNamed(
+              'derived1',
+              'مشتق.png',
+              derivedFrom: 'a1',
+              workingPath: 'projects/project1/assets/derived1/working.png',
+            ),
+          ],
+          items: [
+            placedItem(
+              assetId: 'derived1',
+              pageIndex: null,
+              sizeConfirmed: false,
+              documentId: 'd1',
+            ),
+          ],
+          documents: [
+            record(
+              documentSide: side(
+                cropped: false,
+                processedPath: 'projects/project1/assets/derived1/working.png',
+              ),
+              recognition: recognized(),
+            ),
+          ],
+        );
+        final journey = build(
+          project: report,
+          images: picked('صورة.jpg', assetId: 'a1'),
+        ).single;
+        final crop = byStage(journey)[JourneyStage.crop]!;
+        expect(crop.outcome, JourneyOutcome.review);
+        expect(crop.detail, contains('اقتُطعت المنطقة المقاسة'));
+        expect(crop.detail, contains('دون تصحيح منظور'));
+        expect(crop.detail, contains('400×250 بكسل'));
+      },
+    );
+
+    test('the detection step names each detector and what it measured', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [
+          placedItem(pageIndex: null, sizeConfirmed: false, documentId: 'd1'),
+        ],
+        documents: [
+          record(
+            documentSide: side(
+              diagnostics: const ['لم تتوفر حدود صالحة من كاشف ثانٍ للتحقق.'],
+              trace: const [
+                'model=docquadnet256;outcome=proposal;confidence=0.620',
+                'model=docaligner-1.1.1-fastvit-sa24;outcome=failed;'
+                    'error=OnnxRuntimeException',
+                'aspect=1.583',
+                'area=0.410',
+                'geometry=0.870',
+                'catalogAspect=1.587',
+                'catalogShape=mismatch',
+              ],
+            ),
+            recognition: recognized(),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final detail = byStage(journey)[JourneyStage.detection]!.detail;
+      expect(detail, contains('DocQuadNet اقترح زوايا بدرجة 62.0٪'));
+      expect(detail, contains('DocAligner تعذّر تشغيله'));
+      expect(detail, contains('OnnxRuntimeException'));
+      expect(detail, contains('نسبة الحدود 1.58:1'));
+      expect(detail, contains('مساحة الحدود 41.0٪'));
+      expect(detail, contains('جودة الهندسة 87.0٪'));
+      expect(detail, contains('لم تتوفر حدود صالحة من كاشف ثانٍ'));
+      final sizing = byStage(journey)[JourneyStage.sizing]!.detail;
+      expect(sizing, contains('النسبة المقاسة لا تطابق الكتالوج'));
+      expect(sizing, contains('1.59:1'));
+      expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
+    });
+
+    test('a manual crop repeats the measured proposal', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [placedItem(pageIndex: null, documentId: 'd1')],
+        documents: [
+          record(
+            documentSide: side(
+              suggestion: true,
+              cropped: false,
+              trace: const ['aspect=1.583', 'area=0.410'],
+            ),
+            recognition: recognized(),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final detail = byStage(journey)[JourneyStage.crop]!.detail;
+      expect(detail, contains('الزوايا المقترحة'));
+      expect(detail, contains('نسبة الحدود 1.58:1'));
+      expect(detail, contains('مساحة الحدود 41.0٪'));
+    });
+
+    test('a known size that is not confirmed says which size is waiting', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [
+          placedItem(
+            kind: DocumentKind.unifiedNationalId,
+            sizeConfirmed: false,
+            pageIndex: null,
+            documentId: 'd1',
+          ),
+        ],
+        documents: [record(recognition: recognized())],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final detail = byStage(journey)[JourneyStage.sizing]!.detail;
+      expect(detail, contains('المقاس المرجعي'));
+      expect(detail, contains('85.6 × 54.0 مم'));
+    });
+
+    test('weak kind signals are named instead of denied', () {
+      final report = projectWith(
+        assets: [assetNamed('a1', 'صورة.jpg')],
+        items: [
+          placedItem(
+            kind: DocumentKind.unknown,
+            sizeConfirmed: false,
+            pageIndex: null,
+            documentId: 'd1',
+          ),
+        ],
+        documents: [
+          record(
+            recognition: recognized(
+              kind: DocumentKind.unknown,
+              status: RecognitionStatus.unknown,
+              classification: 0.41,
+              evidence: [
+                RecognitionEvidence(
+                  source: EvidenceSource.ocr,
+                  kind: 'ocr-keyword',
+                  score: 0.41,
+                  reason:
+                      'residenceCard:anchor-groups=2:'
+                      'groups=title,household',
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+      final journey = build(
+        project: report,
+        images: picked('صورة.jpg', assetId: 'a1'),
+      ).single;
+      final detail = byStage(journey)[JourneyStage.recognition]!.detail;
+      expect(detail, contains('إشارات لـ«بطاقة السكن»'));
+      expect(detail, contains('دون حد القبول'));
+      expect(detail, contains('حقول رب الأسرة'));
     });
 
     test('several images keep pick order and distinct ids', () {

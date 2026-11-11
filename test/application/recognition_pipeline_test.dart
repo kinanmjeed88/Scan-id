@@ -126,6 +126,26 @@ class _ThrowingOcr implements OcrEngine {
   }) async => throw StateError('engine crashed');
 }
 
+class _QualifiedIdOcr implements OcrEngine {
+  @override
+  String get version => 'synthetic-id-ocr';
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async => OcrTextResult.available(
+    lines: [
+      OcrLine(text: 'البطاقة الوطنية الموحدة', confidence: .96),
+      OcrLine(text: 'الرقم الوطني', confidence: .94),
+    ],
+    engineVersion: version,
+  );
+}
+
 class _RecordingOcr implements OcrEngine {
   final crops = <img.Image>[];
 
@@ -160,6 +180,42 @@ class _RecordingOcr implements OcrEngine {
 }
 
 void main() {
+  test(
+    'a qualified kind and matching catalog shape resolve only a classical score review',
+    () async {
+      final preview = img.Image(width: 160, height: 100);
+      img.fill(preview, color: img.ColorRgb8(235, 233, 228));
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (_) async => null,
+        segment: (_) async => SegmentationResult(
+          candidates: [
+            SegmentCandidate(
+              region: [0, 0, 1, 1],
+              corners: _quad(),
+              producer: BoundaryProducer.detector,
+              reason: 'test-classical-quad',
+            ),
+          ],
+          multi: false,
+        ),
+        ocr: _QualifiedIdOcr(),
+      );
+      final analysis = await pipeline.analyze(
+        _input(previewBytes: Uint8List.fromList(img.encodePng(preview))),
+      );
+      final detection = analysis.detections.single;
+
+      expect(detection.classification.kind, DocumentKind.unifiedNationalId);
+      expect(detection.boundaryDecision!.kind, BoundaryDecisionKind.accepted);
+      expect(
+        detection.boundaryDecision!.verification.corroboration,
+        BoundaryCorroboration.classicalCatalogAspect,
+      );
+      expect(detection.cropAuthorization, isNotNull);
+      expect(detection.suggestedCorners, isNull);
+    },
+  );
+
   test('single proposal preserves the forced review reason', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (_) async => null,

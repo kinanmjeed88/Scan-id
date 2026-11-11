@@ -106,8 +106,8 @@ class DetectionAnalysis {
 
   /// The shared Proposal → Verification → Decision result for this region.
   /// Automatic crops may proceed only when it grants [cropAuthorization].
-  /// It checks measured geometry, region consistency and detector review rules;
-  /// it does not classify the document or measure its physical edge.
+  /// It checks measured geometry and region consistency; only the narrow
+  /// classical/catalog corroboration gate may also consult a qualified kind.
   final BoundaryDecision? boundaryDecision;
 
   /// Measured segmenter support; absent for the single-document detector
@@ -363,9 +363,10 @@ class RecognitionPipeline {
       var forceReview = false;
       BoundaryReviewReason? forceReviewReason;
       var producer = BoundaryProducer.wholeFrameDetector;
+      BoundaryProposal? prop;
       try {
         if (suggestProposal != null) {
-          final prop = await ImportTrace.stage(
+          prop = await ImportTrace.stage(
             'detection',
             () => suggestProposal!(input.previewBytes),
             phase: 'boundary',
@@ -407,6 +408,8 @@ class RecognitionPipeline {
           touchesFrameEdge: touchesEdge,
           forceReview: forceReview,
           forceReviewReason: forceReviewReason,
+          traces: prop?.traces ?? const [],
+          disagreementFraction: prop?.disagreementFraction,
           issues: issues,
           token: token,
         ),
@@ -440,6 +443,8 @@ class RecognitionPipeline {
     List<double>? region,
     int regionIndex = 0,
     bool isolatedRegion = false,
+    List<BoundaryDetectorTrace> traces = const [],
+    double? disagreementFraction,
   }) async {
     QuadAssessment? assessment;
     var usableCorners = corners;
@@ -489,9 +494,10 @@ class RecognitionPipeline {
           : input.sourceWidth / input.sourceHeight;
     }
 
-    // Boundary authorization is independent of document kind, OCR and catalog
-    // dimensions. It verifies measured geometry/region and the detector's own
-    // review constraints; classification cannot veto or authorize a crop.
+    // First apply the source-independent geometry and detector review gate.
+    // After OCR classification, only a sole classical-score refusal may be
+    // corroborated by a qualified kind's matching catalog aspect; learned and
+    // explicitly disputed proposals never use that exception.
     final effectiveProducer =
         producer ??
         (region == null
@@ -511,6 +517,8 @@ class RecognitionPipeline {
         touchesFrameEdge: touchesFrameEdge,
         forceReview: forceReview,
         forceReviewReason: forceReviewReason,
+        traces: traces,
+        disagreementFraction: disagreementFraction,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,
@@ -523,25 +531,6 @@ class RecognitionPipeline {
       }
       usableCorners = null;
       boundary = DetectionBoundary.rejected;
-      // Geometry rejection was already reported above. Aspect and region
-      // disagreements are new reasons and must be visible to the user.
-      if (!decision.verification.reasons.contains(
-        BoundaryReviewReason.geometryRejected,
-      )) {
-        for (final reason in decision.verification.reasons) {
-          issues.add(
-            BatchItemFailure(
-              category: RecognitionErrorCategory.geometryFailure,
-              message: boundaryReviewReasonMessage(
-                reason,
-                modelConfidence: decision.proposal.modelConfidence,
-                minAutoAcceptConfidence:
-                    decision.proposal.minAutoAcceptConfidence,
-              ),
-            ),
-          );
-        }
-      }
     }
 
     // OCR is optional evidence: it only sees this document's authorized quad or
@@ -639,6 +628,36 @@ class RecognitionPipeline {
         thresholds: thresholds,
       ),
     );
+    final resolvedDecision = corroborateClassicalBoundaryWithCatalog(
+      decision: decision,
+      classification: classification,
+      catalog: catalog,
+      thresholds: thresholds,
+    );
+    if (resolvedDecision.kind == BoundaryDecisionKind.accepted &&
+        decision.kind != BoundaryDecisionKind.accepted) {
+      usableCorners = resolvedDecision.acceptedCorners;
+      reviewSuggestedCorners = null;
+      boundary = DetectionBoundary.trustworthy;
+    } else if (corners != null &&
+        resolvedDecision.kind != BoundaryDecisionKind.accepted &&
+        !resolvedDecision.verification.reasons.contains(
+          BoundaryReviewReason.geometryRejected,
+        )) {
+      for (final reason in resolvedDecision.verification.reasons) {
+        issues.add(
+          BatchItemFailure(
+            category: RecognitionErrorCategory.geometryFailure,
+            message: boundaryReviewReasonMessage(
+              reason,
+              modelConfidence: resolvedDecision.proposal.modelConfidence,
+              minAutoAcceptConfidence:
+                  resolvedDecision.proposal.minAutoAcceptConfidence,
+            ),
+          ),
+        );
+      }
+    }
     final natural = catalog.natural(classification.kind);
     final orientation = estimateOrientation(
       pixelAspect: heldAspect,
@@ -647,7 +666,7 @@ class RecognitionPipeline {
 
     return DetectionAnalysis(
       detectionId: detectionId,
-      corners: decision.cropAuthorization?.corners ?? usableCorners,
+      corners: resolvedDecision.cropAuthorization?.corners ?? usableCorners,
       suggestedCorners: reviewSuggestedCorners,
       detectionConfidence: detectionConfidence,
       geometry: assessment,
@@ -656,7 +675,7 @@ class RecognitionPipeline {
       region: region,
       boundary: boundary,
       regionIndex: regionIndex,
-      boundaryDecision: decision,
+      boundaryDecision: resolvedDecision,
     );
   }
 }

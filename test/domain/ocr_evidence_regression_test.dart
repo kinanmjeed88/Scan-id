@@ -408,4 +408,158 @@ void main() {
       expect(outcome.evidence, isEmpty);
     });
   });
+
+  // Wording taken from the printed headings and field labels of the reference
+  // cards (fronts, backs and the passport data page). Only generic labels are
+  // reproduced here: no name, number, date or other value from any card.
+  group('printed wording of the reference cards', () {
+    test('national ID front: the printed blood-group and number fields', () {
+      final evidence = _single([
+        'جمهورية العراق',
+        'وزارة الداخلية',
+        'مديرية الأحوال المدنية والجوازات والإقامة',
+        'البطاقة الوطنية',
+        'الاسم',
+        'الأب',
+        'الجد',
+        'اللقب',
+        'الأم',
+        'الجنس',
+        'الزمرة',
+        'الرقم الوطني',
+      ]);
+      expect(evidence.kind, DocumentKind.unifiedNationalId);
+      expect(evidence.matchedGroups, contains('fields'));
+      expect(evidence.matchedGroups, contains('identifier'));
+    });
+
+    test('national ID back: MRZ, issue authority and the travelled fields', () {
+      final evidence = _single([
+        'مديرية الجنسية والمعلومات المدنية',
+        'تاريخ الإصدار',
+        'تاريخ النفاذ',
+        'محل الولادة',
+        'الرقم العائلي',
+        'IDIRQA0000000000000000000<<<',
+      ]);
+      expect(evidence.kind, DocumentKind.unifiedNationalId);
+      expect(evidence.matchedGroups, contains('mrz'));
+      expect(evidence.matchedGroups, contains('issuer'));
+      expect(evidence.matchedGroups, contains('fields'));
+    });
+
+    test('residence card front: the central-information office and household '
+        'fields', () {
+      final evidence = _single([
+        'مديرية مكتب المعلومات المركزي',
+        'اسم رب الأسرة',
+        'عنوان السكن',
+        'رقم الاستمارة',
+      ]);
+      expect(evidence.kind, DocumentKind.residenceCard);
+      expect(evidence.matchedGroups, contains('title'));
+      expect(evidence.matchedGroups, contains('household'));
+    });
+
+    test('the printed card name on the back beside household fields', () {
+      final evidence = _single([
+        'بطاقة معلومات سكن',
+        'اسم رب الأسرة',
+        'عنوان السكن',
+      ]);
+      expect(evidence.kind, DocumentKind.residenceCard);
+    });
+
+    test('a detached form side stays a manual choice, never a card', () {
+      expect(
+        _kinds([
+          'مديرية مكتب المعلومات المركزي',
+          'الرمز',
+          'التسلسل',
+          'تاريخ تنظيم الاستمارة',
+          'اسم ورتبة منظم الاستمارة',
+          'التوقيع',
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('passport data page: printed labels around the photograph', () {
+      final evidence = _single([
+        'REPUBLIC OF IRAQ',
+        'Passport',
+        'Type',
+        'Country',
+        'Nationality',
+        'Full Name',
+        'Surname',
+        'Date of Birth',
+        'Place of Birth',
+        'Mother Name',
+        'Date of Issue',
+        'Date of Expiry',
+        'Issuing Authority',
+      ]);
+      expect(evidence.kind, DocumentKind.passport);
+      expect(evidence.matchedGroups, contains('personalDataLabels'));
+    });
+
+    test('a relatives page of a passport never invents a document kind', () {
+      expect(
+        _kinds([
+          'Relatives to contact when needed',
+          'Name',
+          'Address',
+          'Relationship',
+          'Signature of passport holder',
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('a residence heading beside national fields is a conflict', () {
+      final evidence = ocrKeywordEvidence(
+        _ocr([
+          'مديرية مكتب المعلومات المركزي',
+          'اسم رب الأسرة',
+          'عنوان السكن',
+          'البطاقة الوطنية',
+          'الرقم الوطني',
+        ]),
+      );
+      expect(evidence.map((entry) => entry.kind), [
+        DocumentKind.unifiedNationalId,
+        DocumentKind.residenceCard,
+      ]);
+      final outcome = classifyDocument(
+        ClassificationInput(ocrKeywords: evidence, ocrConfidence: .9),
+      );
+      expect(outcome.status, RecognitionStatus.uncertain);
+    });
+
+    test('generic card wording never evidences on its own', () {
+      expect(_kinds(['بطاقة شخصية', 'الاسم']), isEmpty);
+      expect(_kinds(['الزمرة', 'الاسم']), isEmpty);
+      expect(_kinds(['تاريخ النفاذ']), isEmpty);
+    });
+
+    test('every evidence group carries an Arabic audit label', () {
+      final fixtures = <List<String>>[
+        ['البطاقة الوطنية', 'الاسم', 'الزمرة', 'الرقم الوطني'],
+        ['IDIRQA0000000000000000000<<<', 'تاريخ الإصدار'],
+        ['مديرية مكتب المعلومات المركزي', 'اسم رب الأسرة'],
+        ['Passport', 'Place of Birth', 'Mother Name'],
+        ['هوية الأحوال المدنية', 'سجل النفوس'],
+        ['البطاقة التموينية', 'الوكيل التمويني'],
+      ];
+      for (final lines in fixtures) {
+        for (final entry in ocrKeywordEvidence(_ocr(lines))) {
+          expect(entry.matchedGroups, isNotEmpty, reason: lines.join(' | '));
+          for (final id in entry.matchedGroups) {
+            expect(evidenceGroupLabels.containsKey(id), isTrue, reason: id);
+          }
+        }
+      }
+    });
+  });
 }

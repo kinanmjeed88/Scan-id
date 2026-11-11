@@ -55,6 +55,8 @@ import 'document_kind.dart';
 import 'geometry.dart';
 import 'image_adjustments.dart';
 import 'quad_assessment.dart';
+import 'recognition_classifier.dart';
+import 'recognition_routing.dart';
 import 'validation.dart';
 
 /// Outer refusal for a catalog claim. Dimensionless ratio of two long/short
@@ -119,9 +121,9 @@ enum BoundaryReviewReason {
   /// corroboration was insufficient. Keep it, but do not auto-crop it.
   multiSceneNotCorroborated,
 
-  /// Classical candidate ranking is not a calibrated probability. Preserve a
-  /// valid proposal for manual review until a local labelled calibration set
-  /// establishes a defensible automatic-accept policy.
+  /// Classical candidate ranking is not a calibrated probability. A valid
+  /// proposal stays in review unless the separate, narrow catalog-shape
+  /// corroboration gate succeeds.
   uncalibratedClassicalScore,
 
   /// Two learned models returned materially different quadrilaterals. Keep one
@@ -132,6 +134,96 @@ enum BoundaryReviewReason {
   /// Only one learned detector produced usable geometry; it is a suggestion,
   /// not an independently corroborated automatic crop.
   modelNotCorroborated,
+}
+
+/// What one boundary detector actually did in one cascade run.
+///
+/// This is a factual trace, not a score: the fixed model id, a machine
+/// outcome, the model's own score when it emitted one, and the error TYPE
+/// only. Messages are never captured — they can carry paths, and the trace is
+/// persisted in the project and shown in the journey report.
+enum BoundaryDetectorOutcome {
+  /// Returned a quadrilateral that passed the geometry checks.
+  proposal,
+
+  /// Ran, but found no document quadrilateral.
+  noQuad,
+
+  /// Returned a quadrilateral the geometry checks refused.
+  geometryRejected,
+
+  /// Could not run at all: missing asset, native session, timeout or crash.
+  failed,
+}
+
+class BoundaryDetectorTrace {
+  const BoundaryDetectorTrace({
+    required this.modelId,
+    required this.outcome,
+    this.confidence,
+    this.errorType,
+  }) : assert(errorType == null || outcome == BoundaryDetectorOutcome.failed);
+
+  final String modelId;
+  final BoundaryDetectorOutcome outcome;
+
+  /// The model's own emitted score, when it produced one. Uncalibrated.
+  final double? confidence;
+
+  /// Runtime type of the failure (never its message).
+  final String? errorType;
+
+  /// Compact, stable encoding for persistence: ids, enum names and numbers
+  /// only — never recognized text, a path or an error message.
+  String encode() => [
+    'model=$modelId',
+    'outcome=${outcome.name}',
+    if (confidence != null) 'confidence=${confidence!.toStringAsFixed(3)}',
+    if (errorType != null) 'error=$errorType',
+  ].join(';');
+
+  /// Reads [encode] output; unknown or damaged traces decode to null instead
+  /// of inventing an outcome.
+  static BoundaryDetectorTrace? decode(String code) {
+    String? value(String key) {
+      for (final part in code.split(';')) {
+        final index = part.indexOf('=');
+        if (index <= 0) continue;
+        if (part.substring(0, index) == key) return part.substring(index + 1);
+      }
+      return null;
+    }
+
+    final modelId = value('model');
+    final outcomeName = value('outcome');
+    if (modelId == null || modelId.isEmpty || outcomeName == null) return null;
+    BoundaryDetectorOutcome? outcome;
+    for (final candidate in BoundaryDetectorOutcome.values) {
+      if (candidate.name == outcomeName) outcome = candidate;
+    }
+    if (outcome == null) return null;
+    final confidence = double.tryParse(value('confidence') ?? '');
+    final errorType = value('error');
+    return BoundaryDetectorTrace(
+      modelId: modelId,
+      outcome: outcome,
+      confidence:
+          confidence != null &&
+              confidence.isFinite &&
+              confidence >= 0 &&
+              confidence <= 1
+          ? confidence
+          : null,
+      errorType: outcome == BoundaryDetectorOutcome.failed ? errorType : null,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'modelId': modelId,
+    'outcome': outcome.name,
+    if (confidence != null) 'confidence': confidence,
+    if (errorType != null) 'errorType': errorType,
+  };
 }
 
 /// One boundary CLAIM about one document inside one source image.
@@ -147,6 +239,8 @@ class BoundaryProposal {
     this.touchesFrameEdge = false,
     this.forceReview = false,
     this.forceReviewReason,
+    this.traces = const [],
+    this.disagreementFraction,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -184,15 +278,67 @@ class BoundaryProposal {
   /// Specific reason for [forceReview], when it is not the legacy multi-scene
   /// corroboration gate.
   final BoundaryReviewReason? forceReviewReason;
+
+  /// What each detector in the cascade did, in execution order. Empty when the
+  /// proposer is a single classical path with nothing to report.
+  final List<BoundaryDetectorTrace> traces;
+
+  /// Largest corresponding-corner displacement divided by the image diagonal,
+  /// when two learned detectors both produced usable geometry. Measured from
+  /// their own points — never a probability.
+  final double? disagreementFraction;
+
+  /// The same claim with cascade diagnostics attached, keeping corners,
+  /// confidence and review flags untouched.
+  BoundaryProposal withDiagnostics({
+    List<BoundaryDetectorTrace> traces = const [],
+    double? disagreementFraction,
+  }) => BoundaryProposal(
+    producer: producer,
+    corners: corners,
+    region: region,
+    imposedAspect: imposedAspect,
+    imposedKindLabel: imposedKindLabel,
+    modelConfidence: modelConfidence,
+    minAutoAcceptConfidence: minAutoAcceptConfidence,
+    touchesFrameEdge: touchesFrameEdge,
+    forceReview: forceReview,
+    forceReviewReason: forceReviewReason,
+    traces: traces.isEmpty ? this.traces : traces,
+    disagreementFraction: disagreementFraction ?? this.disagreementFraction,
+  );
+
+  /// The same claim with its review flags replaced; nothing else moves.
+  BoundaryProposal withReview({
+    required bool forceReview,
+    BoundaryReviewReason? forceReviewReason,
+  }) => BoundaryProposal(
+    producer: producer,
+    corners: corners,
+    region: region,
+    imposedAspect: imposedAspect,
+    imposedKindLabel: imposedKindLabel,
+    modelConfidence: modelConfidence,
+    minAutoAcceptConfidence: minAutoAcceptConfidence,
+    touchesFrameEdge: touchesFrameEdge,
+    forceReview: forceReview,
+    forceReviewReason: forceReviewReason ?? this.forceReviewReason,
+    traces: traces,
+    disagreementFraction: disagreementFraction,
+  );
 }
 
 /// What verification measured about a proposal. Every field is a measured
 /// value or an explicit absence — nothing is fabricated to fill a gap.
+enum BoundaryCorroboration { classicalCatalogAspect }
+
 class BoundaryVerification {
   const BoundaryVerification({
     required this.assessment,
     required this.reasons,
     this.measuredAspect,
+    this.corroboration,
+    this.corroboratingAspect,
   });
 
   /// Geometry assessment of the corners, null when there were none to assess.
@@ -204,6 +350,12 @@ class BoundaryVerification {
   /// Long/short aspect measured from the quadrilateral in pixel space,
   /// present only for an accepted-geometry proposal.
   final double? measuredAspect;
+
+  /// Explicit independent evidence used to resolve a narrow review reason.
+  final BoundaryCorroboration? corroboration;
+
+  /// Catalog long/short aspect used by that corroboration, when any.
+  final double? corroboratingAspect;
 
   bool get hasUsableGeometry => assessment?.acceptable ?? false;
 }
@@ -260,6 +412,75 @@ class BoundaryDecision {
     }
     return (measured / imposed - 1).abs() <= shapeTolerance;
   }
+}
+
+/// Resolves only a geometrically usable classical proposal whose sole review
+/// reason is its uncalibrated score. A uniquely classified, qualified kind and
+/// its catalog aspect provide independent semantic corroboration; the measured
+/// quad still has to match within [shapeTolerance]. Learned proposals,
+/// arbitration-forced review, frame-touching, region disagreement and every
+/// other refusal remain review-only.
+BoundaryDecision corroborateClassicalBoundaryWithCatalog({
+  required BoundaryDecision decision,
+  required ClassificationOutcome classification,
+  required DocumentSizeCatalog catalog,
+  RecognitionThresholds thresholds = defaultThresholds,
+}) {
+  final proposal = decision.proposal;
+  if (decision.kind != BoundaryDecisionKind.needsReview ||
+      proposal.producer != BoundaryProducer.detector ||
+      proposal.forceReview ||
+      decision.verification.reasons.length != 1 ||
+      decision.verification.reasons.single !=
+          BoundaryReviewReason.uncalibratedClassicalScore ||
+      !decision.verification.hasUsableGeometry ||
+      !qualifiesForAutomaticPlacement(classification, thresholds: thresholds)) {
+    return decision;
+  }
+  final size = catalog.natural(classification.kind);
+  final measured = decision.verification.measuredAspect;
+  if (size == null || measured == null || !measured.isFinite || measured <= 0) {
+    return decision;
+  }
+  final expected = size.aspect;
+  if ((measured / expected - 1).abs() > shapeTolerance) return decision;
+  final priorAspect = proposal.imposedAspect;
+  if (priorAspect != null &&
+      (!priorAspect.isFinite ||
+          priorAspect <= 0 ||
+          (expected / priorAspect - 1).abs() > shapeTolerance)) {
+    return decision;
+  }
+  if (proposal.imposedKindLabel != null &&
+      proposal.imposedKindLabel != classification.kind.label) {
+    return decision;
+  }
+
+  final corroboratedProposal = BoundaryProposal(
+    producer: proposal.producer,
+    corners: proposal.corners,
+    region: proposal.region,
+    imposedAspect: expected,
+    imposedKindLabel: classification.kind.label,
+    modelConfidence: proposal.modelConfidence,
+    minAutoAcceptConfidence: proposal.minAutoAcceptConfidence,
+    touchesFrameEdge: proposal.touchesFrameEdge,
+    forceReview: proposal.forceReview,
+    forceReviewReason: proposal.forceReviewReason,
+    traces: proposal.traces,
+    disagreementFraction: proposal.disagreementFraction,
+  );
+  return BoundaryDecision(
+    kind: BoundaryDecisionKind.accepted,
+    proposal: corroboratedProposal,
+    verification: BoundaryVerification(
+      assessment: decision.verification.assessment,
+      reasons: const [],
+      measuredAspect: measured,
+      corroboration: BoundaryCorroboration.classicalCatalogAspect,
+      corroboratingAspect: expected,
+    ),
+  );
 }
 
 /// The only permission an automatic intake path may use to warp a source.

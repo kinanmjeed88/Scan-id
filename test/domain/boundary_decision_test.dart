@@ -113,142 +113,152 @@ void main() {
     );
   });
 
-  test('qualified semantic evidence corroborates only a matching classical quad', () {
-    final proposal = BoundaryProposal(
-      producer: BoundaryProducer.detector,
-      corners: goodQuad(),
-    );
-    final initial = verifyBoundary(
-      proposal,
-      sourceWidth: width,
-      sourceHeight: height,
-    );
-    final classification = classifyDocument(
-      ClassificationInput(
-        ocrKeywords: [
-          OcrKeywordEvidence(
-            kind: DocumentKind.unifiedNationalId,
-            score: .8,
-            matchedAnchorGroups: 2,
-          ),
-        ],
-        ocrConfidence: .8,
-      ),
-    );
-    final resolved = corroborateClassicalBoundaryWithCatalog(
-      decision: initial,
-      classification: classification,
-      catalog: const DocumentSizeCatalog(),
-    );
-
-    expect(initial.cropAuthorization, isNull);
-    expect(resolved.kind, BoundaryDecisionKind.accepted);
-    expect(resolved.cropAuthorization, isNotNull);
-    expect(resolved.catalogShapeMatches, isTrue);
-    expect(
-      resolved.verification.corroboration,
-      BoundaryCorroboration.classicalCatalogAspect,
-    );
-    expect(resolved.verification.measuredAspect, closeTo(1.6, .001));
-    expect(
-      resolved.proposal.imposedAspect,
-      DocumentSizeCatalog.unifiedNationalId.aspect,
-    );
-  });
-
-  test('catalog corroboration never accepts learned, disputed, weak or mismatched quads', () {
-    final classification = classifyDocument(
-      ClassificationInput(
-        ocrKeywords: [
-          OcrKeywordEvidence(
-            kind: DocumentKind.unifiedNationalId,
-            score: .8,
-            matchedAnchorGroups: 2,
-          ),
-        ],
-        ocrConfidence: .8,
-      ),
-    );
-    BoundaryDecision decide({
-      required BoundaryProducer producer,
-      List<Point2>? corners,
-      bool forceReview = false,
-    }) {
+  test(
+    'qualified semantic evidence corroborates only a matching classical quad',
+    () {
+      final proposal = BoundaryProposal(
+        producer: BoundaryProducer.detector,
+        corners: goodQuad(),
+      );
       final initial = verifyBoundary(
-        BoundaryProposal(
-          producer: producer,
-          corners: corners ?? goodQuad(),
-          forceReview: forceReview,
-          forceReviewReason:
-              forceReview ? BoundaryReviewReason.modelDisagreement : null,
-          modelConfidence: producer == BoundaryProducer.learnedModel ? .8 : null,
-          minAutoAcceptConfidence:
-              producer == BoundaryProducer.learnedModel ? .55 : null,
-        ),
+        proposal,
         sourceWidth: width,
         sourceHeight: height,
       );
-      return corroborateClassicalBoundaryWithCatalog(
+      final classification = classifyDocument(
+        ClassificationInput(
+          ocrKeywords: [
+            OcrKeywordEvidence(
+              kind: DocumentKind.unifiedNationalId,
+              score: .8,
+              matchedAnchorGroups: 2,
+            ),
+          ],
+          ocrConfidence: .8,
+        ),
+      );
+      final resolved = corroborateClassicalBoundaryWithCatalog(
         decision: initial,
         classification: classification,
         catalog: const DocumentSizeCatalog(),
       );
-    }
 
-    expect(
-      decide(
-        producer: BoundaryProducer.learnedModel,
-        forceReview: true,
-      ).cropAuthorization,
-      isNull,
-    );
-    expect(
-      decide(
-        producer: BoundaryProducer.detector,
-        forceReview: true,
-      ).cropAuthorization,
-      isNull,
-    );
-    expect(
-      decide(
-        producer: BoundaryProducer.detector,
-        corners: [
-          Point2(.1, .1),
-          Point2(.9, .1),
-          Point2(.9, .55),
-          Point2(.1, .55),
-        ],
-      ).cropAuthorization,
-      isNull,
-    );
-    final weak = classifyDocument(
-      ClassificationInput(
-        ocrKeywords: [
-          OcrKeywordEvidence(
-            kind: DocumentKind.unifiedNationalId,
-            score: .4,
-            matchedAnchorGroups: 2,
+      expect(initial.cropAuthorization, isNull);
+      expect(resolved.kind, BoundaryDecisionKind.accepted);
+      expect(resolved.cropAuthorization, isNotNull);
+      expect(resolved.catalogShapeMatches, isTrue);
+      expect(
+        resolved.verification.corroboration,
+        BoundaryCorroboration.classicalCatalogAspect,
+      );
+      expect(resolved.verification.measuredAspect, closeTo(1.6, .001));
+      expect(
+        resolved.proposal.imposedAspect,
+        DocumentSizeCatalog.unifiedNationalId.aspect,
+      );
+    },
+  );
+
+  test(
+    'catalog corroboration never accepts learned, disputed, weak or mismatched quads',
+    () {
+      final classification = classifyDocument(
+        ClassificationInput(
+          ocrKeywords: [
+            OcrKeywordEvidence(
+              kind: DocumentKind.unifiedNationalId,
+              score: .8,
+              matchedAnchorGroups: 2,
+            ),
+          ],
+          ocrConfidence: .8,
+        ),
+      );
+      BoundaryDecision decide({
+        required BoundaryProducer producer,
+        List<Point2>? corners,
+        bool forceReview = false,
+      }) {
+        final initial = verifyBoundary(
+          BoundaryProposal(
+            producer: producer,
+            corners: corners ?? goodQuad(),
+            forceReview: forceReview,
+            forceReviewReason: forceReview
+                ? BoundaryReviewReason.modelDisagreement
+                : null,
+            modelConfidence: producer == BoundaryProducer.learnedModel
+                ? .8
+                : null,
+            minAutoAcceptConfidence: producer == BoundaryProducer.learnedModel
+                ? .55
+                : null,
           ),
-        ],
-      ),
-    );
-    final initial = verifyBoundary(
-      BoundaryProposal(
-        producer: BoundaryProducer.detector,
-        corners: goodQuad(),
-      ),
-      sourceWidth: width,
-      sourceHeight: height,
-    );
-    expect(
-      corroborateClassicalBoundaryWithCatalog(
-        decision: initial,
-        classification: weak,
-        catalog: const DocumentSizeCatalog(),
-      ).cropAuthorization,
-      isNull,
-    );
-  });
+          sourceWidth: width,
+          sourceHeight: height,
+        );
+        return corroborateClassicalBoundaryWithCatalog(
+          decision: initial,
+          classification: classification,
+          catalog: const DocumentSizeCatalog(),
+        );
+      }
+
+      expect(
+        decide(
+          producer: BoundaryProducer.learnedModel,
+          forceReview: true,
+        ).cropAuthorization,
+        isNull,
+      );
+      expect(
+        decide(
+          producer: BoundaryProducer.detector,
+          forceReview: true,
+        ).cropAuthorization,
+        isNull,
+      );
+      expect(
+        decide(
+          producer: BoundaryProducer.detector,
+          corners: [
+            Point2(.1, .1),
+            Point2(.9, .1),
+            Point2(.9, .55),
+            Point2(.1, .55),
+          ],
+        ).cropAuthorization,
+        isNull,
+      );
+      final weak = classifyDocument(
+        ClassificationInput(
+          ocrKeywords: [
+            OcrKeywordEvidence(
+              kind: DocumentKind.unifiedNationalId,
+              score: .4,
+              matchedAnchorGroups: 2,
+            ),
+          ],
+        ),
+      );
+      final initial = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.detector,
+          corners: goodQuad(),
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(
+        corroborateClassicalBoundaryWithCatalog(
+          decision: initial,
+          classification: weak,
+          catalog: const DocumentSizeCatalog(),
+        ).cropAuthorization,
+        isNull,
+      );
+    },
+  );
 
   test('a geometrically implausible quad needs review and cannot crop', () {
     // ~1% of the frame: assessQuad refuses it as too small.

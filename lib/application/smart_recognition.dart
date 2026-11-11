@@ -2209,7 +2209,9 @@ class SmartIntake {
     final area = measuredShape?.areaFraction;
     final geometry = measuredShape?.geometryConfidence;
     final rejection = measuredShape?.rejection;
-    final catalogAspect = catalog.natural(detection.classification.kind)?.aspect;
+    final catalogAspect = catalog
+        .natural(detection.classification.kind)
+        ?.aspect;
     final catalogShapeMatches =
         aspect != null &&
         catalogAspect != null &&

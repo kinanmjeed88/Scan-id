@@ -388,42 +388,45 @@ void main() {
       expect(detail.contains('\n'), isFalse);
     });
 
-    test('an extracted region without corners is not reported as a perspective warp', () {
-      final report = projectWith(
-        assets: [
-          assetNamed('a1', 'صورة.jpg'),
-          assetNamed(
-            'derived1',
-            'مشتق.png',
-            derivedFrom: 'a1',
-            workingPath: 'projects/project1/processed/s1.png',
-          ),
-        ],
-        items: [
-          placedItem(
-            assetId: 'derived1',
-            pageIndex: null,
-            sizeConfirmed: false,
-            documentId: 'd1',
-          ),
-        ],
-        documents: [
-          record(
-            documentSide: side(cropped: false),
-            recognition: recognized(),
-          ),
-        ],
-      );
-      final journey = build(
-        project: report,
-        images: picked('صورة.jpg', assetId: 'a1'),
-      ).single;
-      final crop = byStage(journey)[JourneyStage.crop]!;
-      expect(crop.outcome, JourneyOutcome.review);
-      expect(crop.detail, contains('اقتُطعت المنطقة المقاسة'));
-      expect(crop.detail, contains('دون تصحيح منظور'));
-      expect(crop.detail, contains('400×250 بكسل'));
-    });
+    test(
+      'an extracted region without corners is not reported as a perspective warp',
+      () {
+        final report = projectWith(
+          assets: [
+            assetNamed('a1', 'صورة.jpg'),
+            assetNamed(
+              'derived1',
+              'مشتق.png',
+              derivedFrom: 'a1',
+              workingPath: 'projects/project1/processed/s1.png',
+            ),
+          ],
+          items: [
+            placedItem(
+              assetId: 'derived1',
+              pageIndex: null,
+              sizeConfirmed: false,
+              documentId: 'd1',
+            ),
+          ],
+          documents: [
+            record(
+              documentSide: side(cropped: false),
+              recognition: recognized(),
+            ),
+          ],
+        );
+        final journey = build(
+          project: report,
+          images: picked('صورة.jpg', assetId: 'a1'),
+        ).single;
+        final crop = byStage(journey)[JourneyStage.crop]!;
+        expect(crop.outcome, JourneyOutcome.review);
+        expect(crop.detail, contains('اقتُطعت المنطقة المقاسة'));
+        expect(crop.detail, contains('دون تصحيح منظور'));
+        expect(crop.detail, contains('400×250 بكسل'));
+      },
+    );
 
     test('the detection step names each detector and what it measured', () {
       final report = projectWith(

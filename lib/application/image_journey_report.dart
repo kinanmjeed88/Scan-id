@@ -346,8 +346,7 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
     return JourneyStep(
       stage: JourneyStage.crop,
       outcome: JourneyOutcome.passed,
-      detail:
-          'صُحّح المنظور بالزوايا الأربع وأُنتجت نسخة $size$count.',
+      detail: 'صُحّح المنظور بالزوايا الأربع وأُنتجت نسخة $size$count.',
     );
   }
   final extractedRegions = [

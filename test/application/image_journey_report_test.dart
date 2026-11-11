@@ -434,7 +434,13 @@ void main() {
     test('the detection step names each detector and what it measured', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
-        items: [placedItem(pageIndex: null, documentId: 'd1')],
+        items: [
+          placedItem(
+            pageIndex: null,
+            sizeConfirmed: false,
+            documentId: 'd1',
+          ),
+        ],
         documents: [
           record(
             documentSide: side(

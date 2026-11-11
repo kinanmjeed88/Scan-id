@@ -435,11 +435,7 @@ void main() {
       final report = projectWith(
         assets: [assetNamed('a1', 'صورة.jpg')],
         items: [
-          placedItem(
-            pageIndex: null,
-            sizeConfirmed: false,
-            documentId: 'd1',
-          ),
+          placedItem(pageIndex: null, sizeConfirmed: false, documentId: 'd1'),
         ],
         documents: [
           record(

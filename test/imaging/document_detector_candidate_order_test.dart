@@ -210,10 +210,7 @@ void main() {
       _Candidate('third', .8, .8, .6, 20),
     ];
     expect(_ids(_shortlist(ranked)), ['first', 'second', 'third']);
-    expect(
-      _ids(_shortlist(ranked)),
-      _ids(_shortlist(ranked)),
-    );
+    expect(_ids(_shortlist(ranked)), _ids(_shortlist(ranked)));
   });
 
   test('suppresses near-duplicate candidates and keeps the first', () {
@@ -262,9 +259,6 @@ void main() {
       _Candidate('edge', .5, .8, .6, 10),
       _Candidate('outside', .49, .8, .6, 20),
     ];
-    expect(
-      _ids(_shortlist(ranked, window: .25)),
-      ['top', 'edge'],
-    );
+    expect(_ids(_shortlist(ranked, window: .25)), ['top', 'edge']);
   });
 }

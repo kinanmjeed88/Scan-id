@@ -74,7 +74,7 @@ List<_Candidate> _shortlist(
   );
 }
 
-List<String> _legacy(List<_Candidate> ranked) {
+List<_Candidate> _legacy(List<_Candidate> ranked) {
   return _legacyShortlist<_Candidate>(
     ranked,
     totalOf: (c) => c.total,
@@ -111,7 +111,7 @@ void main() {
       _Candidate('second', .8, .8, .6, 10),
     ];
     // Old behaviour: the failing top candidate returned null outright.
-    expect(_legacy(ranked), isEmpty);
+    expect(_ids(_legacy(ranked)), isEmpty);
     // Fixed behaviour: the passing candidate below it is still considered.
     expect(_ids(_shortlist(ranked)), ['second']);
   });

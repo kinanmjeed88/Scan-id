@@ -308,12 +308,6 @@ String _describeDetectionTrace(Iterable<String> codes) {
       parts.add('مساحة الحدود ${_percent(number)} من الصورة');
     } else if (key == 'geometry' && number != null) {
       parts.add('جودة الهندسة ${_percent(number)}');
-    } else if (key == 'catalogAspect' && number != null) {
-      parts.add('نسبة الكتالوج ${number.toStringAsFixed(2)}:1');
-    } else if (key == 'catalogShape' && raw == 'match') {
-      parts.add('النسبة المقاسة تطابق الكتالوج');
-    } else if (key == 'catalogShape' && raw == 'mismatch') {
-      parts.add('النسبة المقاسة لا تطابق الكتالوج');
     } else if (key == 'corroboration' &&
         raw == BoundaryCorroboration.classicalCatalogAspect.name) {
       parts.add('تأييد الكاشف الكلاسيكي بنسبة النوع');
@@ -534,8 +528,18 @@ JourneyStep _sizingStep(
   // A documented size exists but was not confirmed. The measured shape and
   // absence of an approved crop remain distinct reasons in the trace.
   final shapeMismatch = traces.contains('catalogShape=mismatch');
+  final catalogAspectCode = traces.firstWhere(
+    (code) => code.startsWith('catalogAspect='),
+    orElse: () => '',
+  );
+  final catalogAspect = double.tryParse(
+    catalogAspectCode.replaceFirst('catalogAspect=', ''),
+  );
+  final expectedShape = catalogAspect == null
+      ? ''
+      : ' بنسبة ${catalogAspect.toStringAsFixed(2)}:1';
   final reason = shapeMismatch
-      ? 'النسبة المقاسة لا تطابق الكتالوج؛ لم يُمدَّد القص.'
+      ? 'النسبة المقاسة لا تطابق الكتالوج$expectedShape؛ لم يُمدَّد القص.'
       : 'لم يتوفر قصّ منظور معتمد.';
   return JourneyStep(
     stage: JourneyStage.sizing,

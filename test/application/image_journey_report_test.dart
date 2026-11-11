@@ -398,7 +398,7 @@ void main() {
               'derived1',
               'مشتق.png',
               derivedFrom: 'a1',
-              workingPath: 'projects/project1/processed/s1.png',
+              workingPath: 'projects/project1/assets/derived1/working.png',
             ),
           ],
           items: [
@@ -411,7 +411,10 @@ void main() {
           ],
           documents: [
             record(
-              documentSide: side(cropped: false),
+              documentSide: side(
+                cropped: false,
+                processedPath: 'projects/project1/assets/derived1/working.png',
+              ),
               recognition: recognized(),
             ),
           ],
@@ -462,9 +465,10 @@ void main() {
       expect(detail, contains('نسبة الحدود 1.58:1'));
       expect(detail, contains('مساحة الحدود 41.0٪'));
       expect(detail, contains('جودة الهندسة 87.0٪'));
-      expect(detail, contains('نسبة الكتالوج 1.59:1'));
-      expect(detail, contains('النسبة المقاسة لا تطابق الكتالوج'));
       expect(detail, contains('لم تتوفر حدود صالحة من كاشف ثانٍ'));
+      final sizing = byStage(journey)[JourneyStage.sizing]!.detail;
+      expect(sizing, contains('النسبة المقاسة لا تطابق الكتالوج'));
+      expect(sizing, contains('1.59:1'));
       expect(detail.length, lessThanOrEqualTo(JourneyStep.maxDetailLength));
     });
 

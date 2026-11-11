@@ -441,6 +441,56 @@ class _Candidate {
   final _Score score;
 }
 
+/// Selects the near-best candidates that pass the edge-support gates.
+///
+/// [ranked] must already be sorted by descending total score. A candidate
+/// that fails [needMean] or [needMin] is skipped without ending the search,
+/// so a lower-scored candidate that passes both gates can still be chosen
+/// when the top-scored candidate fails them. The near-best [window] is
+/// anchored to the first candidate that passes both gates: when the top
+/// candidate passes, the anchor is the top candidate and the window is
+/// exactly the old one; when the top candidate fails, the window re-anchors
+/// to the best passing candidate instead of discarding every passing
+/// candidate that sits below the failing candidate's window. At most
+/// [maxCount] non-duplicate candidates are returned, in ranked order.
+///
+/// Returns an empty list when no candidate passes both gates. The caller
+/// treats that as a rejection: a candidate that fails the gates is never
+/// returned merely because it is the best one available.
+List<T> shortlistEdgeSupportedCandidates<T>(
+  List<T> ranked, {
+  required double Function(T candidate) totalOf,
+  required double Function(T candidate) meanOf,
+  required double Function(T candidate) minOf,
+  required bool Function(T a, T b) isDuplicate,
+  required double needMean,
+  required double needMin,
+  double window = 0.05,
+  int maxCount = 12,
+}) {
+  final shortlist = <T>[];
+  var anchor = 0.0;
+  var hasAnchor = false;
+  for (final candidate in ranked) {
+    if (meanOf(candidate) < needMean || minOf(candidate) < needMin) {
+      continue;
+    }
+    final total = totalOf(candidate);
+    if (!hasAnchor) {
+      anchor = total;
+      hasAnchor = true;
+    }
+    if (total < anchor - window || shortlist.length >= maxCount) {
+      break;
+    }
+    if (shortlist.any((existing) => isDuplicate(existing, candidate))) {
+      continue;
+    }
+    shortlist.add(candidate);
+  }
+  return shortlist;
+}
+
 class _Detector {
   _Detector(this.fineRaster, _Raster coarseRaster)
     : coarse = _Field(coarseRaster, smooth: true),
@@ -505,31 +555,25 @@ class _Detector {
       return null;
     }
     scored.sort((a, b) => b.score.total.compareTo(a.score.total));
-    final best = scored.first.score;
-    if (best.mean < needMean || best.min < needMin) {
-      return null;
-    }
 
-    // Shortlist near-best candidates and re-rank them by edge sharpness at
-    // preview resolution: a soft shadow outline has a much weaker fine-scale
-    // gradient relative to its coarse gradient than the physical card edge.
-    final shortlist = <_Candidate>[];
-    for (final c in scored) {
-      if (c.score.total < best.total - .05 || shortlist.length >= 12) {
-        break;
-      }
-      if (c.score.mean < needMean || c.score.min < needMin) {
-        continue;
-      }
-      final duplicate = shortlist.any(
-        (o) => List.generate(
-          4,
-          (i) => _dist(o.quad[i], c.quad[i]),
-        ).every((d) => d < 1.5),
-      );
-      if (!duplicate) {
-        shortlist.add(c);
-      }
+    // Shortlist near-best candidates that pass the edge-support gates and
+    // re-rank them by edge sharpness at preview resolution: a soft shadow
+    // outline has a much weaker fine-scale gradient relative to its coarse
+    // gradient than the physical card edge. A top-scored candidate that
+    // fails the gates is skipped without ending the search; the window
+    // anchors to the first passing candidate (see
+    // [shortlistEdgeSupportedCandidates]).
+    final shortlist = shortlistEdgeSupportedCandidates<_Candidate>(
+      scored,
+      totalOf: (c) => c.score.total,
+      meanOf: (c) => c.score.mean,
+      minOf: (c) => c.score.min,
+      isDuplicate: (a, b) => _sameQuad(a.quad, b.quad),
+      needMean: needMean,
+      needMin: needMin,
+    );
+    if (shortlist.isEmpty) {
+      return null;
     }
     final ff = fine;
     var pick = shortlist.first;
@@ -1007,6 +1051,17 @@ class _Detector {
       area: area,
       texture: texture,
     );
+  }
+
+  /// Two quads are the same candidate when every corner pair is within 1.5
+  /// pixels; the shortlist keeps only the highest-scored one of each group.
+  bool _sameQuad(List<_P> a, List<_P> b) {
+    for (var i = 0; i < 4; i++) {
+      if (_dist(a[i], b[i]) >= 1.5) {
+        return false;
+      }
+    }
+    return true;
   }
 
   List<double> _sideSharpness(_Field f, List<_P> q, double k) {

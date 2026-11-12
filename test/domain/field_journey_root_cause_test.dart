@@ -184,9 +184,13 @@ void main() {
       expect(qualifiesForAutomaticPlacement(outcome), isTrue);
     });
 
-    test('the printed card header is not a lexicon title', () {
-      // The unified card prints the issuing ministry, not the phrase
-      // "البطاقة الوطنية"; a ministry block alone must not classify it.
+    test('a ministry header alone is support, never an anchor', () {
+      // The ministry block is issuer evidence only and must not classify a
+      // card by itself. (The card does print «البطاقة الوطنية» under this
+      // block, in its smallest type; measured with the app's own OCR graphs,
+      // that line is read too garbled to match, which is why the printed
+      // national number is a structural anchor: see
+      // national_number_anchor_test.dart.)
       final outcome = classifyDocument(
         ClassificationInput(
           ocrKeywords: ocrKeywordEvidence(

@@ -16,12 +16,12 @@ import 'package:scan_id/domain/recognition_classifier.dart';
 void main() {
   group('geometry score cannot express "the card is large"', () {
     test('area credit saturates at 15% of the frame', () {
-      // A quad covering just over 15% and one covering 81% of the frame are
-      // both "at least 15%", so the area term stops rewarding size beyond it.
-      // The small quad still scores 0.88: geometry confidence is not a
-      // statement about how much of the frame the document fills.
+      // A quad covering 16% and one covering 81% of the frame both sit above
+      // the 15% saturation point, so the area term stops rewarding size there:
+      // both score 1.0. Geometry confidence is therefore not a statement about
+      // how much of the frame the document fills.
       final justOver = assessQuad(
-        _rect(.20, .20, .45, .45),
+        _rect(.20, .20, .60, .60),
         sourceWidth: 1000,
         sourceHeight: 1000,
       );
@@ -33,8 +33,15 @@ void main() {
       expect(justOver.acceptable, isTrue);
       expect(frameFilling.acceptable, isTrue);
       expect(justOver.areaFraction, greaterThan(.15));
-      expect(justOver.geometryConfidence, greaterThan(.85));
+      expect(justOver.areaFraction, lessThan(.20));
+      // Both already earn full area credit, so both score 1.0: a 16% quad and
+      // an 81% quad are indistinguishable to this confidence.
+      expect(justOver.geometryConfidence, greaterThan(.99));
       expect(frameFilling.geometryConfidence, greaterThan(.99));
+      expect(
+        frameFilling.geometryConfidence! - justOver.geometryConfidence!,
+        lessThan(.01),
+      );
     });
 
     test('a 5.7% quad with 9.1% geometry is arithmetically degenerate', () {

@@ -187,10 +187,7 @@ void main() {
             OcrTextResult.available(
               engineVersion: 'field-diagnosis',
               lines: [
-                OcrLine(
-                  text: 'جمهورية العراق وزارة الداخلية',
-                  confidence: .92,
-                ),
+                OcrLine(text: 'جمهورية العراق وزارة الداخلية', confidence: .92),
                 OcrLine(
                   text: 'مديرية الأحوال المدنية والجوازات والإقامة',
                   confidence: .9,

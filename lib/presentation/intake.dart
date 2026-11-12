@@ -190,6 +190,11 @@ class IntakeRunner {
               assetId: result.asset?.id,
               failureMessage: result.failure,
               copyDurationMs: result.durationMs,
+              // Captured now, while `asset` still describes the copy. A later
+              // revision keeps this id, so its width/height can become the
+              // crop's; the journey must not report the crop as the copy.
+              copiedWidth: result.asset?.width,
+              copiedHeight: result.asset?.height,
             ),
           ),
         );

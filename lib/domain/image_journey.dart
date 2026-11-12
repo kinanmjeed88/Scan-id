@@ -75,7 +75,8 @@ class JourneyStep {
     required this.outcome,
     required this.detail,
     this.durationMs,
-  }) {
+    Map<String, Object?> fields = const {},
+  }) : fields = Map.unmodifiable(fields) {
     require(
       detail.isNotEmpty && detail.length <= maxDetailLength,
       'تفصيل المرحلة يجب أن يكون نصاً قصيراً غير فارغ.',
@@ -90,7 +91,36 @@ class JourneyStep {
         'مدة المرحلة خارج المجال المعقول.',
       );
     }
+    for (final entry in this.fields.entries) {
+      require(
+        maxFieldKeyLength >= entry.key.length && entry.key.isNotEmpty,
+        'مفتاح حقل التشخيص غير صالح.',
+      );
+      final value = entry.value;
+      require(
+        value == null || value is num || value is bool || value is String,
+        'قيمة حقل التشخيص يجب أن تكون رقماً أو نصاً أو منطقياً.',
+      );
+      if (value is String) {
+        require(
+          value.length <= maxFieldValueLength && !value.contains('\n'),
+          'قيمة حقل التشخيص طويلة أو متعددة الأسطر.',
+        );
+      }
+    }
   }
+
+  /// Machine-readable decision facts that MUST survive verbatim.
+  ///
+  /// [detail] is a user-facing sentence and is clipped at [maxDetailLength];
+  /// a decision's numbers and codes must never depend on that sentence. Keys
+  /// and values are bounded so a caller cannot smuggle recognized text, a path
+  /// or a person's data into the log: every producer here emits dictionary
+  /// codes, enum names and measured numbers only.
+  final Map<String, Object?> fields;
+
+  static const int maxFieldKeyLength = 32;
+  static const int maxFieldValueLength = 64;
 
   /// Longest detail a step may carry: a sentence, not a transcript.
   static const int maxDetailLength = 240;
@@ -114,6 +144,10 @@ class JourneyStep {
     'outcome': outcome.name,
     'detail': detail,
     if (durationMs != null) 'duration_ms': durationMs,
+    // Omitted when empty so an older reader sees exactly the document it
+    // already knows. Adding an optional key is a backward-compatible change
+    // inside schema version 1: old entries simply have no `fields`.
+    if (fields.isNotEmpty) 'fields': fields,
   };
 
   static JourneyStep fromJson(Object? json) {
@@ -125,11 +159,24 @@ class JourneyStep {
     final duration = map['duration_ms'] == null
         ? null
         : integer(map['duration_ms'], 'duration_ms');
+    final rawFields = map['fields'];
+    final fields = <String, Object?>{};
+    if (rawFields != null) {
+      for (final entry in objectMap(rawFields).entries) {
+        final value = entry.value;
+        require(
+          value == null || value is num || value is bool || value is String,
+          'قيمة حقل التشخيص في السجل غير صالحة.',
+        );
+        fields[entry.key] = value;
+      }
+    }
     return JourneyStep(
       stage: stage!,
       outcome: outcome!,
       detail: text(map['detail'], 'detail'),
       durationMs: duration,
+      fields: fields,
     );
   }
 }

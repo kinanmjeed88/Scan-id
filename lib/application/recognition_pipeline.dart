@@ -428,6 +428,108 @@ class RecognitionPipeline {
     );
   }
 
+  /// Centres of the located lines of [result] in source-normalized
+  /// coordinates. [region] is the measured area the read was cropped to, or
+  /// null when the whole preview was read. A line the engine did not locate is
+  /// skipped: it says nothing about where the text is.
+  static List<Point2> _lineCentres(OcrTextResult result, List<double>? region) {
+    final left = region == null ? 0.0 : region[0];
+    final top = region == null ? 0.0 : region[1];
+    final width = region == null ? 1.0 : region[2] - region[0];
+    final height = region == null ? 1.0 : region[3] - region[1];
+    final centres = <Point2>[];
+    for (final line in result.lines) {
+      final bounds = line.bounds;
+      if (bounds == null || bounds.isEmpty) continue;
+      var x = 0.0;
+      var y = 0.0;
+      for (final point in bounds) {
+        x += point.x;
+        y += point.y;
+      }
+      final cx = left + width * x / bounds.length;
+      final cy = top + height * y / bounds.length;
+      if (!cx.isFinite || !cy.isFinite) continue;
+      centres.add(Point2(cx.clamp(0.0, 1.0), cy.clamp(0.0, 1.0)));
+    }
+    return centres;
+  }
+
+  /// One bounded OCR read of [corners], of [region], or of the whole preview.
+  ///
+  /// Returns null when the read failed, so the caller keeps what it already
+  /// had. A read that outlives [budget] returns an explicit unavailable result.
+  /// [issues], when given, receives the person-facing reason; a second,
+  /// widening read passes null because its failure changes nothing the person
+  /// has to act on.
+  Future<OcrTextResult?> _readText(
+    PipelineImageInput input, {
+    required List<Point2>? corners,
+    required List<double>? region,
+    required Duration budget,
+    required List<BatchItemFailure>? issues,
+    required CancellationToken? token,
+  }) async {
+    final trace = ImportTrace.current;
+    final ocrOperation = trace?.nextOperation();
+    trace?.emit('ocr_started', operationId: ocrOperation);
+    try {
+      final ocrBytes = await ImportTrace.stage(
+        'preprocessing',
+        () => prepareOcrRegionIsolated(
+          input.previewBytes,
+          corners: corners,
+          region: region,
+          cancellation: token,
+        ),
+        phase: 'ocr-region',
+      );
+      final ocrOutcome = await runStageWithin(
+        () => ocr.recognize(ocrBytes, token: token),
+        budget: budget,
+        name: 'pipeline-ocr',
+        cancellation: token,
+      );
+      if (ocrOutcome.didTimeOut) {
+        trace?.emit('ocr_timeout', operationId: ocrOperation);
+        issues?.add(
+          const BatchItemFailure(
+            category: RecognitionErrorCategory.ocrFailure,
+            message:
+                'تجاوزت قراءة النص المهلة على هذا الجهاز؛ استمر تحليل '
+                'الحدود وبقي النوع غير محدد.',
+          ),
+        );
+        return OcrTextResult.unavailable(
+          unavailableReason: 'time-budget-exceeded',
+          engineVersion: ocr.version,
+        );
+      }
+      final ocrError = ocrOutcome.error;
+      if (ocrError != null) {
+        Error.throwWithStackTrace(ocrError, ocrOutcome.stackTrace!);
+      }
+      final result = ocrOutcome.value!;
+      trace?.emit(
+        result.isAvailable ? 'ocr_completed' : 'ocr_unavailable',
+        operationId: ocrOperation,
+      );
+      return result;
+    } on OperationCancelled catch (error) {
+      trace?.emit('ocr_cancelled', error: error, operationId: ocrOperation);
+      rethrow;
+    } catch (error) {
+      trace?.emit('ocr_failed', error: error, operationId: ocrOperation);
+      issues?.add(
+        const BatchItemFailure(
+          category: RecognitionErrorCategory.ocrFailure,
+          message: 'فشل OCR؛ استمر تحليل الحدود وبقي النوع غير محدد.',
+        ),
+      );
+      return null;
+    }
+  }
+
   Future<DetectionAnalysis> _analyzeDetection(
     PipelineImageInput input, {
     required String detectionId,
@@ -540,6 +642,10 @@ class RecognitionPipeline {
       unavailableReason: 'skipped',
       engineVersion: ocr.version,
     );
+    // Set only when the evidence was read from the wider measured area rather
+    // than from inside the proposal itself.
+    var evidenceFromWiderRead = false;
+    var widerLineCentres = const <Point2>[];
     if (ocr.isEnabled) {
       final authorizedCorners = decision.cropAuthorization?.corners;
       final List<Point2>? ocrCorners;
@@ -559,62 +665,51 @@ class RecognitionPipeline {
           engineVersion: ocr.version,
         );
       } else {
-        final trace = ImportTrace.current;
-        final ocrOperation = trace?.nextOperation();
-        trace?.emit('ocr_started', operationId: ocrOperation);
-        try {
-          final ocrBytes = await ImportTrace.stage(
-            'preprocessing',
-            () => prepareOcrRegionIsolated(
-              input.previewBytes,
+        final ocrClock = Stopwatch()..start();
+        ocrResult =
+            await _readText(
+              input,
               corners: ocrCorners,
               region: ocrCorners == null ? region : null,
-              cancellation: token,
-            ),
-            phase: 'ocr-region',
-          );
-          final ocrOutcome = await runStageWithin(
-            () => ocr.recognize(ocrBytes, token: token),
-            budget: ocrBudget,
-            name: 'pipeline-ocr',
-            cancellation: token,
-          );
-          if (ocrOutcome.didTimeOut) {
-            trace?.emit('ocr_timeout', operationId: ocrOperation);
-            issues.add(
-              const BatchItemFailure(
-                category: RecognitionErrorCategory.ocrFailure,
-                message:
-                    'تجاوزت قراءة النص المهلة على هذا الجهاز؛ استمر تحليل '
-                    'الحدود وبقي النوع غير محدد.',
-              ),
+              budget: ocrBudget,
+              issues: issues,
+              token: token,
+            ) ??
+            ocrResult;
+        // An unauthorized proposal may ADD text evidence; it must never
+        // SUPPRESS it. When policy has not accepted the quad and the text
+        // inside it evidences no document kind, the quad may simply be wrong
+        // (a sliver of a card that fills the frame), so the same measured
+        // area the document was found in — its segmentation region, or the
+        // whole frame of a single-document photo — is read once more. The
+        // wider read replaces the first only when it produces evidence, shares
+        // the one OCR budget, and never crosses into a sibling document: an
+        // isolated region without its own measured area is not widened.
+        final confinedToProposal =
+            authorizedCorners == null && ocrCorners != null;
+        final mayWiden = !isolatedRegion || region != null;
+        if (confinedToProposal &&
+            mayWiden &&
+            ocrResult.isAvailable &&
+            ocrKeywordEvidence(ocrResult).isEmpty) {
+          final remaining = ocrBudget - ocrClock.elapsed;
+          if (remaining > Duration.zero) {
+            final wider = await _readText(
+              input,
+              corners: null,
+              region: region,
+              budget: remaining,
+              issues: null,
+              token: token,
             );
-            ocrResult = OcrTextResult.unavailable(
-              unavailableReason: 'time-budget-exceeded',
-              engineVersion: ocr.version,
-            );
-          } else {
-            final ocrError = ocrOutcome.error;
-            if (ocrError != null) {
-              Error.throwWithStackTrace(ocrError, ocrOutcome.stackTrace!);
+            if (wider != null &&
+                wider.isAvailable &&
+                ocrKeywordEvidence(wider).isNotEmpty) {
+              ocrResult = wider;
+              evidenceFromWiderRead = true;
+              widerLineCentres = _lineCentres(wider, region);
             }
-            ocrResult = ocrOutcome.value!;
-            trace?.emit(
-              ocrResult.isAvailable ? 'ocr_completed' : 'ocr_unavailable',
-              operationId: ocrOperation,
-            );
           }
-        } on OperationCancelled catch (error) {
-          trace?.emit('ocr_cancelled', error: error, operationId: ocrOperation);
-          rethrow;
-        } catch (error) {
-          trace?.emit('ocr_failed', error: error, operationId: ocrOperation);
-          issues.add(
-            const BatchItemFailure(
-              category: RecognitionErrorCategory.ocrFailure,
-              message: 'فشل OCR؛ استمر تحليل الحدود وبقي النوع غير محدد.',
-            ),
-          );
         }
       }
     }
@@ -628,12 +723,28 @@ class RecognitionPipeline {
         thresholds: thresholds,
       ),
     );
-    final resolvedDecision = corroborateClassicalBoundaryWithCatalog(
-      decision: decision,
-      classification: classification,
-      catalog: catalog,
-      thresholds: thresholds,
-    );
+    // Evidence read from the wider area describes the document in the frame,
+    // not the content of the proposal, so it never corroborates that proposal
+    // into an automatic crop: the catalog gate only ever sees text read from
+    // inside the quadrilateral it is asked to accept.
+    var resolvedDecision = evidenceFromWiderRead
+        ? decision
+        : corroborateClassicalBoundaryWithCatalog(
+            decision: decision,
+            classification: classification,
+            catalog: catalog,
+            thresholds: thresholds,
+          );
+    // And when most of that text lies outside the proposal, the proposal is a
+    // fragment of the document (a card that fills or exceeds the frame leaves
+    // a detector nothing but slivers). It is refused rather than preserved as
+    // suggested corners, and the whole image stays for the person.
+    if (evidenceFromWiderRead &&
+        corners != null &&
+        quadExcludesText(corners, widerLineCentres)) {
+      resolvedDecision = refuseProposalExcludingText(decision);
+      reviewSuggestedCorners = null;
+    }
     if (resolvedDecision.kind == BoundaryDecisionKind.accepted &&
         decision.kind != BoundaryDecisionKind.accepted) {
       usableCorners = resolvedDecision.acceptedCorners;

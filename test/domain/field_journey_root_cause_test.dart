@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
-import 'package:scan_id/domain/ocr_decoding.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
 import 'package:scan_id/domain/quad_assessment.dart';
 import 'package:scan_id/domain/recognition_classifier.dart';

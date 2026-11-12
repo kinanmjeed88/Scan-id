@@ -87,6 +87,15 @@ const double frameTouchTolerance = .016;
 /// this the "nearest strong edge" is a different edge, not a refinement.
 const double maxRefinementDisplacement = .04;
 
+/// Upper bound on refinement rounds for one proposal. The first round is the
+/// refinement the measurement has always run; a further round runs only while
+/// the previous one still moved the quad and raised its measured edge support.
+const int maxRefinementRounds = 6;
+
+/// A round that moves no corner by this many source pixels has converged.
+/// This is a numerical stopping tolerance, not an acceptance threshold.
+const double refinementConvergencePixels = .5;
+
 /// Runs in an isolate: decode once, detect the classical candidate once, and
 /// measure BOTH quads against the same gradient fields.
 ///
@@ -119,33 +128,114 @@ MeasuredBoundaryCandidate? _measure(img.Image image, List<Point2> corners) {
   if (!quadFitsImage(corners, image)) return null;
   final original = measureQuadEdges(image, corners);
   if (original == null) return null;
-  final refined = refineQuadToEdges(image, corners);
-  if (refined != null &&
-      quadFitsImage(refined, image) &&
-      (!touchesFrameEdge(refined) || touchesFrameEdge(corners)) &&
-      withinRefinementDisplacement(
-        corners,
-        refined,
-        image.width,
-        image.height,
-      )) {
-    final refinedEvidence = measureQuadEdges(image, refined);
-    if (refinedEvidence != null &&
-        refinedEvidence.quality >= original.quality) {
-      return MeasuredBoundaryCandidate(
-        corners: refined,
-        originalCorners: corners,
-        evidence: refinedEvidence,
-        wasRefined: true,
-      );
-    }
-  }
-  return MeasuredBoundaryCandidate(
-    corners: corners,
-    originalCorners: corners,
-    evidence: original,
-    wasRefined: false,
+  final refined = convergeRefinement(
+    start: corners,
+    startEvidence: original,
+    refine: (from) => refineQuadToEdges(image, from),
+    measure: (quad) => measureQuadEdges(image, quad),
+    // Every round answers to the ORIGINAL proposal, not to the round before
+    // it: a valid quad, no newly touched frame edge, and the displacement cap.
+    allowed: (quad) =>
+        quadFitsImage(quad, image) &&
+        (!touchesFrameEdge(quad) || touchesFrameEdge(corners)) &&
+        withinRefinementDisplacement(corners, quad, image.width, image.height),
+    travelPixels: (from, to) =>
+        refinementTravelPixels(from, to, image.width, image.height),
   );
+  return MeasuredBoundaryCandidate(
+    corners: refined.corners,
+    originalCorners: corners,
+    evidence: refined.evidence,
+    wasRefined: refined.rounds > 0,
+  );
+}
+
+/// What [convergeRefinement] settled on, and in how many adopted rounds.
+typedef RefinementOutcome = ({
+  List<Point2> corners,
+  QuadEdgeEvidence evidence,
+  int rounds,
+});
+
+/// Repeats [refine] from [start] until the quadrilateral stops moving or its
+/// measured edge support stops rising.
+///
+/// One refinement round searches a bounded band beside each side, so a side
+/// proposed further from the document's edge than that band stops part-way:
+/// measurably better than the proposal, still short of the edge, and the crop
+/// then cuts a wedge off the document. Refinement therefore continues while it
+/// is still travelling AND the support keeps rising:
+///
+/// * the first round keeps its long-standing rule and is adopted when its
+///   support is not worse than the proposal's;
+/// * every further round must be a strict improvement, so the search cannot
+///   drift once support stops rising, and must not give up area: continued
+///   refinement exists to stop cutting the document, so a round that shrinks
+///   the quadrilateral is heading for an inner edge and is refused;
+/// * a round that [allowed] refuses, that cannot be refined or measured, ends
+///   the search and keeps the last adopted quadrilateral;
+/// * a round that moves no corner by [refinementConvergencePixels] has
+///   converged, and [maxRefinementRounds] bounds the work.
+///
+/// The callbacks keep this free of image data, so the stopping rules can be
+/// verified with numbers alone.
+RefinementOutcome convergeRefinement({
+  required List<Point2> start,
+  required QuadEdgeEvidence startEvidence,
+  required List<Point2>? Function(List<Point2> from) refine,
+  required QuadEdgeEvidence? Function(List<Point2> quad) measure,
+  required bool Function(List<Point2> quad) allowed,
+  required double Function(List<Point2> from, List<Point2> to) travelPixels,
+}) {
+  var best = start;
+  var bestEvidence = startEvidence;
+  var rounds = 0;
+  while (rounds < maxRefinementRounds) {
+    final candidate = refine(best);
+    if (candidate == null || !allowed(candidate)) break;
+    final evidence = measure(candidate);
+    if (evidence == null) break;
+    final improves = rounds == 0
+        ? evidence.quality >= bestEvidence.quality
+        : evidence.quality > bestEvidence.quality &&
+              _quadArea(candidate) + 1e-9 >= _quadArea(best);
+    if (!improves) break;
+    final travelled = travelPixels(best, candidate);
+    best = candidate;
+    bestEvidence = evidence;
+    rounds++;
+    if (travelled < refinementConvergencePixels) break;
+  }
+  return (corners: best, evidence: bestEvidence, rounds: rounds);
+}
+
+/// Shoelace area of a quadrilateral in normalized frame units. Only compared
+/// with another quadrilateral of the same frame, so the units cancel.
+double _quadArea(List<Point2> quad) {
+  var twice = 0.0;
+  for (var i = 0; i < quad.length; i++) {
+    final a = quad[i];
+    final b = quad[(i + 1) % quad.length];
+    twice += a.x * b.y - b.x * a.y;
+  }
+  return twice.abs() / 2;
+}
+
+/// Largest corner movement between two quads, in source pixels.
+double refinementTravelPixels(
+  List<Point2> from,
+  List<Point2> to,
+  int width,
+  int height,
+) {
+  if (from.length != 4 || to.length != 4) return double.infinity;
+  var worst = 0.0;
+  for (var i = 0; i < 4; i++) {
+    final dx = (from[i].x - to[i].x) * width;
+    final dy = (from[i].y - to[i].y) * height;
+    worst = math.max(worst, math.sqrt(dx * dx + dy * dy));
+  }
+  return worst;
 }
 
 /// Largest corresponding-corner displacement as a fraction of the image

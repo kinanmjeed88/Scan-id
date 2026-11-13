@@ -76,7 +76,7 @@ bool qualifiesForAutomaticPlacement(
 }
 
 /// Version tag recorded as the producer version of classifier confidences.
-const classifierVersion = 'explicit-evidence-6';
+const classifierVersion = 'explicit-evidence-7';
 
 ClassificationOutcome classifyDocument(ClassificationInput input) {
   final evidence = <RecognitionEvidence>[];

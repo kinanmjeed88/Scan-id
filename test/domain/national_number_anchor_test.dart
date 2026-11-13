@@ -214,16 +214,32 @@ void main() {
       expect(evidence.map((e) => e.kind), [DocumentKind.passport]);
     });
 
-    test('next to another kind the result is a conflict, not a choice', () {
+    test('next to a kind that names itself the number is withdrawn', () {
+      // This used to be pinned as a conflict between the two kinds. The audit
+      // of 2026-11-13 showed what that meant for the document: a residence
+      // card that names itself was no longer recognized as one, and the
+      // conflict was labelled with the unified card (first in enum order on
+      // a tie). A format cannot outvote a printed title: the document is
+      // classified exactly as it is without the number.
+      const own = [('بطاقة السكن', .95), ('اسم رب الأسرة', .9)];
+      final without = _classify(own);
       final outcome = _classify([
-        ('بطاقة السكن', .95),
-        ('اسم رب الأسرة', .9),
+        ...own,
         (_number, 1),
         ('الاسم', .85),
         ('وزارة الداخلية', .8),
       ]);
-      expect(outcome.candidates, hasLength(2));
-      expect(qualifiesForAutomaticPlacement(outcome), isFalse);
+      expect(outcome.candidates, [DocumentKind.residenceCard]);
+      expect(outcome.kind, without.kind);
+      expect(outcome.status, without.status);
+      expect(
+        outcome.confidences.classification?.value,
+        without.confidences.classification?.value,
+      );
+      expect(
+        qualifiesForAutomaticPlacement(outcome),
+        qualifiesForAutomaticPlacement(without),
+      );
     });
 
     test('error tolerance still cannot match an exact read', () {

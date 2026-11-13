@@ -142,6 +142,12 @@ class _EvidenceGroup {
   /// count toward [minimumGroups]: the printed label of a number is not
   /// evidence independent of the number itself.
   final Set<String> restatedBy;
+
+  /// Whether this group, when read, NAMES the document: a printed title or an
+  /// MRZ line does. An anchor that asks for more than the pair rule is the
+  /// weaker kind, one that identifies a format only; a support group names
+  /// nothing.
+  bool get namesDocument => role != _EvidenceRole.support && minimumGroups <= 2;
 }
 
 /// Conservative Iraqi-document text anchors. Issuer names and generic country
@@ -627,9 +633,15 @@ _MrzHit? _mrzOf(String rawLine, double confidence) {
   return null;
 }
 
-/// Structural MRZ hits of [kind] in view 0 (the as-emitted reading order;
-/// MRZ lines are Latin and never rune-reversed). Each hit spans its whole
-/// line, so it cannot overlap a text phrase on another line.
+/// Structural MRZ hits of [kind] in [view]. The line is validated on its raw,
+/// as-emitted text: an MRZ line is Latin and is never read reversed. Like the
+/// printed number, the hit is then offered in each reading-order view, because
+/// the labels that corroborate it are Arabic and are matched in whichever view
+/// the engine's reading order makes them legible: offered in the as-emitted
+/// view alone, a correctly read MRZ line never met the labels of an engine
+/// that emits Arabic in visual order, and the back of the card evidenced
+/// nothing. Each hit spans its whole line, so it cannot overlap a text phrase
+/// on another line.
 List<_AnchorHit> _mrzHits(
   OcrTextResult result,
   List<_LineView> view,
@@ -709,10 +721,11 @@ List<_AnchorHit> _nationalNumberHits(
 /// Derives keyword evidence from [result] only when an anchor and independent,
 /// non-overlapping corroborating groups occur. A printed title or an MRZ line
 /// needs one further group; the printed national number, which identifies a
-/// format rather than naming the document, needs two. The score is the lowest
-/// OCR-line confidence among the anchor and the groups it needed; it is not a
-/// calibrated probability that the document kind is correct. The recognized
-/// text itself is discarded and never stored.
+/// format rather than naming the document, needs two, and yields to any kind
+/// that names itself. The score is the lowest OCR-line confidence among the
+/// anchor and the groups it needed; it is not a calibrated probability that
+/// the document kind is correct. The recognized text itself is discarded and
+/// never stored.
 List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   if (!result.isAvailable) return const [];
   // Match in logical order and in per-line visual Arabic order separately.
@@ -738,8 +751,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
     double? bestScore;
     var bestGroupCount = 0;
     var bestGroups = <String>[];
-    for (var viewIndex = 0; viewIndex < views.length; viewIndex++) {
-      final view = views[viewIndex];
+    for (final view in views) {
       final hitsByGroup = <String, List<_AnchorHit>>{};
       for (final group in groups) {
         final hits = <_AnchorHit>[];
@@ -754,7 +766,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
         if (group.role == _EvidenceRole.structural) {
           if (group.id == nationalNumberGroupId) {
             hits.addAll(_nationalNumberHits(result, view));
-          } else if (viewIndex == 0) {
+          } else {
             hits.addAll(_mrzHits(result, view, kind));
           }
         }
@@ -817,7 +829,30 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
       ),
     );
   }
+  // A printed title or an MRZ line names a document. The national number does
+  // not: it is a FORMAT, and it belongs to a person, whose other papers may
+  // print the same twelve digits beside the same ministry and the same generic
+  // field labels. Where another kind names itself, the number therefore says
+  // nothing about the kind, and a claim that rests on it alone is withdrawn.
+  // The number can turn "no evidence" into the unified card; it can never
+  // change how a document that names itself is classified.
+  if (evidence.any(_namesItself)) {
+    evidence.removeWhere((entry) => !_namesItself(entry));
+  }
   return List.unmodifiable(evidence);
+}
+
+/// Whether a printed title or an MRZ line is among the groups that evidenced
+/// [entry]. Evidence without one is held up by a format alone.
+bool _namesItself(OcrKeywordEvidence entry) {
+  final groups = _evidenceGroups[entry.kind];
+  if (groups == null) return true;
+  for (final group in groups) {
+    if (group.namesDocument && entry.matchedGroups.contains(group.id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// Arabic labels for the fixed evidence-group ids of the shipped lexicons.

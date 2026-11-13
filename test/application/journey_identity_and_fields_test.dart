@@ -4,6 +4,8 @@ import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/imaging/docaligner_model.dart';
+import 'package:scan_id/imaging/docquad_model.dart';
 
 import '../fixtures.dart';
 
@@ -55,9 +57,12 @@ DocumentSide _warpedSide() => DocumentSide(
     detectionId: 'det-1',
     producer: 'docquad',
     version: 'v1',
+    // The ids the shipped models write. A capitalised look-alike used to
+    // stand here for the second one, and hid that its facts were being filed
+    // under the generic `detector_` keys.
     detectionTrace: [
-      'model=DocQuadNet-256/ORT-1.28;outcome=proposal;confidence=0.211',
-      'model=DocAligner-1.1.1;outcome=noQuad',
+      'model=$docQuadNetModelId;outcome=proposal;confidence=0.211',
+      'model=$docAlignerModelId;outcome=noQuad',
       'disagreement=0.013',
       'aspect=1.69',
       'area=0.057',

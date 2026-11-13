@@ -199,7 +199,7 @@ class ImageJourney {
       'معرّف دفعة الاستيراد غير صالح.',
     );
     require(
-      imageName.isNotEmpty && imageName.length <= 200,
+      imageName.isNotEmpty && imageName.length <= maxNameLength,
       'اسم الصورة في السجل غير صالح.',
     );
     require(
@@ -207,7 +207,7 @@ class ImageJourney {
       'اسم الصورة في السجل يجب أن يكون سطراً واحداً.',
     );
     require(
-      projectName.isEmpty || projectName.length <= 200,
+      projectName.isEmpty || projectName.length <= maxNameLength,
       'اسم المشروع في السجل غير صالح.',
     );
     require(
@@ -228,6 +228,12 @@ class ImageJourney {
   /// A log entry never carries more stages than the pipeline has, even if a
   /// future build recorded the same stage for several detected regions.
   static const int maxSteps = 24;
+
+  /// Longest image or project name an entry holds, in UTF-16 code units. It
+  /// is deliberately above the 160 an imported image may carry, because a
+  /// source that was REFUSED for its name is still reported under that name;
+  /// whoever builds an entry shortens anything longer.
+  static const int maxNameLength = 200;
 
   /// Current on-disk shape. Bumped only for an incompatible change.
   static const int schemaVersion = 1;

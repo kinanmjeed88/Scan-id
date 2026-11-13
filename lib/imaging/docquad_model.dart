@@ -15,6 +15,10 @@ import 'prepare_image.dart';
 
 const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
 
+/// The id this model writes into every boundary trace. Named here so tests
+/// and reports refer to the id production emits, not to a look-alike.
+const docQuadNetModelId = 'DocQuadNet-256/ORT-1.28';
+
 /// Small seam that allows the image editor to use a learned proposer while
 /// keeping geometric validation, persistence and manual approval in the app.
 abstract interface class BoundaryProposalModel {
@@ -54,7 +58,7 @@ class DocQuadNet256 implements BoundaryProposalModel {
   );
 
   @override
-  String get modelId => 'DocQuadNet-256/ORT-1.28';
+  String get modelId => docQuadNetModelId;
 
   @override
   Future<BoundaryProposal?> suggestProposal(

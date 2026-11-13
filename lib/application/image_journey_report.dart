@@ -442,6 +442,8 @@ String _describeDetectionTrace(Iterable<String> codes) =>
   final parts = <String>[];
   final fields = <String, Object?>{};
   var reviewReasons = 0;
+  var detectorIndex = 0;
+  final seenSlots = <String>{};
   for (final code in codes) {
     final trace = BoundaryDetectorTrace.decode(code);
     if (trace != null) {
@@ -450,14 +452,30 @@ String _describeDetectionTrace(Iterable<String> codes) =>
       final score = trace.confidence == null
           ? ''
           : ' بدرجة ${_percent(trace.confidence!)}';
-      // `null` is a meaningful value here: it records that the detector
-      // produced no number, which is different from a detector that never ran.
-      fields['${slot}_outcome'] = trace.outcome.name;
+      detectorIndex++;
+      final run = 'run$detectorIndex';
+      // Numbered runs keep repeated families and unknown detectors separate.
+      // Retain the first family alias for existing readers; never mix its
+      // optional fields with a later run.
+      final safeId = RegExp(r'^[A-Za-z0-9_.\/-]{1,120}$').hasMatch(trace.modelId)
+          ? trace.modelId
+          : 'unknown';
+      fields['${run}_model'] = safeId;
+      fields['${run}_outcome'] = trace.outcome.name;
       if (trace.confidence != null) {
-        fields['${slot}_confidence'] = _round4(trace.confidence!);
+        fields['${run}_confidence'] = _round4(trace.confidence!);
       }
       if (trace.errorType != null) {
-        fields['${slot}_error'] = _boundedCode(trace.errorType!);
+        fields['${run}_error'] = _boundedCode(trace.errorType!);
+      }
+      if (seenSlots.add(slot)) {
+        fields['${slot}_outcome'] = trace.outcome.name;
+        if (trace.confidence != null) {
+          fields['${slot}_confidence'] = _round4(trace.confidence!);
+        }
+        if (trace.errorType != null) {
+          fields['${slot}_error'] = _boundedCode(trace.errorType!);
+        }
       }
       if (trace.outcome == BoundaryDetectorOutcome.proposal) {
         parts.add('$name اقترح زوايا$score');

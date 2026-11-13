@@ -360,6 +360,36 @@ void main() {
       expect(detection.detail, contains('DocAligner'));
     });
 
+    test('repeated and unknown detector runs retain their own evidence', () {
+      final project = projectFixture().copyWith(
+        assets: [_asset('a1', 400, 250)],
+        documents: [
+          _record(id: 'd1', source: 'a1', trace: const [
+            'model=DocQuadNet-v1;outcome=proposal;confidence=0.900',
+            'model=DocQuadNet-v2;outcome=noQuad',
+            'model=future-a;outcome=proposal;confidence=0.800',
+            'model=future-b;outcome=noQuad',
+          ]),
+        ],
+        items: [_item('i1', 'a1', 'd1')],
+      );
+      final detection = _step(
+        _build(const [ImportedImageFact(name: 'صورة.jpg', assetId: 'a1')],
+            project: project).single,
+        JourneyStage.detection,
+      );
+      expect(detection.fields['docquadnet_outcome'], 'proposal');
+      expect(detection.fields['docquadnet_confidence'], .9);
+      expect(detection.fields['run2_model'], 'DocQuadNet-v2');
+      expect(detection.fields['run2_outcome'], 'noQuad');
+      expect(detection.fields.containsKey('run2_confidence'), isFalse);
+      expect(detection.fields['run3_model'], 'future-a');
+      expect(detection.fields['run3_confidence'], .8);
+      expect(detection.fields['run4_model'], 'future-b');
+      expect(detection.fields['run4_outcome'], 'noQuad');
+      expect(detection.fields.containsKey('run4_confidence'), isFalse);
+    });
+
     test('a model this build does not name keeps the generic slot', () {
       final project = projectFixture().copyWith(
         assets: [_asset('a1', 400, 250)],

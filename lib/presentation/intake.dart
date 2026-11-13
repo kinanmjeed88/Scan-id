@@ -41,6 +41,7 @@ class IntakeRun {
     this.layout,
     this.error,
     this.trace,
+    this.journeyWriteFailed = false,
   });
 
   /// The last committed project state — never a half-applied one.
@@ -59,6 +60,9 @@ class IntakeRun {
 
   /// The runner finishes before a screen adopts the returned saved state.
   final ImportTrace? trace;
+
+  /// Import remains committed, but its diagnostic journey could not be filed.
+  final bool journeyWriteFailed;
   void markUiStateApplied() => trace?.emit('ui_state_applied');
 
   List<ImportFailure> get failures => import.failures;
@@ -123,19 +127,17 @@ class IntakeRunner {
     final taskId = context.taskId;
     final startedAt = DateTime.now().toUtc();
     final picked = <ImportedImageFact>[];
+    var journeyWriteFailed = false;
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
 
-    // Files this run's reports. Reporting is a courtesy: a full disk, a
-    // revoked directory or a malformed entry must never turn a successful
-    // import into a failed one, so failures here are swallowed on purpose.
+    // A report failure must not undo the project commit. Retrying an append is
+    // idempotent by journey id; retain the reports in memory for this run and
+    // expose a separate warning when both attempts fail.
     Future<void> fileJourneys(Project latest, {bool committed = true}) async {
       final log = service.journeyLog;
       if (log == null || picked.isEmpty) return;
       try {
-        // Building the report is inside the guard as well: it validates what
-        // it composes, and a refusal there is no more a reason to fail the
-        // intake than a full disk is.
         final journeys = buildImageJourneys(
           batchId: taskId,
           project: latest,
@@ -144,9 +146,14 @@ class IntakeRunner {
           savedRevision: committed ? latest.revision : null,
         );
         _lastJourneys = journeys;
-        await log.append(journeys);
-      } on Object {
-        // The import already succeeded; the report can be missing.
+        try {
+          await log.append(journeys);
+        } on Object {
+          await log.append(journeys);
+        }
+      } on Object catch (error) {
+        journeyWriteFailed = true;
+        context.emit('journey_write_failed', error: error);
       }
     }
 
@@ -229,6 +236,7 @@ class IntakeRunner {
           import: ImportReport(latest, importedIds.length, const []),
           error: error,
           trace: context,
+          journeyWriteFailed: journeyWriteFailed,
         );
       }
       trace('import', 'completed');
@@ -329,6 +337,7 @@ class IntakeRunner {
         layout: layout,
         error: failure,
         trace: context,
+        journeyWriteFailed: journeyWriteFailed,
       );
     } finally {
       trace('task', terminal);
@@ -343,6 +352,10 @@ class IntakeRunner {
     }
   }
 }
+
+/// A diagnostic-log failure is separate from the outcome of the import.
+const String journeyWriteWarning =
+    'تعذّر حفظ سجل الرحلات؛ تحقق من مساحة التخزين والصلاحيات. لا يعني ذلك فشل استيراد الصور.';
 
 /// The arrangement screen's intake summary: what the automatic pass produced,
 /// plus — on its own line — how many regions the gates refused and why.

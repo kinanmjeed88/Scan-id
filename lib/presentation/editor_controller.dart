@@ -841,6 +841,7 @@ class LayoutEditorController extends ChangeNotifier {
         '${intakeDetails.isEmpty ? '' : '\n$intakeDetails'}',
       );
     }
+    if (outcome?.journeyWriteFailed == true) _say(journeyWriteWarning);
     final pendingIds = [
       for (final item in session.current.items)
         if (!existingItemIds.contains(item.id) &&

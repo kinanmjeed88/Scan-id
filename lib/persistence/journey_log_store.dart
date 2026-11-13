@@ -69,7 +69,7 @@ class LocalJourneyLog implements JourneyLog {
   Future<void> append(Iterable<ImageJourney> journeys) => _exclusive(() async {
     final incoming = journeys.toList();
     if (incoming.isEmpty) return;
-    final existing = await _readUnlocked();
+    final existing = await _readUnlocked(strict: true);
     // Newest first, and a re-written run replaces its own earlier entry
     // instead of appearing twice.
     final merged = <String, ImageJourney>{
@@ -96,33 +96,38 @@ class LocalJourneyLog implements JourneyLog {
     }
   });
 
-  Future<List<ImageJourney>> _readUnlocked() async {
-    final file = await _resolveFile(create: false);
+  Future<List<ImageJourney>> _readUnlocked({bool strict = false}) async {
+    final file = await _resolveFile(create: false, strict: strict);
     if (file == null) return const [];
     String raw;
     try {
       if (!await file.exists()) return const [];
       raw = await file.readAsString();
     } on FileSystemException {
+      if (strict) rethrow;
       return const [];
     }
     Object? decoded;
     try {
       decoded = jsonDecode(raw);
     } on FormatException {
+      if (strict) rethrow;
       return const [];
     }
-    if (decoded is! Map<String, Object?>) return const [];
-    final version = decoded['version'];
-    if (version != schemaVersion) return const [];
-    final entries = decoded['journeys'];
-    if (entries is! List) return const [];
+    if (decoded is! Map<String, Object?> ||
+        decoded['version'] != schemaVersion ||
+        decoded['journeys'] is! List) {
+      if (strict) throw const FormatException('Invalid journey log');
+      return const [];
+    }
+    final entries = decoded['journeys'] as List;
     final journeys = <ImageJourney>[];
     for (final entry in entries) {
       try {
         journeys.add(ImageJourney.fromJson(entry));
       } on Object {
-        // One damaged entry must not hide the others.
+        // Reading is tolerant; appending must not erase damaged entries.
+        if (strict) rethrow;
       }
     }
     return List.unmodifiable(journeys);
@@ -139,21 +144,16 @@ class LocalJourneyLog implements JourneyLog {
     final temporary = File('${file.path}.tmp');
     try {
       await temporary.writeAsString(document, flush: true);
-      try {
-        await temporary.rename(file.path);
-      } on FileSystemException {
-        // Some platforms refuse to replace an existing file on rename.
-        if (await file.exists()) await file.delete();
-        await temporary.rename(file.path);
-      }
-    } on FileSystemException {
-      // The report is a courtesy: never fail the import because it could not
-      // be filed. The next append retries with a fresh temporary file.
+      // Never delete the existing log on rename failure. A failed replacement
+      // is reported to the caller, who may retry without losing the old file.
+      await temporary.rename(file.path);
+    } on Object {
       try {
         if (await temporary.exists()) await temporary.delete();
       } on FileSystemException {
-        // Ignore: nothing else can be done here.
+        // The failed temporary file is not authoritative.
       }
+      rethrow;
     }
   }
 
@@ -161,7 +161,7 @@ class LocalJourneyLog implements JourneyLog {
       .encode(jsonEncode([for (final journey in journeys) journey.toJson()]))
       .length;
 
-  Future<File?> _resolveFile({required bool create}) async {
+  Future<File?> _resolveFile({required bool create, bool strict = false}) async {
     try {
       final folder = _folder ??= Directory(
         '${(await _supportDirectory()).path}'
@@ -175,6 +175,7 @@ class LocalJourneyLog implements JourneyLog {
       }
       return File('${folder.path}${Platform.pathSeparator}$fileName');
     } on Object {
+      if (create || strict) rethrow;
       return null;
     }
   }

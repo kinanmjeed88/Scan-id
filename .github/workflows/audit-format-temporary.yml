@@ -1,0 +1,37 @@
+name: Temporary audit formatter
+on:
+  push:
+    branches: ['arena/4c4c6840-scan-id']
+permissions:
+  contents: read
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Format audit changes
+        run: |
+          dart format lib/application/image_journey_report.dart lib/application/journey_log.dart lib/persistence/journey_log_store.dart lib/presentation/editor_controller.dart lib/presentation/intake.dart lib/presentation/project_screen.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart test/persistence/journey_log_store_test.dart
+          git diff > /tmp/audit-format.patch
+          python3 -c 'import base64,gzip; s=base64.b64encode(gzip.compress(open("/tmp/audit-format.patch","rb").read())).decode(); [print(f"::notice title=audit-format-{i:03}::{s[i*3000:(i+1)*3000]}") for i in range((len(s)+2999)//3000)]' 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-format-patch
+          path: /tmp/audit-format.patch
+          retention-days: 1
+      - name: Analyze and targeted regressions
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+          flutter test test/persistence/journey_log_store_test.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart --reporter expanded

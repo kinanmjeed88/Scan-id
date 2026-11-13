@@ -171,6 +171,33 @@ void main() {
       expect(entries.map((entry) => entry.imageName), ['healthy.png']);
     });
 
+    test('append preserves corrupt, unknown and partially damaged logs', () async {
+      final log = logWith();
+      await logFile().parent.create(recursive: true);
+      for (final raw in [
+        '{not json',
+        jsonEncode({'version': 99, 'journeys': []}),
+        jsonEncode({'version': 1, 'journeys': [journeyFor('ok').toJson(), {}]}),
+      ]) {
+        await logFile().writeAsString(raw);
+        await expectLater(log.append([journeyFor('new')]), throwsA(isA<Object>()));
+        expect(await logFile().readAsString(), raw);
+      }
+    });
+
+    test('failed write preserves the previous log and a retry works', () async {
+      final log = logWith();
+      await log.append([journeyFor('old')]);
+      final old = await logFile().readAsString();
+      final obstacle = Directory('${logFile().path}.tmp');
+      await obstacle.create();
+      await expectLater(log.append([journeyFor('new')]), throwsA(isA<Object>()));
+      expect(await logFile().readAsString(), old);
+      await obstacle.delete();
+      await log.append([journeyFor('new')]);
+      expect((await log.read()).map((j) => j.imageName), ['new.png', 'old.png']);
+    });
+
     test('writes leave no temporary file behind', () async {
       final log = logWith();
       await log.append([journeyFor('first')]);
@@ -206,7 +233,7 @@ void main() {
           supportDirectory: () async =>
               Directory('/proc/definitely-not-writable/scan-id'),
         );
-        await log.append([journeyFor('first')]);
+        await expectLater(log.append([journeyFor('first')]), throwsA(isA<Object>()));
         expect(await log.read(), isEmpty);
         expect((await log.stats()).entries, 0);
       },

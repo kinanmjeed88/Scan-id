@@ -117,13 +117,19 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (failure != null && mounted) {
         showMessage(context, userError(failure));
       }
-      if (result.failures.isNotEmpty || result.notices.isNotEmpty) {
+      if (result.failures.isNotEmpty ||
+          result.notices.isNotEmpty ||
+          run.journeyWriteFailed) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
             title: Text('تم حفظ ${result.imported} صورة'),
             content: SingleChildScrollView(
-              child: Text(importReportDetails(result)),
+              child: Text([
+                if (run.journeyWriteFailed) journeyWriteWarning,
+                if (result.failures.isNotEmpty || result.notices.isNotEmpty)
+                  importReportDetails(result),
+              ].join('\n\n')),
             ),
             actions: [
               TextButton(

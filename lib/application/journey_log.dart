@@ -39,7 +39,8 @@ abstract interface class JourneyLog {
   Future<JourneyLogStats> stats();
 
   /// Adds one run's reports, keeping the newest entries within the bound.
-  /// Duplicate ids are replaced rather than repeated.
+  /// Duplicate ids are replaced rather than repeated. Throws on write or
+  /// existing-log read failure so the caller can warn without failing import.
   Future<void> append(Iterable<ImageJourney> journeys);
 
   /// Removes the whole log. The projects it describes are untouched.

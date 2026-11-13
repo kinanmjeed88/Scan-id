@@ -443,7 +443,7 @@ String _describeDetectionTrace(Iterable<String> codes) =>
   final fields = <String, Object?>{};
   var reviewReasons = 0;
   var detectorIndex = 0;
-  final seenSlots = <String>{};
+  final firstRuns = <String, (int, String)>{};
   for (final code in codes) {
     final trace = BoundaryDetectorTrace.decode(code);
     if (trace != null) {
@@ -454,32 +454,29 @@ String _describeDetectionTrace(Iterable<String> codes) =>
           : ' بدرجة ${_percent(trace.confidence!)}';
       detectorIndex++;
       final run = 'run$detectorIndex';
-      // Numbered runs keep repeated families and unknown detectors separate.
-      // Retain the first family alias for existing readers; never mix its
-      // optional fields with a later run.
-      final safeId =
-          (RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(trace.modelId) ||
-              (trace.modelId.length <= JourneyStep.maxFieldValueLength &&
-                  RegExp(
-                    r'^DocQuadNet-[A-Za-z0-9_.-]+/ORT-[A-Za-z0-9_.-]+$',
-                  ).hasMatch(trace.modelId)))
-          ? trace.modelId
-          : 'unknown';
-      fields['${run}_model'] = safeId;
-      fields['${run}_outcome'] = trace.outcome.name;
-      if (trace.confidence != null) {
-        fields['${run}_confidence'] = _round4(trace.confidence!);
-      }
-      if (trace.errorType != null) {
-        fields['${run}_error'] = _boundedCode(trace.errorType!);
-      }
-      if (seenSlots.add(slot)) {
+      final safeId = _safeDetectorId(trace.modelId);
+      final first = firstRuns[slot];
+      if (first == null) {
+        firstRuns[slot] = (detectorIndex, safeId);
         fields['${slot}_outcome'] = trace.outcome.name;
+        if (slot == 'detector') fields['${slot}_model'] = safeId;
         if (trace.confidence != null) {
           fields['${slot}_confidence'] = _round4(trace.confidence!);
         }
         if (trace.errorType != null) {
           fields['${slot}_error'] = _boundedCode(trace.errorType!);
+        }
+      } else {
+        // Add run identifiers only on collisions, keeping the normal
+        // multi-document report bounded while preserving all repeated runs.
+        fields['run${first.$1}_model'] = first.$2;
+        fields['${run}_model'] = safeId;
+        fields['${run}_outcome'] = trace.outcome.name;
+        if (trace.confidence != null) {
+          fields['${run}_confidence'] = _round4(trace.confidence!);
+        }
+        if (trace.errorType != null) {
+          fields['${run}_error'] = _boundedCode(trace.errorType!);
         }
       }
       if (trace.outcome == BoundaryDetectorOutcome.proposal) {
@@ -532,6 +529,16 @@ String _describeDetectionTrace(Iterable<String> codes) =>
     }
   }
   return (sentence: parts.join(' · '), fields: fields);
+}
+
+// Do not copy arbitrary strings or paths into the diagnostic log.
+String _safeDetectorId(String id) {
+  if (RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(id)) return id;
+  if (id.length <= JourneyStep.maxFieldValueLength &&
+      RegExp(r'^DocQuadNet-[A-Za-z0-9_.-]+/ORT-[A-Za-z0-9_.-]+$').hasMatch(id)) {
+    return id;
+  }
+  return 'unknown';
 }
 
 /// Detector identity reduced to a stable field prefix.

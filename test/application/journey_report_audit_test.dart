@@ -389,7 +389,7 @@ void main() {
       expect(detection.fields['run2_outcome'], 'noQuad');
       expect(detection.fields.containsKey('run2_confidence'), isFalse);
       expect(detection.fields['run3_model'], 'future-a');
-      expect(detection.fields['run3_confidence'], .8);
+      expect(detection.fields['detector_confidence'], .8);
       expect(detection.fields['run4_model'], 'future-b');
       expect(detection.fields['run4_outcome'], 'noQuad');
       expect(detection.fields.containsKey('run4_confidence'), isFalse);

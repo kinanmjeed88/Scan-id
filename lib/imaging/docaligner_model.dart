@@ -19,6 +19,10 @@ const docAlignerExpectedSha256 =
     '7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc';
 const docAlignerExpectedBytes = 83084930;
 
+/// The id this model writes into every boundary trace. Named here so tests
+/// and reports refer to the id production emits, not to a look-alike.
+const docAlignerModelId = 'docaligner-1.1.1-fastvit-sa24-7f9f5a89';
+
 /// Local ONNX Runtime adapter for the upstream DocAligner 1.1.1 FastViT-SA24
 /// heatmap model. The caller supplies an already-oriented, bounded preview.
 /// This model only proposes normalized corners; it never crops or approves.
@@ -46,7 +50,7 @@ class DocAlignerFastViT implements BoundaryProposalModel {
   List<int>? lastOutputShape;
 
   @override
-  String get modelId => 'docaligner-1.1.1-fastvit-sa24-7f9f5a89';
+  String get modelId => docAlignerModelId;
 
   /// Runs the released ONNX graph with its single discovered input/output name.
   /// The shape checks below are deliberately against the actual loaded graph,

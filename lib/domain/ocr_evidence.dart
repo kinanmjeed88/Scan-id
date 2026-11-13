@@ -124,11 +124,30 @@ class _EvidenceGroup {
     this.id,
     this.phrases, {
     this.role = _EvidenceRole.support,
+    this.minimumGroups = 2,
+    this.restatedBy = const <String>{},
   });
 
   final String id;
   final List<String> phrases;
   final _EvidenceRole role;
+
+  /// How many independent groups, this one included, must agree before this
+  /// group may anchor a kind. A printed title or an MRZ line names the
+  /// document, so one further group corroborates it. A weaker anchor, one that
+  /// identifies a format rather than naming the document, asks for more.
+  final int minimumGroups;
+
+  /// Groups that restate this anchor instead of corroborating it, and so never
+  /// count toward [minimumGroups]: the printed label of a number is not
+  /// evidence independent of the number itself.
+  final Set<String> restatedBy;
+
+  /// Whether this group, when read, NAMES the document: a printed title or an
+  /// MRZ line does. An anchor that asks for more than the pair rule is the
+  /// weaker kind, one that identifies a format only; a support group names
+  /// nothing.
+  bool get namesDocument => role != _EvidenceRole.support && minimumGroups <= 2;
 }
 
 /// Conservative Iraqi-document text anchors. Issuer names and generic country
@@ -162,6 +181,20 @@ const _evidenceGroups = <DocumentKind, List<_EvidenceGroup>>{
       'nationalid',
     ], role: _EvidenceRole.title),
     _EvidenceGroup('mrz', [], role: _EvidenceRole.structural),
+    // The number printed under the title, matched by its FORMAT and never by
+    // its digits (see [_nationalNumberOf]). It anchors the card only together
+    // with two further independent groups: on a small or distant photo the
+    // title is the smallest print on the card and cannot be read, while this
+    // number, the field labels and the issuer still are. The `identifier`
+    // group is the LABEL of this same number, so it restates the anchor and
+    // does not count toward the two.
+    _EvidenceGroup(
+      nationalNumberGroupId,
+      [],
+      role: _EvidenceRole.structural,
+      minimumGroups: 3,
+      restatedBy: {'identifier'},
+    ),
     _EvidenceGroup('identifier', [
       'الرقم الوطني',
       'رقم البطاقة الوطنية',
@@ -353,11 +386,19 @@ _CompiledPhrase _compilePhrase(String raw) {
 }
 
 class _CompiledGroup {
-  const _CompiledGroup(this.id, this.role, this.phrases);
+  const _CompiledGroup(
+    this.id,
+    this.role,
+    this.phrases,
+    this.minimumGroups,
+    this.restatedBy,
+  );
 
   final String id;
   final _EvidenceRole role;
   final List<_CompiledPhrase> phrases;
+  final int minimumGroups;
+  final Set<String> restatedBy;
 }
 
 List<_CompiledGroup> _compileGroups(List<_EvidenceGroup> groups) {
@@ -370,7 +411,15 @@ List<_CompiledGroup> _compileGroups(List<_EvidenceGroup> groups) {
         phrases.add(compiledPhrase);
       }
     }
-    compiled.add(_CompiledGroup(group.id, group.role, phrases));
+    compiled.add(
+      _CompiledGroup(
+        group.id,
+        group.role,
+        phrases,
+        group.minimumGroups,
+        group.restatedBy,
+      ),
+    );
   }
   return compiled;
 }
@@ -584,9 +633,15 @@ _MrzHit? _mrzOf(String rawLine, double confidence) {
   return null;
 }
 
-/// Structural MRZ hits of [kind] in view 0 (the as-emitted reading order;
-/// MRZ lines are Latin and never rune-reversed). Each hit spans its whole
-/// line, so it cannot overlap a text phrase on another line.
+/// Structural MRZ hits of [kind] in [view]. The line is validated on its raw,
+/// as-emitted text: an MRZ line is Latin and is never read reversed. Like the
+/// printed number, the hit is then offered in each reading-order view, because
+/// the labels that corroborate it are Arabic and are matched in whichever view
+/// the engine's reading order makes them legible: offered in the as-emitted
+/// view alone, a correctly read MRZ line never met the labels of an engine
+/// that emits Arabic in visual order, and the back of the card evidenced
+/// nothing. Each hit spans its whole line, so it cannot overlap a text phrase
+/// on another line.
 List<_AnchorHit> _mrzHits(
   OcrTextResult result,
   List<_LineView> view,
@@ -611,11 +666,66 @@ List<_AnchorHit> _mrzHits(
   return hits;
 }
 
-/// Derives keyword evidence from [result] only when an anchor (title or MRZ)
-/// and an independent, non-overlapping corroborating group occur. The score
-/// is the lower OCR-line confidence of that pair; it is not a calibrated
-/// probability that the document kind is correct. The recognized text itself
-/// is discarded and never stored.
+/// Evidence-group id of the printed national number of the unified card.
+const String nationalNumberGroupId = 'nationalNumber';
+
+final _nationalNumberLine = RegExp(r'^(?:19|20)[0-9]{10}$');
+
+/// Whether one raw OCR line is, as a whole, a printed national number.
+///
+/// The check is structural, like the MRZ one: the line must consist of exactly
+/// twelve digits and nothing else, and they must open with a plausible year of
+/// birth (19xx or 20xx), which is how the number is built. A longer number, a
+/// number inside a sentence, a phone number or a date is not one. Only the
+/// FORMAT is tested: the digits are neither kept nor returned, so no number
+/// can travel out of this function.
+bool _nationalNumberOf(String rawLine) {
+  final buffer = StringBuffer();
+  for (final rune in rawLine.runes) {
+    if (rune == 0x20 || rune == 0x09 || rune == 0xA0) continue;
+    if (rune >= 0x30 && rune <= 0x39) {
+      buffer.writeCharCode(rune);
+    } else if (rune >= 0x0660 && rune <= 0x0669) {
+      buffer.writeCharCode(rune - 0x0660 + 0x30);
+    } else if (rune >= 0x06F0 && rune <= 0x06F9) {
+      buffer.writeCharCode(rune - 0x06F0 + 0x30);
+    } else {
+      return false;
+    }
+  }
+  return _nationalNumberLine.hasMatch(buffer.toString());
+}
+
+/// Structural hits of the printed national number in [view]. A number reads
+/// the same in both reading-order views, so, unlike an MRZ line, it is offered
+/// in each of them: the labels that corroborate it are Arabic and are matched
+/// in whichever view the engine's reading order makes them legible. Each hit
+/// spans its whole line, so it cannot overlap a phrase on another line.
+List<_AnchorHit> _nationalNumberHits(
+  OcrTextResult result,
+  List<_LineView> view,
+) {
+  final hits = <_AnchorHit>[];
+  var offset = 0;
+  for (var index = 0; index < result.lines.length; index++) {
+    final line = result.lines[index];
+    final length = view[index].stripped.length;
+    if (_nationalNumberOf(line.text)) {
+      hits.add(_AnchorHit(offset, offset + length, line.confidence));
+    }
+    offset += length;
+  }
+  return hits;
+}
+
+/// Derives keyword evidence from [result] only when an anchor and independent,
+/// non-overlapping corroborating groups occur. A printed title or an MRZ line
+/// needs one further group; the printed national number, which identifies a
+/// format rather than naming the document, needs two, and yields to any kind
+/// that names itself. The score is the lowest OCR-line confidence among the
+/// anchor and the groups it needed; it is not a calibrated probability that
+/// the document kind is correct. The recognized text itself is discarded and
+/// never stored.
 List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
   if (!result.isAvailable) return const [];
   // Match in logical order and in per-line visual Arabic order separately.
@@ -641,8 +751,7 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
     double? bestScore;
     var bestGroupCount = 0;
     var bestGroups = <String>[];
-    for (var viewIndex = 0; viewIndex < views.length; viewIndex++) {
-      final view = views[viewIndex];
+    for (final view in views) {
       final hitsByGroup = <String, List<_AnchorHit>>{};
       for (final group in groups) {
         final hits = <_AnchorHit>[];
@@ -654,8 +763,12 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
             hits.addAll(_fuzzyHits(view, phrase));
           }
         }
-        if (group.role == _EvidenceRole.structural && viewIndex == 0) {
-          hits.addAll(_mrzHits(result, view, kind));
+        if (group.role == _EvidenceRole.structural) {
+          if (group.id == nationalNumberGroupId) {
+            hits.addAll(_nationalNumberHits(result, view));
+          } else {
+            hits.addAll(_mrzHits(result, view, kind));
+          }
         }
         if (hits.isNotEmpty) hitsByGroup[group.id] = hits;
       }
@@ -666,23 +779,33 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
         for (final anchor in anchors) {
           final accepted = <_AnchorHit>[anchor];
           final matched = <String>{group.id};
-          var bestSupport = 0.0;
+          final bestByGroup = <String, double>{};
           // Candidate supports: every hit from other groups, strongest
           // first. A hit overlapping an already accepted span (the anchor
           // or a stronger support) never counts as independent evidence.
           final candidates = <(String, _AnchorHit)>[
             for (final entry in hitsByGroup.entries)
-              if (entry.key != group.id)
+              if (entry.key != group.id &&
+                  !group.restatedBy.contains(entry.key))
                 for (final hit in entry.value) (entry.key, hit),
           ]..sort((a, b) => b.$2.confidence.compareTo(a.$2.confidence));
           for (final (groupId, hit) in candidates) {
             if (accepted.any(hit.overlaps)) continue;
             accepted.add(hit);
             matched.add(groupId);
-            if (hit.confidence > bestSupport) bestSupport = hit.confidence;
+            final best = bestByGroup[groupId];
+            if (best == null || hit.confidence > best) {
+              bestByGroup[groupId] = hit.confidence;
+            }
           }
-          if (matched.length < 2) continue;
-          final score = math.min(anchor.confidence, bestSupport).toDouble();
+          if (matched.length < group.minimumGroups) continue;
+          // The weakest link the anchor NEEDED: its strongest corroborating
+          // group when one is required (the pair rule, unchanged), and the
+          // second strongest when two are.
+          final supports = bestByGroup.values.toList()
+            ..sort((a, b) => b.compareTo(a));
+          final required = supports[group.minimumGroups - 2];
+          final score = math.min(anchor.confidence, required).toDouble();
           if (bestScore == null ||
               score > bestScore ||
               (score == bestScore && matched.length > bestGroupCount)) {
@@ -706,7 +829,30 @@ List<OcrKeywordEvidence> ocrKeywordEvidence(OcrTextResult result) {
       ),
     );
   }
+  // A printed title or an MRZ line names a document. The national number does
+  // not: it is a FORMAT, and it belongs to a person, whose other papers may
+  // print the same twelve digits beside the same ministry and the same generic
+  // field labels. Where another kind names itself, the number therefore says
+  // nothing about the kind, and a claim that rests on it alone is withdrawn.
+  // The number can turn "no evidence" into the unified card; it can never
+  // change how a document that names itself is classified.
+  if (evidence.any(_namesItself)) {
+    evidence.removeWhere((entry) => !_namesItself(entry));
+  }
   return List.unmodifiable(evidence);
+}
+
+/// Whether a printed title or an MRZ line is among the groups that evidenced
+/// [entry]. Evidence without one is held up by a format alone.
+bool _namesItself(OcrKeywordEvidence entry) {
+  final groups = _evidenceGroups[entry.kind];
+  if (groups == null) return true;
+  for (final group in groups) {
+    if (group.namesDocument && entry.matchedGroups.contains(group.id)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// Arabic labels for the fixed evidence-group ids of the shipped lexicons.
@@ -719,6 +865,7 @@ const evidenceGroupLabels = <String, String>{
   'title': 'العنوان المطبوع',
   'mrz': 'منطقة القراءة الآلية',
   'identifier': 'حقل الرقم',
+  nationalNumberGroupId: 'الرقم الوطني المطبوع',
   'fields': 'حقول الهوية',
   'issuer': 'الجهة المُصدِرة',
   'registry': 'السجل المدني',

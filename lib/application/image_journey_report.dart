@@ -23,6 +23,8 @@ class ImportedImageFact {
     this.assetId,
     this.failureMessage,
     this.copyDurationMs,
+    this.copiedWidth,
+    this.copiedHeight,
   });
 
   /// The name of the picked file, as the person sees it in the gallery.
@@ -30,6 +32,16 @@ class ImportedImageFact {
 
   /// The saved asset, or null when the source was never copied.
   final String? assetId;
+
+  /// Pixel size of the copy as it was WRITTEN by the import.
+  ///
+  /// A revision keeps [assetId] (see `_saveRevision`), so by the time a journey
+  /// is filed the project may hold a CROPPED asset under the same id. Reading
+  /// its width/height would report the crop as if it were the copy. These two
+  /// fields are captured at import time for exactly that reason; when they are
+  /// null the copy step says the size is unknown instead of guessing it.
+  final int? copiedWidth;
+  final int? copiedHeight;
 
   /// Why the copy failed; null when it succeeded. Always a bounded Arabic
   /// sentence from the import layer, never an exception's own message.
@@ -54,11 +66,17 @@ List<ImageJourney> buildImageJourneys({
   int? savedRevision,
 }) {
   final journeys = <ImageJourney>[];
+  // The journal stores one-line, bounded names and refuses anything else. A
+  // report is filed after the import was committed, so a name the journal
+  // cannot hold is described in a form it can hold; it must never be the
+  // reason a report, and with it the intake that asked for it, fails.
+  final projectName = _journalName(project.name, fallback: '');
   for (var index = 0; index < images.length; index++) {
     final fact = images[index];
     final steps = _stepsFor(
       fact,
       project: project,
+      projectName: projectName,
       savedRevision: savedRevision,
       isLast: index == images.length - 1,
     );
@@ -67,8 +85,8 @@ List<ImageJourney> buildImageJourneys({
         id: _journeyId(batchId, fact, index),
         batchId: batchId,
         projectId: project.id,
-        projectName: project.name,
-        imageName: fact.name,
+        projectName: projectName,
+        imageName: _journalName(fact.name, fallback: unnamedImageLabel),
         startedAt: startedAt,
         sheetRevision: savedRevision,
         steps: steps,
@@ -78,6 +96,35 @@ List<ImageJourney> buildImageJourneys({
   return List.unmodifiable(journeys);
 }
 
+/// Shown for a picked image whose name is empty once made a single line.
+const String unnamedImageLabel = 'صورة بلا اسم';
+
+final RegExp _controlCharacters = RegExp(
+  r'[\u0000-\u001F\u007F\u0085\u2028\u2029]+',
+);
+
+/// [raw] as one bounded line: control characters and line breaks become a
+/// space, the ends are trimmed, an over-long name ends in «…», and an empty
+/// result is [fallback].
+String _journalName(String raw, {required String fallback}) {
+  final single = raw
+      .replaceAll(_controlCharacters, ' ')
+      .replaceAll(RegExp(' {2,}'), ' ')
+      .trim();
+  if (single.isEmpty) return fallback;
+  return _shortened(single, ImageJourney.maxNameLength);
+}
+
+/// [value] cut to [limit] UTF-16 units, ending in «…» when it was cut. The
+/// cut never leaves half of a surrogate pair behind.
+String _shortened(String value, int limit) {
+  if (value.length <= limit) return value;
+  var end = limit - 1;
+  final last = value.codeUnitAt(end - 1);
+  if (last >= 0xD800 && last <= 0xDBFF) end--;
+  return '${value.substring(0, end).trimRight()}…';
+}
+
 /// Deterministic, so writing the same run twice cannot duplicate an entry.
 String _journeyId(String batchId, ImportedImageFact fact, int index) =>
     '$batchId-${fact.assetId ?? 'picked$index'}';
@@ -85,6 +132,7 @@ String _journeyId(String batchId, ImportedImageFact fact, int index) =>
 List<JourneyStep> _stepsFor(
   ImportedImageFact fact, {
   required Project project,
+  required String projectName,
   required int? savedRevision,
   required bool isLast,
 }) {
@@ -92,7 +140,7 @@ List<JourneyStep> _stepsFor(
     JourneyStep(
       stage: JourneyStage.selection,
       outcome: JourneyOutcome.passed,
-      detail: 'اختيرت من جهازك لتُضاف إلى مشروع «${project.name}».',
+      detail: _clip('اختيرت من جهازك لتُضاف إلى مشروع «$projectName».'),
     ),
   ];
   final assetId = fact.assetId;
@@ -162,13 +210,26 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
   final scaled = asset.hasScaledLargeSource
       ? '؛ صُغّرت نسخة العمل لتبقى ضمن حد الذاكرة، والأصل محفوظ كما هو.'
       : '.';
+  // The copy's own size, captured when it was written. `asset` is looked up by
+  // id and a revision keeps that id, so its width/height may already describe a
+  // later crop; reporting those would misattribute the crop to the copy.
+  final width = fact.copiedWidth;
+  final height = fact.copiedHeight;
+  final size = width == null || height == null
+      ? 'حُفظت نسخة داخل مساحة التطبيق (الأبعاد غير مسجّلة)$scaled'
+      : 'نُسخت إلى مساحة التطبيق ($width×$height بكسل)$scaled';
   return JourneyStep(
     stage: JourneyStage.copy,
     outcome: JourneyOutcome.passed,
-    detail:
-        'نُسخت إلى مساحة التطبيق '
-        '(${asset.width}×${asset.height} بكسل)$scaled',
+    detail: size,
     durationMs: fact.copyDurationMs?.clamp(0, JourneyStep.maxDurationMs),
+    // Recorded even when the sentence had to fall back to "unknown", so the
+    // size of the copy is always machine-readable.
+    fields: {
+      if (width != null) 'copiedWidth': width,
+      if (height != null) 'copiedHeight': height,
+      'scaledWorkingCopy': asset.hasScaledLargeSource,
+    },
   );
 }
 
@@ -207,17 +268,43 @@ JourneyStep _detectionStep(
     for (final detection in detections) ...detection.boundaryDiagnostics,
   };
   if (traces.isNotEmpty || diagnostics.isNotEmpty) {
-    final measured = _describeDetectionTrace(traces);
+    final accepted = detections.any((detection) => detection.polygon != null);
+    final String sentence;
+    final Map<String, Object?> fields;
+    if (detections.length == 1) {
+      final measured = _readDetectionTrace(traces);
+      sentence = measured.sentence;
+      fields = {
+        ...measured.fields,
+        if (diagnostics.isNotEmpty) 'reasons': diagnostics.length,
+        if (accepted) 'accepted': true,
+      };
+    } else {
+      // Several documents were found in this ONE image, each measured and
+      // decided on its own. Their facts are never merged: a shared `aspect`
+      // or `accepted` key would describe a decision that was never taken,
+      // the shape of one document beside the verdict of another.
+      final each = _readEachDetection(detections);
+      sentence = each.sentence;
+      fields = each.fields;
+    }
     final reasons = diagnostics.join(' · ');
-    final detail = [
-      if (measured.isNotEmpty) 'الكشف: $measured',
+    final described = [
+      if (sentence.isNotEmpty) 'الكشف: $sentence',
       if (reasons.isNotEmpty) reasons,
     ].join(' — ');
-    final accepted = detections.any((detection) => detection.polygon != null);
+    // Codes that carry numbers only (or codes this build does not name) leave
+    // nothing to say in a sentence; the step is still recorded, with fields.
+    final detail = described.trim().isEmpty
+        ? 'سُجّل قرار الحدود؛ القياسات في الحقول المنظَّمة.'
+        : described;
     return JourneyStep(
       stage: JourneyStage.detection,
       outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
       detail: _clip(detail),
+      // The full decision evidence, never clipped. `reasons` is the refusal
+      // trail in the app's own message form; `fields` holds the numbers.
+      fields: fields,
     );
   }
   double? confidence;
@@ -256,6 +343,43 @@ String _detectorName(String modelId) {
   return 'كاشف';
 }
 
+/// The detection facts of an image that held several documents: the counts
+/// for the image, then every document's own facts under its own numbered
+/// prefix (`d1_`, `d2_`, … in the order the documents were recorded).
+///
+/// The keys inside a prefix are the ones a single-document image carries
+/// unprefixed, so one reader serves both shapes.
+({String sentence, Map<String, Object?> fields}) _readEachDetection(
+  List<DetectionRef> detections,
+) {
+  final fields = <String, Object?>{'documents': detections.length};
+  final parts = <String>[];
+  var acceptedCount = 0;
+  for (var index = 0; index < detections.length; index++) {
+    final detection = detections[index];
+    final number = index + 1;
+    final measured = _readDetectionTrace(detection.detectionTrace);
+    for (final entry in measured.fields.entries) {
+      fields['d${number}_${entry.key}'] = entry.value;
+    }
+    if (detection.boundaryDiagnostics.isNotEmpty) {
+      fields['d${number}_reasons'] = detection.boundaryDiagnostics.length;
+    }
+    if (detection.polygon != null) {
+      fields['d${number}_accepted'] = true;
+      acceptedCount++;
+    }
+    if (measured.sentence.isNotEmpty) {
+      parts.add('المستند $number: ${measured.sentence}');
+    }
+  }
+  fields['acceptedDocuments'] = acceptedCount;
+  final summary =
+      '${detections.length} مستندات في الصورة الواحدة، '
+      '$acceptedCount منها بحدود مقبولة';
+  return (sentence: [summary, ...parts].join(' · '), fields: fields);
+}
+
 /// Arabic name of a measured geometry refusal.
 String _quadRejectionLabel(String name) => switch (name) {
   'invalidSourceDimensions' => 'أبعاد مصدر غير صالحة',
@@ -274,15 +398,38 @@ String _quadRejectionLabel(String name) => switch (name) {
 /// and what it returned, how far its quadrilateral sat from the other one, and
 /// the measured shape. Every value is a fixed id or a measured number — never
 /// recognized text, a path or an error message.
-String _describeDetectionTrace(Iterable<String> codes) {
+String _describeDetectionTrace(Iterable<String> codes) =>
+    _readDetectionTrace(codes).sentence;
+
+/// The same evidence in two shapes: an Arabic [sentence] for a person, and
+/// [fields] carrying every number and code verbatim.
+///
+/// The sentence is what [JourneyStep.detail] holds and is therefore clipped;
+/// the fields are what a decision must be read from, so nothing that identifies
+/// a detector's outcome, score or the measured shape can be lost to that clip.
+({String sentence, Map<String, Object?> fields}) _readDetectionTrace(
+  Iterable<String> codes,
+) {
   final parts = <String>[];
+  final fields = <String, Object?>{};
+  var reviewReasons = 0;
   for (final code in codes) {
     final trace = BoundaryDetectorTrace.decode(code);
     if (trace != null) {
       final name = _detectorName(trace.modelId);
+      final slot = _detectorSlot(trace.modelId);
       final score = trace.confidence == null
           ? ''
           : ' بدرجة ${_percent(trace.confidence!)}';
+      // `null` is a meaningful value here: it records that the detector
+      // produced no number, which is different from a detector that never ran.
+      fields['${slot}_outcome'] = trace.outcome.name;
+      if (trace.confidence != null) {
+        fields['${slot}_confidence'] = _round4(trace.confidence!);
+      }
+      if (trace.errorType != null) {
+        fields['${slot}_error'] = _boundedCode(trace.errorType!);
+      }
       if (trace.outcome == BoundaryDetectorOutcome.proposal) {
         parts.add('$name اقترح زوايا$score');
       } else if (trace.outcome == BoundaryDetectorOutcome.noQuad) {
@@ -301,22 +448,63 @@ String _describeDetectionTrace(Iterable<String> codes) {
     final raw = code.substring(index + 1);
     final number = double.tryParse(raw);
     if (key == 'disagreement' && number != null) {
+      fields['disagreement'] = _round4(number);
       parts.add('تباعد الزوايا بين الكاشفين ${_percent(number)}');
     } else if (key == 'aspect' && number != null) {
+      fields['aspect'] = _round4(number);
       parts.add('نسبة الحدود ${number.toStringAsFixed(2)}:1');
     } else if (key == 'area' && number != null) {
+      fields['area'] = _round4(number);
       parts.add('مساحة الحدود ${_percent(number)} من الصورة');
     } else if (key == 'geometry' && number != null) {
+      fields['geometry'] = _round4(number);
       parts.add('جودة الهندسة ${_percent(number)}');
     } else if (key == 'corroboration' &&
         raw == BoundaryCorroboration.classicalCatalogAspect.name) {
+      fields['corroboration'] = raw;
       parts.add('تأييد الكاشف الكلاسيكي بنسبة النوع');
     } else if (key == 'rejection') {
+      fields['rejection'] = _boundedCode(raw);
       parts.add(_quadRejectionLabel(raw));
+    } else if (key == 'catalogAspect' && number != null) {
+      fields['catalogAspect'] = _round4(number);
+    } else if (key == 'catalogShape') {
+      fields['catalogShape'] = _boundedCode(raw);
+    } else if (key == 'review') {
+      // The decision's own reason codes, one numbered key each: a JSON object
+      // cannot repeat a key, and a joined list could outgrow the per-value
+      // bound. The person-facing sentences for the same reasons are appended
+      // to the detail and may be clipped there; these never are.
+      reviewReasons++;
+      fields['review_$reviewReasons'] = _boundedCode(raw);
     }
   }
-  return parts.join(' · ');
+  return (sentence: parts.join(' · '), fields: fields);
 }
+
+/// Detector identity reduced to a stable field prefix.
+///
+/// Matched by family and without regard to case, exactly as [_detectorName]
+/// does: the shipped ids are `DocQuadNet-256/ORT-1.28` and
+/// `docaligner-1.1.1-fastvit-sa24-7f9f5a89`, and a prefix test written for a
+/// capitalised look-alike filed the second model under the generic slot. A
+/// model this build does not name keeps that generic slot.
+String _detectorSlot(String modelId) {
+  final id = modelId.toLowerCase();
+  if (id.contains('docquad')) return 'docquadnet';
+  if (id.contains('docaligner')) return 'docaligner';
+  if (id.contains('segment')) return 'segmenter';
+  return 'detector';
+}
+
+double _round4(double value) => (value * 10000).roundToDouble() / 10000;
+
+/// Trimmed to the schema's per-value bound. Values here are enum names and
+/// model error type names, never recognized text.
+String _boundedCode(String value) =>
+    value.length <= JourneyStep.maxFieldValueLength
+    ? value
+    : value.substring(0, JourneyStep.maxFieldValueLength);
 
 JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
   if (records.isEmpty) {
@@ -341,6 +529,14 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
       stage: JourneyStage.crop,
       outcome: JourneyOutcome.passed,
       detail: 'صُحّح المنظور بالزوايا الأربع وأُنتجت نسخة $size$count.',
+      // The rendered size of the warp's own output, read from the processed
+      // asset rather than the source, so copy and crop can never be confused.
+      fields: {
+        'crop': 'perspective-warp',
+        'outputWidth': first.outputWidth ?? first.width,
+        'outputHeight': first.outputHeight ?? first.height,
+        'outputs': processed.length,
+      },
     );
   }
   final extractedRegions = [
@@ -493,9 +689,10 @@ JourneyStep _sizingStep(
     return JourneyStep(
       stage: JourneyStage.sizing,
       outcome: JourneyOutcome.passed,
-      detail:
-          'ثُبِّت مقاس النوع «${item.documentKind.label}» ($basis، $shape) '
-          'دون تمديد: $sizeText.',
+      detail: _clip(
+        'ثُبِّت مقاس النوع «${item.documentKind.label}» ($basis، $shape) '
+        'دون تمديد: $sizeText.',
+      ),
     );
   }
   if (item.documentKind == DocumentKind.unknown) {
@@ -519,10 +716,11 @@ JourneyStep _sizingStep(
     return JourneyStep(
       stage: JourneyStage.sizing,
       outcome: JourneyOutcome.review,
-      detail:
-          'مقاس «${item.documentKind.label}» تقديري قابل للتعديل ($sizeText)؛ '
-          'المقاس المؤقت ${item.width.toStringAsFixed(1)} × '
-          '${item.height.toStringAsFixed(1)} مم. أكّده يدوياً قبل الوضع على A4.',
+      detail: _clip(
+        'مقاس «${item.documentKind.label}» تقديري قابل للتعديل ($sizeText)؛ '
+        'المقاس المؤقت ${item.width.toStringAsFixed(1)} × '
+        '${item.height.toStringAsFixed(1)} مم. أكّده يدوياً قبل الوضع على A4.',
+      ),
     );
   }
   // A documented size exists but was not confirmed. The measured shape and
@@ -544,11 +742,12 @@ JourneyStep _sizingStep(
   return JourneyStep(
     stage: JourneyStage.sizing,
     outcome: JourneyOutcome.review,
-    detail:
-        'المقاس المرجعي لنوع «${item.documentKind.label}» هو $sizeText '
-        'ولم يُثبَّت ($reason). المقاس المؤقت '
-        '${item.width.toStringAsFixed(1)} × '
-        '${item.height.toStringAsFixed(1)} مم؛ أكّده قبل الوضع التلقائي على A4.',
+    detail: _clip(
+      'المقاس المرجعي لنوع «${item.documentKind.label}» هو $sizeText '
+      'ولم يُثبَّت ($reason). المقاس المؤقت '
+      '${item.width.toStringAsFixed(1)} × '
+      '${item.height.toStringAsFixed(1)} مم؛ أكّده قبل الوضع التلقائي على A4.',
+    ),
   );
 }
 
@@ -574,7 +773,7 @@ JourneyStep _placementStep(Project project, List<DocumentItem> items) {
     return JourneyStep(
       stage: JourneyStage.placement,
       outcome: JourneyOutcome.passed,
-      detail: 'وُضع في $pageText داخل حدود الورقة$count.',
+      detail: _clip('وُضع في $pageText داخل حدود الورقة$count.'),
     );
   }
   final item = items.first;
@@ -657,7 +856,7 @@ String _percent(double value) =>
 /// must stay readable and bounded on disk.
 String _clip(String value) {
   final single = value.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-  const limit = JourneyStep.maxDetailLength;
-  if (single.length <= limit) return single;
-  return '${single.substring(0, limit - 1).trimRight()}…';
+  // A step refuses an empty detail; "nothing to add" is said explicitly.
+  if (single.isEmpty) return 'لا تفصيل مسجَّل لهذه المرحلة.';
+  return _shortened(single, JourneyStep.maxDetailLength);
 }

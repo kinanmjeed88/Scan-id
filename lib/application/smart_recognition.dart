@@ -2245,6 +2245,12 @@ class SmartIntake {
         if (area != null) 'area=${_fixed(area)}',
         if (geometry != null) 'geometry=${_fixed(geometry)}',
         if (rejection != null) 'rejection=${rejection.name}',
+        // Why the decision asked for review, as fixed codes. The sentences in
+        // [boundaryDiagnostics] are written for the person and a report may
+        // clip them; these codes are for the audit and never are.
+        if (decision != null)
+          for (final reason in decision.verification.reasons)
+            'review=${reason.name}',
       ],
       detectionId: detection.detectionId,
       producer: producer,

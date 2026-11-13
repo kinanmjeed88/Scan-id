@@ -107,6 +107,48 @@ void main() {
     expect(imported.imported, isTrue);
   });
 
+  test(
+    'a picked name the journal cannot hold never fails the intake',
+    () async {
+      // The journal stores one-line names of bounded length. The report is
+      // filed after the images were committed, so a name outside those bounds
+      // has to be described, not thrown: before this was pinned, either of
+      // these names made the whole run end in an exception although the other
+      // images had been imported.
+      final project = await service.create('سجل');
+      final runner = IntakeRunner(service: service, project: project);
+      final tooLong = '${'ن' * 240}.png';
+      final run = await runner.run([
+        ImportSource(tooLong, () => Stream<List<int>>.value(bytes())),
+        ImportSource('صورة\nسطر.png', () => Stream<List<int>>.value(bytes())),
+        ImportSource('سليمة.png', () => Stream<List<int>>.value(bytes())),
+      ]);
+
+      // The import's own rule is unchanged: a name over 160 characters is a
+      // per-source failure. The other two are committed.
+      expect(run.failures, hasLength(1));
+      expect(run.importedCount, 2);
+      expect(run.error, isNull);
+
+      final stored = await log.read();
+      expect(stored, hasLength(3));
+      final names = stored.map((entry) => entry.imageName).toSet();
+      expect(names, contains('سليمة.png'));
+      expect(names, contains('صورة سطر.png'));
+      final shortened = stored.firstWhere(
+        (entry) => entry.imageName.startsWith('نننن'),
+      );
+      expect(shortened.imageName.length, lessThanOrEqualTo(200));
+      expect(shortened.imageName, endsWith('…'));
+      expect(shortened.imported, isFalse);
+      expect(
+        stored.where((entry) => entry.imported).map((entry) => entry.imageName),
+        unorderedEquals(['سليمة.png', 'صورة سطر.png']),
+      );
+      expect(runner.lastJourneys, hasLength(3));
+    },
+  );
+
   test('a host with no log still imports normally', () async {
     final plain = ProjectService(
       projects,

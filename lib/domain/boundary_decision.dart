@@ -134,6 +134,13 @@ enum BoundaryReviewReason {
   /// Only one learned detector produced usable geometry; it is a suggestion,
   /// not an independently corroborated automatic crop.
   modelNotCorroborated,
+
+  /// The text that identifies the document was read from the measured area it
+  /// lies in, and most of that text is OUTSIDE this quadrilateral. The
+  /// proposal frames a fragment, typically because the document fills or
+  /// exceeds the frame, so it is not kept as a suggestion: the whole image
+  /// stays for the person to approve or crop.
+  excludesDocumentText,
 }
 
 /// What one boundary detector actually did in one cascade run.
@@ -704,6 +711,9 @@ String boundaryReviewReasonMessage(
     'اختلف كاشفا الذكاء الاصطناعي على مواضع الزوايا؛ عُرض اقتراح واحد للمراجعة اليدوية، ولم تُدمج النتائج أو تُعتمد تلقائياً.',
   BoundaryReviewReason.modelNotCorroborated =>
     'لم تتوفر حدود صالحة من كاشف ثانٍ للتحقق؛ حُفظ الاقتراح للمراجعة اليدوية دون قص تلقائي.',
+  BoundaryReviewReason.excludesDocumentText =>
+    'الحدود المقترحة لا تحتوي نص المستند المقروء؛ يبدو أن المستند يملأ الإطار أو '
+        'يتجاوزه، فأُهمل الاقتراح وبقيت الصورة كاملة لتعتمدها أو تقصّها يدوياً.',
 };
 
 /// Shown when a boundary was accepted for perspective correction but its
@@ -713,3 +723,52 @@ String boundaryReviewReasonMessage(
 String catalogShapeUnconfirmedMessage() =>
     'شكل الحدود لا يطابق مقاس النوع ضمن تفاوت التصنيف؛ '
     'صُحح المنظور دون مطّ الناتج، ولم يُؤكَّد المقاس.';
+
+/// Whether [corners] leaves out the document's text: true when most of the
+/// located text lines, given by their centres in source-normalized
+/// coordinates, lie outside the quadrilateral.
+///
+/// This is a containment fact, not a score. With no located line there is
+/// nothing to compare, and with a quadrilateral that is not four points there
+/// is nothing to test; both answer false, so the proposal is left as it was.
+bool quadExcludesText(List<Point2> corners, List<Point2> lineCentres) {
+  if (corners.length != 4 || lineCentres.isEmpty) return false;
+  var inside = 0;
+  for (final centre in lineCentres) {
+    if (_insideConvexQuad(centre, corners)) inside++;
+  }
+  return inside * 2 < lineCentres.length;
+}
+
+/// Point-in-convex-quadrilateral for either winding: every edge must see the
+/// point on the same side. A point on an edge counts as inside.
+bool _insideConvexQuad(Point2 point, List<Point2> quad) {
+  var positive = false;
+  var negative = false;
+  for (var i = 0; i < 4; i++) {
+    final a = quad[i];
+    final b = quad[(i + 1) % 4];
+    final cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+    if (cross > 1e-9) positive = true;
+    if (cross < -1e-9) negative = true;
+  }
+  return !(positive && negative);
+}
+
+/// The decision for a proposal that [quadExcludesText] contradicted.
+///
+/// The proposal is refused rather than held for review, so it is not offered
+/// as editable corners, and the single reason replaces the earlier ones: a
+/// quadrilateral that leaves the document's text outside is not a weak
+/// boundary of that document, it is not its boundary. The measured shape and
+/// the detector traces are kept for the audit.
+BoundaryDecision refuseProposalExcludingText(BoundaryDecision decision) =>
+    BoundaryDecision(
+      kind: BoundaryDecisionKind.rejected,
+      proposal: decision.proposal,
+      verification: BoundaryVerification(
+        assessment: decision.verification.assessment,
+        reasons: const [BoundaryReviewReason.excludesDocumentText],
+        measuredAspect: decision.verification.measuredAspect,
+      ),
+    );

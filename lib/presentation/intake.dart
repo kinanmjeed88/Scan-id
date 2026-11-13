@@ -132,15 +132,18 @@ class IntakeRunner {
     Future<void> fileJourneys(Project latest, {bool committed = true}) async {
       final log = service.journeyLog;
       if (log == null || picked.isEmpty) return;
-      final journeys = buildImageJourneys(
-        batchId: taskId,
-        project: latest,
-        images: picked,
-        startedAt: startedAt,
-        savedRevision: committed ? latest.revision : null,
-      );
-      _lastJourneys = journeys;
       try {
+        // Building the report is inside the guard as well: it validates what
+        // it composes, and a refusal there is no more a reason to fail the
+        // intake than a full disk is.
+        final journeys = buildImageJourneys(
+          batchId: taskId,
+          project: latest,
+          images: picked,
+          startedAt: startedAt,
+          savedRevision: committed ? latest.revision : null,
+        );
+        _lastJourneys = journeys;
         await log.append(journeys);
       } on Object {
         // The import already succeeded; the report can be missing.
@@ -190,6 +193,11 @@ class IntakeRunner {
               assetId: result.asset?.id,
               failureMessage: result.failure,
               copyDurationMs: result.durationMs,
+              // Captured now, while `asset` still describes the copy. A later
+              // revision keeps this id, so its width/height can become the
+              // crop's; the journey must not report the crop as the copy.
+              copiedWidth: result.asset?.width,
+              copiedHeight: result.asset?.height,
             ),
           ),
         );

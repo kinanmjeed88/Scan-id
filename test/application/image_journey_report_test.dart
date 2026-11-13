@@ -172,6 +172,8 @@ void main() {
             name: 'البطاقة.jpg',
             assetId: 'a1',
             copyDurationMs: 320,
+            copiedWidth: 1200,
+            copiedHeight: 1600,
           ),
         ],
       ).single;

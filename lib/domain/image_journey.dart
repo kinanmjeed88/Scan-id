@@ -265,8 +265,11 @@ class ImageJourney {
 
   /// The single line that summarises the whole journey.
   String get conclusion {
-    if (placedOnSheet) return 'أُضيفت إلى الورقة';
     if (!imported) return 'لم تُستورد';
+    if (_outcomeOf(JourneyStage.save) == JourneyOutcome.skipped) {
+      return 'لم يُحفظ المشروع بعد المعالجة';
+    }
+    if (placedOnSheet) return 'أُضيفت إلى الورقة';
     for (final step in steps) {
       if (step.stage == JourneyStage.placement &&
           step.outcome == JourneyOutcome.review &&
@@ -284,7 +287,9 @@ class ImageJourney {
   /// The overall verdict: the worst thing that happened, so a summary can be
   /// coloured without re-reading every step.
   JourneyOutcome get verdict {
-    if (placedOnSheet && steps.every((step) => !step.outcome.needsAttention)) {
+    if (placedOnSheet &&
+        _outcomeOf(JourneyStage.save) != JourneyOutcome.skipped &&
+        steps.every((step) => !step.outcome.needsAttention)) {
       return JourneyOutcome.passed;
     }
     if (!imported) return JourneyOutcome.blocked;
@@ -294,7 +299,10 @@ class ImageJourney {
   /// The first step that still needs a human, or null when nothing does.
   JourneyStep? get firstConcern {
     for (final step in steps) {
-      if (step.outcome.needsAttention) return step;
+      if (step.outcome.needsAttention ||
+          (step.stage == JourneyStage.save && step.outcome == JourneyOutcome.skipped)) {
+        return step;
+      }
     }
     return null;
   }

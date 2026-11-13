@@ -269,8 +269,14 @@ void main() {
         expect(second.id, asset.id);
         expect(second.revisionId, isNot(revision.revisionId));
         expect(second.originalPath, asset.originalPath);
-        expect(ImageAsset.fromJson(second.toJson()).revisionId, second.revisionId);
-        expect((await assets.resolve(revision.workingPath)).existsSync(), isTrue);
+        expect(
+          ImageAsset.fromJson(second.toJson()).revisionId,
+          second.revisionId,
+        );
+        expect(
+          (await assets.resolve(revision.workingPath)).existsSync(),
+          isTrue,
+        );
         await expectLater(
           (await assets.resolve(asset.originalPath)).readAsBytes(),
           completion(original),

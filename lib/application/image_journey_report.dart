@@ -275,7 +275,10 @@ JourneyStep _detectionStep(
     final accepted =
         detections.every(_hasAcceptedBoundary) &&
         detections.length ==
-            records.fold<int>(0, (count, record) => count + record.sides.length);
+            records.fold<int>(
+              0,
+              (count, record) => count + record.sides.length,
+            );
     final String sentence;
     final Map<String, Object?> fields;
     if (records.length == 1 && records.single.sides.length == 1) {
@@ -318,8 +321,8 @@ JourneyStep _detectionStep(
     0,
     (count, record) => count + record.sides.length,
   );
-  final accepted = detections.length == sideCount &&
-      detections.every(_hasAcceptedBoundary);
+  final accepted =
+      detections.length == sideCount && detections.every(_hasAcceptedBoundary);
   final confidence = detections.length == 1
       ? detections.single.detectionConfidence?.value
       : null;
@@ -331,8 +334,8 @@ JourneyStep _detectionStep(
         : {if (accepted) 'accepted': true},
     detail: accepted
         ? confidence == null
-            ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
-            : 'حُفظت حدود مقبولة بدرجة كشف ${_percent(confidence)}.'
+              ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
+              : 'حُفظت حدود مقبولة بدرجة كشف ${_percent(confidence)}.'
         : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.',
   );
 }
@@ -545,9 +548,13 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
   ];
   if (records.length > 1 || records.single.sides.length > 1) {
     final sideCount = records.fold<int>(
-      0, (count, record) => count + record.sides.length,
+      0,
+      (count, record) => count + record.sides.length,
     );
-    final fields = <String, Object?>{'outputs': processed.length, 'sides': sideCount};
+    final fields = <String, Object?>{
+      'outputs': processed.length,
+      'sides': sideCount,
+    };
     for (var i = 0; i < records.length; i++) {
       for (var j = 0; j < records[i].sides.length; j++) {
         final output = records[i].sides[j].processedAsset;
@@ -561,8 +568,11 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
     }
     return JourneyStep(
       stage: JourneyStage.crop,
-      outcome: processed.length == sideCount ? JourneyOutcome.passed : JourneyOutcome.review,
-      detail: 'صُحّح منظور ${processed.length} من $sideCount أوجه.'
+      outcome: processed.length == sideCount
+          ? JourneyOutcome.passed
+          : JourneyOutcome.review,
+      detail:
+          'صُحّح منظور ${processed.length} من $sideCount أوجه.'
           '${processed.length == sideCount ? '' : ' البقية تحتاج مراجعة.'}',
       fields: fields,
     );
@@ -638,7 +648,9 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
 
 JourneyStep _recognitionStep(List<DocumentRecord> records) {
   if (records.length > 1) {
-    final steps = [for (final record in records) _recognitionStep([record])];
+    final steps = [
+      for (final record in records) _recognitionStep([record]),
+    ];
     final passed = steps
         .where((step) => step.outcome == JourneyOutcome.passed)
         .length;
@@ -647,7 +659,8 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
       outcome: passed == steps.length
           ? JourneyOutcome.passed
           : JourneyOutcome.review,
-      detail: 'اكتمل تصنيف $passed من ${steps.length} مستندات؛ '
+      detail:
+          'اكتمل تصنيف $passed من ${steps.length} مستندات؛ '
           '${passed == steps.length ? 'صُنّفت جميعها.' : 'البقية تحتاج مراجعة.'}',
       fields: {
         'documents': steps.length,
@@ -742,10 +755,13 @@ JourneyStep _sizingStep(
   if (items.length > 1) {
     final steps = [
       for (final item in items)
-        _sizingStep([item], [
-          for (final record in records)
-            if (record.id == item.documentId) record,
-        ]),
+        _sizingStep(
+          [item],
+          [
+            for (final record in records)
+              if (record.id == item.documentId) record,
+          ],
+        ),
     ];
     final passed = steps
         .where((step) => step.outcome == JourneyOutcome.passed)
@@ -755,7 +771,8 @@ JourneyStep _sizingStep(
       outcome: passed == steps.length
           ? JourneyOutcome.passed
           : JourneyOutcome.review,
-      detail: 'ثُبّت مقاس $passed من ${steps.length} عناصر؛ '
+      detail:
+          'ثُبّت مقاس $passed من ${steps.length} عناصر؛ '
           '${passed == steps.length ? 'ثُبّتت جميع المقاسات.' : 'البقية تحتاج مراجعة.'}',
       fields: {
         'items': steps.length,
@@ -763,8 +780,15 @@ JourneyStep _sizingStep(
         for (var i = 0; i < steps.length; i++) ...{
           'i${i + 1}_outcome': steps[i].outcome.name,
           'i${i + 1}_kind': items[i].documentKind.name,
-          if (records.indexWhere((record) => record.id == items[i].documentId) >= 0)
-            'i${i + 1}_document': records.indexWhere((record) => record.id == items[i].documentId) + 1,
+          if (records.indexWhere(
+                (record) => record.id == items[i].documentId,
+              ) >=
+              0)
+            'i${i + 1}_document':
+                records.indexWhere(
+                  (record) => record.id == items[i].documentId,
+                ) +
+                1,
         },
       },
     );
@@ -880,14 +904,17 @@ JourneyStep _placementStep(
       'i${i + 1}_placed': items[i].pageIndex != null,
       if (items[i].pageIndex != null) 'i${i + 1}_page': items[i].pageIndex! + 1,
       if (records.indexWhere((record) => record.id == items[i].documentId) >= 0)
-        'i${i + 1}_document': records.indexWhere((record) => record.id == items[i].documentId) + 1,
+        'i${i + 1}_document':
+            records.indexWhere((record) => record.id == items[i].documentId) +
+            1,
     },
   };
   if (placed.isNotEmpty && placed.length != items.length) {
     return JourneyStep(
       stage: JourneyStage.placement,
       outcome: JourneyOutcome.review,
-      detail: 'وُضع ${placed.length} من ${items.length} عناصر على الورقة؛ '
+      detail:
+          'وُضع ${placed.length} من ${items.length} عناصر على الورقة؛ '
           'البقية خارجها وتحتاج مراجعة.',
       fields: itemFields,
     );

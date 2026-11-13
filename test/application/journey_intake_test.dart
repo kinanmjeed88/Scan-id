@@ -166,34 +166,46 @@ void main() {
     expect(run.importedCount, 1);
     expect(await log.read(), isEmpty);
   });
-  test('failed journey writes retry and do not invalidate a committed import', () async {
-    final failing = _FailingJourneyLog(failures: 2);
-    final host = ProjectService(projects, assets,
-        imageEditor: LocalImageEditor(projects.files), journeyLog: failing);
-    final project = await host.create('سجل');
-    final runner = IntakeRunner(service: host, project: project);
-    final result = await runner.run(sources(1));
-    expect(result.importedCount, 1);
-    expect(result.journeyWriteFailed, isTrue);
-    expect(failing.attempts, 2);
-    expect(runner.lastJourneys, hasLength(1));
-    expect((await projects.get(project.id)).assets, hasLength(1));
-  });
+  test(
+    'failed journey writes retry and do not invalidate a committed import',
+    () async {
+      final failing = _FailingJourneyLog(failures: 2);
+      final host = ProjectService(
+        projects,
+        assets,
+        imageEditor: LocalImageEditor(projects.files),
+        journeyLog: failing,
+      );
+      final project = await host.create('سجل');
+      final runner = IntakeRunner(service: host, project: project);
+      final result = await runner.run(sources(1));
+      expect(result.importedCount, 1);
+      expect(result.journeyWriteFailed, isTrue);
+      expect(failing.attempts, 2);
+      expect(runner.lastJourneys, hasLength(1));
+      expect((await projects.get(project.id)).assets, hasLength(1));
+    },
+  );
 
   test('transient journey failure is retried without warning', () async {
     final failing = _FailingJourneyLog(failures: 1);
-    final host = ProjectService(projects, assets,
-        imageEditor: LocalImageEditor(projects.files), journeyLog: failing);
+    final host = ProjectService(
+      projects,
+      assets,
+      imageEditor: LocalImageEditor(projects.files),
+      journeyLog: failing,
+    );
     final project = await host.create('سجل');
-    final result = await IntakeRunner(service: host, project: project).run(sources(1));
+    final result = await IntakeRunner(
+      service: host,
+      project: project,
+    ).run(sources(1));
     expect(result.importedCount, 1);
     expect(result.journeyWriteFailed, isFalse);
     expect(failing.attempts, 2);
     expect(failing.saved, hasLength(1));
   });
-
 }
-
 
 class _FailingJourneyLog implements JourneyLog {
   _FailingJourneyLog({required this.failures});
@@ -213,5 +225,6 @@ class _FailingJourneyLog implements JourneyLog {
   @override
   Future<List<ImageJourney>> read() async => saved;
   @override
-  Future<JourneyLogStats> stats() async => JourneyLogStats(entries: saved.length, bytes: 0);
+  Future<JourneyLogStats> stats() async =>
+      JourneyLogStats(entries: saved.length, bytes: 0);
 }

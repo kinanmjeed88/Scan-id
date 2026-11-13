@@ -457,7 +457,10 @@ String _describeDetectionTrace(Iterable<String> codes) =>
       // Numbered runs keep repeated families and unknown detectors separate.
       // Retain the first family alias for existing readers; never mix its
       // optional fields with a later run.
-      final safeId = RegExp(r'^[A-Za-z0-9_.\/-]{1,120}$').hasMatch(trace.modelId)
+      final safeId = (RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(trace.modelId) ||
+              (trace.modelId.length <= JourneyStep.maxFieldValueLength &&
+                  RegExp(r'^DocQuadNet-[A-Za-z0-9_.-]+/ORT-[A-Za-z0-9_.-]+$')
+                      .hasMatch(trace.modelId)))
           ? trace.modelId
           : 'unknown';
       fields['${run}_model'] = safeId;

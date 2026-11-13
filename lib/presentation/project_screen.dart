@@ -125,11 +125,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
           builder: (context) => AlertDialog(
             title: Text('تم حفظ ${result.imported} صورة'),
             content: SingleChildScrollView(
-              child: Text([
-                if (run.journeyWriteFailed) journeyWriteWarning,
-                if (result.failures.isNotEmpty || result.notices.isNotEmpty)
-                  importReportDetails(result),
-              ].join('\n\n')),
+              child: Text(
+                [
+                  if (run.journeyWriteFailed) journeyWriteWarning,
+                  if (result.failures.isNotEmpty || result.notices.isNotEmpty)
+                    importReportDetails(result),
+                ].join('\n\n'),
+              ),
             ),
             actions: [
               TextButton(

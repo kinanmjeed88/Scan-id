@@ -364,18 +364,23 @@ void main() {
       final project = projectFixture().copyWith(
         assets: [_asset('a1', 400, 250)],
         documents: [
-          _record(id: 'd1', source: 'a1', trace: const [
-            'model=DocQuadNet-v1;outcome=proposal;confidence=0.900',
-            'model=DocQuadNet-v2;outcome=noQuad',
-            'model=future-a;outcome=proposal;confidence=0.800',
-            'model=future-b;outcome=noQuad',
-          ]),
+          _record(
+            id: 'd1',
+            source: 'a1',
+            trace: const [
+              'model=DocQuadNet-v1;outcome=proposal;confidence=0.900',
+              'model=DocQuadNet-v2;outcome=noQuad',
+              'model=future-a;outcome=proposal;confidence=0.800',
+              'model=future-b;outcome=noQuad',
+            ],
+          ),
         ],
         items: [_item('i1', 'a1', 'd1')],
       );
       final detection = _step(
-        _build(const [ImportedImageFact(name: 'صورة.jpg', assetId: 'a1')],
-            project: project).single,
+        _build(const [
+          ImportedImageFact(name: 'صورة.jpg', assetId: 'a1'),
+        ], project: project).single,
         JourneyStage.detection,
       );
       expect(detection.fields['docquadnet_outcome'], 'proposal');

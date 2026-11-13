@@ -33,5 +33,5 @@ jobs:
       - name: Analyze and targeted regressions
         run: |
           flutter pub get
-          flutter analyze --fatal-infos
-          flutter test test/persistence/journey_log_store_test.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart --reporter expanded
+          python tool/ci_gate.py audit-analyze flutter analyze --fatal-infos
+          python tool/ci_gate.py audit-tests flutter test test/persistence/journey_log_store_test.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart --reporter expanded

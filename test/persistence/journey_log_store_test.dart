@@ -171,19 +171,28 @@ void main() {
       expect(entries.map((entry) => entry.imageName), ['healthy.png']);
     });
 
-    test('append preserves corrupt, unknown and partially damaged logs', () async {
-      final log = logWith();
-      await logFile().parent.create(recursive: true);
-      for (final raw in [
-        '{not json',
-        jsonEncode({'version': 99, 'journeys': []}),
-        jsonEncode({'version': 1, 'journeys': [journeyFor('ok').toJson(), {}]}),
-      ]) {
-        await logFile().writeAsString(raw);
-        await expectLater(log.append([journeyFor('new')]), throwsA(isA<Object>()));
-        expect(await logFile().readAsString(), raw);
-      }
-    });
+    test(
+      'append preserves corrupt, unknown and partially damaged logs',
+      () async {
+        final log = logWith();
+        await logFile().parent.create(recursive: true);
+        for (final raw in [
+          '{not json',
+          jsonEncode({'version': 99, 'journeys': []}),
+          jsonEncode({
+            'version': 1,
+            'journeys': [journeyFor('ok').toJson(), {}],
+          }),
+        ]) {
+          await logFile().writeAsString(raw);
+          await expectLater(
+            log.append([journeyFor('new')]),
+            throwsA(isA<Object>()),
+          );
+          expect(await logFile().readAsString(), raw);
+        }
+      },
+    );
 
     test('failed write preserves the previous log and a retry works', () async {
       final log = logWith();
@@ -191,11 +200,17 @@ void main() {
       final old = await logFile().readAsString();
       final obstacle = Directory('${logFile().path}.tmp');
       await obstacle.create();
-      await expectLater(log.append([journeyFor('new')]), throwsA(isA<Object>()));
+      await expectLater(
+        log.append([journeyFor('new')]),
+        throwsA(isA<Object>()),
+      );
       expect(await logFile().readAsString(), old);
       await obstacle.delete();
       await log.append([journeyFor('new')]);
-      expect((await log.read()).map((j) => j.imageName), ['new.png', 'old.png']);
+      expect((await log.read()).map((j) => j.imageName), [
+        'new.png',
+        'old.png',
+      ]);
     });
 
     test('writes leave no temporary file behind', () async {
@@ -226,6 +241,17 @@ void main() {
       expect(decoded['version'], 1);
     });
 
+    test('instances in the same isolate serialize appends', () async {
+      final a = logWith();
+      final b = logWith();
+      await Future.wait([
+        a.append([journeyFor('first')]),
+        b.append([journeyFor('second')]),
+      ]);
+      expect((await a.read()).map((entry) => entry.imageName),
+          unorderedEquals(['first.png', 'second.png']));
+    });
+
     test(
       'an unwritable location reports empty instead of failing the import',
       () async {
@@ -233,7 +259,10 @@ void main() {
           supportDirectory: () async =>
               Directory('/proc/definitely-not-writable/scan-id'),
         );
-        await expectLater(log.append([journeyFor('first')]), throwsA(isA<Object>()));
+        await expectLater(
+          log.append([journeyFor('first')]),
+          throwsA(isA<Object>()),
+        );
         expect(await log.read(), isEmpty);
         expect((await log.stats()).entries, 0);
       },

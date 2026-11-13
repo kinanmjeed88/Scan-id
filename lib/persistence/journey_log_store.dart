@@ -43,7 +43,10 @@ class LocalJourneyLog implements JourneyLog {
   static const String fileName = 'image_journeys.json';
 
   final Future<Directory> Function() _supportDirectory;
-  Future<void> _tail = Future<void>.value();
+  // Different instances in the same isolate can target the same file. A
+  // shared queue prevents lost updates and temporary-file races between them.
+  // It is not an inter-process or inter-isolate lock.
+  static Future<void> _tail = Future<void>.value();
   Directory? _folder;
   bool _folderReady = false;
 
@@ -161,7 +164,10 @@ class LocalJourneyLog implements JourneyLog {
       .encode(jsonEncode([for (final journey in journeys) journey.toJson()]))
       .length;
 
-  Future<File?> _resolveFile({required bool create, bool strict = false}) async {
+  Future<File?> _resolveFile({
+    required bool create,
+    bool strict = false,
+  }) async {
     try {
       final folder = _folder ??= Directory(
         '${(await _supportDirectory()).path}'
@@ -180,8 +186,7 @@ class LocalJourneyLog implements JourneyLog {
     }
   }
 
-  /// Serialises every operation: appends never interleave, and a reader always
-  /// observes a whole file.
+  /// Serialises operations across instances in this isolate only.
   Future<T> _exclusive<T>(Future<T> Function() action) {
     final completer = Completer<T>();
     _tail = _tail.then((_) async {

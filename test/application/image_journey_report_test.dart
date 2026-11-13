@@ -331,7 +331,10 @@ void main() {
         images: picked('source.jpg', assetId: 'a1'),
         revision: null,
       ).single;
-      expect(byStage(journey)[JourneyStage.save]!.outcome, JourneyOutcome.skipped);
+      expect(
+        byStage(journey)[JourneyStage.save]!.outcome,
+        JourneyOutcome.skipped,
+      );
       expect(journey.verdict, JourneyOutcome.review);
       expect(journey.firstConcern!.stage, JourneyStage.save);
       expect(journey.conclusion, 'لم يُحفظ المشروع بعد المعالجة');

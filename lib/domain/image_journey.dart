@@ -300,7 +300,8 @@ class ImageJourney {
   JourneyStep? get firstConcern {
     for (final step in steps) {
       if (step.outcome.needsAttention ||
-          (step.stage == JourneyStage.save && step.outcome == JourneyOutcome.skipped)) {
+          (step.stage == JourneyStage.save &&
+              step.outcome == JourneyOutcome.skipped)) {
         return step;
       }
     }

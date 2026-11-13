@@ -260,6 +260,9 @@ JourneyStep _detectionStep(
       outcome: JourneyOutcome.review,
       detail:
           'لم تُسجَّل نتيجة كشف لهذه الصورة؛ لا يُعتمد قصّ تلقائي دون دليل.',
+      fields: records.length > 1 || records.single.sides.length > 1
+          ? _readEachDetection(records).fields
+          : const {},
     );
   }
   final traces = <String>{
@@ -565,18 +568,6 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
     );
   }
   if (processed.isNotEmpty) {
-    final sideCount = records.fold<int>(
-      0, (count, record) => count + record.sides.length,
-    );
-    if (processed.length != sideCount) {
-      return JourneyStep(
-        stage: JourneyStage.crop,
-        outcome: JourneyOutcome.review,
-        detail: 'صُحّح منظور ${processed.length} من $sideCount أوجه؛ '
-            'بقية الأوجه تحتاج مراجعة.',
-        fields: {'outputs': processed.length, 'sides': sideCount},
-      );
-    }
     final first = processed.first;
     final size =
         '${first.outputWidth ?? first.width}×'

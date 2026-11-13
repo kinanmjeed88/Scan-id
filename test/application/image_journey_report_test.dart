@@ -32,6 +32,7 @@ DocumentSide side({
   bool suggestion = false,
   bool cropped = true,
   bool accepted = true,
+  String producer = 'docquad',
   List<Point2>? polygon,
   String? processedPath,
 }) => DocumentSide(
@@ -50,7 +51,7 @@ DocumentSide side({
   ),
   detection: DetectionRef(
     detectionId: 'det-$id',
-    producer: 'docquad',
+    producer: producer,
     version: 'v1',
     detectionConfidence: confidence == null
         ? null
@@ -181,6 +182,19 @@ void main() {
       }
     });
 
+    test('a legacy synthetic frame does not claim detector success', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [record(documentSide: side(producer: 'legacy-import'))],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(byStage(journey)[JourneyStage.detection]!.outcome, JourneyOutcome.review);
+    });
+
     test('invalid accepted geometry is not a passed detection', () {
       final project = projectWith(
         assets: [assetNamed('a1', 'source.jpg')],
@@ -245,11 +259,11 @@ void main() {
         assets: [assetNamed('a1', 'source.jpg')],
         documents: [
           record(id: 'd1', recognition: recognized()),
-          record(id: 'd2', documentSide: side(id: 's2'), recognition: recognized()),
+          record(id: 'd2', documentSide: side(id: 's2'), recognition: recognized(kind: DocumentKind.passport)),
         ],
         items: [
           placedItem(id: 'i1', documentId: 'd1'),
-          placedItem(id: 'i2', documentId: 'd2'),
+          placedItem(id: 'i2', documentId: 'd2', kind: DocumentKind.passport),
         ],
       );
       final journey = build(
@@ -258,6 +272,8 @@ void main() {
       final steps = byStage(journey);
       expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.recognition]!.fields['d1_kind'], 'unifiedNationalId');
+      expect(steps[JourneyStage.recognition]!.fields['d2_kind'], 'passport');
       expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.passed);
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.passed);
     });

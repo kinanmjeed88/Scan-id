@@ -320,6 +320,24 @@ void main() {
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.passed);
     });
 
+    test('unknown recognition status does not claim classification', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(recognition: recognized(status: RecognitionStatus.unknown)),
+        ],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(
+        byStage(journey)[JourneyStage.recognition]!.outcome,
+        JourneyOutcome.review,
+      );
+    });
+
     test('a placed result without a saved revision is not complete', () {
       final project = projectWith(
         assets: [assetNamed('a1', 'source.jpg')],

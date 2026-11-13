@@ -719,6 +719,14 @@ JourneyStep _recognitionStep(List<DocumentRecord> records) {
       ),
     );
   }
+  if (recognition.status == RecognitionStatus.unknown &&
+      kind != DocumentKind.unknown) {
+    return JourneyStep(
+      stage: JourneyStage.recognition,
+      outcome: JourneyOutcome.review,
+      detail: 'حالة التصنيف غير مؤكدة رغم وجود نوع مسجّل؛ راجع المستند.',
+    );
+  }
   if (kind == DocumentKind.unknown) {
     final signals = _votedKindLabels(recognition.evidence);
     final categories = _evidenceCategories(recognition.evidence);

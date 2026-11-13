@@ -255,7 +255,7 @@ void main() {
     });
 
     test(
-      'an unwritable location reports empty instead of failing the import',
+      'an unwritable location reports append failure and tolerant reads',
       () async {
         final log = LocalJourneyLog(
           supportDirectory: () async =>

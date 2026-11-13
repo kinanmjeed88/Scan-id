@@ -8,9 +8,9 @@
 /// - **Never load-bearing.** A failed write or a damaged file must not affect
 ///   the import that produced it. Reads are tolerant: a malformed entry is
 ///   dropped and the rest is still reported.
-/// - **Atomic.** Entries are rewritten into a temporary file and swapped in, so
-///   an interrupted write leaves the previous log intact instead of a truncated
-///   JSON document.
+/// - **Failure-aware.** Entries are flushed to a temporary file before rename;
+///   the old file is never explicitly deleted on rename failure. Crash or power
+///   loss durability depends on the platform and has not been established.
 /// - **Private.** Entries carry stage facts only (see [ImageJourney]); the store
 ///   adds nothing of its own and never writes recognized text or image bytes.
 library;

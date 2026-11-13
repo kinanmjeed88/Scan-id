@@ -535,7 +535,9 @@ String _describeDetectionTrace(Iterable<String> codes) =>
 String _safeDetectorId(String id) {
   if (RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(id)) return id;
   if (id.length <= JourneyStep.maxFieldValueLength &&
-      RegExp(r'^DocQuadNet-[A-Za-z0-9_.-]+/ORT-[A-Za-z0-9_.-]+$').hasMatch(id)) {
+      RegExp(
+        r'^DocQuadNet-[A-Za-z0-9_.-]+/ORT-[A-Za-z0-9_.-]+$',
+      ).hasMatch(id)) {
     return id;
   }
   return 'unknown';

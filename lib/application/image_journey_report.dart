@@ -192,7 +192,7 @@ List<JourneyStep> _stepsFor(
   steps.add(_cropStep(records, project.assets));
   steps.add(_recognitionStep(records));
   steps.add(_sizingStep(items, records));
-  steps.add(_placementStep(project, items));
+  steps.add(_placementStep(project, items, records));
   steps.add(_saveStep(savedRevision, isLast: isLast));
   return steps;
 }
@@ -323,6 +323,9 @@ JourneyStep _detectionStep(
   return JourneyStep(
     stage: JourneyStage.detection,
     outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
+    fields: records.length > 1 || records.single.sides.length > 1
+        ? _readEachDetection(records).fields
+        : {if (accepted) 'accepted': true},
     detail: accepted
         ? confidence == null
             ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
@@ -863,7 +866,11 @@ JourneyStep _sizingStep(
   );
 }
 
-JourneyStep _placementStep(Project project, List<DocumentItem> items) {
+JourneyStep _placementStep(
+  Project project,
+  List<DocumentItem> items,
+  List<DocumentRecord> records,
+) {
   if (items.isEmpty) {
     return JourneyStep(
       stage: JourneyStage.placement,
@@ -875,13 +882,23 @@ JourneyStep _placementStep(Project project, List<DocumentItem> items) {
     for (final item in items)
       if (item.pageIndex != null) item,
   ];
+  final itemFields = <String, Object?>{
+    'items': items.length,
+    'placedItems': placed.length,
+    for (var i = 0; i < items.length; i++) ...{
+      'i${i + 1}_placed': items[i].pageIndex != null,
+      if (items[i].pageIndex != null) 'i${i + 1}_page': items[i].pageIndex! + 1,
+      if (records.indexWhere((record) => record.id == items[i].documentId) >= 0)
+        'i${i + 1}_document': records.indexWhere((record) => record.id == items[i].documentId) + 1,
+    },
+  };
   if (placed.isNotEmpty && placed.length != items.length) {
     return JourneyStep(
       stage: JourneyStage.placement,
       outcome: JourneyOutcome.review,
       detail: 'وُضع ${placed.length} من ${items.length} عناصر على الورقة؛ '
           'البقية خارجها وتحتاج مراجعة.',
-      fields: {'items': items.length, 'placedItems': placed.length},
+      fields: itemFields,
     );
   }
   if (placed.isNotEmpty) {
@@ -895,6 +912,7 @@ JourneyStep _placementStep(Project project, List<DocumentItem> items) {
       stage: JourneyStage.placement,
       outcome: JourneyOutcome.passed,
       detail: _clip('وُضع في $pageText داخل حدود الورقة$count.'),
+      fields: items.length > 1 ? itemFields : const {},
     );
   }
   final item = items.first;
@@ -902,6 +920,7 @@ JourneyStep _placementStep(Project project, List<DocumentItem> items) {
     stage: JourneyStage.placement,
     outcome: JourneyOutcome.review,
     detail: _clip(unplacedDocumentMessage(project, item)),
+    fields: items.length > 1 ? itemFields : const {},
   );
 }
 

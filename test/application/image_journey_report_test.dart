@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/image_journey_report.dart';
 import 'package:scan_id/domain/document_kind.dart';
@@ -218,6 +220,21 @@ void main() {
       expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.review);
       expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
       expect(steps[JourneyStage.placement]!.fields['placedItems'], 1);
+      expect(steps[JourneyStage.placement]!.fields['i1_placed'], isTrue);
+      expect(steps[JourneyStage.placement]!.fields['i2_placed'], isFalse);
+      expect(steps[JourneyStage.placement]!.fields['i2_document'], 2);
+      expect(steps[JourneyStage.recognition]!.fields['d1_outcome'], 'passed');
+      expect(steps[JourneyStage.recognition]!.fields['d2_outcome'], 'skipped');
+      expect(steps[JourneyStage.crop]!.fields['d1_s1_warped'], isTrue);
+      expect(steps[JourneyStage.crop]!.fields['d2_s1_warped'], isFalse);
+      final reopened = Project.fromJson(jsonDecode(jsonEncode(project.toJson())));
+      final reopenedJourney = build(
+        project: reopened, images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(byStage(reopenedJourney)[JourneyStage.placement]!.fields,
+          steps[JourneyStage.placement]!.fields);
+      expect(byStage(reopenedJourney)[JourneyStage.recognition]!.fields,
+          steps[JourneyStage.recognition]!.fields);
       expect(journey.placedOnSheet, isFalse);
       expect(journey.conclusion, 'أُضيف بعضها إلى الورقة وبقي بعضها للمراجعة');
       expect(journey.verdict, JourneyOutcome.review);

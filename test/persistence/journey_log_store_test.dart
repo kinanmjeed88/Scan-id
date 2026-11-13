@@ -178,10 +178,10 @@ void main() {
         await logFile().parent.create(recursive: true);
         for (final raw in [
           '{not json',
-          jsonEncode({'version': 99, 'journeys': []}),
+          jsonEncode({'version': 99, 'journeys': <Object?>[]}),
           jsonEncode({
             'version': 1,
-            'journeys': [journeyFor('ok').toJson(), {}],
+            'journeys': [journeyFor('ok').toJson(), <String, Object?>{}],
           }),
         ]) {
           await logFile().writeAsString(raw);
@@ -248,8 +248,10 @@ void main() {
         a.append([journeyFor('first')]),
         b.append([journeyFor('second')]),
       ]);
-      expect((await a.read()).map((entry) => entry.imageName),
-          unorderedEquals(['first.png', 'second.png']));
+      expect(
+        (await a.read()).map((entry) => entry.imageName),
+        unorderedEquals(['first.png', 'second.png']),
+      );
     });
 
     test(

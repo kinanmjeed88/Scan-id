@@ -310,6 +310,22 @@ class ImageAsset {
 
   final String originalPath;
   final String workingPath;
+
+  /// Identity of the current immutable file revision within this asset, when
+  /// the path was written by the revision or replacement service. The asset id
+  /// remains stable for document/layout references. Imported and older paths
+  /// without a revision directory intentionally return null; no id is guessed.
+  /// The path is already persisted, so this adds no schema field or migration.
+  String? get revisionId {
+    final parts = workingPath.split('/');
+    if (parts.length < 3 || parts.last != 'working.png') return null;
+    final kind = parts[parts.length - 3];
+    if (kind != 'edits' && kind != 'replacements') return null;
+    final revision = parts[parts.length - 2];
+    if (!RegExp(r'^[a-zA-Z0-9_-]{1,80}$').hasMatch(revision)) return null;
+    return revision;
+  }
+
   final String thumbnailPath;
   final int width;
   final int height;

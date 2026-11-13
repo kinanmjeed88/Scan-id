@@ -11,6 +11,7 @@ library;
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
+import '../domain/geometry.dart';
 import '../domain/image_journey.dart';
 import '../domain/ocr_evidence.dart';
 import '../domain/project.dart';
@@ -268,10 +269,13 @@ JourneyStep _detectionStep(
     for (final detection in detections) ...detection.boundaryDiagnostics,
   };
   if (traces.isNotEmpty || diagnostics.isNotEmpty) {
-    final accepted = detections.any((detection) => detection.polygon != null);
+    final accepted =
+        detections.every(_hasAcceptedBoundary) &&
+        detections.length ==
+            records.fold<int>(0, (count, record) => count + record.sides.length);
     final String sentence;
     final Map<String, Object?> fields;
-    if (detections.length == 1) {
+    if (records.length == 1 && records.single.sides.length == 1) {
       final measured = _readDetectionTrace(traces);
       sentence = measured.sentence;
       fields = {
@@ -284,7 +288,7 @@ JourneyStep _detectionStep(
       // decided on its own. Their facts are never merged: a shared `aspect`
       // or `accepted` key would describe a decision that was never taken,
       // the shape of one document beside the verdict of another.
-      final each = _readEachDetection(detections);
+      final each = _readEachDetection(records);
       sentence = each.sentence;
       fields = each.fields;
     }
@@ -307,30 +311,34 @@ JourneyStep _detectionStep(
       fields: fields,
     );
   }
-  double? confidence;
-  for (final detection in detections) {
-    confidence = detection.detectionConfidence?.value;
-    if (confidence != null) break;
-  }
-  if (confidence == null) {
-    return JourneyStep(
-      stage: JourneyStage.detection,
-      outcome: JourneyOutcome.review,
-      detail: 'درجة كشف الحدود غير متاحة؛ لا يُعتمد قصّ تلقائي دون دليل موثوق.',
-    );
-  }
-  final count = detections.length > 1
-      ? ' (${detections.length} مستندات في الصورة الواحدة)'
-      : '';
-  final measured = _describeDetectionTrace(traces);
+  final sideCount = records.fold<int>(
+    0,
+    (count, record) => count + record.sides.length,
+  );
+  final accepted = detections.length == sideCount &&
+      detections.every(_hasAcceptedBoundary);
+  final confidence = detections.length == 1
+      ? detections.single.detectionConfidence?.value
+      : null;
   return JourneyStep(
     stage: JourneyStage.detection,
-    outcome: JourneyOutcome.passed,
-    detail: _clip(
-      'اجتازت بوابة الحدود بدرجة ${_percent(confidence)}$count.'
-      '${measured.isEmpty ? '' : ' $measured.'}',
-    ),
+    outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
+    detail: accepted
+        ? confidence == null
+            ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
+            : 'حُفظت حدود مقبولة بدرجة كشف ${_percent(confidence)}.'
+        : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.',
   );
+}
+
+/// The stored accepted polygon is a decision, not merely a score or a
+/// suggestion. Migration synthesizes full-frame polygons for legacy records;
+/// those describe a region, not a detector acceptance.
+bool _hasAcceptedBoundary(DetectionRef detection) {
+  final polygon = detection.polygon;
+  return detection.producer != 'legacy-import' &&
+      polygon != null &&
+      normalizedQuadIssue(polygon) == null;
 }
 
 /// Fixed, user-facing name of a detector. The raw model id stays in the record
@@ -350,32 +358,44 @@ String _detectorName(String modelId) {
 /// The keys inside a prefix are the ones a single-document image carries
 /// unprefixed, so one reader serves both shapes.
 ({String sentence, Map<String, Object?> fields}) _readEachDetection(
-  List<DetectionRef> detections,
+  List<DocumentRecord> records,
 ) {
-  final fields = <String, Object?>{'documents': detections.length};
+  final fields = <String, Object?>{'documents': records.length};
   final parts = <String>[];
   var acceptedCount = 0;
-  for (var index = 0; index < detections.length; index++) {
-    final detection = detections[index];
+  for (var index = 0; index < records.length; index++) {
+    final record = records[index];
     final number = index + 1;
-    final measured = _readDetectionTrace(detection.detectionTrace);
-    for (final entry in measured.fields.entries) {
-      fields['d${number}_${entry.key}'] = entry.value;
+    var allAccepted = true;
+    for (var sideIndex = 0; sideIndex < record.sides.length; sideIndex++) {
+      final detection = record.sides[sideIndex].detection;
+      final prefix = record.sides.length == 1
+          ? 'd${number}_'
+          : 'd${number}_s${sideIndex + 1}_';
+      if (detection == null) {
+        allAccepted = false;
+        fields['${prefix}missing'] = true;
+        continue;
+      }
+      final measured = _readDetectionTrace(detection.detectionTrace);
+      for (final entry in measured.fields.entries) {
+        fields['$prefix${entry.key}'] = entry.value;
+      }
+      if (detection.boundaryDiagnostics.isNotEmpty) {
+        fields['${prefix}reasons'] = detection.boundaryDiagnostics.length;
+      }
+      final accepted = _hasAcceptedBoundary(detection);
+      if (accepted) fields['${prefix}accepted'] = true;
+      if (!accepted) allAccepted = false;
+      if (measured.sentence.isNotEmpty) {
+        parts.add('المستند $number: ${measured.sentence}');
+      }
     }
-    if (detection.boundaryDiagnostics.isNotEmpty) {
-      fields['d${number}_reasons'] = detection.boundaryDiagnostics.length;
-    }
-    if (detection.polygon != null) {
-      fields['d${number}_accepted'] = true;
-      acceptedCount++;
-    }
-    if (measured.sentence.isNotEmpty) {
-      parts.add('المستند $number: ${measured.sentence}');
-    }
+    if (allAccepted) acceptedCount++;
   }
   fields['acceptedDocuments'] = acceptedCount;
   final summary =
-      '${detections.length} مستندات في الصورة الواحدة، '
+      '${records.length} مستندات في الصورة الواحدة، '
       '$acceptedCount منها بحدود مقبولة';
   return (sentence: [summary, ...parts].join(' · '), fields: fields);
 }
@@ -517,7 +537,43 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
       for (final side in record.sides)
         if (side.processedAsset.corners != null) side.processedAsset,
   ];
+  if (records.length > 1 || records.single.sides.length > 1) {
+    final sideCount = records.fold<int>(
+      0, (count, record) => count + record.sides.length,
+    );
+    final fields = <String, Object?>{'outputs': processed.length, 'sides': sideCount};
+    for (var i = 0; i < records.length; i++) {
+      for (var j = 0; j < records[i].sides.length; j++) {
+        final output = records[i].sides[j].processedAsset;
+        final prefix = 'd${i + 1}_s${j + 1}_';
+        fields['${prefix}warped'] = output.corners != null;
+        if (output.corners != null) {
+          fields['${prefix}width'] = output.outputWidth ?? output.width;
+          fields['${prefix}height'] = output.outputHeight ?? output.height;
+        }
+      }
+    }
+    return JourneyStep(
+      stage: JourneyStage.crop,
+      outcome: processed.length == sideCount ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: 'صُحّح منظور ${processed.length} من $sideCount أوجه.'
+          '${processed.length == sideCount ? '' : ' البقية تحتاج مراجعة.'}',
+      fields: fields,
+    );
+  }
   if (processed.isNotEmpty) {
+    final sideCount = records.fold<int>(
+      0, (count, record) => count + record.sides.length,
+    );
+    if (processed.length != sideCount) {
+      return JourneyStep(
+        stage: JourneyStage.crop,
+        outcome: JourneyOutcome.review,
+        detail: 'صُحّح منظور ${processed.length} من $sideCount أوجه؛ '
+            'بقية الأوجه تحتاج مراجعة.',
+        fields: {'outputs': processed.length, 'sides': sideCount},
+      );
+    }
     final first = processed.first;
     final size =
         '${first.outputWidth ?? first.width}×'
@@ -587,6 +643,29 @@ JourneyStep _cropStep(List<DocumentRecord> records, List<ImageAsset> assets) {
 }
 
 JourneyStep _recognitionStep(List<DocumentRecord> records) {
+  if (records.length > 1) {
+    final steps = [for (final record in records) _recognitionStep([record])];
+    final passed = steps
+        .where((step) => step.outcome == JourneyOutcome.passed)
+        .length;
+    return JourneyStep(
+      stage: JourneyStage.recognition,
+      outcome: passed == steps.length
+          ? JourneyOutcome.passed
+          : JourneyOutcome.review,
+      detail: 'اكتمل تصنيف $passed من ${steps.length} مستندات؛ '
+          '${passed == steps.length ? 'صُنّفت جميعها.' : 'البقية تحتاج مراجعة.'}',
+      fields: {
+        'documents': steps.length,
+        'classifiedDocuments': passed,
+        for (var i = 0; i < steps.length; i++) ...{
+          'd${i + 1}_outcome': steps[i].outcome.name,
+          if (records[i].recognition != null)
+            'd${i + 1}_kind': records[i].recognition!.documentKind.name,
+        },
+      },
+    );
+  }
   final recognitions = [
     for (final record in records)
       if (record.recognition != null) record.recognition!,
@@ -666,6 +745,36 @@ JourneyStep _sizingStep(
   if (items.isEmpty) {
     return _notReached(JourneyStage.sizing, 'لا مستند بعد لتأكيد مقاسه.');
   }
+  if (items.length > 1) {
+    final steps = [
+      for (final item in items)
+        _sizingStep([item], [
+          for (final record in records)
+            if (record.id == item.documentId) record,
+        ]),
+    ];
+    final passed = steps
+        .where((step) => step.outcome == JourneyOutcome.passed)
+        .length;
+    return JourneyStep(
+      stage: JourneyStage.sizing,
+      outcome: passed == steps.length
+          ? JourneyOutcome.passed
+          : JourneyOutcome.review,
+      detail: 'ثُبّت مقاس $passed من ${steps.length} عناصر؛ '
+          '${passed == steps.length ? 'ثُبّتت جميع المقاسات.' : 'البقية تحتاج مراجعة.'}',
+      fields: {
+        'items': steps.length,
+        'sizedItems': passed,
+        for (var i = 0; i < steps.length; i++) ...{
+          'i${i + 1}_outcome': steps[i].outcome.name,
+          'i${i + 1}_kind': items[i].documentKind.name,
+          if (records.indexWhere((record) => record.id == items[i].documentId) >= 0)
+            'i${i + 1}_document': records.indexWhere((record) => record.id == items[i].documentId) + 1,
+        },
+      },
+    );
+  }
   final item = items.first;
   final natural = _catalogSizeOf(item.documentKind);
   final sizeText = natural == null
@@ -674,7 +783,10 @@ JourneyStep _sizingStep(
             '${natural.height.toStringAsFixed(1)} مم';
   final traces = {
     for (final record in records)
-      for (final side in record.sides) ...?side.detection?.detectionTrace,
+      if (item.documentId == null
+          ? records.length == 1
+          : record.id == item.documentId)
+        for (final side in record.sides) ...?side.detection?.detectionTrace,
   };
   if (item.sizeConfirmed && natural != null) {
     final provenance = documentSizeRecordFor(item.documentKind).provenance;
@@ -763,6 +875,15 @@ JourneyStep _placementStep(Project project, List<DocumentItem> items) {
     for (final item in items)
       if (item.pageIndex != null) item,
   ];
+  if (placed.isNotEmpty && placed.length != items.length) {
+    return JourneyStep(
+      stage: JourneyStage.placement,
+      outcome: JourneyOutcome.review,
+      detail: 'وُضع ${placed.length} من ${items.length} عناصر على الورقة؛ '
+          'البقية خارجها وتحتاج مراجعة.',
+      fields: {'items': items.length, 'placedItems': placed.length},
+    );
+  }
   if (placed.isNotEmpty) {
     final pages = {for (final item in placed) item.pageIndex! + 1}.toList()
       ..sort();

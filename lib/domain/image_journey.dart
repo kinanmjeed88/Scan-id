@@ -258,7 +258,8 @@ class ImageJourney {
   /// Whether the source was copied into the project at all.
   bool get imported => _outcomeOf(JourneyStage.copy) == JourneyOutcome.passed;
 
-  /// Whether the image (or a document derived from it) was placed on the sheet.
+  /// Whether the placement stage reports all items on the sheet. A partially
+  /// placed multi-document image remains in review.
   bool get placedOnSheet =>
       _outcomeOf(JourneyStage.placement) == JourneyOutcome.passed;
 
@@ -266,6 +267,14 @@ class ImageJourney {
   String get conclusion {
     if (placedOnSheet) return 'أُضيفت إلى الورقة';
     if (!imported) return 'لم تُستورد';
+    for (final step in steps) {
+      if (step.stage == JourneyStage.placement &&
+          step.outcome == JourneyOutcome.review &&
+          step.fields['placedItems'] is int &&
+          (step.fields['placedItems'] as int) > 0) {
+        return 'أُضيف بعضها إلى الورقة وبقي بعضها للمراجعة';
+      }
+    }
     if (_outcomeOf(JourneyStage.placement) == JourneyOutcome.blocked) {
       return 'بقيت خارج الورقة';
     }

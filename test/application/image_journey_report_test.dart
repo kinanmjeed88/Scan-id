@@ -29,6 +29,8 @@ DocumentSide side({
   List<String> trace = const [],
   bool suggestion = false,
   bool cropped = true,
+  bool accepted = true,
+  List<Point2>? polygon,
   String? processedPath,
 }) => DocumentSide(
   id: id,
@@ -53,6 +55,9 @@ DocumentSide side({
         : Confidence(value: confidence),
     boundaryDiagnostics: diagnostics,
     detectionTrace: trace,
+    polygon: polygon ?? (accepted && !suggestion && diagnostics.isEmpty
+        ? [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)]
+        : null),
     suggestedPolygon: suggestion
         ? [Point2(0.1, 0.1), Point2(0.9, 0.9), Point2(0.2, 0.8), Point2(0, 1)]
         : null,
@@ -159,6 +164,87 @@ Map<JourneyStage, JourneyStep> byStage(ImageJourney journey) => {
 
 void main() {
   group('journey report', () {
+    test('a confidence without an accepted polygon stays in review', () {
+      for (final traces in [<String>[], <String>['aspect=1.5']]) {
+        final project = projectWith(
+          assets: [assetNamed('a1', 'source.jpg')],
+          documents: [record(documentSide: side(accepted: false, trace: traces))],
+          items: [placedItem(documentId: 'd1')],
+        );
+        final journey = build(
+          project: project,
+          images: picked('source.jpg', assetId: 'a1'),
+        ).single;
+        expect(byStage(journey)[JourneyStage.detection]!.outcome, JourneyOutcome.review);
+      }
+    });
+
+    test('invalid accepted geometry is not a passed detection', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [record(documentSide: side(polygon: [
+          Point2(0, 0), Point2(1, 1), Point2(1, 0), Point2(0, 1),
+        ]))],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(byStage(journey)[JourneyStage.detection]!.outcome, JourneyOutcome.review);
+    });
+
+    test('mixed document results never become an all-passed journey', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(id: 'd1', recognition: recognized()),
+          record(id: 'd2', documentSide: side(id: 's2', cropped: false)),
+        ],
+        items: [
+          placedItem(id: 'i1', documentId: 'd1'),
+          placedItem(
+            id: 'i2', documentId: 'd2', pageIndex: null,
+            sizeConfirmed: false, kind: DocumentKind.unknown,
+          ),
+        ],
+      );
+      final journey = build(
+        project: project, images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      final steps = byStage(journey);
+      expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.placement]!.fields['placedItems'], 1);
+      expect(journey.placedOnSheet, isFalse);
+      expect(journey.conclusion, 'أُضيف بعضها إلى الورقة وبقي بعضها للمراجعة');
+      expect(journey.verdict, JourneyOutcome.review);
+    });
+
+    test('fully processed multiple documents can still pass', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(id: 'd1', recognition: recognized()),
+          record(id: 'd2', documentSide: side(id: 's2'), recognition: recognized()),
+        ],
+        items: [
+          placedItem(id: 'i1', documentId: 'd1'),
+          placedItem(id: 'i2', documentId: 'd2'),
+        ],
+      );
+      final journey = build(
+        project: project, images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      final steps = byStage(journey);
+      expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.passed);
+    });
+
     test('a processed image reports every stage as passed', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'البطاقة.jpg')],

@@ -431,6 +431,15 @@ void main() {
       JourneyStage.detection,
     );
 
+    test('a refused document keeps the shared detection and crop in review', () {
+      final journey = _build(const [
+        ImportedImageFact(name: 'صفحة.jpg', assetId: 'a1'),
+      ], project: twoDocuments()).single;
+      expect(_step(journey, JourneyStage.detection).outcome, JourneyOutcome.review);
+      expect(_step(journey, JourneyStage.crop).outcome, JourneyOutcome.review);
+      expect(journey.verdict, JourneyOutcome.review);
+    });
+
     test('each document carries its own measurements and verdict', () {
       final fields = detection().fields;
 

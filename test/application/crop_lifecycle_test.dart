@@ -260,6 +260,17 @@ void main() {
         expect(img.decodeImage(preview), isNotNull);
         final revision = await real.createRevision(asset, recipe);
         expect(revision.crop, isNotNull);
+        expect(asset.revisionId, isNull);
+        expect(revision.id, asset.id);
+        expect(revision.originalPath, asset.originalPath);
+        expect(revision.revisionId, isNotNull);
+        expect(revision.revisionId, isNot(asset.id));
+        final second = await real.createRevision(revision, recipe);
+        expect(second.id, asset.id);
+        expect(second.revisionId, isNot(revision.revisionId));
+        expect(second.originalPath, asset.originalPath);
+        expect(ImageAsset.fromJson(second.toJson()).revisionId, second.revisionId);
+        expect((await assets.resolve(revision.workingPath)).existsSync(), isTrue);
         await expectLater(
           (await assets.resolve(asset.originalPath)).readAsBytes(),
           completion(original),

@@ -53,6 +53,36 @@ RefinementOutcome _run({
     allowed: allowed ?? (_) => true,
     // One unit of the normalized frame is 1000 px in these scripts.
     travelPixels: (from, to) => (from.first.x - to.first.x).abs() * 1000,
+    cutPixels: (quad) => proposalCutPixels(_quad(.30), quad, 1000, 1000),
+  );
+}
+
+/// A quad whose left and top sides sit at [left] and [top].
+List<Point2> _quadLeftTop(double left, double top) => [
+  Point2(left, top),
+  Point2(.9, top),
+  Point2(.9, .8),
+  Point2(left, .8),
+];
+
+/// As [_run], with two sides moving: round `i` proposes `steps[i]` as
+/// `(left, top)`. The proposal is left .30, top .20, in a 1000 px frame.
+RefinementOutcome _runLeftTop({
+  required List<(double, double)> steps,
+  required List<double> supports,
+}) {
+  var round = 0;
+  final start = _quadLeftTop(.30, .20);
+  return convergeRefinement(
+    start: start,
+    startEvidence: _support(.5),
+    refine: (from) => round < steps.length
+        ? _quadLeftTop(steps[round].$1, steps[round].$2)
+        : null,
+    measure: (quad) => _support(supports[round++]),
+    allowed: (_) => true,
+    travelPixels: (from, to) => refinementTravelPixels(from, to, 1000, 1000),
+    cutPixels: (quad) => proposalCutPixels(start, quad, 1000, 1000),
   );
 }
 
@@ -152,6 +182,7 @@ void main() {
         measure: (_) => null,
         allowed: (_) => true,
         travelPixels: (_, _) => 10,
+        cutPixels: (_) => const [0, 0, 0, 0],
       );
       expect(unmeasurable.rounds, 0);
     });
@@ -177,6 +208,208 @@ void main() {
       );
       expect(outcome.rounds, maxRefinementRounds);
       expect(calls, hasLength(maxRefinementRounds));
+    });
+  });
+
+  group('a later round may not cut deeper into the proposal', () {
+    // The area rule cannot see this on its own: one side walks outward far
+    // enough that the quad grows while another side walks INTO the proposal.
+    // Measured on synthetic scenes with known ground truth, such rounds made
+    // the cut up to 9.8 px worse than the single round had left it.
+
+    test('area grows, support rises, and a side still walks in: refused', () {
+      final outcome = _runLeftTop(
+        // Round 2: left side 60 px further out, top side 10 px further in.
+        steps: [(.28, .20), (.22, .21)],
+        supports: [.76, .9],
+      );
+      expect(outcome.rounds, 1);
+      expect(outcome.corners.first.x, .28);
+      expect(outcome.corners.first.y, .20);
+      expect(outcome.evidence.quality, closeTo(.76, 1e-9));
+    });
+
+    test('control: the same round without the inward step is adopted', () {
+      final outcome = _runLeftTop(
+        steps: [(.28, .20), (.22, .20)],
+        supports: [.76, .9],
+      );
+      expect(outcome.rounds, 2);
+      expect(outcome.corners.first.x, .22);
+    });
+
+    test('a step within the half-pixel tolerance is not a cut', () {
+      final outcome = _runLeftTop(
+        // 0.0004 of the frame is 0.4 px.
+        steps: [(.28, .20), (.22, .2004)],
+        supports: [.76, .9],
+      );
+      expect(outcome.rounds, 2);
+      expect(outcome.corners.first.y, .2004);
+    });
+
+    test('a step just over the tolerance is', () {
+      final outcome = _runLeftTop(
+        // 0.0006 of the frame is 0.6 px.
+        steps: [(.28, .20), (.22, .2006)],
+        supports: [.76, .9],
+      );
+      expect(outcome.rounds, 1);
+      expect(outcome.corners.first.y, .20);
+    });
+
+    test('what the first round trimmed is the baseline, not a fault', () {
+      // The first round keeps its long-standing freedom and trims the top by
+      // 5 px. Later rounds are held to that depth, not to zero.
+      final outcome = _runLeftTop(
+        steps: [(.28, .205), (.25, .205), (.22, .2053)],
+        supports: [.76, .85, .9],
+      );
+      expect(outcome.rounds, 3);
+      expect(outcome.corners.first.x, .22);
+      expect(outcome.corners.first.y, .2053);
+    });
+
+    test('the tolerance is measured from the first round, so small steps '
+        'cannot add up', () {
+      // Each round moves the top 0.4 px further in: within tolerance of the
+      // round before it, but the second such step is 0.8 px past the first
+      // round's depth.
+      final outcome = _runLeftTop(
+        steps: [(.28, .20), (.26, .2004), (.24, .2008)],
+        supports: [.76, .85, .9],
+      );
+      expect(outcome.rounds, 2);
+      expect(outcome.corners.first.y, .2004);
+    });
+
+    test('each corner answers for itself: releasing one does not pay for '
+        'cutting another', () {
+      // Scripted depths, in px, for the four corners of the proposal.
+      var round = 0;
+      final cuts = [
+        [5.0, 0.0, 0.0, 0.0], // first round: one corner trimmed by 5 px
+        [0.0, 0.0, 3.0, 0.0], // later: that corner released, another cut 3 px
+      ];
+      final outcome = convergeRefinement(
+        start: _quad(.30),
+        startEvidence: _support(.5),
+        refine: (from) => _quad(.28 - round * .02),
+        measure: (quad) => _support(.76 + round * .1),
+        allowed: (_) => true,
+        travelPixels: (_, _) => 20,
+        cutPixels: (_) => cuts[round++],
+      );
+      // The deepest cut fell from 5 px to 3 px, and the round is refused all
+      // the same: the corner now cut was whole after the first round.
+      expect(outcome.rounds, 1);
+      expect(outcome.corners.first.x, .28);
+    });
+
+    test('a depth that cannot be measured is treated as a cut', () {
+      var round = 0;
+      final cuts = [
+        [0.0, 0.0, 0.0, 0.0],
+        [double.nan, 0.0, 0.0, 0.0],
+      ];
+      final outcome = convergeRefinement(
+        start: _quad(.30),
+        startEvidence: _support(.5),
+        refine: (from) => _quad(.28 - round * .02),
+        measure: (quad) => _support(.76 + round * .1),
+        allowed: (_) => true,
+        travelPixels: (_, _) => 20,
+        cutPixels: (_) => cuts[round++],
+      );
+      expect(outcome.rounds, 1);
+    });
+
+    test('the first round is not held to this rule', () {
+      // Unchanged: the first round is adopted when its support is not worse,
+      // whichever way it moved.
+      final outcome = _runLeftTop(steps: [(.31, .22)], supports: [.6]);
+      expect(outcome.rounds, 1);
+      expect(outcome.corners.first.x, .31);
+      expect(outcome.corners.first.y, .22);
+    });
+  });
+
+  group('proposalCutPixels', () {
+    final proposal = _quadLeftTop(.30, .20);
+
+    test('a quad that contains the proposal cuts nothing', () {
+      expect(
+        proposalCutPixels(proposal, _quadLeftTop(.25, .15), 1000, 1000),
+        everyElement(0),
+      );
+      expect(
+        proposalCutPixels(proposal, proposal, 1000, 1000),
+        everyElement(closeTo(0, 1e-9)),
+      );
+    });
+
+    test('a side moved inward cuts the corners on that side, by that much', () {
+      final cut = proposalCutPixels(
+        proposal,
+        _quadLeftTop(.31, .20),
+        1000,
+        1000,
+      );
+      // Corners 0 and 3 are the left side of the proposal.
+      expect(cut[0], closeTo(10, 1e-6));
+      expect(cut[3], closeTo(10, 1e-6));
+      expect(cut[1], closeTo(0, 1e-9));
+      expect(cut[2], closeTo(0, 1e-9));
+    });
+
+    test('a corner outside two sides reports the deeper of the two', () {
+      final cut = proposalCutPixels(
+        proposal,
+        _quadLeftTop(.31, .23),
+        1000,
+        1000,
+      );
+      expect(cut[0], closeTo(30, 1e-6)); // 10 px left of it, 30 px above it
+      expect(cut[1], closeTo(30, 1e-6));
+      expect(cut[3], closeTo(10, 1e-6));
+      expect(cut[2], closeTo(0, 1e-9));
+    });
+
+    test('pixels follow the frame, not the unit square', () {
+      final cut = proposalCutPixels(proposal, _quadLeftTop(.31, .21), 400, 200);
+      expect(cut[3], closeTo(4, 1e-6)); // .01 of 400 px wide
+      expect(cut[1], closeTo(2, 1e-6)); // .01 of 200 px high
+    });
+
+    test('the winding of the quad does not change the answer', () {
+      final quad = _quadLeftTop(.31, .23);
+      expect(proposalCutPixels(proposal, quad.reversed.toList(), 1000, 1000), [
+        for (final value in proposalCutPixels(proposal, quad, 1000, 1000))
+          closeTo(value, 1e-9),
+      ]);
+    });
+
+    test('a tilted side is measured across the side, not along an axis', () {
+      // The quad's left side runs from (300, 200) to (340, 800): the bottom
+      // left corner of the proposal, (300, 800), is 40 px to its left along
+      // the row and a little less across the side.
+      final tilted = [
+        Point2(.30, .20),
+        Point2(.90, .20),
+        Point2(.90, .80),
+        Point2(.34, .80),
+      ];
+      final cut = proposalCutPixels(proposal, tilted, 1000, 1000);
+      final across = 40 * 600 / math.sqrt(600 * 600 + 40 * 40);
+      expect(cut[3], closeTo(across, 1e-6));
+      expect(cut[0], closeTo(0, 1e-9));
+    });
+
+    test('something that is not a quad cuts everything', () {
+      expect(
+        proposalCutPixels(proposal, proposal.sublist(0, 3), 1000, 1000),
+        everyElement(double.infinity),
+      );
     });
   });
 

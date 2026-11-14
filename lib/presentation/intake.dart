@@ -43,6 +43,7 @@ class IntakeRun {
     this.error,
     this.trace,
     this.journeyWriteFailed = false,
+    this.journeyStartBlocked = false,
   });
 
   /// The last committed project state — never a half-applied one.
@@ -62,8 +63,11 @@ class IntakeRun {
   /// The runner finishes before a screen adopts the returned saved state.
   final ImportTrace? trace;
 
-  /// Import remains committed, but its diagnostic journey could not be filed.
+  /// At least one checkpoint write failed after retry.
   final bool journeyWriteFailed;
+
+  /// The initial checkpoint failed and no source was opened.
+  final bool journeyStartBlocked;
   void markUiStateApplied() => trace?.emit('ui_state_applied');
 
   List<ImportFailure> get failures => import.failures;
@@ -255,6 +259,7 @@ class IntakeRunner {
           error: const StorageException(journeyStartFailure),
           trace: context,
           journeyWriteFailed: true,
+          journeyStartBlocked: true,
         );
       }
       await saveProgress(project, finished: false, committed: false);

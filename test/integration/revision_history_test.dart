@@ -73,6 +73,7 @@ void main() {
           orphans.paths.any((path) => priorPath.startsWith('$path/')),
           isFalse,
         );
+        await maintenance.deleteFiles(orphans.paths);
         expect(await (await assets.resolve(priorPath)).exists(), isTrue);
         final backups = LocalProjectBackups(projects, projects.files);
         final restored = await backups.restore(

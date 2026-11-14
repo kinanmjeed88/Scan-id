@@ -283,6 +283,7 @@ void main() {
     ]);
     expect(result.importedCount, 0);
     expect(result.journeyWriteFailed, isTrue);
+    expect(result.journeyStartBlocked, isTrue);
     expect(result.error, isNotNull);
     expect(failing.attempts, 2);
     expect(opened, isFalse);
@@ -305,6 +306,7 @@ void main() {
     ).run(sources(1));
     expect(result.importedCount, 1);
     expect(result.journeyWriteFailed, isTrue);
+    expect(result.journeyStartBlocked, isFalse);
     expect((await projects.get(project.id)).assets, hasLength(1));
     expect((await log.read()).single.lifecycle, JourneyLifecycle.created);
   });

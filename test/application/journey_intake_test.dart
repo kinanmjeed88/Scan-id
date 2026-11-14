@@ -449,11 +449,8 @@ class _FailAfterFirstLog implements JourneyLog {
 }
 
 class _FailingAnalysisService extends ProjectService {
-  _FailingAnalysisService(
-    super.projects,
-    super.assets,
-    JourneyLog log,
-  ) : super(journeyLog: log);
+  _FailingAnalysisService(super.projects, super.assets, JourneyLog log)
+    : super(journeyLog: log);
 
   @override
   Future<AutomaticLayoutReport> arrangeImportedImages(

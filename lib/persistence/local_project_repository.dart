@@ -11,7 +11,7 @@ import '../domain/validation.dart';
 import 'safe_files.dart';
 import 'recovery_checkpoints.dart';
 
-class LocalProjectRepository implements ProjectRepository {
+class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrator {
   LocalProjectRepository._(this._database, this.files)
     : checkpoints = RecoveryCheckpoints(files);
   final RecoveryCheckpoints checkpoints;
@@ -98,6 +98,95 @@ class LocalProjectRepository implements ProjectRepository {
     });
     await checkpoints.save(saved);
     return saved;
+  }
+
+  /// Explicitly assign a persistent identity to provable CURRENT revisions.
+  /// Nothing is rewritten on open. The complete raw pre-migration record is
+  /// snapshotted before saving; unknown histories remain marked incomplete and
+  /// no parent or historical revision is inferred from a directory name.
+  /// If any referenced file cannot be read, no metadata is committed.
+  @override
+  Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(
+    String projectId,
+  ) async {
+    final current = await get(projectId);
+    final raw = await _projects.record(projectId).get(_database);
+    if (raw == null || Project.fromJson(raw).revision != current.revision) {
+      throw const RevisionConflict();
+    }
+    final migrated = <String>[];
+    final unresolved = <String>[];
+    final updated = <ImageAsset>[];
+    for (final asset in current.assets) {
+      if (!asset.revisionHistoryComplete) unresolved.add(asset.id);
+      if (asset.toJson().containsKey('revisionId')) {
+        updated.add(asset);
+        continue;
+      }
+      final alias = asset.revisionId;
+      if (alias != null && asset.revisionHistory.any(
+        (r) => r.id == alias || r.parentRevisionId == alias,
+      )) {
+        // Changing an alias referenced by saved history would sever a link.
+        updated.add(asset);
+        continue;
+      }
+      final paths = <String>{
+        asset.originalPath, asset.workingPath, asset.thumbnailPath,
+        asset.processingInputPath,
+        for (final revision in asset.revisionHistory) ...[
+          revision.originalPath, revision.workingPath,
+          revision.thumbnailPath, revision.processingInputPath,
+        ],
+      };
+      for (final path in paths) {
+        final file = await files.existingFile(path);
+        final size = await file.length();
+        var read = 0;
+        await for (final bytes in file.openRead()) {
+          read += bytes.length;
+        }
+        if (size == 0 || read != size || await file.length() != size) {
+          throw const StorageException('تعذر قراءة ملفات المراجعة بأمان؛ لم يغيّر الترحيل المشروع.');
+        }
+      }
+      final json = asset.toJson();
+      var id = newId();
+      while (asset.revisionHistory.any((r) => r.id == id || r.parentRevisionId == id) ||
+          asset.parentRevisionId == id) {
+        id = newId();
+      }
+      json['revisionId'] = id;
+      updated.add(ImageAsset.fromJson(json));
+      migrated.add(asset.id);
+    }
+    if (migrated.isEmpty) {
+      return LegacyRevisionMigrationResult(current, const [], List.unmodifiable(unresolved));
+    }
+    await _snapshotRevisionMigration(projectId, current.revision, raw);
+    final saved = await save(current.copyWith(assets: updated));
+    return LegacyRevisionMigrationResult(saved, List.unmodifiable(migrated), List.unmodifiable(unresolved));
+  }
+
+  Future<void> _snapshotRevisionMigration(
+    String id,
+    int revision,
+    Map<String, Object?> raw,
+  ) async {
+    final target = File(await files.checkedPath('migration-snapshots/revision-$id-$revision.json'));
+    if (await target.exists()) {
+      final existing = objectMap(jsonDecode(await target.readAsString()));
+      require(jsonEncode(existing['project']) == jsonEncode(raw), 'لقطة الترحيل الموجودة لا تطابق المشروع؛ لم يُعدّل المشروع.');
+      return;
+    }
+    final temporary = File(await files.checkedPath('migration-snapshots/revision-$id-${newId()}.tmp'));
+    try {
+      await temporary.parent.create(recursive: true);
+      await temporary.writeAsString(jsonEncode({'version': 1, 'project': raw}), flush: true);
+      await temporary.rename(target.path);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
+    }
   }
 
   /// Commit order, and what a caller is told when each step fails:

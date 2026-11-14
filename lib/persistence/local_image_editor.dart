@@ -444,6 +444,7 @@ Future<ImageAsset> _saveRevision(
       revisionId: id,
       parentRevisionId: asset.revisionId,
       revisionHistory: asset.historyWithCurrent,
+      revisionHistoryComplete: asset.revisionHistoryComplete,
       originalWidth: asset.originalWidth,
       originalHeight: asset.originalHeight,
       // A revision changes pixels, never provenance or crop authorship: dropping

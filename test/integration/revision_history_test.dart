@@ -66,6 +66,7 @@ void main() {
         expect(project.assets.single.revisionHistory, hasLength(2));
         final maintenance = LocalStorageMaintenance(
           projects.files,
+          projects: projects,
           clock: () => DateTime.now().add(const Duration(days: 2)),
         );
         final orphans = await maintenance.findOrphans([project]);

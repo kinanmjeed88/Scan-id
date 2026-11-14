@@ -1333,6 +1333,7 @@ class SmartIntake {
         revisionId: files.revision,
         parentRevisionId: target.revisionId,
         revisionHistory: target.historyWithCurrent,
+        revisionHistoryComplete: target.revisionHistoryComplete,
         originalWidth: files.originalWidth,
         originalHeight: files.originalHeight,
         // Regenerating the crop keeps its recorded source relationship.

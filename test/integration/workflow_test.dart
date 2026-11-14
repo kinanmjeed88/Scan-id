@@ -64,7 +64,7 @@ void main() {
       assets,
       imageEditor: LocalImageEditor(projects.files),
       backups: backups,
-      maintenance: LocalStorageMaintenance(projects.files),
+      maintenance: LocalStorageMaintenance(projects.files, projects: projects),
     );
   }
 

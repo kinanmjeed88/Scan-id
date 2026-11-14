@@ -601,9 +601,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   static String _retainedNote(OrphanFiles orphans) => orphans.retained.isEmpty
       ? ''
-      : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر تشير إليه '
-            'نقطة استرداد أو نسخة ترقية ما زالت قائمة. تُحذف بعد تحديث تلك '
-            'النقطة.';
+      : '\nمحفوظة ولن تُحذف: ${orphans.retained.length} عنصر مرتبط بنقطة '
+            'استرداد أو نسخة ترقية أو تاريخ مراجعة قديم غير محسوم.';
 
   Future<void> _recoverDatabase() async {
     final note =

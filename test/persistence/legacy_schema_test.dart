@@ -79,6 +79,20 @@ void main() {
         // The release that wrote the project cannot open it any more, and says
         // so instead of misreading it.
         expect(() => legacy.read(upgraded), legacy.rejects);
+        repository = await LocalProjectRepository.open(directory);
+        final migration = await repository.migrateLegacyRevisionIdentities(_projectId);
+        expect(migration.migratedAssetIds, [migration.project.assets.single.id]);
+        expect(migration.unresolvedAssetIds, [migration.project.assets.single.id]);
+        final identity = migration.project.assets.single.revisionId;
+        expect(identity, isNotNull);
+        final revision = migration.project.revision;
+        await repository.close();
+        repository = await LocalProjectRepository.open(directory);
+        expect((await repository.get(_projectId)).assets.single.revisionId, identity);
+        final repeated = await repository.migrateLegacyRevisionIdentities(_projectId);
+        expect(repeated.migratedAssetIds, isEmpty);
+        expect(repeated.project.revision, revision);
+        await repository.close();
         for (final entry in files.entries) {
           expect(
             await File('${directory.path}/${entry.key}').readAsString(),

@@ -99,7 +99,7 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
       : await LocalProjectRepository.open(directory);
   StartupDiagnostics.mark('storage.database_open.complete');
   final assets = LocalAssetRepository(repository.files);
-  final maintenance = LocalStorageMaintenance(repository.files);
+  final maintenance = LocalStorageMaintenance(repository.files, projects: repository);
   // Interrupted work is the only source of staging directories; a fresh start
   // is the safe moment to clear the ones that are no longer in flight.
   StartupDiagnostics.mark('storage.staging_prune.begin');

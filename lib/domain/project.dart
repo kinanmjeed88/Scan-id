@@ -325,6 +325,7 @@ class ImageAsset {
     this.originalWidth,
     this.originalHeight,
     List<ImageRevision> revisionHistory = const [],
+    this.revisionHistoryComplete = false,
     this.userAuthoredCrop = false,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
@@ -426,6 +427,10 @@ class ImageAsset {
   final String? _persistedRevisionId;
   final String? parentRevisionId;
   final List<ImageRevision> revisionHistory;
+
+  /// True only for assets imported by a history-aware build. Older projects
+  /// cannot prove that unrecorded revision directories are disposable.
+  final bool revisionHistoryComplete;
 
   /// The current revision becomes immutable history only when a new revision
   /// is created. A legacy identity that cannot be established is not guessed.
@@ -537,6 +542,7 @@ class ImageAsset {
     originalWidth: originalWidth,
     originalHeight: originalHeight,
     revisionHistory: revisionHistory,
+    revisionHistoryComplete: revisionHistoryComplete,
     derivedFrom: source,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -561,6 +567,7 @@ class ImageAsset {
     originalWidth: originalWidth,
     originalHeight: originalHeight,
     revisionHistory: revisionHistory,
+    revisionHistoryComplete: revisionHistoryComplete,
     derivedFrom: derivedFrom,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -594,6 +601,7 @@ class ImageAsset {
       originalWidth: originalWidth,
       originalHeight: originalHeight,
       revisionHistory: revisionHistory,
+      revisionHistoryComplete: revisionHistoryComplete,
       derivedFrom: derivedFrom,
       userAuthoredCrop: value,
       name: name,
@@ -610,6 +618,7 @@ class ImageAsset {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    if (revisionHistoryComplete) 'revisionHistoryComplete': true,
     if (revisionHistory.isNotEmpty)
       'revisionHistory': [for (final r in revisionHistory) r.toJson()],
     'captureId': captureId,
@@ -635,6 +644,9 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
+      revisionHistoryComplete: m['revisionHistoryComplete'] == null
+          ? false
+          : boolean(m['revisionHistoryComplete'], 'revisionHistoryComplete'),
       revisionHistory: m['revisionHistory'] == null
           ? const []
           : objectList(

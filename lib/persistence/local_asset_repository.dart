@@ -152,6 +152,7 @@ Future<ImageAsset> _import(
     return ImageAsset(
       id: id,
       revisionId: newId(),
+      revisionHistoryComplete: true,
       originalWidth: orientedWidth,
       originalHeight: orientedHeight,
       name: name,

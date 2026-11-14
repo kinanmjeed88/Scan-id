@@ -170,6 +170,12 @@ class LocalStorageMaintenance implements StorageMaintenance {
         asset.workingPath,
         asset.thumbnailPath,
         asset.processingInputPath,
+        for (final revision in asset.revisionHistory) ...[
+          revision.originalPath,
+          revision.workingPath,
+          revision.thumbnailPath,
+          revision.processingInputPath,
+        ],
       ],
       // Recognition references may name an older revision after a later
       // crop/replacement. Keep that file alive while any document record,

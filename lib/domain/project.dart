@@ -222,6 +222,71 @@ class ExportProfile {
   }
 }
 
+/// A historical revision's metadata and app-owned file references. Missing
+/// legacy identities are not invented; history starts when identity is known.
+class ImageRevision {
+  ImageRevision({
+    required this.id,
+    required this.originalPath,
+    required this.workingPath,
+    required this.thumbnailPath,
+    required this.processingInputPath,
+    required this.width,
+    required this.height,
+    this.parentRevisionId,
+    this.originalWidth,
+    this.originalHeight,
+  }) {
+    validId(id);
+    if (parentRevisionId != null) validId(parentRevisionId!);
+    for (final path in [originalPath, workingPath, thumbnailPath, processingInputPath]) {
+      validAssetPath(path);
+    }
+    require(withinImageBudget(width, height), 'أبعاد مراجعة الصورة غير صالحة.');
+    require((originalWidth == null && originalHeight == null) ||
+        (originalWidth != null && originalHeight != null && originalWidth! > 0 && originalHeight! > 0),
+        'أبعاد أصل المراجعة غير صالحة.');
+  }
+  final String id;
+  final String? parentRevisionId;
+  final String originalPath;
+  final String workingPath;
+  final String thumbnailPath;
+  final String processingInputPath;
+  final int width;
+  final int height;
+  final int? originalWidth;
+  final int? originalHeight;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
+    'originalPath': originalPath,
+    'workingPath': workingPath,
+    'thumbnailPath': thumbnailPath,
+    'processingInputPath': processingInputPath,
+    'width': width,
+    'height': height,
+    if (originalWidth != null) 'originalWidth': originalWidth,
+    if (originalHeight != null) 'originalHeight': originalHeight,
+  };
+  factory ImageRevision.fromJson(Object? value) {
+    final m = objectMap(value);
+    return ImageRevision(
+      id: text(m['id'], 'revision.id'),
+      parentRevisionId: m['parentRevisionId'] == null ? null : text(m['parentRevisionId'], 'revision.parent'),
+      originalPath: text(m['originalPath'], 'revision.originalPath'),
+      workingPath: text(m['workingPath'], 'revision.workingPath'),
+      thumbnailPath: text(m['thumbnailPath'], 'revision.thumbnailPath'),
+      processingInputPath: text(m['processingInputPath'], 'revision.processingInputPath'),
+      width: integer(m['width'], 'revision.width'),
+      height: integer(m['height'], 'revision.height'),
+      originalWidth: m['originalWidth'] == null ? null : integer(m['originalWidth'], 'revision.originalWidth'),
+      originalHeight: m['originalHeight'] == null ? null : integer(m['originalHeight'], 'revision.originalHeight'),
+    );
+  }
+}
+
 /// Metadata only. Image bytes live in immutable, app-owned files.
 class ImageAsset {
   ImageAsset({
@@ -240,16 +305,21 @@ class ImageAsset {
     this.parentRevisionId,
     this.originalWidth,
     this.originalHeight,
+    List<ImageRevision> revisionHistory = const [],
     this.userAuthoredCrop = false,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
   }) : _persistedRevisionId = revisionId,
+       revisionHistory = List.unmodifiable(revisionHistory),
        suggestedCrop = suggestedCrop == null
            ? null
            : List.unmodifiable(suggestedCrop),
        adjustments = adjustments ?? ImageAdjustments(),
        transforms = List.unmodifiable(transforms) {
     validId(id);
+    require(this.revisionHistory.length <= 10000, 'تاريخ مراجعات الصورة كبير جداً.');
+    require(this.revisionHistory.map((entry) => entry.id).toSet().length == this.revisionHistory.length,
+        'معرّفات المراجعات التاريخية مكررة.');
     if (_persistedRevisionId != null) validId(_persistedRevisionId);
     if (parentRevisionId != null) validId(parentRevisionId!);
     require(
@@ -330,6 +400,31 @@ class ImageAsset {
   /// still exposed for compatibility, but is not proof of a migrated history.
   final String? _persistedRevisionId;
   final String? parentRevisionId;
+  final List<ImageRevision> revisionHistory;
+
+  /// The current revision becomes immutable history only when a new revision
+  /// is created. A legacy identity that cannot be established is not guessed.
+  List<ImageRevision> get historyWithCurrent {
+    final current = _persistedRevisionId;
+    if (current == null || revisionHistory.any((entry) => entry.id == current)) {
+      return revisionHistory;
+    }
+    return [
+      ...revisionHistory,
+      ImageRevision(
+        id: current,
+        parentRevisionId: parentRevisionId,
+        originalPath: originalPath,
+        workingPath: workingPath,
+        thumbnailPath: thumbnailPath,
+        processingInputPath: processingInputPath,
+        width: width,
+        height: height,
+        originalWidth: originalWidth,
+        originalHeight: originalHeight,
+      ),
+    ];
+  }
 
   /// EXIF-oriented dimensions of the current source, when recorded.
   final int? originalWidth;
@@ -415,6 +510,7 @@ class ImageAsset {
     parentRevisionId: parentRevisionId,
     originalWidth: originalWidth,
     originalHeight: originalHeight,
+    revisionHistory: revisionHistory,
     derivedFrom: source,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -438,6 +534,7 @@ class ImageAsset {
     parentRevisionId: parentRevisionId,
     originalWidth: originalWidth,
     originalHeight: originalHeight,
+    revisionHistory: revisionHistory,
     derivedFrom: derivedFrom,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -470,6 +567,7 @@ class ImageAsset {
       parentRevisionId: parentRevisionId,
       originalWidth: originalWidth,
       originalHeight: originalHeight,
+      revisionHistory: revisionHistory,
       derivedFrom: derivedFrom,
       userAuthoredCrop: value,
       name: name,
@@ -486,6 +584,7 @@ class ImageAsset {
 
   Map<String, Object?> toJson() => {
     'id': id,
+    if (revisionHistory.isNotEmpty) 'revisionHistory': [for (final r in revisionHistory) r.toJson()],
     'captureId': captureId,
     if (_persistedRevisionId != null) 'revisionId': _persistedRevisionId,
     if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
@@ -509,6 +608,7 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
+      revisionHistory: m['revisionHistory'] == null ? const [] : objectList(m['revisionHistory']).map(ImageRevision.fromJson).toList(),
       revisionId: m['revisionId'] == null
           ? null
           : text(m['revisionId'], 'revisionId'),
@@ -858,6 +958,12 @@ class Project {
           asset.workingPath,
           asset.thumbnailPath,
           asset.processingInputPath,
+          for (final revision in asset.revisionHistory) ...[
+            revision.originalPath,
+            revision.workingPath,
+            revision.thumbnailPath,
+            revision.processingInputPath,
+          ],
         ].every((p) => p.startsWith(prefix)),
         'الصورة ليست مملوكة لهذا المشروع.',
       );

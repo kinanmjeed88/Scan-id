@@ -26,6 +26,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../application/cancellation.dart';
+import '../application/contracts.dart' show StorageException;
 import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
 import '../application/project_service.dart';
@@ -138,19 +139,22 @@ class IntakeRunner {
       startedAt: startedAt,
     );
 
-    // Failures here are diagnostic only: they cannot undo a project commit.
-    Future<void> writeCheckpoint(List<ImageJourney> journeys) async {
+    // Before the first project commit a configured journal is required. Later
+    // failures remain warnings and must not undo an already committed image.
+    Future<bool> writeCheckpoint(List<ImageJourney> journeys) async {
       final log = service.journeyLog;
-      if (log == null || journeys.isEmpty) return;
+      if (log == null || journeys.isEmpty) return true;
       try {
         try {
           await log.append(journeys);
         } on Object {
           await log.append(journeys);
         }
+        return true;
       } on Object catch (error) {
         journeyWriteFailed = true;
         context.emit('journey_write_failed', error: error);
+        return false;
       }
     }
 
@@ -237,9 +241,22 @@ class IntakeRunner {
     _running = true;
     trace('import', 'started');
     try {
-      // Await durability before opening any source. If storage fails, preserve
-      // the import and surface the diagnostic failure separately.
-      await writeCheckpoint(pending);
+      // Do not start a new import without its required initial checkpoint.
+      // Nothing has been committed yet, so report a refusal, not an import
+      // failure after success. Hosts without a journal retain their old policy.
+      if (!await writeCheckpoint(pending)) {
+        await service.discardSources(sources);
+        return IntakeRun(
+          project: project,
+          import: ImportReport(project, 0, [
+            for (final source in sources)
+              ImportFailure(source.name, journeyStartFailure),
+          ]),
+          error: const StorageException(journeyStartFailure),
+          trace: context,
+          journeyWriteFailed: true,
+        );
+      }
       await saveProgress(project, finished: false, committed: false);
       final existingIds = project.assets.map((a) => a.id).toSet();
       late final ImportReport import;
@@ -409,6 +426,10 @@ class IntakeRunner {
     }
   }
 }
+
+/// Initial journal failure prevents starting; later failures do not undo saves.
+const String journeyStartFailure =
+    'لم يبدأ الاستيراد لأن سجل الرحلات الأساسي غير قابل للحفظ. تحقق من التخزين والصلاحيات ثم أعد المحاولة.';
 
 /// A diagnostic-log failure is separate from the outcome of the import.
 const String journeyWriteWarning =

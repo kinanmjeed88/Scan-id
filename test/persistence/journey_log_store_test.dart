@@ -94,6 +94,14 @@ void main() {
       },
     );
 
+    test('an incoming batch larger than capacity is never partially written', () async {
+      final log = logWith(maxEntries: 1);
+      await log.append([journeyFor('old')]);
+      final before = await logFile().readAsString();
+      await expectLater(log.append([journeyFor('one'), journeyFor('two')]), throwsStateError);
+      expect(await logFile().readAsString(), before);
+    });
+
     test('the entry cap drops the oldest reports', () async {
       final log = logWith(maxEntries: 2);
       await log.append([journeyFor('first')]);

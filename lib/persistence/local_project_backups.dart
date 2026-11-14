@@ -64,6 +64,12 @@ Set<String> _references(Project p) => {
     a.workingPath,
     a.thumbnailPath,
     a.processingInputPath,
+    for (final revision in a.revisionHistory) ...[
+      revision.originalPath,
+      revision.workingPath,
+      revision.thumbnailPath,
+      revision.processingInputPath,
+    ],
   ],
 };
 
@@ -218,6 +224,17 @@ Future<Project> _readBackup(String input, String root, String id) async {
           'originalPath': _remap(a.originalPath, original.id, id),
           'workingPath': _remap(a.workingPath, original.id, id),
           'thumbnailPath': _remap(a.thumbnailPath, original.id, id),
+          if (a.revisionHistory.isNotEmpty)
+            'revisionHistory': [
+              for (final revision in a.revisionHistory)
+                {
+                  ...revision.toJson(),
+                  'originalPath': _remap(revision.originalPath, original.id, id),
+                  'workingPath': _remap(revision.workingPath, original.id, id),
+                  'thumbnailPath': _remap(revision.thumbnailPath, original.id, id),
+                  'processingInputPath': _remap(revision.processingInputPath, original.id, id),
+                },
+            ],
         },
     ];
     // v5: remap the processed-asset paths inside documents the same way, so a

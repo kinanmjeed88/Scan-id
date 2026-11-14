@@ -72,6 +72,13 @@ class LocalJourneyLog implements JourneyLog {
   Future<void> append(Iterable<ImageJourney> journeys) => _exclusive(() async {
     final incoming = journeys.toList();
     if (incoming.isEmpty) return;
+    // All incoming checkpoints must fit: silently trimming part of a new batch
+    // would allow processing without a durable initial record for every source.
+    final incomingIds = incoming.map((entry) => entry.id).toSet();
+    if (incomingIds.length > maxEntries ||
+        (incoming.length > 1 && _encodedBytes(incoming) > maxBytes)) {
+      throw StateError('Journey batch exceeds journal capacity');
+    }
     final existing = await _readUnlocked(strict: true);
     // Newest first, and a re-written run replaces its own earlier entry
     // instead of appearing twice.

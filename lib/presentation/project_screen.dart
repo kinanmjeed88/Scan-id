@@ -127,7 +127,8 @@ class _ProjectScreenState extends State<ProjectScreen> {
             content: SingleChildScrollView(
               child: Text(
                 [
-                  if (run.journeyWriteFailed) journeyWriteWarning,
+                  if (run.journeyWriteFailed)
+                    result.imported == 0 ? journeyStartFailure : journeyWriteWarning,
                   if (result.failures.isNotEmpty || result.notices.isNotEmpty)
                     importReportDetails(result),
                 ].join('\n\n'),

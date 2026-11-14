@@ -258,7 +258,7 @@ void main() {
     expect(await log.read(), isEmpty);
   });
   test(
-    'failed journey writes retry and do not invalidate a committed import',
+    'initial journal failure stops before source is opened',
     () async {
       final failing = _FailingJourneyLog(failures: 2);
       final host = ProjectService(
@@ -268,15 +268,57 @@ void main() {
         journeyLog: failing,
       );
       final project = await host.create('سجل');
+      var opened = false;
+      var cleaned = false;
       final runner = IntakeRunner(service: host, project: project);
-      final result = await runner.run(sources(1));
-      expect(result.importedCount, 1);
+      final result = await runner.run([
+        ImportSource('image.png', () {
+          opened = true;
+          return Stream<List<int>>.value(bytes());
+        }, cleanup: () async { cleaned = true; }),
+      ]);
+      expect(result.importedCount, 0);
       expect(result.journeyWriteFailed, isTrue);
-      expect(failing.attempts, greaterThan(2));
-      expect(runner.lastJourneys, hasLength(1));
-      expect((await projects.get(project.id)).assets, hasLength(1));
+      expect(result.error, isNotNull);
+      expect(failing.attempts, 2);
+      expect(opened, isFalse);
+      expect(cleaned, isTrue);
+      expect((await projects.get(project.id)).assets, isEmpty);
     },
   );
+
+  test('later journal failures cannot undo committed imports', () async {
+    final failing = _FailAfterFirstLog(log);
+    final host = ProjectService(
+      projects, assets,
+      imageEditor: LocalImageEditor(projects.files), journeyLog: failing,
+    );
+    final project = await host.create('سجل');
+    final result = await IntakeRunner(service: host, project: project).run(sources(1));
+    expect(result.importedCount, 1);
+    expect(result.journeyWriteFailed, isTrue);
+    expect((await projects.get(project.id)).assets, hasLength(1));
+    expect((await log.read()).single.lifecycle, JourneyLifecycle.created);
+  });
+
+  test('corrupt real journal stops new import without replacing bytes', () async {
+    final file = File('${support.path}/image_journeys/${LocalJourneyLog.fileName}');
+    await file.parent.create(recursive: true);
+    const raw = '{broken';
+    await file.writeAsString(raw);
+    final project = await service.create('سجل');
+    var opened = false;
+    final result = await IntakeRunner(service: service, project: project).run([
+      ImportSource('image.png', () {
+        opened = true;
+        return Stream<List<int>>.value(bytes());
+      }),
+    ]);
+    expect(result.importedCount, 0);
+    expect(opened, isFalse);
+    expect(await file.readAsString(), raw);
+    expect((await projects.get(project.id)).assets, isEmpty);
+  });
 
   test('transient journey failure is retried without warning', () async {
     final failing = _FailingJourneyLog(failures: 1);
@@ -339,6 +381,24 @@ class _RecordingJourneyLog implements JourneyLog {
     reopenedStates.add((await inner.read()).single.lifecycle);
   }
 
+  @override
+  Future<void> clear() => inner.clear();
+  @override
+  Future<List<ImageJourney>> read() => inner.read();
+  @override
+  Future<JourneyLogStats> stats() => inner.stats();
+}
+
+class _FailAfterFirstLog implements JourneyLog {
+  _FailAfterFirstLog(this.inner);
+  final JourneyLog inner;
+  int attempts = 0;
+  @override
+  Future<void> append(Iterable<ImageJourney> journeys) async {
+    attempts++;
+    if (attempts > 1) throw StateError('write failed');
+    await inner.append(journeys);
+  }
   @override
   Future<void> clear() => inner.clear();
   @override

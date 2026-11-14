@@ -1569,6 +1569,7 @@ class ProjectService {
       captureId: revised.captureId,
       revisionId: revised.revisionId,
       parentRevisionId: revised.parentRevisionId,
+      revisionHistory: revised.revisionHistory,
       originalWidth: revised.originalWidth,
       originalHeight: revised.originalHeight,
       derivedFrom: revised.derivedFrom,
@@ -1664,6 +1665,7 @@ class ProjectService {
         captureId: asset.captureId,
         revisionId: files.revision,
         parentRevisionId: asset.revisionId,
+        revisionHistory: asset.historyWithCurrent,
         originalWidth: files.originalWidth,
         originalHeight: files.originalHeight,
         // Replacing the pixels of an asset never changes what it is derived

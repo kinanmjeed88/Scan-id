@@ -1,0 +1,32 @@
+name: Temporary reliability verification
+on:
+  push:
+    branches: ['arena/4c4c6840-scan-id']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            /*
+            !/Mostmskat/
+            !/local-data/
+          sparse-checkout-cone-mode: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - name: Format diagnostic
+        continue-on-error: true
+        run: python tool/format_report.py
+      - name: Dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: python tool/ci_gate.py analyze flutter analyze --fatal-infos
+      - name: Targeted tests
+        run: python tool/ci_gate.py targeted flutter test test/application/journey_intake_test.dart test/persistence/journey_log_store_test.dart test/integration/revision_history_test.dart --reporter expanded

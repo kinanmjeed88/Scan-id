@@ -80,6 +80,20 @@ void main() {
           throwsA(isA<ValidationException>()),
         );
         expect(await unknownFile.readAsBytes(), [1, 2, 3]);
+        final protectedService = ProjectService(
+          repository,
+          LocalAssetRepository(repository.files),
+          maintenance: maintenance,
+        );
+        await expectLater(
+          protectedService.deleteImage(reopened, legacy.id),
+          throwsA(isA<ValidationException>()),
+        );
+        await expectLater(
+          protectedService.deleteProject(reopened),
+          throwsA(isA<ValidationException>()),
+        );
+        expect(await unknownFile.readAsBytes(), [1, 2, 3]);
         final backup = LocalProjectBackups(repository, repository.files);
         final restored = await backup.restore(
           await backup.create(reopened, output),

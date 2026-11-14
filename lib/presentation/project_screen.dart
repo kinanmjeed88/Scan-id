@@ -457,6 +457,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
   /// is computed from the same plan the service applies, so what the user reads
   /// is what happens.
   Future<void> _deleteImage(ImageAsset asset) async {
+    if (!asset.revisionHistoryComplete) {
+      showMessage(
+        context,
+        'تاريخ الصورة غير مكتمل؛ لا يمكن حذفها بأمان مع ملفات مراجعات غير محسومة.',
+      );
+      return;
+    }
     final ImageDeletionPlan plan;
     try {
       plan = planImageDeletion(_project, asset.id);

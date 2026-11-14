@@ -842,7 +842,9 @@ class LayoutEditorController extends ChangeNotifier {
       );
     }
     if (outcome?.journeyWriteFailed == true) {
-      _say(outcome!.importedCount == 0 ? journeyStartFailure : journeyWriteWarning);
+      _say(
+        outcome!.importedCount == 0 ? journeyStartFailure : journeyWriteWarning,
+      );
     }
     final pendingIds = [
       for (final item in session.current.items)

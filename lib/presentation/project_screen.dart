@@ -128,7 +128,9 @@ class _ProjectScreenState extends State<ProjectScreen> {
               child: Text(
                 [
                   if (run.journeyWriteFailed)
-                    result.imported == 0 ? journeyStartFailure : journeyWriteWarning,
+                    result.imported == 0
+                        ? journeyStartFailure
+                        : journeyWriteWarning,
                   if (result.failures.isNotEmpty || result.notices.isNotEmpty)
                     importReportDetails(result),
                 ].join('\n\n'),

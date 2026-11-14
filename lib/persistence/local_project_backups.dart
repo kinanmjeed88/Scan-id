@@ -229,10 +229,22 @@ Future<Project> _readBackup(String input, String root, String id) async {
               for (final revision in a.revisionHistory)
                 {
                   ...revision.toJson(),
-                  'originalPath': _remap(revision.originalPath, original.id, id),
+                  'originalPath': _remap(
+                    revision.originalPath,
+                    original.id,
+                    id,
+                  ),
                   'workingPath': _remap(revision.workingPath, original.id, id),
-                  'thumbnailPath': _remap(revision.thumbnailPath, original.id, id),
-                  'processingInputPath': _remap(revision.processingInputPath, original.id, id),
+                  'thumbnailPath': _remap(
+                    revision.thumbnailPath,
+                    original.id,
+                    id,
+                  ),
+                  'processingInputPath': _remap(
+                    revision.processingInputPath,
+                    original.id,
+                    id,
+                  ),
                 },
             ],
         },

@@ -239,13 +239,23 @@ class ImageRevision {
   }) {
     validId(id);
     if (parentRevisionId != null) validId(parentRevisionId!);
-    for (final path in [originalPath, workingPath, thumbnailPath, processingInputPath]) {
+    for (final path in [
+      originalPath,
+      workingPath,
+      thumbnailPath,
+      processingInputPath,
+    ]) {
       validAssetPath(path);
     }
     require(withinImageBudget(width, height), 'أبعاد مراجعة الصورة غير صالحة.');
-    require((originalWidth == null && originalHeight == null) ||
-        (originalWidth != null && originalHeight != null && originalWidth! > 0 && originalHeight! > 0),
-        'أبعاد أصل المراجعة غير صالحة.');
+    require(
+      (originalWidth == null && originalHeight == null) ||
+          (originalWidth != null &&
+              originalHeight != null &&
+              originalWidth! > 0 &&
+              originalHeight! > 0),
+      'أبعاد أصل المراجعة غير صالحة.',
+    );
   }
   final String id;
   final String? parentRevisionId;
@@ -274,15 +284,24 @@ class ImageRevision {
     final m = objectMap(value);
     return ImageRevision(
       id: text(m['id'], 'revision.id'),
-      parentRevisionId: m['parentRevisionId'] == null ? null : text(m['parentRevisionId'], 'revision.parent'),
+      parentRevisionId: m['parentRevisionId'] == null
+          ? null
+          : text(m['parentRevisionId'], 'revision.parent'),
       originalPath: text(m['originalPath'], 'revision.originalPath'),
       workingPath: text(m['workingPath'], 'revision.workingPath'),
       thumbnailPath: text(m['thumbnailPath'], 'revision.thumbnailPath'),
-      processingInputPath: text(m['processingInputPath'], 'revision.processingInputPath'),
+      processingInputPath: text(
+        m['processingInputPath'],
+        'revision.processingInputPath',
+      ),
       width: integer(m['width'], 'revision.width'),
       height: integer(m['height'], 'revision.height'),
-      originalWidth: m['originalWidth'] == null ? null : integer(m['originalWidth'], 'revision.originalWidth'),
-      originalHeight: m['originalHeight'] == null ? null : integer(m['originalHeight'], 'revision.originalHeight'),
+      originalWidth: m['originalWidth'] == null
+          ? null
+          : integer(m['originalWidth'], 'revision.originalWidth'),
+      originalHeight: m['originalHeight'] == null
+          ? null
+          : integer(m['originalHeight'], 'revision.originalHeight'),
     );
   }
 }
@@ -317,9 +336,15 @@ class ImageAsset {
        adjustments = adjustments ?? ImageAdjustments(),
        transforms = List.unmodifiable(transforms) {
     validId(id);
-    require(this.revisionHistory.length <= 10000, 'تاريخ مراجعات الصورة كبير جداً.');
-    require(this.revisionHistory.map((entry) => entry.id).toSet().length == this.revisionHistory.length,
-        'معرّفات المراجعات التاريخية مكررة.');
+    require(
+      this.revisionHistory.length <= 10000,
+      'تاريخ مراجعات الصورة كبير جداً.',
+    );
+    require(
+      this.revisionHistory.map((entry) => entry.id).toSet().length ==
+          this.revisionHistory.length,
+      'معرّفات المراجعات التاريخية مكررة.',
+    );
     if (_persistedRevisionId != null) validId(_persistedRevisionId);
     if (parentRevisionId != null) validId(parentRevisionId!);
     require(
@@ -406,7 +431,8 @@ class ImageAsset {
   /// is created. A legacy identity that cannot be established is not guessed.
   List<ImageRevision> get historyWithCurrent {
     final current = _persistedRevisionId;
-    if (current == null || revisionHistory.any((entry) => entry.id == current)) {
+    if (current == null ||
+        revisionHistory.any((entry) => entry.id == current)) {
       return revisionHistory;
     }
     return [
@@ -584,7 +610,8 @@ class ImageAsset {
 
   Map<String, Object?> toJson() => {
     'id': id,
-    if (revisionHistory.isNotEmpty) 'revisionHistory': [for (final r in revisionHistory) r.toJson()],
+    if (revisionHistory.isNotEmpty)
+      'revisionHistory': [for (final r in revisionHistory) r.toJson()],
     'captureId': captureId,
     if (_persistedRevisionId != null) 'revisionId': _persistedRevisionId,
     if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
@@ -608,7 +635,11 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
-      revisionHistory: m['revisionHistory'] == null ? const [] : objectList(m['revisionHistory']).map(ImageRevision.fromJson).toList(),
+      revisionHistory: m['revisionHistory'] == null
+          ? const []
+          : objectList(
+              m['revisionHistory'],
+            ).map(ImageRevision.fromJson).toList(),
       revisionId: m['revisionId'] == null
           ? null
           : text(m['revisionId'], 'revisionId'),

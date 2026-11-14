@@ -110,12 +110,16 @@ void main() {
 
     test('unfinished entries are not evicted to admit a new batch', () async {
       final log = logWith(maxEntries: 2);
-      final pending = journeyFor('pending').withLifecycle(JourneyLifecycle.processing);
+      final pending = journeyFor(
+        'pending',
+      ).withLifecycle(JourneyLifecycle.processing);
       await log.append([pending]);
       await log.append([journeyFor('done')]);
       await log.append([journeyFor('new')]);
-      expect((await log.read()).map((entry) => entry.id),
-          unorderedEquals([pending.id, journeyFor('new').id]));
+      expect(
+        (await log.read()).map((entry) => entry.id),
+        unorderedEquals([pending.id, journeyFor('new').id]),
+      );
       final before = await logFile().readAsString();
       await expectLater(
         log.append([

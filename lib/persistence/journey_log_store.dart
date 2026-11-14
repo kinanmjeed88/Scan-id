@@ -112,7 +112,9 @@ class LocalJourneyLog implements JourneyLog {
     };
     while (kept.length > maxEntries ||
         (kept.length > 1 && _encodedBytes(kept) > maxBytes)) {
-      final index = kept.lastIndexWhere((entry) => !requiredIds.contains(entry.id));
+      final index = kept.lastIndexWhere(
+        (entry) => !requiredIds.contains(entry.id),
+      );
       if (index < 0) {
         throw StateError('Unfinished journeys exceed journal capacity');
       }

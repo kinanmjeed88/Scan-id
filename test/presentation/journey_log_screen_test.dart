@@ -143,7 +143,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('damaged log is not presented as a healthy empty log', (tester) async {
+  testWidgets('damaged log is not presented as a healthy empty log', (
+    tester,
+  ) async {
     await _pumpLog(tester, _UnreadableJourneyLog());
     expect(find.textContaining('لم يُستبدل الملف'), findsOneWidget);
     expect(find.textContaining('قد يتوقف الاستيراد'), findsOneWidget);
@@ -151,7 +153,9 @@ void main() {
     expect(find.text('لا توجد تقارير محفوظة.'), findsNothing);
   });
 
-  testWidgets('an interrupted saved source gives reprocessing guidance', (tester) async {
+  testWidgets('an interrupted saved source gives reprocessing guidance', (
+    tester,
+  ) async {
     final interrupted = _journey().withLifecycle(JourneyLifecycle.processing);
     await _pumpLog(tester, _FakeJourneyLog([interrupted]));
     expect(find.textContaining('بدأت المعالجة ولم تكتمل'), findsOneWidget);

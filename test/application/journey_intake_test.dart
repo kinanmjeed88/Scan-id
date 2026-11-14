@@ -294,20 +294,26 @@ void main() {
     expect((await projects.get(project.id)).assets, isEmpty);
   });
 
-  test('a failed analysis after copy remains failed after reopening log', () async {
-    final host = _FailingAnalysisService(projects, assets, log);
-    final project = await host.create('سجل');
-    final result = await IntakeRunner(service: host, project: project).run(sources(1));
-    expect(result.importedCount, 1);
-    expect(result.error, isNotNull);
-    expect((await projects.get(project.id)).assets, hasLength(1));
-    final reopened = LocalJourneyLog(supportDirectory: () async => support);
-    final entry = (await reopened.read()).single;
-    expect(entry.lifecycle, JourneyLifecycle.failed);
-    expect(entry.imported, isTrue);
-    expect(entry.verdict, isNot(JourneyOutcome.passed));
-    expect(entry.conclusion, contains('تعذرت المعالجة'));
-  });
+  test(
+    'a failed analysis after copy remains failed after reopening log',
+    () async {
+      final host = _FailingAnalysisService(projects, assets, log);
+      final project = await host.create('سجل');
+      final result = await IntakeRunner(
+        service: host,
+        project: project,
+      ).run(sources(1));
+      expect(result.importedCount, 1);
+      expect(result.error, isNotNull);
+      expect((await projects.get(project.id)).assets, hasLength(1));
+      final reopened = LocalJourneyLog(supportDirectory: () async => support);
+      final entry = (await reopened.read()).single;
+      expect(entry.lifecycle, JourneyLifecycle.failed);
+      expect(entry.imported, isTrue);
+      expect(entry.verdict, isNot(JourneyOutcome.passed));
+      expect(entry.conclusion, contains('تعذرت المعالجة'));
+    },
+  );
 
   test('later journal failures cannot undo committed imports', () async {
     final failing = _FailAfterFirstLog(log);
@@ -443,8 +449,11 @@ class _FailAfterFirstLog implements JourneyLog {
 }
 
 class _FailingAnalysisService extends ProjectService {
-  _FailingAnalysisService(ProjectRepository projects, AssetRepository assets, JourneyLog log)
-      : super(projects, assets, journeyLog: log);
+  _FailingAnalysisService(
+    ProjectRepository projects,
+    AssetRepository assets,
+    JourneyLog log,
+  ) : super(projects, assets, journeyLog: log);
 
   @override
   Future<AutomaticLayoutReport> arrangeImportedImages(

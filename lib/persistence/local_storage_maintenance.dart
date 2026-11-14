@@ -14,9 +14,14 @@ import 'safe_files.dart';
 /// and any symbolic-link component. Directory walks never follow links, so a
 /// link planted inside the root can only ever delete the link itself.
 class LocalStorageMaintenance implements StorageMaintenance {
-  const LocalStorageMaintenance(this.files, {this.clock = DateTime.now, this.projects});
+  const LocalStorageMaintenance(
+    this.files, {
+    this.clock = DateTime.now,
+    this.projects,
+  });
   final SafeFiles files;
   final DateTime Function() clock;
+
   /// Used to recheck live references immediately before deletion.
   final ProjectRepository? projects;
   static const _projects = 'projects';
@@ -105,7 +110,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
               case _Use.unused:
                 if (incompleteAssets.contains(relative) &&
                     (p.basename(group.path) == 'edits' ||
-                     p.basename(group.path) == 'replacements')) {
+                        p.basename(group.path) == 'replacements')) {
                   retained.add(revisionRelative);
                 } else {
                   orphans.add(revisionRelative);
@@ -142,7 +147,9 @@ class LocalStorageMaintenance implements StorageMaintenance {
   Future<int> deleteFiles(Iterable<String> relativePaths) async {
     final recovery = await _recoveryReferences();
     final repository = projects;
-    final liveProjects = repository == null ? <Project>[] : await repository.list();
+    final liveProjects = repository == null
+        ? <Project>[]
+        : await repository.list();
     final live = _referencesOf(liveProjects);
     final incomplete = _incompleteAssets(liveProjects);
     final targets = <String>[];
@@ -152,11 +159,16 @@ class LocalStorageMaintenance implements StorageMaintenance {
       }
       require(!_under(relative, recovery), _keptByRecovery);
       require(!_under(relative, live), _keptByLive);
-      require(!incomplete.any((asset) =>
-          relative == '$asset/edits' ||
-          relative.startsWith('$asset/edits/') ||
-          relative == '$asset/replacements' ||
-          relative.startsWith('$asset/replacements/')), _keptByUnresolved);
+      require(
+        !incomplete.any(
+          (asset) =>
+              relative == '$asset/edits' ||
+              relative.startsWith('$asset/edits/') ||
+              relative == '$asset/replacements' ||
+              relative.startsWith('$asset/replacements/'),
+        ),
+        _keptByUnresolved,
+      );
       targets.add(await files.checkedPath(relative));
     }
     var removed = 0;
@@ -195,9 +207,11 @@ class LocalStorageMaintenance implements StorageMaintenance {
           'projects/${project.id}/assets/${asset.id}',
   };
 
-  static const _liveCheckUnavailable = 'تعذر التحقق من مراجع المشاريع؛ لن تُحذف الملفات.';
+  static const _liveCheckUnavailable =
+      'تعذر التحقق من مراجع المشاريع؛ لن تُحذف الملفات.';
   static const _keptByLive = 'ملفات المشروع ما زالت مستخدمة؛ لن تُحذف.';
-  static const _keptByUnresolved = 'تاريخ المراجعة القديمة غير محسوم؛ لن تُحذف ملفاتها.';
+  static const _keptByUnresolved =
+      'تاريخ المراجعة القديمة غير محسوم؛ لن تُحذف ملفاتها.';
   static const _keptByRecovery =
       'نقطة استرداد أو نسخة ترقية ما زالت تشير إلى هذه الملفات، فتُحفظ حتى تُحدَّث.';
 

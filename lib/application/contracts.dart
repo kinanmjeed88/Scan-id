@@ -38,7 +38,9 @@ class LegacyRevisionMigrationResult {
 }
 
 abstract interface class LegacyRevisionMigrator {
-  Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(String projectId);
+  Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(
+    String projectId,
+  );
 }
 
 /// Files written for a replacement source of an existing asset.

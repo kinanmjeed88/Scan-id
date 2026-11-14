@@ -11,7 +11,8 @@ import '../domain/validation.dart';
 import 'safe_files.dart';
 import 'recovery_checkpoints.dart';
 
-class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrator {
+class LocalProjectRepository
+    implements ProjectRepository, LegacyRevisionMigrator {
   LocalProjectRepository._(this._database, this.files)
     : checkpoints = RecoveryCheckpoints(files);
   final RecoveryCheckpoints checkpoints;
@@ -124,19 +125,25 @@ class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrato
         continue;
       }
       final alias = asset.revisionId;
-      if (alias != null && asset.revisionHistory.any(
-        (r) => r.id == alias || r.parentRevisionId == alias,
-      )) {
+      if (alias != null &&
+          (asset.parentRevisionId == alias ||
+              asset.revisionHistory.any(
+                (r) => r.id == alias || r.parentRevisionId == alias,
+              ))) {
         // Changing an alias referenced by saved history would sever a link.
         updated.add(asset);
         continue;
       }
       final paths = <String>{
-        asset.originalPath, asset.workingPath, asset.thumbnailPath,
+        asset.originalPath,
+        asset.workingPath,
+        asset.thumbnailPath,
         asset.processingInputPath,
         for (final revision in asset.revisionHistory) ...[
-          revision.originalPath, revision.workingPath,
-          revision.thumbnailPath, revision.processingInputPath,
+          revision.originalPath,
+          revision.workingPath,
+          revision.thumbnailPath,
+          revision.processingInputPath,
         ],
       };
       for (final path in paths) {
@@ -147,12 +154,16 @@ class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrato
           read += bytes.length;
         }
         if (size == 0 || read != size || await file.length() != size) {
-          throw const StorageException('تعذر قراءة ملفات المراجعة بأمان؛ لم يغيّر الترحيل المشروع.');
+          throw const StorageException(
+            'تعذر قراءة ملفات المراجعة بأمان؛ لم يغيّر الترحيل المشروع.',
+          );
         }
       }
       final json = asset.toJson();
       var id = newId();
-      while (asset.revisionHistory.any((r) => r.id == id || r.parentRevisionId == id) ||
+      while (asset.revisionHistory.any(
+            (r) => r.id == id || r.parentRevisionId == id,
+          ) ||
           asset.parentRevisionId == id) {
         id = newId();
       }
@@ -161,11 +172,19 @@ class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrato
       migrated.add(asset.id);
     }
     if (migrated.isEmpty) {
-      return LegacyRevisionMigrationResult(current, const [], List.unmodifiable(unresolved));
+      return LegacyRevisionMigrationResult(
+        current,
+        const [],
+        List.unmodifiable(unresolved),
+      );
     }
     await _snapshotRevisionMigration(projectId, current.revision, raw);
     final saved = await save(current.copyWith(assets: updated));
-    return LegacyRevisionMigrationResult(saved, List.unmodifiable(migrated), List.unmodifiable(unresolved));
+    return LegacyRevisionMigrationResult(
+      saved,
+      List.unmodifiable(migrated),
+      List.unmodifiable(unresolved),
+    );
   }
 
   Future<void> _snapshotRevisionMigration(
@@ -173,16 +192,30 @@ class LocalProjectRepository implements ProjectRepository, LegacyRevisionMigrato
     int revision,
     Map<String, Object?> raw,
   ) async {
-    final target = File(await files.checkedPath('migration-snapshots/revision-$id-$revision.json'));
+    final target = File(
+      await files.checkedPath(
+        'migration-snapshots/revision-$id-$revision.json',
+      ),
+    );
     if (await target.exists()) {
       final existing = objectMap(jsonDecode(await target.readAsString()));
-      require(jsonEncode(existing['project']) == jsonEncode(raw), 'لقطة الترحيل الموجودة لا تطابق المشروع؛ لم يُعدّل المشروع.');
+      require(
+        jsonEncode(existing['project']) == jsonEncode(raw),
+        'لقطة الترحيل الموجودة لا تطابق المشروع؛ لم يُعدّل المشروع.',
+      );
       return;
     }
-    final temporary = File(await files.checkedPath('migration-snapshots/revision-$id-${newId()}.tmp'));
+    final temporary = File(
+      await files.checkedPath(
+        'migration-snapshots/revision-$id-${newId()}.tmp',
+      ),
+    );
     try {
       await temporary.parent.create(recursive: true);
-      await temporary.writeAsString(jsonEncode({'version': 1, 'project': raw}), flush: true);
+      await temporary.writeAsString(
+        jsonEncode({'version': 1, 'project': raw}),
+        flush: true,
+      );
       await temporary.rename(target.path);
     } finally {
       if (await temporary.exists()) await temporary.delete();

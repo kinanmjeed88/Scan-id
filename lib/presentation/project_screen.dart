@@ -98,18 +98,23 @@ class _ProjectScreenState extends State<ProjectScreen> {
       context,
       'تثبيت معرفات المراجعات الحالية؟',
       'تُحفَظ لقطة لبيانات المشروع أولاً، ثم تُعطى المراجعات الحالية القديمة '
-      'معرفات ثابتة. لا تُعدّل الصور ولا تُحذف الملفات. يظل تاريخ المراجعات '
-      'القديم غير المحسوم محفوظاً دون افتراض ترتيب أو علاقة أبوة.',
+          'معرفات ثابتة. لا تُعدّل الصور ولا تُحذف الملفات. يظل تاريخ المراجعات '
+          'القديم غير المحسوم محفوظاً دون افتراض ترتيب أو علاقة أبوة.',
       confirmLabel: 'تثبيت المعرفات',
     );
     if (!yes || !mounted) return;
     setState(() => _busy = true);
     try {
-      final result = await widget.service.migrateLegacyRevisionIdentities(_project.id);
+      final result = await widget.service.migrateLegacyRevisionIdentities(
+        _project.id,
+      );
       if (!mounted) return;
       setState(() => _project = result.project);
-      showMessage(context, 'ثُبّتت معرفات ${result.migratedAssetIds.length} صورة؛ '
-          'تاريخ ${result.unresolvedAssetIds.length} صورة قديمة غير محسوم ومحفوظ دون حذف.');
+      showMessage(
+        context,
+        'ثُبّتت معرفات ${result.migratedAssetIds.length} صورة؛ '
+        'تاريخ ${result.unresolvedAssetIds.length} صورة قديمة غير محسوم ومحفوظ دون حذف.',
+      );
     } catch (error) {
       if (mounted) showMessage(context, userError(error));
     } finally {
@@ -935,13 +940,19 @@ class _ProjectScreenState extends State<ProjectScreen> {
                                     'أو إعادة تثبيت النظام.',
                                 onTap: _busy ? null : _backup,
                               ),
-                            if (widget.service.projects is LegacyRevisionMigrator &&
-                                _project.assets.any((asset) => !asset.toJson().containsKey('revisionId')))
+                            if (widget.service.projects
+                                    is LegacyRevisionMigrator &&
+                                _project.assets.any(
+                                  (asset) =>
+                                      !asset.toJson().containsKey('revisionId'),
+                                ))
                               ExplainedAction(
                                 icon: Icons.history,
                                 title: 'تثبيت معرفات المراجعات القديمة',
-                                summary: 'يحفظ هوية المراجعات الحالية دون تعديل الصور.',
-                                details: 'يحفظ لقطة للبيانات قبل التغيير ويتحقق من قراءة الملفات. '
+                                summary:
+                                    'يحفظ هوية المراجعات الحالية دون تعديل الصور.',
+                                details:
+                                    'يحفظ لقطة للبيانات قبل التغيير ويتحقق من قراءة الملفات. '
                                     'لا يستنتج آباء أو فروعاً من أسماء المجلدات؛ '
                                     'تبقى الملفات القديمة غير المحسومة محفوظة.',
                                 onTap: _busy ? null : _migrateLegacyRevisions,

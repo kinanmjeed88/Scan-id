@@ -1714,14 +1714,22 @@ class ProjectService {
     final index = project.assets.indexWhere((asset) => asset.id == assetId);
     require(index >= 0, 'الصورة ليست ضمن هذا المشروع.');
     final asset = project.assets[index];
-    require(asset.revisionHistoryComplete,
-        'تاريخ المراجعات غير مكتمل؛ لن تُحذف أي مراجعة.');
+    require(
+      asset.revisionHistoryComplete,
+      'تاريخ المراجعات غير مكتمل؛ لن تُحذف أي مراجعة.',
+    );
     require(asset.revisionId != revisionId, 'لا يمكن حذف المراجعة الحالية.');
-    require(asset.revisionHistory.any((entry) => entry.id == revisionId),
-        'المراجعة غير موجودة في التاريخ المحفوظ.');
-    require(asset.parentRevisionId != revisionId &&
-        !asset.revisionHistory.any((entry) => entry.parentRevisionId == revisionId),
-        'لا يمكن حذف مراجعة لها مراجعات تابعة.');
+    require(
+      asset.revisionHistory.any((entry) => entry.id == revisionId),
+      'المراجعة غير موجودة في التاريخ المحفوظ.',
+    );
+    require(
+      asset.parentRevisionId != revisionId &&
+          !asset.revisionHistory.any(
+            (entry) => entry.parentRevisionId == revisionId,
+          ),
+      'لا يمكن حذف مراجعة لها مراجعات تابعة.',
+    );
     final json = asset.toJson()
       ..['revisionHistory'] = [
         for (final entry in asset.revisionHistory)
@@ -1729,10 +1737,14 @@ class ProjectService {
       ]
       ..remove('revisionHistoryComplete');
     final updated = ImageAsset.fromJson(json);
-    return projects.save(project.copyWith(assets: [
-      for (final entry in project.assets)
-        if (entry.id == assetId) updated else entry,
-    ]));
+    return projects.save(
+      project.copyWith(
+        assets: [
+          for (final entry in project.assets)
+            if (entry.id == assetId) updated else entry,
+        ],
+      ),
+    );
   }
 
   /// Explicit user-requested migration; no image files are rewritten.
@@ -1740,8 +1752,12 @@ class ProjectService {
     String projectId,
   ) {
     final repository = projects;
-    require(repository is LegacyRevisionMigrator, 'ترحيل المراجعات غير متاح في هذا البناء.');
-    return (repository as LegacyRevisionMigrator).migrateLegacyRevisionIdentities(projectId);
+    require(
+      repository is LegacyRevisionMigrator,
+      'ترحيل المراجعات غير متاح في هذا البناء.',
+    );
+    return (repository as LegacyRevisionMigrator)
+        .migrateLegacyRevisionIdentities(projectId);
   }
 
   /// Releases picker-owned temporary copies that will not be imported.
@@ -1774,7 +1790,9 @@ class ProjectService {
   Future<ImageDeletion> deleteImage(Project project, String assetId) async {
     final plan = planImageDeletion(project, assetId);
     require(
-      project.assets.firstWhere((asset) => asset.id == assetId).revisionHistoryComplete,
+      project.assets
+          .firstWhere((asset) => asset.id == assetId)
+          .revisionHistoryComplete,
       'تاريخ الصورة غير مكتمل؛ لا يمكن حذفها بأمان مع ملفات مراجعات غير محسومة.',
     );
     final saved = await projects.save(applyImageDeletion(project, plan));

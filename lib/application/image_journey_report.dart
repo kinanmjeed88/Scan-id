@@ -256,7 +256,8 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
     // Recorded even when the sentence had to fall back to "unknown", so the
     // size of the copy is always machine-readable.
     fields: {
-      if (asset.id.length <= JourneyStep.maxFieldValueLength) 'assetId': asset.id,
+      if (asset.id.length <= JourneyStep.maxFieldValueLength)
+        'assetId': asset.id,
       if (width != null) 'copiedWidth': width,
       if (height != null) 'copiedHeight': height,
       'scaledWorkingCopy': asset.hasScaledLargeSource,

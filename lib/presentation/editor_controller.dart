@@ -843,7 +843,9 @@ class LayoutEditorController extends ChangeNotifier {
     }
     if (outcome?.journeyWriteFailed == true) {
       _say(
-        outcome!.journeyStartBlocked ? journeyStartFailure : journeyWriteWarning,
+        outcome!.journeyStartBlocked
+            ? journeyStartFailure
+            : journeyWriteWarning,
       );
     }
     final pendingIds = [

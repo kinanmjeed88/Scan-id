@@ -181,6 +181,9 @@ class JourneyStep {
   }
 }
 
+/// A persisted intake checkpoint. Older reports have no lifecycle value.
+enum JourneyLifecycle { created, processing, reviewRequired, completed, failed }
+
 /// The complete reported path of ONE picked image.
 class ImageJourney {
   ImageJourney({
@@ -192,6 +195,7 @@ class ImageJourney {
     required this.startedAt,
     required List<JourneyStep> steps,
     this.sheetRevision,
+    this.lifecycle,
   }) : steps = List.unmodifiable(steps) {
     require(id.length >= 8 && id.length <= 160, 'معرّف رحلة الصورة غير صالح.');
     require(
@@ -255,6 +259,21 @@ class ImageJourney {
   /// The saved project revision this report describes, when the run committed.
   final int? sheetRevision;
 
+  /// Null for reports written before lifecycle checkpoints were introduced.
+  final JourneyLifecycle? lifecycle;
+
+  ImageJourney withLifecycle(JourneyLifecycle value) => ImageJourney(
+    id: id,
+    batchId: batchId,
+    projectId: projectId,
+    projectName: projectName,
+    imageName: imageName,
+    startedAt: startedAt,
+    sheetRevision: sheetRevision,
+    steps: steps,
+    lifecycle: value,
+  );
+
   /// Whether the source was copied into the project at all.
   bool get imported => _outcomeOf(JourneyStage.copy) == JourneyOutcome.passed;
 
@@ -265,6 +284,9 @@ class ImageJourney {
 
   /// The single line that summarises the whole journey.
   String get conclusion {
+    if (lifecycle == JourneyLifecycle.created) return 'بانتظار المعالجة';
+    if (lifecycle == JourneyLifecycle.processing) return 'بدأت المعالجة ولم تكتمل';
+    if (lifecycle == JourneyLifecycle.failed && !imported) return 'تعذرت المعالجة';
     if (!imported) return 'لم تُستورد';
     if (_outcomeOf(JourneyStage.save) == JourneyOutcome.skipped) {
       return 'لم يُحفظ المشروع بعد المعالجة';
@@ -287,6 +309,8 @@ class ImageJourney {
   /// The overall verdict: the worst thing that happened, so a summary can be
   /// coloured without re-reading every step.
   JourneyOutcome get verdict {
+    if (lifecycle == JourneyLifecycle.created ||
+        lifecycle == JourneyLifecycle.processing) return JourneyOutcome.review;
     if (placedOnSheet &&
         _outcomeOf(JourneyStage.save) != JourneyOutcome.skipped &&
         steps.every((step) => !step.outcome.needsAttention)) {
@@ -322,6 +346,7 @@ class ImageJourney {
     'project': {'id': projectId, 'name': projectName},
     'image': imageName,
     'started_utc': startedAt.toUtc().toIso8601String(),
+    if (lifecycle != null) 'lifecycle': lifecycle!.name,
     if (sheetRevision != null) 'revision': sheetRevision,
     'steps': [for (final step in steps) step.toJson()],
   };
@@ -335,7 +360,16 @@ class ImageJourney {
     final project = objectMap(map['project']);
     final started = DateTime.tryParse(text(map['started_utc'], 'started_utc'));
     require(started != null, 'وقت بدء السجل غير صالح.');
+    JourneyLifecycle? lifecycle;
+    if (map['lifecycle'] != null) {
+      final name = text(map['lifecycle'], 'lifecycle');
+      for (final value in JourneyLifecycle.values) {
+        if (value.name == name) lifecycle = value;
+      }
+      require(lifecycle != null, 'حالة رحلة غير مدعومة.');
+    }
     return ImageJourney(
+      lifecycle: lifecycle,
       id: text(map['id'], 'id'),
       batchId: text(map['batch'], 'batch'),
       projectId: text(project['id'], 'project.id'),

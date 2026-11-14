@@ -65,6 +65,7 @@ List<ImageJourney> buildImageJourneys({
   required List<ImportedImageFact> images,
   required DateTime startedAt,
   int? savedRevision,
+  bool stablePickedIds = false,
 }) {
   final journeys = <ImageJourney>[];
   // The journal stores one-line, bounded names and refuses anything else. A
@@ -83,7 +84,9 @@ List<ImageJourney> buildImageJourneys({
     );
     journeys.add(
       ImageJourney(
-        id: _journeyId(batchId, fact, index),
+        id: stablePickedIds
+            ? '$batchId-picked$index'
+            : _journeyId(batchId, fact, index),
         batchId: batchId,
         projectId: project.id,
         projectName: projectName,
@@ -96,6 +99,30 @@ List<ImageJourney> buildImageJourneys({
   }
   return List.unmodifiable(journeys);
 }
+
+/// A source was selected, but no copy or detector result is claimed yet.
+List<ImageJourney> createPendingJourneys({
+  required String batchId,
+  required Project project,
+  required List<String> names,
+  required DateTime startedAt,
+}) => [
+  for (var index = 0; index < names.length; index++)
+    ImageJourney(
+      id: '$batchId-picked$index',
+      batchId: batchId,
+      projectId: project.id,
+      projectName: _journalName(project.name, fallback: ''),
+      imageName: _journalName(names[index], fallback: unnamedImageLabel),
+      startedAt: startedAt,
+      lifecycle: JourneyLifecycle.created,
+      steps: [JourneyStep(
+        stage: JourneyStage.selection,
+        outcome: JourneyOutcome.passed,
+        detail: 'اختيرت الصورة ولم تبدأ معالجتها بعد.',
+      )],
+    ),
+];
 
 /// Shown for a picked image whose name is empty once made a single line.
 const String unnamedImageLabel = 'صورة بلا اسم';

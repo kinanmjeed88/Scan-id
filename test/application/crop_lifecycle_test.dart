@@ -260,14 +260,22 @@ void main() {
         expect(img.decodeImage(preview), isNotNull);
         final revision = await real.createRevision(asset, recipe);
         expect(revision.crop, isNotNull);
-        expect(asset.revisionId, isNull);
+        expect(asset.revisionId, isNotNull);
+        expect(revision.parentRevisionId, asset.revisionId);
+        expect(revision.originalWidth, asset.originalWidth);
+        expect(revision.originalHeight, asset.originalHeight);
         expect(revision.id, asset.id);
         expect(revision.originalPath, asset.originalPath);
         expect(revision.revisionId, isNotNull);
         expect(revision.revisionId, isNot(asset.id));
+        final movedJson = revision.toJson();
+        movedJson['workingPath'] =
+            revision.workingPath.replaceFirst('/edits/', '/relocated/');
+        expect(ImageAsset.fromJson(movedJson).revisionId, revision.revisionId);
         final second = await real.createRevision(revision, recipe);
         expect(second.id, asset.id);
         expect(second.revisionId, isNot(revision.revisionId));
+        expect(second.parentRevisionId, revision.revisionId);
         expect(second.originalPath, asset.originalPath);
         expect(
           ImageAsset.fromJson(second.toJson()).revisionId,

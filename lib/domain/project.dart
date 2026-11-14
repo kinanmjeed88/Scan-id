@@ -236,15 +236,28 @@ class ImageAsset {
     List<Point2>? suggestedCrop,
     this.captureId,
     this.derivedFrom,
+    String? revisionId,
+    this.parentRevisionId,
+    this.originalWidth,
+    this.originalHeight,
     this.userAuthoredCrop = false,
     ImageAdjustments? adjustments,
     List<String> transforms = const [],
-  }) : suggestedCrop = suggestedCrop == null
+  }) : _persistedRevisionId = revisionId,
+       suggestedCrop = suggestedCrop == null
            ? null
            : List.unmodifiable(suggestedCrop),
        adjustments = adjustments ?? ImageAdjustments(),
        transforms = List.unmodifiable(transforms) {
     validId(id);
+    if (_persistedRevisionId != null) validId(_persistedRevisionId);
+    if (parentRevisionId != null) validId(parentRevisionId!);
+    require(
+      (originalWidth == null && originalHeight == null) ||
+          (originalWidth != null && originalHeight != null &&
+              originalWidth! > 0 && originalHeight! > 0),
+      'أبعاد الأصل غير صالحة.',
+    );
     if (captureId != null) {
       validId(captureId!);
     }
@@ -311,12 +324,17 @@ class ImageAsset {
   final String originalPath;
   final String workingPath;
 
-  /// Identity of the current immutable file revision within this asset, when
-  /// the path was written by the revision or replacement service. The asset id
-  /// remains stable for document/layout references. Imported and older paths
-  /// without a revision directory intentionally return null; no id is guessed.
-  /// The path is already persisted, so this adds no schema field or migration.
+  /// New revisions persist identity independently of paths. A legacy path is
+  /// still exposed for compatibility, but is not proof of a migrated history.
+  final String? _persistedRevisionId;
+  final String? parentRevisionId;
+
+  /// EXIF-oriented dimensions of the current source, when recorded.
+  final int? originalWidth;
+  final int? originalHeight;
+
   String? get revisionId {
+    if (_persistedRevisionId != null) return _persistedRevisionId;
     final parts = workingPath.split('/');
     if (parts.length < 3 || parts.last != 'working.png') return null;
     final kind = parts[parts.length - 3];
@@ -391,6 +409,10 @@ class ImageAsset {
   ImageAsset asDerivedOf(String source) => ImageAsset(
     id: id,
     captureId: captureId,
+    revisionId: _persistedRevisionId,
+    parentRevisionId: parentRevisionId,
+    originalWidth: originalWidth,
+    originalHeight: originalHeight,
     derivedFrom: source,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -410,6 +432,10 @@ class ImageAsset {
   ImageAsset withSuggestedCrop(List<Point2>? corners) => ImageAsset(
     id: id,
     captureId: captureId,
+    revisionId: _persistedRevisionId,
+    parentRevisionId: parentRevisionId,
+    originalWidth: originalWidth,
+    originalHeight: originalHeight,
     derivedFrom: derivedFrom,
     userAuthoredCrop: userAuthoredCrop,
     name: name,
@@ -438,6 +464,10 @@ class ImageAsset {
     return ImageAsset(
       id: id,
       captureId: captureId,
+      revisionId: _persistedRevisionId,
+      parentRevisionId: parentRevisionId,
+      originalWidth: originalWidth,
+      originalHeight: originalHeight,
       derivedFrom: derivedFrom,
       userAuthoredCrop: value,
       name: name,
@@ -455,6 +485,10 @@ class ImageAsset {
   Map<String, Object?> toJson() => {
     'id': id,
     'captureId': captureId,
+    if (_persistedRevisionId != null) 'revisionId': _persistedRevisionId,
+    if (parentRevisionId != null) 'parentRevisionId': parentRevisionId,
+    if (originalWidth != null) 'originalWidth': originalWidth,
+    if (originalHeight != null) 'originalHeight': originalHeight,
     'derivedFrom': derivedFrom,
     if (userAuthoredCrop) 'userAuthoredCrop': true,
     'name': name,
@@ -473,6 +507,11 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
+      revisionId: m['revisionId'] == null ? null : text(m['revisionId'], 'revisionId'),
+      parentRevisionId: m['parentRevisionId'] == null
+          ? null : text(m['parentRevisionId'], 'parentRevisionId'),
+      originalWidth: m['originalWidth'] == null ? null : integer(m['originalWidth'], 'originalWidth'),
+      originalHeight: m['originalHeight'] == null ? null : integer(m['originalHeight'], 'originalHeight'),
       captureId: m['captureId'] == null
           ? null
           : text(m['captureId'], 'captureId'),

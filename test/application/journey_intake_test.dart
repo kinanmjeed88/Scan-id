@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -150,6 +151,52 @@ void main() {
     },
   );
 
+  test('created checkpoint is written before processing and reopens', () async {
+    final checkpointed = _RecordingJourneyLog(log);
+    final host = ProjectService(
+      projects,
+      assets,
+      imageEditor: LocalImageEditor(projects.files),
+      journeyLog: checkpointed,
+    );
+    final project = await host.create('سجل');
+    final result = await IntakeRunner(service: host, project: project).run(sources(1));
+    expect(result.importedCount, 1);
+    expect(checkpointed.states.first, JourneyLifecycle.created);
+    expect(checkpointed.reopenedStates.first, JourneyLifecycle.created);
+    expect(checkpointed.states, contains(JourneyLifecycle.processing));
+    expect(checkpointed.ids.toSet(), hasLength(1));
+  });
+
+  test('checkpoint exists before source opens and survives a new log instance', () async {
+    final project = await service.create('سجل');
+    final opened = Completer<void>();
+    final release = Completer<void>();
+    final runner = IntakeRunner(service: service, project: project);
+    final future = runner.run([
+      ImportSource('waiting.png', () async* {
+        opened.complete();
+        await release.future;
+        yield bytes();
+      }),
+    ]);
+    await opened.future;
+    final reopenedLog = LocalJourneyLog(supportDirectory: () async => support);
+    final before = await reopenedLog.read();
+    expect(before, hasLength(1));
+    expect(before.single.lifecycle, JourneyLifecycle.processing);
+    expect(before.single.imported, isFalse);
+    final id = before.single.id;
+    release.complete();
+    final result = await future;
+    expect(result.importedCount, 1);
+    final after = await reopenedLog.read();
+    expect(after, hasLength(1));
+    expect(after.single.id, id);
+    expect(after.single.lifecycle, isNot(JourneyLifecycle.processing));
+    expect(after.single.imported, isTrue);
+  });
+
   test('a host with no log still imports normally', () async {
     final plain = ProjectService(
       projects,
@@ -181,7 +228,7 @@ void main() {
       final result = await runner.run(sources(1));
       expect(result.importedCount, 1);
       expect(result.journeyWriteFailed, isTrue);
-      expect(failing.attempts, 2);
+      expect(failing.attempts, greaterThan(2));
       expect(runner.lastJourneys, hasLength(1));
       expect((await projects.get(project.id)).assets, hasLength(1));
     },
@@ -202,7 +249,7 @@ void main() {
     ).run(sources(1));
     expect(result.importedCount, 1);
     expect(result.journeyWriteFailed, isFalse);
-    expect(failing.attempts, 2);
+    expect(failing.attempts, greaterThan(2));
     expect(failing.saved, hasLength(1));
   });
 }
@@ -217,7 +264,10 @@ class _FailingJourneyLog implements JourneyLog {
   Future<void> append(Iterable<ImageJourney> journeys) async {
     attempts++;
     if (failures-- > 0) throw StateError('write failed');
-    saved.addAll(journeys);
+    for (final journey in journeys) {
+      saved.removeWhere((entry) => entry.id == journey.id);
+      saved.add(journey);
+    }
   }
 
   @override
@@ -227,4 +277,28 @@ class _FailingJourneyLog implements JourneyLog {
   @override
   Future<JourneyLogStats> stats() async =>
       JourneyLogStats(entries: saved.length, bytes: 0);
+}
+
+class _RecordingJourneyLog implements JourneyLog {
+  _RecordingJourneyLog(this.inner);
+  final LocalJourneyLog inner;
+  final states = <JourneyLifecycle?>[];
+  final reopenedStates = <JourneyLifecycle?>[];
+  final ids = <String>[];
+
+  @override
+  Future<void> append(Iterable<ImageJourney> journeys) async {
+    final entries = journeys.toList();
+    await inner.append(entries);
+    states.add(entries.single.lifecycle);
+    ids.add(entries.single.id);
+    reopenedStates.add((await inner.read()).single.lifecycle);
+  }
+
+  @override
+  Future<void> clear() => inner.clear();
+  @override
+  Future<List<ImageJourney>> read() => inner.read();
+  @override
+  Future<JourneyLogStats> stats() => inner.stats();
 }

@@ -441,6 +441,10 @@ Future<ImageAsset> _saveRevision(
     return ImageAsset(
       id: asset.id,
       captureId: asset.captureId,
+      revisionId: id,
+      parentRevisionId: asset.revisionId,
+      originalWidth: asset.originalWidth,
+      originalHeight: asset.originalHeight,
       // A revision changes pixels, never provenance or crop authorship: dropping
       // either would turn a derived or manually cropped asset into an apparent
       // original / automatic crop.

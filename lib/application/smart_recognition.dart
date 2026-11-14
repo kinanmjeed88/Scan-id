@@ -1330,6 +1330,10 @@ class SmartIntake {
       regenerated = ImageAsset(
         id: target.id,
         captureId: target.captureId,
+        revisionId: files.revision,
+        parentRevisionId: target.revisionId,
+        originalWidth: files.originalWidth,
+        originalHeight: files.originalHeight,
         // Regenerating the crop keeps its recorded source relationship.
         derivedFrom: target.derivedFrom ?? sourceAsset.id,
         name: target.name,

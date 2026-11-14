@@ -139,6 +139,9 @@ Future<ImageAsset> _import(
       ? prepareImage(bytes)
       : prepareScaledWorkingPng(processingPng);
   final originalExtension = sourceExtension ?? prepared.extension;
+  final header = inspectImageHeader(bytes);
+  final orientedWidth = header.orientation >= 5 ? header.height : header.width;
+  final orientedHeight = header.orientation >= 5 ? header.width : header.height;
   final id = newId();
   final files = SafeFiles(Directory(root));
   final relative = 'projects/$projectId/assets/$id';
@@ -148,6 +151,9 @@ Future<ImageAsset> _import(
     await _publish(files, staging, relative);
     return ImageAsset(
       id: id,
+      revisionId: newId(),
+      originalWidth: orientedWidth,
+      originalHeight: orientedHeight,
       name: name,
       originalPath: '$relative/original.$originalExtension',
       workingPath: '$relative/working.png',
@@ -180,6 +186,9 @@ Future<ReplacementFiles> _replace(
       ? prepareImage(bytes)
       : prepareScaledWorkingPng(processingPng);
   final originalExtension = sourceExtension ?? prepared.extension;
+  final header = inspectImageHeader(bytes);
+  final orientedWidth = header.orientation >= 5 ? header.height : header.width;
+  final orientedHeight = header.orientation >= 5 ? header.width : header.height;
   final id = newId();
   final files = SafeFiles(Directory(root));
   final relative = 'projects/$projectId/assets/$assetId/replacements/$id';
@@ -189,6 +198,8 @@ Future<ReplacementFiles> _replace(
     await _publish(files, staging, relative);
     return ReplacementFiles(
       revision: id,
+      originalWidth: orientedWidth,
+      originalHeight: orientedHeight,
       originalPath: '$relative/original.$originalExtension',
       workingPath: '$relative/working.png',
       thumbnailPath: '$relative/thumb.jpg',

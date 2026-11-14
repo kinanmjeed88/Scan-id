@@ -353,6 +353,8 @@ class ProjectService {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
     void Function(ImportedSourceResult result)? onSourceResult,
+    Future<void> Function(ImportedSourceResult result, Project project)?
+        onSourceCheckpoint,
   }) async {
     var current = project;
     var imported = 0;
@@ -367,9 +369,10 @@ class ProjectService {
       ),
     );
 
-    void reportSource(ImportedSourceResult result) {
+    Future<void> reportSource(ImportedSourceResult result) async {
       try {
         onSourceResult?.call(result);
+        await onSourceCheckpoint?.call(result, current);
       } catch (_) {
         // A reporting seam must never change what the import committed.
       }
@@ -384,7 +387,7 @@ class ProjectService {
         // committed and the rest are reported as not imported.
         await _cleanupSource(source);
         failures.add(ImportFailure(source.name, importCancelledMessage));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: importCancelledMessage,
@@ -394,7 +397,7 @@ class ProjectService {
         for (final skipped in sources.skip(index + 1)) {
           await _cleanupSource(skipped);
           failures.add(ImportFailure(skipped.name, importCancelledMessage));
-          reportSource(
+          await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: importCancelledMessage,
@@ -426,7 +429,7 @@ class ProjectService {
           phase: 'source',
         );
         imported++;
-        reportSource(
+        await reportSource(
           ImportedSourceResult.success(
             name: source.name,
             asset: asset,
@@ -450,7 +453,7 @@ class ProjectService {
           error: error,
         );
         failures.add(ImportFailure(source.name, error.message));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: error.message,
@@ -464,7 +467,7 @@ class ProjectService {
               'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
               'حفظ المشروع.';
           failures.add(ImportFailure(skipped.name, stopped));
-          reportSource(
+          await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: stopped,
@@ -481,7 +484,7 @@ class ProjectService {
         );
         final message = userError(error);
         failures.add(ImportFailure(source.name, message));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: message,
@@ -1564,6 +1567,10 @@ class ProjectService {
     final resetAsset = ImageAsset(
       id: revised.id,
       captureId: revised.captureId,
+      revisionId: revised.revisionId,
+      parentRevisionId: revised.parentRevisionId,
+      originalWidth: revised.originalWidth,
+      originalHeight: revised.originalHeight,
       derivedFrom: revised.derivedFrom,
       userAuthoredCrop: false,
       name: revised.name,
@@ -1655,6 +1662,10 @@ class ProjectService {
       final updated = ImageAsset(
         id: asset.id,
         captureId: asset.captureId,
+        revisionId: files.revision,
+        parentRevisionId: asset.revisionId,
+        originalWidth: files.originalWidth,
+        originalHeight: files.originalHeight,
         // Replacing the pixels of an asset never changes what it is derived
         // from; losing this would make a derived crop look like an original.
         derivedFrom: asset.derivedFrom,

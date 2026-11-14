@@ -33,7 +33,11 @@ class ReplacementFiles {
     required this.width,
     required this.height,
     this.sourceScaling,
+    this.originalWidth,
+    this.originalHeight,
   });
+  final int? originalWidth;
+  final int? originalHeight;
   final String revision;
   final String originalPath;
   final String workingPath;

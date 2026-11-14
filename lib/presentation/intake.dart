@@ -131,21 +131,18 @@ class IntakeRunner {
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
 
-    // A report failure must not undo the project commit. Retrying an append is
-    // idempotent by journey id; retain the reports in memory for this run and
-    // expose a separate warning when both attempts fail.
-    Future<void> fileJourneys(Project latest, {bool committed = true}) async {
+    final pending = createPendingJourneys(
+      batchId: taskId,
+      project: project,
+      names: [for (final source in sources) source.name],
+      startedAt: startedAt,
+    );
+
+    // Failures here are diagnostic only: they cannot undo a project commit.
+    Future<void> writeCheckpoint(List<ImageJourney> journeys) async {
       final log = service.journeyLog;
-      if (log == null || picked.isEmpty) return;
+      if (log == null || journeys.isEmpty) return;
       try {
-        final journeys = buildImageJourneys(
-          batchId: taskId,
-          project: latest,
-          images: picked,
-          startedAt: startedAt,
-          savedRevision: committed ? latest.revision : null,
-        );
-        _lastJourneys = journeys;
         try {
           await log.append(journeys);
         } on Object {
@@ -156,6 +153,47 @@ class IntakeRunner {
         context.emit('journey_write_failed', error: error);
       }
     }
+
+    List<ImageJourney> checkpoint(Project latest, {required bool finished,
+        bool committed = true}) {
+      final built = buildImageJourneys(
+        batchId: taskId,
+        project: latest,
+        images: picked,
+        startedAt: startedAt,
+        savedRevision: committed ? latest.revision : null,
+        stablePickedIds: true,
+      );
+      return [
+        for (var i = 0; i < pending.length; i++)
+          if (i < built.length)
+            built[i].withLifecycle(
+              !finished ? JourneyLifecycle.processing :
+              !built[i].imported ? JourneyLifecycle.failed :
+              built[i].verdict == JourneyOutcome.passed
+                  ? JourneyLifecycle.completed : JourneyLifecycle.reviewRequired,
+            )
+          else if (!finished && i == built.length)
+            pending[i].withLifecycle(JourneyLifecycle.processing)
+          else
+            pending[i],
+      ];
+    }
+
+    Future<void> saveProgress(Project latest, {required bool finished,
+        bool committed = true}) async {
+      try {
+        final journeys = checkpoint(latest, finished: finished, committed: committed);
+        if (finished) _lastJourneys = journeys;
+        await writeCheckpoint(journeys);
+      } on Object catch (error) {
+        journeyWriteFailed = true;
+        context.emit('journey_write_failed', error: error);
+      }
+    }
+
+    Future<void> fileJourneys(Project latest, {bool committed = true}) =>
+        saveProgress(latest, finished: true, committed: committed);
 
     var terminal = 'failed';
     void reportProgress(BatchProgress progress) {
@@ -186,6 +224,10 @@ class IntakeRunner {
     _running = true;
     trace('import', 'started');
     try {
+      // Await durability before opening any source. If storage fails, preserve
+      // the import and surface the diagnostic failure separately.
+      await writeCheckpoint(pending);
+      await saveProgress(project, finished: false, committed: false);
       final existingIds = project.assets.map((a) => a.id).toSet();
       late final ImportReport import;
       try {
@@ -207,6 +249,8 @@ class IntakeRunner {
               copiedHeight: result.asset?.height,
             ),
           ),
+          onSourceCheckpoint: (result, current) =>
+              saveProgress(current, finished: false),
         );
       } catch (error) {
         trace('import', 'failed', error);

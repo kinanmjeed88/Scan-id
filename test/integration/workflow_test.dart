@@ -94,6 +94,10 @@ void main() {
       expect(report.imported, 2);
       expect(report.failures, isEmpty);
       project = report.project;
+      final originalRevisionId = project.assets.first.revisionId;
+      expect(originalRevisionId, isNotNull);
+      expect(project.assets.first.originalWidth, 600);
+      expect(project.assets.first.originalHeight, 400);
       final originalDigest = await digest(project.assets.first.originalPath);
       final originalSize = await (await assets.resolve(
         project.assets.first.originalPath,
@@ -120,6 +124,9 @@ void main() {
       );
       final asset = cropped.assets.first;
       expect(cropped.assets.first.id, project.assets.first.id);
+      expect(asset.parentRevisionId, originalRevisionId);
+      expect(asset.originalWidth, 600);
+      expect(asset.originalHeight, 400);
       expect(asset.crop?.outputWidth, 520);
       expect(asset.crop?.outputHeight, 340);
       expect({asset.width, asset.height}, {520, 340});
@@ -256,6 +263,9 @@ void main() {
       expect(restored.name, project.name);
       expect(restored.pageCount, project.pageCount);
       expect(restored.assets, hasLength(project.assets.length));
+      expect(restored.assets.first.revisionId, project.assets.first.revisionId);
+      expect(restored.assets.first.parentRevisionId, originalRevisionId);
+      expect(restored.assets.first.originalWidth, 600);
       for (var index = 0; index < project.assets.length; index++) {
         final before = project.assets[index];
         final after = restored.assets[index];

@@ -274,7 +274,19 @@ void main() {
           '/relocated/',
         );
         expect(ImageAsset.fromJson(movedJson).revisionId, revision.revisionId);
+        final legacyJson = asset.toJson()
+          ..remove('revisionId')
+          ..remove('originalWidth')
+          ..remove('originalHeight');
+        final legacy = ImageAsset.fromJson(legacyJson);
+        expect(legacy.revisionId, isNull);
+        expect(legacy.originalWidth, isNull);
+        expect(ImageAsset.fromJson(legacy.toJson()).toJson(), legacy.toJson());
         final second = await real.createRevision(revision, recipe);
+        final branch = await real.createRevision(revision, recipe);
+        expect(branch.parentRevisionId, revision.revisionId);
+        expect(branch.revisionId, isNot(second.revisionId));
+        expect((await assets.resolve(branch.workingPath)).existsSync(), isTrue);
         expect(second.id, asset.id);
         expect(second.revisionId, isNot(revision.revisionId));
         expect(second.parentRevisionId, revision.revisionId);

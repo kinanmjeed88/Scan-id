@@ -205,6 +205,31 @@ void main() {
     },
   );
 
+  test('each saved source has a durable asset link before the next opens', () async {
+    final project = await service.create('سجل');
+    final opened = Completer<void>();
+    final release = Completer<void>();
+    final future = IntakeRunner(service: service, project: project).run([
+      sources(1).single,
+      ImportSource('next.png', () async* {
+        opened.complete();
+        await release.future;
+        yield bytes();
+      }),
+    ]);
+    await opened.future;
+    final entries = await LocalJourneyLog(supportDirectory: () async => support).read();
+    final first = entries.firstWhere((entry) => entry.imageName == 'صورة0.png');
+    final copied = first.steps.firstWhere((step) => step.stage == JourneyStage.copy);
+    final saved = await projects.get(project.id);
+    expect(copied.fields['assetId'], saved.assets.single.id);
+    expect(first.lifecycle, JourneyLifecycle.processing);
+    expect(entries.firstWhere((entry) => entry.imageName == 'next.png').lifecycle,
+        JourneyLifecycle.processing);
+    release.complete();
+    await future;
+  });
+
   test('a host with no log still imports normally', () async {
     final plain = ProjectService(
       projects,

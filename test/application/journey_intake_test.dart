@@ -5,6 +5,9 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/cancellation.dart';
+import 'package:scan_id/application/contracts.dart';
+import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/application/journey_log.dart';
 import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/persistence/journey_log_store.dart';
@@ -291,6 +294,21 @@ void main() {
     expect((await projects.get(project.id)).assets, isEmpty);
   });
 
+  test('a failed analysis after copy remains failed after reopening log', () async {
+    final host = _FailingAnalysisService(projects, assets, log);
+    final project = await host.create('سجل');
+    final result = await IntakeRunner(service: host, project: project).run(sources(1));
+    expect(result.importedCount, 1);
+    expect(result.error, isNotNull);
+    expect((await projects.get(project.id)).assets, hasLength(1));
+    final reopened = LocalJourneyLog(supportDirectory: () async => support);
+    final entry = (await reopened.read()).single;
+    expect(entry.lifecycle, JourneyLifecycle.failed);
+    expect(entry.imported, isTrue);
+    expect(entry.verdict, isNot(JourneyOutcome.passed));
+    expect(entry.conclusion, contains('تعذرت المعالجة'));
+  });
+
   test('later journal failures cannot undo committed imports', () async {
     final failing = _FailAfterFirstLog(log);
     final host = ProjectService(
@@ -422,4 +440,20 @@ class _FailAfterFirstLog implements JourneyLog {
   Future<List<ImageJourney>> read() => inner.read();
   @override
   Future<JourneyLogStats> stats() => inner.stats();
+}
+
+class _FailingAnalysisService extends ProjectService {
+  _FailingAnalysisService(ProjectRepository projects, AssetRepository assets, JourneyLog log)
+      : super(projects, assets, journeyLog: log);
+
+  @override
+  Future<AutomaticLayoutReport> arrangeImportedImages(
+    Project project,
+    Iterable<String> assetIds, {
+    bool keepPlaced = true,
+    CancellationToken? cancellation,
+    void Function(BatchProgress progress)? onProgress,
+  }) async {
+    throw StateError('analysis failed');
+  }
 }

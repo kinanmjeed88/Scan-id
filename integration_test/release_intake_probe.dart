@@ -4,9 +4,14 @@ import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:scan_id/application/import_trace.dart';
+import 'package:scan_id/application/ids.dart';
 import 'package:scan_id/application/paddle_ocr_engine.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
+import 'package:scan_id/domain/export_plan.dart';
+import 'package:scan_id/domain/page_layout.dart';
+import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/export/document_exporter.dart';
 import 'package:scan_id/imaging/boundary_proposal_cascade.dart';
 import 'package:scan_id/imaging/docaligner_model.dart';
 import 'package:scan_id/imaging/docquad_model.dart';
@@ -211,6 +216,42 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
     // healthy native inference available, not a duplicated inference count.
     _require(secondary.inferenceRuns >= 1, 'Native inference never ran.');
 
+    // Explicit manual placement: inference completion is not proof that OCR
+    // classified this synthetic input or authorized an automatic size.
+    final manualItem = DocumentItem(
+      id: newId(),
+      assetId: asset.id,
+      pageIndex: retry.project.pageCount,
+      x: 10,
+      y: 10,
+      width: 85,
+      height: 55,
+      sizeConfirmed: true,
+    );
+    final placed = await repository.save(
+      PageLayout.addMany(
+        retry.project.copyWith(pageCount: retry.project.pageCount + 1),
+        [manualItem],
+      ),
+    );
+    final export = await DocumentExporter(retryAssets).generate(
+      ExportPlan(
+        placed,
+        ExportProfile(format: ExportFormat.pdf, dpi: 300),
+        pages: [manualItem.pageIndex!],
+      ),
+      root,
+    );
+    final pdf = await File(export.files.single).readAsBytes();
+    _require(
+      pdf.length >= 5 && String.fromCharCodes(pdf.take(5)) == '%PDF-',
+      'A4 export did not produce a PDF.',
+    );
+    _require(
+      placed.paper.width == 210 && placed.paper.height == 297,
+      'The exported paper is not portrait A4.',
+    );
+
     return <String, Object?>{
       'originalSha256': originalHash,
       'importedCount': run.importedCount,
@@ -220,6 +261,7 @@ Future<Map<String, Object?>> runReleaseIntakeProbe() async {
       'docAlignerRuns': secondary.inferenceRuns,
       'originalUnchanged': true,
       'retryOriginalUnchanged': true,
+      'manualA4PdfExported': true,
     };
   } finally {
     await ocr.close();

@@ -138,6 +138,19 @@ void main() {
       );
     });
 
+    test('failed and review lifecycle cannot display a passed verdict', () {
+      final failed = ImageJourney.fromJson(
+        journey().withLifecycle(JourneyLifecycle.failed).toJson(),
+      );
+      expect(failed.imported, isTrue);
+      expect(failed.placedOnSheet, isTrue);
+      expect(failed.verdict, JourneyOutcome.review);
+      expect(failed.conclusion, 'تعذرت المعالجة؛ الصورة محفوظة وتحتاج مراجعة');
+      final review = journey().withLifecycle(JourneyLifecycle.reviewRequired);
+      expect(review.verdict, JourneyOutcome.review);
+      expect(review.conclusion, 'أُضيفت إلى الورقة وتحتاج مراجعة');
+    });
+
     test('conclusion follows the recorded stages, not the header', () {
       final placed = journey();
       expect(placed.placedOnSheet, isTrue);

@@ -5,9 +5,9 @@
 /// - **Bounded.** The log is a diagnostic aid, not a history of the project. It
 ///   keeps the newest entries within a fixed entry cap AND a fixed byte cap, so
 ///   a device that scans for years cannot fill its storage with reports.
-/// - **Never load-bearing.** A failed write or a damaged file must not affect
-///   the import that produced it. Reads are tolerant: a malformed entry is
-///   dropped and the rest is still reported.
+/// - **Failure-aware.** A configured journal is required before intake opens
+///   a source; failures after a project commit cannot undo the import. Reads
+///   remain tolerant, while stats flag an unreadable or damaged file.
 /// - **Failure-aware.** Entries are flushed to a temporary file before rename;
 ///   the old file is never explicitly deleted on rename failure. Crash or power
 ///   loss durability depends on the platform and has not been established.
@@ -55,7 +55,14 @@ class LocalJourneyLog implements JourneyLog {
 
   @override
   Future<JourneyLogStats> stats() => _exclusive(() async {
-    final journeys = await _readUnlocked();
+    List<ImageJourney> journeys;
+    var unreadable = false;
+    try {
+      journeys = await _readUnlocked(strict: true);
+    } on Object {
+      unreadable = true;
+      journeys = await _readUnlocked();
+    }
     final file = await _resolveFile(create: false);
     var bytes = 0;
     if (file != null) {
@@ -65,7 +72,11 @@ class LocalJourneyLog implements JourneyLog {
         bytes = 0;
       }
     }
-    return JourneyLogStats(entries: journeys.length, bytes: bytes);
+    return JourneyLogStats(
+      entries: journeys.length,
+      bytes: bytes,
+      unreadable: unreadable,
+    );
   });
 
   @override
@@ -88,9 +99,24 @@ class LocalJourneyLog implements JourneyLog {
     for (final journey in existing) {
       merged.putIfAbsent(journey.id, () => journey);
     }
-    var kept = merged.values.take(maxEntries).toList();
-    while (kept.length > 1 && _encodedBytes(kept) > maxBytes) {
-      kept = kept.sublist(0, kept.length - 1);
+    // Never evict unfinished checkpoints, including ones from other batches.
+    // Refuse the update if they cannot fit; callers can then prevent a new
+    // intake or warn about a later update without silently losing recovery data.
+    final kept = merged.values.toList();
+    final requiredIds = {
+      ...incomingIds,
+      for (final journey in existing)
+        if (journey.lifecycle == JourneyLifecycle.created ||
+            journey.lifecycle == JourneyLifecycle.processing)
+          journey.id,
+    };
+    while (kept.length > maxEntries ||
+        (kept.length > 1 && _encodedBytes(kept) > maxBytes)) {
+      final index = kept.lastIndexWhere((entry) => !requiredIds.contains(entry.id));
+      if (index < 0) {
+        throw StateError('Unfinished journeys exceed journal capacity');
+      }
+      kept.removeAt(index);
     }
     await _writeUnlocked(kept);
   });

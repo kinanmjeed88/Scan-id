@@ -110,9 +110,9 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
                     children: [
                       _header(),
                       if (_busy) const LinearProgressIndicator(),
-                      if (journeys.isEmpty)
+                      if (journeys.isEmpty && !_failed && !_stats.unreadable)
                         _emptyState()
-                      else
+                      else if (journeys.isNotEmpty)
                         ..._grouped(journeys),
                     ],
                   ),
@@ -124,7 +124,9 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
 
   Widget _header() {
     final entries = _stats.entries;
-    final summary = entries == 0
+    final summary = _failed || _stats.unreadable
+        ? 'لا يمكن الجزم بعدد التقارير المحفوظة.'
+        : entries == 0
         ? 'لا توجد تقارير محفوظة.'
         : 'الصور المسجّلة: $entries · حجم السجل: ${_stats.sizeLabel}';
     return Padding(
@@ -150,17 +152,17 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
               InfoBanner(message: summary),
               const SizedBox(height: 10),
               const Text(
-                'لا يحتوي هذا السجل على نص مقروء من أي مستند، ولا على بيانات '
-                'شخصية أو صور: كل سطر يصف مرحلة وقرارها ودرجتها فقط. وهو محفوظ '
-                'داخل مساحة التطبيق على جهازك، ولا يُرسل إلى أي جهة.',
+                'لا يحتوي السجل على نص OCR أو صور، لكنه يتضمن أسماء الصور '
+                'والمشاريع التي قد تكون شخصية. راجعها قبل مشاركة السجل. '
+                'يبقى داخل مساحة التطبيق ما لم تصدّره بنفسك.',
               ),
-              if (_failed) ...[
+              if (_failed || _stats.unreadable) ...[
                 const SizedBox(height: 10),
                 const InfoBanner(
                   tone: BannerTone.caution,
                   message:
-                      'تعذر قراءة ملف السجل؛ قد يكون تالفاً أو محذوفاً. '
-                      'ستُكتب تقارير جديدة عند الاستيراد التالي.',
+                      'تعذر قراءة ملف السجل كاملاً؛ قد يكون تالفاً أو غير متاح. '
+                      'لم يُستبدل الملف، وقد يتوقف الاستيراد حتى تُعالج المشكلة.',
                 ),
               ],
             ],
@@ -252,6 +254,17 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
         overflow: TextOverflow.ellipsis,
       ),
       children: [
+        if (journey.lifecycle == JourneyLifecycle.created ||
+            journey.lifecycle == JourneyLifecycle.processing ||
+            journey.lifecycle == JourneyLifecycle.failed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              journey.imported
+                  ? 'لم تُستأنف المعالجة تلقائياً. افتح المشروع وأعد معالجة الصورة المحفوظة بعد مراجعتها.'
+                  : 'لم يُحفظ المصدر وفق السجل. افتح المشروع وتحقق أولاً قبل إعادة اختيار الصورة.',
+            ),
+          ),
         for (var index = 0; index < journey.steps.length; index++)
           _stepRow(
             journey.steps[index],

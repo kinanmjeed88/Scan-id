@@ -166,6 +166,7 @@ class IntakeRunner {
       Project latest, {
       required bool finished,
       bool committed = true,
+      bool interrupted = false,
     }) {
       final built = buildImageJourneys(
         batchId: taskId,
@@ -181,6 +182,8 @@ class IntakeRunner {
             built[i].withLifecycle(
               !finished
                   ? JourneyLifecycle.processing
+                  : interrupted
+                  ? JourneyLifecycle.failed
                   : !built[i].imported
                   ? JourneyLifecycle.failed
                   : built[i].verdict == JourneyOutcome.passed
@@ -198,12 +201,14 @@ class IntakeRunner {
       Project latest, {
       required bool finished,
       bool committed = true,
+      bool interrupted = false,
     }) async {
       try {
         final journeys = checkpoint(
           latest,
           finished: finished,
           committed: committed,
+          interrupted: interrupted,
         );
         if (finished) _lastJourneys = journeys;
         await writeCheckpoint(journeys);
@@ -213,8 +218,16 @@ class IntakeRunner {
       }
     }
 
-    Future<void> fileJourneys(Project latest, {bool committed = true}) =>
-        saveProgress(latest, finished: true, committed: committed);
+    Future<void> fileJourneys(
+      Project latest, {
+      bool committed = true,
+      bool interrupted = false,
+    }) => saveProgress(
+      latest,
+      finished: true,
+      committed: committed,
+      interrupted: interrupted,
+    );
 
     var terminal = 'failed';
     void reportProgress(BatchProgress progress) {
@@ -309,7 +322,11 @@ class IntakeRunner {
         } on Object catch (recoveryError) {
           trace('manual-recovery', 'failed', recoveryError);
         }
-        await fileJourneys(latest, committed: importedIds.isNotEmpty);
+        await fileJourneys(
+          latest,
+          committed: importedIds.isNotEmpty,
+          interrupted: true,
+        );
         return IntakeRun(
           project: latest,
           import: ImportReport(latest, importedIds.length, const []),
@@ -409,7 +426,11 @@ class IntakeRunner {
           : failure != null || import.failures.isNotEmpty
           ? 'failed'
           : 'completed';
-      await fileJourneys(latest, committed: importedIds.isNotEmpty);
+      await fileJourneys(
+        latest,
+        committed: importedIds.isNotEmpty,
+        interrupted: failure != null || token.isCancelled,
+      );
       return IntakeRun(
         project: latest,
         import: import,

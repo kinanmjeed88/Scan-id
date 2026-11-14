@@ -44,6 +44,12 @@ class _FakeJourneyLog implements JourneyLog {
   }
 }
 
+class _UnreadableJourneyLog extends _FakeJourneyLog {
+  @override
+  Future<JourneyLogStats> stats() async =>
+      const JourneyLogStats(entries: 0, bytes: 12, unreadable: true);
+}
+
 JourneyStep _step(JourneyStage stage, JourneyOutcome outcome, String detail) =>
     JourneyStep(stage: stage, outcome: outcome, detail: detail);
 
@@ -135,6 +141,23 @@ void main() {
     expect(find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('damaged log is not presented as a healthy empty log', (tester) async {
+    await _pumpLog(tester, _UnreadableJourneyLog());
+    expect(find.textContaining('لم يُستبدل الملف'), findsOneWidget);
+    expect(find.textContaining('قد يتوقف الاستيراد'), findsOneWidget);
+    expect(find.text('لم تُستورد أي صورة بعد على هذا الجهاز.'), findsNothing);
+    expect(find.text('لا توجد تقارير محفوظة.'), findsNothing);
+  });
+
+  testWidgets('an interrupted saved source gives reprocessing guidance', (tester) async {
+    final interrupted = _journey().withLifecycle(JourneyLifecycle.processing);
+    await _pumpLog(tester, _FakeJourneyLog([interrupted]));
+    expect(find.textContaining('بدأت المعالجة ولم تكتمل'), findsOneWidget);
+    await tester.tap(find.byType(ExpansionTile).first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('لم تُستأنف المعالجة تلقائياً'), findsOneWidget);
   });
 
   testWidgets('each image reports its stages in pipeline order, top to bottom', (

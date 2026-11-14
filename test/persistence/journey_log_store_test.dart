@@ -108,6 +108,25 @@ void main() {
       },
     );
 
+    test('unfinished entries are not evicted to admit a new batch', () async {
+      final log = logWith(maxEntries: 2);
+      final pending = journeyFor('pending').withLifecycle(JourneyLifecycle.processing);
+      await log.append([pending]);
+      await log.append([journeyFor('done')]);
+      await log.append([journeyFor('new')]);
+      expect((await log.read()).map((entry) => entry.id),
+          unorderedEquals([pending.id, journeyFor('new').id]));
+      final before = await logFile().readAsString();
+      await expectLater(
+        log.append([
+          journeyFor('other').withLifecycle(JourneyLifecycle.created),
+          journeyFor('third').withLifecycle(JourneyLifecycle.created),
+        ]),
+        throwsStateError,
+      );
+      expect(await logFile().readAsString(), before);
+    });
+
     test('the entry cap drops the oldest reports', () async {
       final log = logWith(maxEntries: 2);
       await log.append([journeyFor('first')]);
@@ -149,6 +168,7 @@ void main() {
       await log.append([journeyFor('first')]);
       await logFile().writeAsString('{not json');
       expect(await log.read(), isEmpty);
+      expect((await log.stats()).unreadable, isTrue);
     });
 
     test('an unknown schema version is ignored, not misinterpreted', () async {
@@ -183,6 +203,7 @@ void main() {
       );
       final entries = await log.read();
       expect(entries.map((entry) => entry.imageName), ['healthy.png']);
+      expect((await log.stats()).unreadable, isTrue);
     });
 
     test(

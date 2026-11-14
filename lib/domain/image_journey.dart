@@ -288,8 +288,13 @@ class ImageJourney {
     if (lifecycle == JourneyLifecycle.processing) {
       return 'بدأت المعالجة ولم تكتمل';
     }
-    if (lifecycle == JourneyLifecycle.failed && !imported) {
-      return 'تعذرت المعالجة';
+    if (lifecycle == JourneyLifecycle.failed) {
+      return imported
+          ? 'تعذرت المعالجة؛ الصورة محفوظة وتحتاج مراجعة'
+          : 'تعذرت المعالجة';
+    }
+    if (lifecycle == JourneyLifecycle.reviewRequired && placedOnSheet) {
+      return 'أُضيفت إلى الورقة وتحتاج مراجعة';
     }
     if (!imported) return 'لم تُستورد';
     if (_outcomeOf(JourneyStage.save) == JourneyOutcome.skipped) {
@@ -314,8 +319,12 @@ class ImageJourney {
   /// coloured without re-reading every step.
   JourneyOutcome get verdict {
     if (lifecycle == JourneyLifecycle.created ||
-        lifecycle == JourneyLifecycle.processing) {
+        lifecycle == JourneyLifecycle.processing ||
+        lifecycle == JourneyLifecycle.reviewRequired) {
       return JourneyOutcome.review;
+    }
+    if (lifecycle == JourneyLifecycle.failed) {
+      return imported ? JourneyOutcome.review : JourneyOutcome.blocked;
     }
     if (placedOnSheet &&
         _outcomeOf(JourneyStage.save) != JourneyOutcome.skipped &&

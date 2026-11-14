@@ -7,8 +7,8 @@
 /// path for it: the person chooses the file, and nothing else is written.
 ///
 /// The document is a stable, versioned shape so a reader other than this app
-/// can tell which build produced it. It carries stage facts only: no OCR text,
-/// no personal values, no images.
+/// can tell which build produced it. It includes source and project names, which
+/// may be personal, but no OCR text or image bytes.
 library;
 
 import 'dart:convert';

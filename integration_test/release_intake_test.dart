@@ -19,6 +19,7 @@ void main() {
       expect(evidence['itemCount'], 1);
       expect(evidence['originalUnchanged'], isTrue);
       expect(evidence['retryOriginalUnchanged'], isTrue);
+      expect(evidence['manualA4PdfExported'], isTrue);
     },
     timeout: const Timeout(Duration(minutes: 8)),
   );

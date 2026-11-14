@@ -22,7 +22,7 @@ jobs:
           cache: true
       - name: Format audit changes
         run: |
-          dart format lib/application/contracts.dart lib/application/image_journey_report.dart lib/application/project_service.dart lib/application/smart_recognition.dart lib/domain/image_journey.dart lib/domain/project.dart lib/persistence/local_asset_repository.dart lib/persistence/local_image_editor.dart lib/presentation/intake.dart test/application/crop_lifecycle_test.dart test/application/journey_intake_test.dart test/integration/workflow_test.dart
+          dart format lib/application/contracts.dart lib/application/image_journey_report.dart lib/application/project_service.dart lib/application/smart_recognition.dart lib/domain/image_journey.dart lib/domain/project.dart lib/persistence/local_asset_repository.dart lib/persistence/local_image_editor.dart lib/presentation/intake.dart test/application/crop_lifecycle_test.dart test/application/journey_intake_test.dart test/integration/workflow_test.dart test/integration/intake_persistence_export_test.dart
           git diff > /tmp/audit-format.patch
           python3 -c 'import base64,gzip; s=base64.b64encode(gzip.compress(open("/tmp/audit-format.patch","rb").read())).decode(); [print(f"::notice title=audit-format-{i:03}::{s[i*3000:(i+1)*3000]}") for i in range((len(s)+2999)//3000)]' 
       - uses: actions/upload-artifact@v4
@@ -87,4 +87,4 @@ jobs:
         run: |
           flutter pub get
           python tool/ci_gate.py audit-analyze flutter analyze --fatal-infos
-          python tool/ci_gate.py audit-tests flutter test test/persistence/journey_log_store_test.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart test/application/crop_lifecycle_test.dart test/integration/workflow_test.dart --reporter expanded
+          python tool/ci_gate.py audit-tests flutter test test/persistence/journey_log_store_test.dart test/application/journey_intake_test.dart test/application/journey_report_audit_test.dart test/application/crop_lifecycle_test.dart test/integration/workflow_test.dart test/integration/intake_persistence_export_test.dart --reporter expanded

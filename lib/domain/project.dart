@@ -254,8 +254,10 @@ class ImageAsset {
     if (parentRevisionId != null) validId(parentRevisionId!);
     require(
       (originalWidth == null && originalHeight == null) ||
-          (originalWidth != null && originalHeight != null &&
-              originalWidth! > 0 && originalHeight! > 0),
+          (originalWidth != null &&
+              originalHeight != null &&
+              originalWidth! > 0 &&
+              originalHeight! > 0),
       'أبعاد الأصل غير صالحة.',
     );
     if (captureId != null) {
@@ -507,11 +509,18 @@ class ImageAsset {
     final m = objectMap(json);
     return ImageAsset(
       id: text(m['id'], 'id'),
-      revisionId: m['revisionId'] == null ? null : text(m['revisionId'], 'revisionId'),
+      revisionId: m['revisionId'] == null
+          ? null
+          : text(m['revisionId'], 'revisionId'),
       parentRevisionId: m['parentRevisionId'] == null
-          ? null : text(m['parentRevisionId'], 'parentRevisionId'),
-      originalWidth: m['originalWidth'] == null ? null : integer(m['originalWidth'], 'originalWidth'),
-      originalHeight: m['originalHeight'] == null ? null : integer(m['originalHeight'], 'originalHeight'),
+          ? null
+          : text(m['parentRevisionId'], 'parentRevisionId'),
+      originalWidth: m['originalWidth'] == null
+          ? null
+          : integer(m['originalWidth'], 'originalWidth'),
+      originalHeight: m['originalHeight'] == null
+          ? null
+          : integer(m['originalHeight'], 'originalHeight'),
       captureId: m['captureId'] == null
           ? null
           : text(m['captureId'], 'captureId'),

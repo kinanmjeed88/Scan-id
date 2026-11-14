@@ -116,11 +116,13 @@ List<ImageJourney> createPendingJourneys({
       imageName: _journalName(names[index], fallback: unnamedImageLabel),
       startedAt: startedAt,
       lifecycle: JourneyLifecycle.created,
-      steps: [JourneyStep(
-        stage: JourneyStage.selection,
-        outcome: JourneyOutcome.passed,
-        detail: 'اختيرت الصورة ولم تبدأ معالجتها بعد.',
-      )],
+      steps: [
+        JourneyStep(
+          stage: JourneyStage.selection,
+          outcome: JourneyOutcome.passed,
+          detail: 'اختيرت الصورة ولم تبدأ معالجتها بعد.',
+        ),
+      ],
     ),
 ];
 

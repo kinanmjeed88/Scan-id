@@ -154,8 +154,11 @@ class IntakeRunner {
       }
     }
 
-    List<ImageJourney> checkpoint(Project latest, {required bool finished,
-        bool committed = true}) {
+    List<ImageJourney> checkpoint(
+      Project latest, {
+      required bool finished,
+      bool committed = true,
+    }) {
       final built = buildImageJourneys(
         batchId: taskId,
         project: latest,
@@ -168,10 +171,13 @@ class IntakeRunner {
         for (var i = 0; i < pending.length; i++)
           if (i < built.length)
             built[i].withLifecycle(
-              !finished ? JourneyLifecycle.processing :
-              !built[i].imported ? JourneyLifecycle.failed :
-              built[i].verdict == JourneyOutcome.passed
-                  ? JourneyLifecycle.completed : JourneyLifecycle.reviewRequired,
+              !finished
+                  ? JourneyLifecycle.processing
+                  : !built[i].imported
+                  ? JourneyLifecycle.failed
+                  : built[i].verdict == JourneyOutcome.passed
+                  ? JourneyLifecycle.completed
+                  : JourneyLifecycle.reviewRequired,
             )
           else if (!finished && i == built.length)
             pending[i].withLifecycle(JourneyLifecycle.processing)
@@ -180,10 +186,17 @@ class IntakeRunner {
       ];
     }
 
-    Future<void> saveProgress(Project latest, {required bool finished,
-        bool committed = true}) async {
+    Future<void> saveProgress(
+      Project latest, {
+      required bool finished,
+      bool committed = true,
+    }) async {
       try {
-        final journeys = checkpoint(latest, finished: finished, committed: committed);
+        final journeys = checkpoint(
+          latest,
+          finished: finished,
+          committed: committed,
+        );
         if (finished) _lastJourneys = journeys;
         await writeCheckpoint(journeys);
       } on Object catch (error) {

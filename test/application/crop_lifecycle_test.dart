@@ -269,8 +269,10 @@ void main() {
         expect(revision.revisionId, isNotNull);
         expect(revision.revisionId, isNot(asset.id));
         final movedJson = revision.toJson();
-        movedJson['workingPath'] =
-            revision.workingPath.replaceFirst('/edits/', '/relocated/');
+        movedJson['workingPath'] = revision.workingPath.replaceFirst(
+          '/edits/',
+          '/relocated/',
+        );
         expect(ImageAsset.fromJson(movedJson).revisionId, revision.revisionId);
         final second = await real.createRevision(revision, recipe);
         expect(second.id, asset.id);

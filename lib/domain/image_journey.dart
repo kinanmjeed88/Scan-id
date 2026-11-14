@@ -285,8 +285,12 @@ class ImageJourney {
   /// The single line that summarises the whole journey.
   String get conclusion {
     if (lifecycle == JourneyLifecycle.created) return 'بانتظار المعالجة';
-    if (lifecycle == JourneyLifecycle.processing) return 'بدأت المعالجة ولم تكتمل';
-    if (lifecycle == JourneyLifecycle.failed && !imported) return 'تعذرت المعالجة';
+    if (lifecycle == JourneyLifecycle.processing) {
+      return 'بدأت المعالجة ولم تكتمل';
+    }
+    if (lifecycle == JourneyLifecycle.failed && !imported) {
+      return 'تعذرت المعالجة';
+    }
     if (!imported) return 'لم تُستورد';
     if (_outcomeOf(JourneyStage.save) == JourneyOutcome.skipped) {
       return 'لم يُحفظ المشروع بعد المعالجة';
@@ -310,7 +314,9 @@ class ImageJourney {
   /// coloured without re-reading every step.
   JourneyOutcome get verdict {
     if (lifecycle == JourneyLifecycle.created ||
-        lifecycle == JourneyLifecycle.processing) return JourneyOutcome.review;
+        lifecycle == JourneyLifecycle.processing) {
+      return JourneyOutcome.review;
+    }
     if (placedOnSheet &&
         _outcomeOf(JourneyStage.save) != JourneyOutcome.skipped &&
         steps.every((step) => !step.outcome.needsAttention)) {

@@ -160,7 +160,10 @@ void main() {
       journeyLog: checkpointed,
     );
     final project = await host.create('سجل');
-    final result = await IntakeRunner(service: host, project: project).run(sources(1));
+    final result = await IntakeRunner(
+      service: host,
+      project: project,
+    ).run(sources(1));
     expect(result.importedCount, 1);
     expect(checkpointed.states.first, JourneyLifecycle.created);
     expect(checkpointed.reopenedStates.first, JourneyLifecycle.created);
@@ -168,34 +171,39 @@ void main() {
     expect(checkpointed.ids.toSet(), hasLength(1));
   });
 
-  test('checkpoint exists before source opens and survives a new log instance', () async {
-    final project = await service.create('سجل');
-    final opened = Completer<void>();
-    final release = Completer<void>();
-    final runner = IntakeRunner(service: service, project: project);
-    final future = runner.run([
-      ImportSource('waiting.png', () async* {
-        opened.complete();
-        await release.future;
-        yield bytes();
-      }),
-    ]);
-    await opened.future;
-    final reopenedLog = LocalJourneyLog(supportDirectory: () async => support);
-    final before = await reopenedLog.read();
-    expect(before, hasLength(1));
-    expect(before.single.lifecycle, JourneyLifecycle.processing);
-    expect(before.single.imported, isFalse);
-    final id = before.single.id;
-    release.complete();
-    final result = await future;
-    expect(result.importedCount, 1);
-    final after = await reopenedLog.read();
-    expect(after, hasLength(1));
-    expect(after.single.id, id);
-    expect(after.single.lifecycle, isNot(JourneyLifecycle.processing));
-    expect(after.single.imported, isTrue);
-  });
+  test(
+    'checkpoint exists before source opens and survives a new log instance',
+    () async {
+      final project = await service.create('سجل');
+      final opened = Completer<void>();
+      final release = Completer<void>();
+      final runner = IntakeRunner(service: service, project: project);
+      final future = runner.run([
+        ImportSource('waiting.png', () async* {
+          opened.complete();
+          await release.future;
+          yield bytes();
+        }),
+      ]);
+      await opened.future;
+      final reopenedLog = LocalJourneyLog(
+        supportDirectory: () async => support,
+      );
+      final before = await reopenedLog.read();
+      expect(before, hasLength(1));
+      expect(before.single.lifecycle, JourneyLifecycle.processing);
+      expect(before.single.imported, isFalse);
+      final id = before.single.id;
+      release.complete();
+      final result = await future;
+      expect(result.importedCount, 1);
+      final after = await reopenedLog.read();
+      expect(after, hasLength(1));
+      expect(after.single.id, id);
+      expect(after.single.lifecycle, isNot(JourneyLifecycle.processing));
+      expect(after.single.imported, isTrue);
+    },
+  );
 
   test('a host with no log still imports normally', () async {
     final plain = ProjectService(

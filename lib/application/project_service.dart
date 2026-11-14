@@ -354,7 +354,7 @@ class ProjectService {
     void Function(BatchProgress progress)? onProgress,
     void Function(ImportedSourceResult result)? onSourceResult,
     Future<void> Function(ImportedSourceResult result, Project project)?
-        onSourceCheckpoint,
+    onSourceCheckpoint,
   }) async {
     var current = project;
     var imported = 0;

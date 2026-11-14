@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/cancellation.dart';
-import 'package:scan_id/application/contracts.dart';
+import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/application/journey_log.dart';
 import 'package:scan_id/domain/image_journey.dart';
@@ -450,10 +450,10 @@ class _FailAfterFirstLog implements JourneyLog {
 
 class _FailingAnalysisService extends ProjectService {
   _FailingAnalysisService(
-    ProjectRepository projects,
-    AssetRepository assets,
+    super.projects,
+    super.assets,
     JourneyLog log,
-  ) : super(projects, assets, journeyLog: log);
+  ) : super(journeyLog: log);
 
   @override
   Future<AutomaticLayoutReport> arrangeImportedImages(

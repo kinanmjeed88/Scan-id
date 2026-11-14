@@ -994,7 +994,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final source = assetFixture(id: 'asset1');
+    final source = _completeAsset(id: 'asset1');
     final crop = assetFixture(id: 'crop1').asDerivedOf('asset1');
     final record = DocumentRecord(
       id: 'rec-1',

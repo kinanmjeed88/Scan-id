@@ -26,6 +26,7 @@
 ## أدلة الفحص
 
 - **PASS محلي محدود:** `python3 tool/check_source.py` (فحص بنيوي، ليس تحليلاً أو تنفيذاً لـDart)، `git diff --check`؛ 55 اختبار Python باستخدام `PYTHONPATH=/tmp/scan-reliability-python`؛ وسياسات `check_workflow_permissions.py`, `check_detector_retirement.py`, `check_private_ci_checkout.py` نجحت. تحذير 403 في اختبار تنظيف الفروع متوقع ضمن اختبار الحالة السلبية وليس عملية حذف حقيقية.
+- **PASS جزئي:** [43649497732](https://github.com/kinanmjeed88/Scan-id/actions/runs/43649497732) على `da4f92b99da0c4e496f80fadb2b518eeb3707143` اجتاز التنسيق والتحليل وWindows؛ فشل Flutter test في اختبار واجهة واحد بسبب بيانات fixture لا تصرح باكتمال التاريخ. عُدل fixture ليعبّر عن صورة حديثة؛ يلزم إعادة التنفيذ لإثبات الإصلاح.
 - **NOT VERIFIED حتى اكتمال تشغيل CI على آخر SHA:** `dart format`، `flutter analyze --fatal-infos`، `flutter test`، Android debug وrelease التجريبي وWindows، وأي نتائج نماذج أو أجهزة. فشل فحص التنسيق في [43647727249](https://github.com/kinanmjeed88/Scan-id/actions/runs/43647727249) و[43648147516](https://github.com/kinanmjeed88/Scan-id/actions/runs/43648147516)؛ طُبقت فروق المنسّق المتاحة، ويلزم إعادة التحقق على آخر SHA.
 
 ## ما يلزم للإغلاق

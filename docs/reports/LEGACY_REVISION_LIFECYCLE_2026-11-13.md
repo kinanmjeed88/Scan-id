@@ -18,7 +18,7 @@
 
 ## التغطية والحالات غير المحسومة
 
-- أضيفت اختبارات تخزين حقيقي لأشكال schemas القديمة الخمسة، وترحيل بلا معرف وإعادة الفتح والتكرار، وfallback من مسار، وملف مفقود، وملف مجهول، ونسخ واستعادة، وتفرع محفوظ وحذف ورقة ومنع حذف أب أو الحالية (`test/persistence/legacy_schema_test.dart`, `test/integration/legacy_revision_migration_test.dart`, `test/integration/revision_branch_lifecycle_test.dart`). إضافة الاختبارات ليست دليلاً على نجاحها.
+- أضيفت اختبارات تخزين حقيقي لأشكال schemas القديمة الخمسة، وترحيل بلا معرف وإعادة الفتح والتكرار، وfallback من مسار، وملف مفقود، وملف مجهول، ونسخ واستعادة، وتفرع محفوظ وحذف ورقة ومنع حذف أب أو الحالية (`test/persistence/legacy_schema_test.dart`, `test/integration/legacy_revision_migration_test.dart`, `test/integration/legacy_revision_missing_file_test.dart`, `test/integration/legacy_revision_path_fallback_test.dart`, `test/integration/revision_branch_lifecycle_test.dart`). إضافة الاختبارات ليست دليلاً على نجاحها.
 - **NOT VERIFIED:** التعامل الآمن مع تعديل الملف بنفس الحجم أثناء القراءة، أو إضافة مرجع متزامن بعد فحص الصيانة، أو الاستعادة العملية للقطة metadata بعد تغيير المسار، أو استعادة تاريخ/أبعاد لم تُسجل أصلاً. لا توجد واجهة مستخدم مكتملة لإدارة فروع المراجعات المحذوفة أو اختيار مراجعة تاريخية؛ حذف الورقة واجهة خدمة برمجية فقط. حذف مشروع/صورة بتاريخ غير مكتمل ممنوع تحفظياً، ولا توجد بعد آلية مراجعة يدوية تحسم الملفات المجهولة وتسمح بإتمام الحذف. هذه حدود وظيفية واضحة وليست إغلاقاً للمتطلبات.
 - **NOT VERIFIED:** حماية كل مستدعٍ خارج خدمات التطبيق، وسباقات حذف الملفات العابرة للعمليات، والسيناريوهات الـ12 جميعها بصورة مستقلة ومنفذة. لا يُستنتج اكتمالها من نجاح اختبارات جزئية.
 - سجل الرحلات السابق، حالات التلف، اعتماد التسجيل الأولي، وحماية السجلات غير المكتملة لم تُعدّل في هذا العمل؛ إعادة الاختبار الكاملة مطلوبة على آخر SHA.
@@ -26,7 +26,7 @@
 ## أدلة الفحص
 
 - **PASS محلي محدود:** `python3 tool/check_source.py` (فحص بنيوي، ليس تحليلاً أو تنفيذاً لـDart)، `git diff --check`؛ 55 اختبار Python باستخدام `PYTHONPATH=/tmp/scan-reliability-python`؛ وسياسات `check_workflow_permissions.py`, `check_detector_retirement.py`, `check_private_ci_checkout.py` نجحت. تحذير 403 في اختبار تنظيف الفروع متوقع ضمن اختبار الحالة السلبية وليس عملية حذف حقيقية.
-- **NOT VERIFIED حتى اكتمال تشغيل CI على آخر SHA:** `dart format`، `flutter analyze --fatal-infos`، `flutter test`، Android debug وrelease التجريبي وWindows، وأي نتائج نماذج أو أجهزة. حالة CI الجارية: [43647727249](https://github.com/kinanmjeed88/Scan-id/actions/runs/43647727249) على `cdae2a33a25c0c6f34f5390a3c9fd99f7afbf976`، وهي لا تشمل أي تغيير لاحق.
+- **NOT VERIFIED حتى اكتمال تشغيل CI على آخر SHA:** `dart format`، `flutter analyze --fatal-infos`، `flutter test`، Android debug وrelease التجريبي وWindows، وأي نتائج نماذج أو أجهزة. فشل فحص التنسيق في [43647727249](https://github.com/kinanmjeed88/Scan-id/actions/runs/43647727249) و[43648147516](https://github.com/kinanmjeed88/Scan-id/actions/runs/43648147516)؛ طُبقت فروق المنسّق المتاحة، ويلزم إعادة التحقق على آخر SHA.
 
 ## ما يلزم للإغلاق
 

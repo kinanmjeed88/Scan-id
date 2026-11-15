@@ -257,10 +257,16 @@ class LocalStorageMaintenance implements StorageMaintenance {
         if (!entity.path.endsWith('.json')) {
           continue;
         }
-        require(entity is File, 'تعذر قراءة لقطة الترقية بأمان؛ لن تُحذف الملفات.');
+        require(
+          entity is File,
+          'تعذر قراءة لقطة الترقية بأمان؛ لن تُحذف الملفات.',
+        );
         final raw = await (entity as File).readAsString();
         final envelope = objectMap(jsonDecode(raw));
-        require(envelope['version'] == 1, 'إصدار لقطة الترقية غير مدعوم؛ لن تُحذف الملفات.');
+        require(
+          envelope['version'] == 1,
+          'إصدار لقطة الترقية غير مدعوم؛ لن تُحذف الملفات.',
+        );
         // If the record cannot be understood, absence of a path is not proof
         // that the snapshot never named it. Refuse the whole deletion batch.
         Project.fromJson(envelope['project']);

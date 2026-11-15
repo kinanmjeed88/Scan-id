@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -247,16 +248,23 @@ class LocalStorageMaintenance implements StorageMaintenance {
   /// nothing. The scan is deliberately broad: any `projects/` string in a
   /// snapshot protects that path, so an unknown field can only keep data.
   Future<Set<String>> _recoveryReferences() async {
-    final copies = await RecoveryCheckpoints(files).read();
+    final copies = await RecoveryCheckpoints(files).read(strict: true);
     final paths = _referencesOf(copies);
     final snapshots = Directory(await files.checkedPath('migration-snapshots'));
     if (await snapshots.exists()) {
       final pattern = RegExp(r'projects/[^"\\\s]+');
       await for (final entity in snapshots.list(followLinks: false)) {
-        if (entity is! File || !entity.path.endsWith('.json')) {
+        if (!entity.path.endsWith('.json')) {
           continue;
         }
-        for (final match in pattern.allMatches(await entity.readAsString())) {
+        require(entity is File, 'تعذر قراءة لقطة الترقية بأمان؛ لن تُحذف الملفات.');
+        final raw = await (entity as File).readAsString();
+        final envelope = objectMap(jsonDecode(raw));
+        require(envelope['version'] == 1, 'إصدار لقطة الترقية غير مدعوم؛ لن تُحذف الملفات.');
+        // If the record cannot be understood, absence of a path is not proof
+        // that the snapshot never named it. Refuse the whole deletion batch.
+        Project.fromJson(envelope['project']);
+        for (final match in pattern.allMatches(raw)) {
           paths.add(match.group(0)!);
         }
       }

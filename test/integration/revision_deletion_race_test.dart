@@ -46,7 +46,14 @@ void main() {
   );
 }
 
-Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded, int? removed})>
+Future<
+  ({
+    bool metadataPointsToRevision,
+    bool fileExists,
+    bool reopenSucceeded,
+    int? removed,
+  })
+>
 _runRace() async {
   final root = await Directory.systemTemp.createTemp('revision_race_');
   var repository = await LocalProjectRepository.open(root);

@@ -86,10 +86,41 @@ class LocalProjectRepository
     }
   }
 
+  /// All file paths named by metadata, including shared historical files and
+  /// processed document sides. This is a point-in-time check, not a lock
+  /// against maintenance or a transaction spanning the filesystem.
+  Set<String> _referencedPaths(Project project) => {
+    for (final asset in project.assets) ...[
+      asset.originalPath,
+      asset.workingPath,
+      asset.thumbnailPath,
+      asset.processingInputPath,
+      for (final revision in asset.revisionHistory) ...[
+        revision.originalPath,
+        revision.workingPath,
+        revision.thumbnailPath,
+        revision.processingInputPath,
+      ],
+    ],
+    for (final record in project.documents)
+      for (final side in record.sides) ...[
+        side.processedAsset.workingPath,
+        side.processedAsset.thumbnailPath,
+      ],
+  };
+
+  Future<void> _checkNewReferences(Project next, Project? previous) async {
+    final paths = _referencedPaths(next);
+    if (previous != null) paths.removeAll(_referencedPaths(previous));
+    for (final path in paths) {
+      await files.existingFile(path);
+    }
+  }
+
   @override
   Future<Project> create(Project project) async {
     require(project.revision == 0, 'المشروع الجديد يجب أن يبدأ من مراجعة صفر.');
-    await _checkAssets(project);
+    await _checkNewReferences(project, null);
     final saved = await _database.transaction((txn) async {
       if (await _projects.record(project.id).exists(txn)) {
         throw const RevisionConflict();
@@ -247,6 +278,10 @@ class LocalProjectRepository
         old.id == project.id && old.createdAt == project.createdAt,
         'لا يجوز تغيير هوية المشروع أو تاريخ إنشائه.',
       );
+      // Existing broken historical references remain readable and repairable;
+      // do not add new paths that are already missing at this point. This
+      // check does not serialize the transaction with filesystem deletion.
+      await _checkNewReferences(project, old);
       // Failure-safe pre-upgrade snapshot: capture the raw legacy bytes before
       // the first v5 rewrite. If this write fails, the transaction aborts and
       // the ≤4 record is left intact (the upgrade never happens without a

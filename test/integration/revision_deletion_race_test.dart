@@ -17,24 +17,34 @@ import 'package:scan_id/persistence/local_storage_maintenance.dart';
 /// The skipped test below states the desired invariant and can be enabled once
 /// deletion and publication actually share a cross-isolate/process protocol.
 void main() {
-  test('characterizes stale reference check deleting a committed revision', () async {
-    final result = await _runRace();
-    expect(result.metadataPointsToRevision, isTrue);
-    expect(result.fileExists, isFalse,
-        reason: 'BUG: deletion consumed a snapshot from before the commit');
-    expect(result.reopenSucceeded, isFalse);
-  });
+  test(
+    'characterizes stale reference check deleting a committed revision',
+    () async {
+      final result = await _runRace();
+      expect(result.metadataPointsToRevision, isTrue);
+      expect(
+        result.fileExists,
+        isFalse,
+        reason: 'BUG: deletion consumed a snapshot from before the commit',
+      );
+      expect(result.reopenSucceeded, isFalse);
+    },
+  );
 
-  test('a revision committed after the scan keeps its file', () async {
-    final result = await _runRace();
-    expect(result.metadataPointsToRevision, isTrue);
-    expect(result.fileExists, isTrue);
-    expect(result.reopenSucceeded, isTrue);
-  }, skip: 'Known TOCTOU: enable only after the real storage protocol is fixed.');
+  test(
+    'a revision committed after the scan keeps its file',
+    () async {
+      final result = await _runRace();
+      expect(result.metadataPointsToRevision, isTrue);
+      expect(result.fileExists, isTrue);
+      expect(result.reopenSucceeded, isTrue);
+    },
+    skip: 'Known TOCTOU: enable only after the real storage protocol is fixed.',
+  );
 }
 
 Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded})>
-    _runRace() async {
+_runRace() async {
   final root = await Directory.systemTemp.createTemp('revision_race_');
   var repository = await LocalProjectRepository.open(root);
   final gate = _PausedList(repository);
@@ -50,14 +60,24 @@ Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded})>
       ),
     ])).project;
     final original = project.assets.single;
-    final recipe = CropDraft(corners: [
-      Point2(.1, .1), Point2(.9, .1), Point2(.9, .9), Point2(.1, .9),
-    ]).toRecipe(80, 60);
-    final revision = await service.createImageRevision(project, original, recipe);
+    final recipe = CropDraft(
+      corners: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .9), Point2(.1, .9)],
+    ).toRecipe(80, 60);
+    final revision = await service.createImageRevision(
+      project,
+      original,
+      recipe,
+    );
     final working = File('${root.path}/${revision.workingPath}');
-    final directory = revision.workingPath.substring(0, revision.workingPath.lastIndexOf('/'));
+    final directory = revision.workingPath.substring(
+      0,
+      revision.workingPath.lastIndexOf('/'),
+    );
     expect(await working.exists(), isTrue);
-    final maintenance = LocalStorageMaintenance(repository.files, projects: gate);
+    final maintenance = LocalStorageMaintenance(
+      repository.files,
+      projects: gate,
+    );
 
     // GC has read both recovery references and a snapshot of the project list.
     final deletion = maintenance.deleteFiles([directory]);
@@ -78,7 +98,8 @@ Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded})>
       reopened = false;
     }
     return (
-      metadataPointsToRevision: stored.assets.single.workingPath == revision.workingPath,
+      metadataPointsToRevision:
+          stored.assets.single.workingPath == revision.workingPath,
       fileExists: exists,
       reopenSucceeded: reopened,
     );

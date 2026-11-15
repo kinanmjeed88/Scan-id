@@ -218,6 +218,91 @@ void main() {
     },
   );
 
+  test('path aliases cannot bypass live references or batch validation', () async {
+    final project = await create('مسارات', images: 1);
+    final asset = project.assets.single;
+    final orphan = 'projects/${project.id}/assets/unrelated';
+    final file = File('${root.path}/$orphan/file.bin');
+    await file.create(recursive: true);
+    await file.writeAsBytes([1, 2, 3]);
+    for (final alias in [
+      asset.originalPath.toUpperCase(),
+      '${asset.originalPath}.',
+      'projects/${project.id}./assets',
+    ]) {
+      await expectLater(
+        maintenance.deleteFiles([orphan, alias]),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(await file.readAsBytes(), [1, 2, 3]);
+      expect(await exists(asset.originalPath), isTrue);
+    }
+    final withoutRepository = LocalStorageMaintenance(projects.files);
+    await expectLater(
+      withoutRepository.deleteFiles(['PROJECTS./missing']),
+      throwsA(isA<ValidationException>()),
+    );
+    await projects.close();
+    projects = await LocalProjectRepository.open(root);
+    final reopened = await projects.get(project.id);
+    expect(reopened.assets.single.originalPath, asset.originalPath);
+    expect(await exists(reopened.assets.single.originalPath), isTrue);
+  });
+
+  test('empty live projects are not deleted via case or dot aliases', () async {
+    final now = DateTime.now().toUtc();
+    final project = await projects.create(Project(
+      id: 'CaseProject',
+      name: 'مشروع',
+      createdAt: now,
+      updatedAt: now,
+    ));
+    final directory = Directory('${root.path}/projects/${project.id}');
+    await directory.create(recursive: true);
+    final file = File('${directory.path}/unresolved.bin');
+    await file.writeAsBytes([7, 8, 9]);
+    await expectLater(
+      maintenance.deleteFiles(['PROJECTS/CASEPROJECT.']),
+      throwsA(isA<ValidationException>()),
+    );
+    await expectLater(
+      maintenance.deleteProjectFiles('CASEPROJECT'),
+      throwsA(isA<ValidationException>()),
+    );
+    expect(await file.readAsBytes(), [7, 8, 9]);
+    await projects.close();
+    projects = await LocalProjectRepository.open(root);
+    expect((await projects.get(project.id)).id, project.id);
+    expect(await file.exists(), isTrue);
+  });
+
+  test('legacy unresolved edits remain protected through path aliases', () async {
+    var project = await create('قديم', images: 1);
+    final json = project.assets.single.toJson()..remove('revisionHistoryComplete');
+    final legacy = ImageAsset.fromJson(json);
+    project = await projects.save(project.copyWith(assets: [legacy]));
+    final directory = 'projects/${project.id}/assets/${legacy.id}/edits/unknown';
+    final file = File('${root.path}/$directory/working.png');
+    await file.create(recursive: true);
+    await file.writeAsBytes([4, 5, 6]);
+    final later = LocalStorageMaintenance(
+      projects.files,
+      projects: projects,
+      clock: () => DateTime.now().toUtc().add(const Duration(hours: 2)),
+    );
+    final found = await later.findOrphans(await projects.list());
+    expect(found.retained, contains(directory));
+    await expectLater(
+      later.deleteFiles([directory.toUpperCase()]),
+      throwsA(isA<ValidationException>()),
+    );
+    expect(await file.readAsBytes(), [4, 5, 6]);
+    await projects.close();
+    projects = await LocalProjectRepository.open(root);
+    expect((await projects.get(project.id)).assets.single.revisionHistoryComplete, isFalse);
+    expect(await file.exists(), isTrue);
+  });
+
   test('fresh work is protected from the orphan scan', () async {
     final project = await create('حديث', images: 1);
     await Directory(

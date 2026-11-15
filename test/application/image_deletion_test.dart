@@ -854,7 +854,7 @@ void main() {
             'project': {
               ...project.toJson(),
               // Unknown fields remain protected by the broad snapshot scan.
-              'archivedPath': 'projects/$id/assets/archived/original.png',
+              'archivedPath': 'PROJECTS/$id/ASSETS/ARCHIVED/original.png',
             },
           }),
         );

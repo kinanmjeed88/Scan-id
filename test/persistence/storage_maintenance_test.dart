@@ -61,7 +61,7 @@ void main() {
     root = await Directory.systemTemp.createTemp('scan_maintenance_test_');
     projects = await LocalProjectRepository.open(root);
     assets = LocalAssetRepository(projects.files);
-    maintenance = LocalStorageMaintenance(projects.files);
+    maintenance = LocalStorageMaintenance(projects.files, projects: projects);
     service = ProjectService(projects, assets, maintenance: maintenance);
   });
   tearDown(() async {

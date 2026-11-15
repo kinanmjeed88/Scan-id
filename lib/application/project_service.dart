@@ -353,6 +353,8 @@ class ProjectService {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
     void Function(ImportedSourceResult result)? onSourceResult,
+    Future<void> Function(ImportedSourceResult result, Project project)?
+    onSourceCheckpoint,
   }) async {
     var current = project;
     var imported = 0;
@@ -367,9 +369,10 @@ class ProjectService {
       ),
     );
 
-    void reportSource(ImportedSourceResult result) {
+    Future<void> reportSource(ImportedSourceResult result) async {
       try {
         onSourceResult?.call(result);
+        await onSourceCheckpoint?.call(result, current);
       } catch (_) {
         // A reporting seam must never change what the import committed.
       }
@@ -384,7 +387,7 @@ class ProjectService {
         // committed and the rest are reported as not imported.
         await _cleanupSource(source);
         failures.add(ImportFailure(source.name, importCancelledMessage));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: importCancelledMessage,
@@ -394,7 +397,7 @@ class ProjectService {
         for (final skipped in sources.skip(index + 1)) {
           await _cleanupSource(skipped);
           failures.add(ImportFailure(skipped.name, importCancelledMessage));
-          reportSource(
+          await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: importCancelledMessage,
@@ -426,7 +429,7 @@ class ProjectService {
           phase: 'source',
         );
         imported++;
-        reportSource(
+        await reportSource(
           ImportedSourceResult.success(
             name: source.name,
             asset: asset,
@@ -450,7 +453,7 @@ class ProjectService {
           error: error,
         );
         failures.add(ImportFailure(source.name, error.message));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: error.message,
@@ -464,7 +467,7 @@ class ProjectService {
               'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
               'حفظ المشروع.';
           failures.add(ImportFailure(skipped.name, stopped));
-          reportSource(
+          await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: stopped,
@@ -481,7 +484,7 @@ class ProjectService {
         );
         final message = userError(error);
         failures.add(ImportFailure(source.name, message));
-        reportSource(
+        await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: message,
@@ -1564,6 +1567,12 @@ class ProjectService {
     final resetAsset = ImageAsset(
       id: revised.id,
       captureId: revised.captureId,
+      revisionId: revised.revisionId,
+      parentRevisionId: revised.parentRevisionId,
+      revisionHistory: revised.revisionHistory,
+      revisionHistoryComplete: revised.revisionHistoryComplete,
+      originalWidth: revised.originalWidth,
+      originalHeight: revised.originalHeight,
       derivedFrom: revised.derivedFrom,
       userAuthoredCrop: false,
       name: revised.name,
@@ -1655,6 +1664,12 @@ class ProjectService {
       final updated = ImageAsset(
         id: asset.id,
         captureId: asset.captureId,
+        revisionId: files.revision,
+        parentRevisionId: asset.revisionId,
+        revisionHistory: asset.historyWithCurrent,
+        revisionHistoryComplete: asset.revisionHistoryComplete,
+        originalWidth: files.originalWidth,
+        originalHeight: files.originalHeight,
         // Replacing the pixels of an asset never changes what it is derived
         // from; losing this would make a derived crop look like an original.
         derivedFrom: asset.derivedFrom,
@@ -1688,6 +1703,63 @@ class ProjectService {
     }
   }
 
+  /// Removes only a leaf revision's metadata. Files are deliberately kept;
+  /// marking history incomplete prevents automatic GC from discarding them.
+  /// Current revisions and parents of another recorded revision are refused.
+  Future<Project> deleteHistoricalRevision(
+    Project project,
+    String assetId,
+    String revisionId,
+  ) async {
+    final index = project.assets.indexWhere((asset) => asset.id == assetId);
+    require(index >= 0, 'الصورة ليست ضمن هذا المشروع.');
+    final asset = project.assets[index];
+    require(
+      asset.revisionHistoryComplete,
+      'تاريخ المراجعات غير مكتمل؛ لن تُحذف أي مراجعة.',
+    );
+    require(asset.revisionId != revisionId, 'لا يمكن حذف المراجعة الحالية.');
+    require(
+      asset.revisionHistory.any((entry) => entry.id == revisionId),
+      'المراجعة غير موجودة في التاريخ المحفوظ.',
+    );
+    require(
+      asset.parentRevisionId != revisionId &&
+          !asset.revisionHistory.any(
+            (entry) => entry.parentRevisionId == revisionId,
+          ),
+      'لا يمكن حذف مراجعة لها مراجعات تابعة.',
+    );
+    final json = asset.toJson()
+      ..['revisionHistory'] = [
+        for (final entry in asset.revisionHistory)
+          if (entry.id != revisionId) entry.toJson(),
+      ]
+      ..remove('revisionHistoryComplete');
+    final updated = ImageAsset.fromJson(json);
+    return projects.save(
+      project.copyWith(
+        assets: [
+          for (final entry in project.assets)
+            if (entry.id == assetId) updated else entry,
+        ],
+      ),
+    );
+  }
+
+  /// Explicit user-requested migration; no image files are rewritten.
+  Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(
+    String projectId,
+  ) {
+    final repository = projects;
+    require(
+      repository is LegacyRevisionMigrator,
+      'ترحيل المراجعات غير متاح في هذا البناء.',
+    );
+    return (repository as LegacyRevisionMigrator)
+        .migrateLegacyRevisionIdentities(projectId);
+  }
+
   /// Releases picker-owned temporary copies that will not be imported.
   Future<void> discardSources(Iterable<ImportSource> sources) async {
     for (final source in sources) {
@@ -1717,6 +1789,12 @@ class ProjectService {
   /// Backups made earlier keep their own copies and are never touched.
   Future<ImageDeletion> deleteImage(Project project, String assetId) async {
     final plan = planImageDeletion(project, assetId);
+    require(
+      project.assets
+          .firstWhere((asset) => asset.id == assetId)
+          .revisionHistoryComplete,
+      'تاريخ الصورة غير مكتمل؛ لا يمكن حذفها بأمان مع ملفات مراجعات غير محسومة.',
+    );
     final saved = await projects.save(applyImageDeletion(project, plan));
     final store = maintenance;
     if (store == null) {
@@ -1749,6 +1827,10 @@ class ProjectService {
   /// failure can only leave unreferenced files behind, never a record pointing
   /// at missing files. Files outside the application root are unreachable here.
   Future<ProjectDeletion> deleteProject(Project project) async {
+    require(
+      project.assets.every((asset) => asset.revisionHistoryComplete),
+      'يتضمن المشروع تاريخ مراجعات غير محسوم؛ لا يمكن حذفه بأمان.',
+    );
     await projects.remove(project);
     final store = maintenance;
     if (store == null) {

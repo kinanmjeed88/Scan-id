@@ -93,6 +93,36 @@ class _ProjectScreenState extends State<ProjectScreen> {
     }
   }
 
+  Future<void> _migrateLegacyRevisions() async {
+    final yes = await confirm(
+      context,
+      'تثبيت معرفات المراجعات الحالية؟',
+      'تُحفَظ لقطة لبيانات المشروع أولاً، ثم تُعطى المراجعات الحالية القديمة '
+          'معرفات ثابتة. لا تُعدّل الصور ولا تُحذف الملفات. يظل تاريخ المراجعات '
+          'القديم غير المحسوم محفوظاً دون افتراض ترتيب أو علاقة أبوة.',
+      confirmLabel: 'تثبيت المعرفات',
+    );
+    if (!yes || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final result = await widget.service.migrateLegacyRevisionIdentities(
+        _project.id,
+      );
+      if (!mounted) return;
+      setState(() => _project = result.project);
+      showMessage(
+        context,
+        'ثُبّتت معرفات ${result.migratedAssetIds.length} صورة؛ '
+        'تاريخ ${result.unresolvedAssetIds.length} صورة قديمة غير محسوم ومحفوظ دون حذف.',
+      );
+    } catch (error) {
+      if (mounted) showMessage(context, userError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      await _checkRecoveryPoint();
+    }
+  }
+
   Future<void> _import() async {
     setState(() => _busy = true);
     try {
@@ -117,13 +147,24 @@ class _ProjectScreenState extends State<ProjectScreen> {
       if (failure != null && mounted) {
         showMessage(context, userError(failure));
       }
-      if (result.failures.isNotEmpty || result.notices.isNotEmpty) {
+      if (result.failures.isNotEmpty ||
+          result.notices.isNotEmpty ||
+          run.journeyWriteFailed) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
             title: Text('تم حفظ ${result.imported} صورة'),
             content: SingleChildScrollView(
-              child: Text(importReportDetails(result)),
+              child: Text(
+                [
+                  if (run.journeyWriteFailed)
+                    run.journeyStartBlocked
+                        ? journeyStartFailure
+                        : journeyWriteWarning,
+                  if (result.failures.isNotEmpty || result.notices.isNotEmpty)
+                    importReportDetails(result),
+                ].join('\n\n'),
+              ),
             ),
             actions: [
               TextButton(
@@ -416,6 +457,13 @@ class _ProjectScreenState extends State<ProjectScreen> {
   /// is computed from the same plan the service applies, so what the user reads
   /// is what happens.
   Future<void> _deleteImage(ImageAsset asset) async {
+    if (!asset.revisionHistoryComplete) {
+      showMessage(
+        context,
+        'تاريخ الصورة غير مكتمل؛ لا يمكن حذفها بأمان مع ملفات مراجعات غير محسومة.',
+      );
+      return;
+    }
     final ImageDeletionPlan plan;
     try {
       plan = planImageDeletion(_project, asset.id);
@@ -898,6 +946,23 @@ class _ProjectScreenState extends State<ProjectScreen> {
                                     'متى تحتاجها: قبل إزالة التطبيق أو تغيير الجهاز '
                                     'أو إعادة تثبيت النظام.',
                                 onTap: _busy ? null : _backup,
+                              ),
+                            if (widget.service.projects
+                                    is LegacyRevisionMigrator &&
+                                _project.assets.any(
+                                  (asset) =>
+                                      !asset.toJson().containsKey('revisionId'),
+                                ))
+                              ExplainedAction(
+                                icon: Icons.history,
+                                title: 'تثبيت معرفات المراجعات القديمة',
+                                summary:
+                                    'يحفظ هوية المراجعات الحالية دون تعديل الصور.',
+                                details:
+                                    'يحفظ لقطة للبيانات قبل التغيير ويتحقق من قراءة الملفات. '
+                                    'لا يستنتج آباء أو فروعاً من أسماء المجلدات؛ '
+                                    'تبقى الملفات القديمة غير المحسومة محفوظة.',
+                                onTap: _busy ? null : _migrateLegacyRevisions,
                               ),
                             if (widget.service.recovery != null)
                               ExplainedAction(

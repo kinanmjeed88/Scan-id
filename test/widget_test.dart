@@ -657,7 +657,7 @@ void main() {
     final project = await repository.create(
       projectFixture(
         assets: [
-          assetFixture(id: 'asset1'),
+          _completeAsset(id: 'asset1'),
           assetFixture(id: 'asset2'),
           assetFixture(id: 'asset3'),
         ],
@@ -791,7 +791,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final source = assetFixture(id: 'asset1');
+    final source = _completeAsset(id: 'asset1');
     final crop = assetFixture(id: 'crop1').asDerivedOf('asset1');
     final record = DocumentRecord(
       id: 'rec-1',
@@ -994,7 +994,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final source = assetFixture(id: 'asset1');
+    final source = _completeAsset(id: 'asset1');
     final crop = assetFixture(id: 'crop1').asDerivedOf('asset1');
     final record = DocumentRecord(
       id: 'rec-1',
@@ -1207,3 +1207,10 @@ class _StaleRecovery implements ProjectRecovery {
     stale.remove(projectId);
   }
 }
+
+// These deletion tests exercise a new history-aware asset, not a legacy one.
+ImageAsset _completeAsset({required String id}) => ImageAsset.fromJson(
+  assetFixture(id: id).toJson()
+    ..['revisionId'] = 'revision-$id'
+    ..['revisionHistoryComplete'] = true,
+);

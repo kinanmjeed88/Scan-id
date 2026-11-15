@@ -260,6 +260,45 @@ void main() {
         expect(img.decodeImage(preview), isNotNull);
         final revision = await real.createRevision(asset, recipe);
         expect(revision.crop, isNotNull);
+        expect(asset.revisionId, isNotNull);
+        expect(revision.parentRevisionId, asset.revisionId);
+        expect(revision.originalWidth, asset.originalWidth);
+        expect(revision.originalHeight, asset.originalHeight);
+        expect(revision.id, asset.id);
+        expect(revision.originalPath, asset.originalPath);
+        expect(revision.revisionId, isNotNull);
+        expect(revision.revisionId, isNot(asset.id));
+        final movedJson = revision.toJson();
+        movedJson['workingPath'] = revision.workingPath.replaceFirst(
+          '/edits/',
+          '/relocated/',
+        );
+        expect(ImageAsset.fromJson(movedJson).revisionId, revision.revisionId);
+        final legacyJson = asset.toJson()
+          ..remove('revisionId')
+          ..remove('originalWidth')
+          ..remove('originalHeight');
+        final legacy = ImageAsset.fromJson(legacyJson);
+        expect(legacy.revisionId, isNull);
+        expect(legacy.originalWidth, isNull);
+        expect(ImageAsset.fromJson(legacy.toJson()).toJson(), legacy.toJson());
+        final second = await real.createRevision(revision, recipe);
+        final branch = await real.createRevision(revision, recipe);
+        expect(branch.parentRevisionId, revision.revisionId);
+        expect(branch.revisionId, isNot(second.revisionId));
+        expect((await assets.resolve(branch.workingPath)).existsSync(), isTrue);
+        expect(second.id, asset.id);
+        expect(second.revisionId, isNot(revision.revisionId));
+        expect(second.parentRevisionId, revision.revisionId);
+        expect(second.originalPath, asset.originalPath);
+        expect(
+          ImageAsset.fromJson(second.toJson()).revisionId,
+          second.revisionId,
+        );
+        expect(
+          (await assets.resolve(revision.workingPath)).existsSync(),
+          isTrue,
+        );
         await expectLater(
           (await assets.resolve(asset.originalPath)).readAsBytes(),
           completion(original),

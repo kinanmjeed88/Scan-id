@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/image_journey_report.dart';
 import 'package:scan_id/domain/document_kind.dart';
@@ -29,6 +31,9 @@ DocumentSide side({
   List<String> trace = const [],
   bool suggestion = false,
   bool cropped = true,
+  bool accepted = true,
+  String producer = 'docquad',
+  List<Point2>? polygon,
   String? processedPath,
 }) => DocumentSide(
   id: id,
@@ -46,13 +51,18 @@ DocumentSide side({
   ),
   detection: DetectionRef(
     detectionId: 'det-$id',
-    producer: 'docquad',
+    producer: producer,
     version: 'v1',
     detectionConfidence: confidence == null
         ? null
         : Confidence(value: confidence),
     boundaryDiagnostics: diagnostics,
     detectionTrace: trace,
+    polygon:
+        polygon ??
+        (accepted && !suggestion && diagnostics.isEmpty
+            ? [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)]
+            : null),
     suggestedPolygon: suggestion
         ? [Point2(0.1, 0.1), Point2(0.9, 0.9), Point2(0.2, 0.8), Point2(0, 1)]
         : null,
@@ -159,6 +169,195 @@ Map<JourneyStage, JourneyStep> byStage(ImageJourney journey) => {
 
 void main() {
   group('journey report', () {
+    test('a confidence without an accepted polygon stays in review', () {
+      for (final traces in [
+        <String>[],
+        <String>['aspect=1.5'],
+      ]) {
+        final project = projectWith(
+          assets: [assetNamed('a1', 'source.jpg')],
+          documents: [
+            record(documentSide: side(accepted: false, trace: traces)),
+          ],
+          items: [placedItem(documentId: 'd1')],
+        );
+        final journey = build(
+          project: project,
+          images: picked('source.jpg', assetId: 'a1'),
+        ).single;
+        expect(
+          byStage(journey)[JourneyStage.detection]!.outcome,
+          JourneyOutcome.review,
+        );
+      }
+    });
+
+    test('a legacy synthetic frame does not claim detector success', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [record(documentSide: side(producer: 'legacy-import'))],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(
+        byStage(journey)[JourneyStage.detection]!.outcome,
+        JourneyOutcome.review,
+      );
+    });
+
+    test('invalid accepted geometry is not a passed detection', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(
+            documentSide: side(
+              polygon: [Point2(0, 0), Point2(1, 1), Point2(1, 0), Point2(0, 1)],
+            ),
+          ),
+        ],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(
+        byStage(journey)[JourneyStage.detection]!.outcome,
+        JourneyOutcome.review,
+      );
+    });
+
+    test('mixed document results never become an all-passed journey', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(id: 'd1', recognition: recognized()),
+          record(
+            id: 'd2',
+            documentSide: side(id: 's2', cropped: false),
+          ),
+        ],
+        items: [
+          placedItem(id: 'i1', documentId: 'd1'),
+          placedItem(
+            id: 'i2',
+            documentId: 'd2',
+            pageIndex: null,
+            sizeConfirmed: false,
+            kind: DocumentKind.unknown,
+          ),
+        ],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      final steps = byStage(journey);
+      expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.review);
+      expect(steps[JourneyStage.placement]!.fields['placedItems'], 1);
+      expect(steps[JourneyStage.placement]!.fields['i1_placed'], isTrue);
+      expect(steps[JourneyStage.placement]!.fields['i2_placed'], isFalse);
+      expect(steps[JourneyStage.placement]!.fields['i2_document'], 2);
+      expect(steps[JourneyStage.recognition]!.fields['d1_outcome'], 'passed');
+      expect(steps[JourneyStage.recognition]!.fields['d2_outcome'], 'skipped');
+      expect(steps[JourneyStage.crop]!.fields['d1_s1_warped'], isTrue);
+      expect(steps[JourneyStage.crop]!.fields['d2_s1_warped'], isFalse);
+      final reopened = Project.fromJson(
+        jsonDecode(jsonEncode(project.toJson())),
+      );
+      final reopenedJourney = build(
+        project: reopened,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(
+        byStage(reopenedJourney)[JourneyStage.placement]!.fields,
+        steps[JourneyStage.placement]!.fields,
+      );
+      expect(
+        byStage(reopenedJourney)[JourneyStage.recognition]!.fields,
+        steps[JourneyStage.recognition]!.fields,
+      );
+      expect(journey.placedOnSheet, isFalse);
+      expect(journey.conclusion, 'أُضيف بعضها إلى الورقة وبقي بعضها للمراجعة');
+      expect(journey.verdict, JourneyOutcome.review);
+    });
+
+    test('fully processed multiple documents can still pass', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(id: 'd1', recognition: recognized()),
+          record(
+            id: 'd2',
+            documentSide: side(id: 's2'),
+            recognition: recognized(kind: DocumentKind.passport),
+          ),
+        ],
+        items: [
+          placedItem(id: 'i1', documentId: 'd1'),
+          placedItem(id: 'i2', documentId: 'd2', kind: DocumentKind.passport),
+        ],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      final steps = byStage(journey);
+      expect(steps[JourneyStage.crop]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.recognition]!.outcome, JourneyOutcome.passed);
+      expect(
+        steps[JourneyStage.recognition]!.fields['d1_kind'],
+        'unifiedNationalId',
+      );
+      expect(steps[JourneyStage.recognition]!.fields['d2_kind'], 'passport');
+      expect(steps[JourneyStage.sizing]!.outcome, JourneyOutcome.passed);
+      expect(steps[JourneyStage.placement]!.outcome, JourneyOutcome.passed);
+    });
+
+    test('unknown recognition status does not claim classification', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [
+          record(recognition: recognized(status: RecognitionStatus.unknown)),
+        ],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+      ).single;
+      expect(
+        byStage(journey)[JourneyStage.recognition]!.outcome,
+        JourneyOutcome.review,
+      );
+    });
+
+    test('a placed result without a saved revision is not complete', () {
+      final project = projectWith(
+        assets: [assetNamed('a1', 'source.jpg')],
+        documents: [record(recognition: recognized())],
+        items: [placedItem(documentId: 'd1')],
+      );
+      final journey = build(
+        project: project,
+        images: picked('source.jpg', assetId: 'a1'),
+        revision: null,
+      ).single;
+      expect(
+        byStage(journey)[JourneyStage.save]!.outcome,
+        JourneyOutcome.skipped,
+      );
+      expect(journey.verdict, JourneyOutcome.review);
+      expect(journey.firstConcern!.stage, JourneyStage.save);
+      expect(journey.conclusion, 'لم يُحفظ المشروع بعد المعالجة');
+    });
+
     test('a processed image reports every stage as passed', () {
       final report = projectWith(
         assets: [assetNamed('a1', 'البطاقة.jpg')],

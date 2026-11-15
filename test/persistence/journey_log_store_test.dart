@@ -94,6 +94,43 @@ void main() {
       },
     );
 
+    test(
+      'an incoming batch larger than capacity is never partially written',
+      () async {
+        final log = logWith(maxEntries: 1);
+        await log.append([journeyFor('old')]);
+        final before = await logFile().readAsString();
+        await expectLater(
+          log.append([journeyFor('one'), journeyFor('two')]),
+          throwsStateError,
+        );
+        expect(await logFile().readAsString(), before);
+      },
+    );
+
+    test('unfinished entries are not evicted to admit a new batch', () async {
+      final log = logWith(maxEntries: 2);
+      final pending = journeyFor(
+        'pending',
+      ).withLifecycle(JourneyLifecycle.processing);
+      await log.append([pending]);
+      await log.append([journeyFor('done')]);
+      await log.append([journeyFor('new')]);
+      expect(
+        (await log.read()).map((entry) => entry.id),
+        unorderedEquals([pending.id, journeyFor('new').id]),
+      );
+      final before = await logFile().readAsString();
+      await expectLater(
+        log.append([
+          journeyFor('other').withLifecycle(JourneyLifecycle.created),
+          journeyFor('third').withLifecycle(JourneyLifecycle.created),
+        ]),
+        throwsStateError,
+      );
+      expect(await logFile().readAsString(), before);
+    });
+
     test('the entry cap drops the oldest reports', () async {
       final log = logWith(maxEntries: 2);
       await log.append([journeyFor('first')]);
@@ -135,6 +172,7 @@ void main() {
       await log.append([journeyFor('first')]);
       await logFile().writeAsString('{not json');
       expect(await log.read(), isEmpty);
+      expect((await log.stats()).unreadable, isTrue);
     });
 
     test('an unknown schema version is ignored, not misinterpreted', () async {
@@ -169,6 +207,49 @@ void main() {
       );
       final entries = await log.read();
       expect(entries.map((entry) => entry.imageName), ['healthy.png']);
+      expect((await log.stats()).unreadable, isTrue);
+    });
+
+    test(
+      'append preserves corrupt, unknown and partially damaged logs',
+      () async {
+        final log = logWith();
+        await logFile().parent.create(recursive: true);
+        for (final raw in [
+          '{not json',
+          jsonEncode({'version': 99, 'journeys': <Object?>[]}),
+          jsonEncode({
+            'version': 1,
+            'journeys': [journeyFor('ok').toJson(), <String, Object?>{}],
+          }),
+        ]) {
+          await logFile().writeAsString(raw);
+          await expectLater(
+            log.append([journeyFor('new')]),
+            throwsA(isA<Object>()),
+          );
+          expect(await logFile().readAsString(), raw);
+        }
+      },
+    );
+
+    test('failed write preserves the previous log and a retry works', () async {
+      final log = logWith();
+      await log.append([journeyFor('old')]);
+      final old = await logFile().readAsString();
+      final obstacle = Directory('${logFile().path}.tmp');
+      await obstacle.create();
+      await expectLater(
+        log.append([journeyFor('new')]),
+        throwsA(isA<Object>()),
+      );
+      expect(await logFile().readAsString(), old);
+      await obstacle.delete();
+      await log.append([journeyFor('new')]);
+      expect((await log.read()).map((j) => j.imageName), [
+        'new.png',
+        'old.png',
+      ]);
     });
 
     test('writes leave no temporary file behind', () async {
@@ -199,14 +280,30 @@ void main() {
       expect(decoded['version'], 1);
     });
 
+    test('instances in the same isolate serialize appends', () async {
+      final a = logWith();
+      final b = logWith();
+      await Future.wait([
+        a.append([journeyFor('first')]),
+        b.append([journeyFor('second')]),
+      ]);
+      expect(
+        (await a.read()).map((entry) => entry.imageName),
+        unorderedEquals(['first.png', 'second.png']),
+      );
+    });
+
     test(
-      'an unwritable location reports empty instead of failing the import',
+      'an unwritable location reports append failure and tolerant reads',
       () async {
         final log = LocalJourneyLog(
           supportDirectory: () async =>
               Directory('/proc/definitely-not-writable/scan-id'),
         );
-        await log.append([journeyFor('first')]);
+        await expectLater(
+          log.append([journeyFor('first')]),
+          throwsA(isA<Object>()),
+        );
         expect(await log.read(), isEmpty);
         expect((await log.stats()).entries, 0);
       },

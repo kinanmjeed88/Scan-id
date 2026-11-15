@@ -23,6 +23,26 @@ abstract interface class ProjectRepository {
   Future<void> close();
 }
 
+/// Explicit migration of legacy CURRENT revision identities. Unknown history
+/// is reported, not reconstructed or deleted.
+class LegacyRevisionMigrationResult {
+  LegacyRevisionMigrationResult(
+    this.project,
+    Iterable<String> migratedAssetIds,
+    Iterable<String> unresolvedAssetIds,
+  ) : migratedAssetIds = List.unmodifiable(migratedAssetIds),
+      unresolvedAssetIds = List.unmodifiable(unresolvedAssetIds);
+  final Project project;
+  final List<String> migratedAssetIds;
+  final List<String> unresolvedAssetIds;
+}
+
+abstract interface class LegacyRevisionMigrator {
+  Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(
+    String projectId,
+  );
+}
+
 /// Files written for a replacement source of an existing asset.
 class ReplacementFiles {
   const ReplacementFiles({
@@ -33,7 +53,11 @@ class ReplacementFiles {
     required this.width,
     required this.height,
     this.sourceScaling,
+    this.originalWidth,
+    this.originalHeight,
   });
+  final int? originalWidth;
+  final int? originalHeight;
   final String revision;
   final String originalPath;
   final String workingPath;
@@ -81,9 +105,8 @@ class RevisionConflict extends StorageException {
 /// App-owned files that no saved project references any more.
 ///
 /// [paths] are unlinked and safe to remove. [retained] are unlinked by every
-/// saved project but still named by a recovery copy or a pre-upgrade snapshot;
-/// they stay until that copy is rewritten, because removing them would leave
-/// the copy pointing at missing files.
+/// saved project but still named by a recovery copy or pre-upgrade snapshot,
+/// or belong to an asset whose legacy revision history is incomplete.
 class OrphanFiles {
   OrphanFiles(
     List<String> paths,

@@ -36,6 +36,7 @@ void main() {
     assets = LocalAssetRepository(projects.files);
     store = _FailingDeletes(
       projects.files,
+      projects: projects,
       clock: () => DateTime.now().toUtc().add(const Duration(hours: 1)),
     );
     repository = projects;
@@ -895,7 +896,7 @@ class _InjectedFailure implements Exception {
 /// Storage whose file deletion can be made to fail, to test the path where the
 /// metadata is saved but the folder remains.
 class _FailingDeletes extends LocalStorageMaintenance {
-  _FailingDeletes(super.files, {super.clock});
+  _FailingDeletes(super.files, {super.clock, super.projects});
   bool failDeletes = false;
 
   @override

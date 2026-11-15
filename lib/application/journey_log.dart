@@ -9,12 +9,19 @@ import '../domain/image_journey.dart';
 /// How much the log currently holds, so Settings can state a fact instead of
 /// guessing: number of reported images and the bytes they occupy.
 class JourneyLogStats {
-  const JourneyLogStats({required this.entries, required this.bytes});
+  const JourneyLogStats({
+    required this.entries,
+    required this.bytes,
+    this.unreadable = false,
+  });
 
   static const JourneyLogStats empty = JourneyLogStats(entries: 0, bytes: 0);
 
   final int entries;
   final int bytes;
+
+  /// True when strict reading failed; tolerant reads may still return entries.
+  final bool unreadable;
 
   bool get isEmpty => entries == 0;
 
@@ -39,7 +46,8 @@ abstract interface class JourneyLog {
   Future<JourneyLogStats> stats();
 
   /// Adds one run's reports, keeping the newest entries within the bound.
-  /// Duplicate ids are replaced rather than repeated.
+  /// Duplicate ids are replaced rather than repeated. Throws on write or
+  /// existing-log read failure so the caller can warn without failing import.
   Future<void> append(Iterable<ImageJourney> journeys);
 
   /// Removes the whole log. The projects it describes are untouched.

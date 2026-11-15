@@ -5,12 +5,12 @@
 /// - **Bounded.** The log is a diagnostic aid, not a history of the project. It
 ///   keeps the newest entries within a fixed entry cap AND a fixed byte cap, so
 ///   a device that scans for years cannot fill its storage with reports.
-/// - **Never load-bearing.** A failed write or a damaged file must not affect
-///   the import that produced it. Reads are tolerant: a malformed entry is
-///   dropped and the rest is still reported.
-/// - **Atomic.** Entries are rewritten into a temporary file and swapped in, so
-///   an interrupted write leaves the previous log intact instead of a truncated
-///   JSON document.
+/// - **Failure-aware.** A configured journal is required before intake opens
+///   a source; failures after a project commit cannot undo the import. Reads
+///   remain tolerant, while stats flag an unreadable or damaged file.
+/// - **Failure-aware.** Entries are flushed to a temporary file before rename;
+///   the old file is never explicitly deleted on rename failure. Crash or power
+///   loss durability depends on the platform and has not been established.
 /// - **Private.** Entries carry stage facts only (see [ImageJourney]); the store
 ///   adds nothing of its own and never writes recognized text or image bytes.
 library;
@@ -43,7 +43,10 @@ class LocalJourneyLog implements JourneyLog {
   static const String fileName = 'image_journeys.json';
 
   final Future<Directory> Function() _supportDirectory;
-  Future<void> _tail = Future<void>.value();
+  // Different instances in the same isolate can target the same file. A
+  // shared queue prevents lost updates and temporary-file races between them.
+  // It is not an inter-process or inter-isolate lock.
+  static Future<void> _tail = Future<void>.value();
   Directory? _folder;
   bool _folderReady = false;
 
@@ -52,7 +55,14 @@ class LocalJourneyLog implements JourneyLog {
 
   @override
   Future<JourneyLogStats> stats() => _exclusive(() async {
-    final journeys = await _readUnlocked();
+    List<ImageJourney> journeys;
+    var unreadable = false;
+    try {
+      journeys = await _readUnlocked(strict: true);
+    } on Object {
+      unreadable = true;
+      journeys = await _readUnlocked();
+    }
     final file = await _resolveFile(create: false);
     var bytes = 0;
     if (file != null) {
@@ -62,14 +72,25 @@ class LocalJourneyLog implements JourneyLog {
         bytes = 0;
       }
     }
-    return JourneyLogStats(entries: journeys.length, bytes: bytes);
+    return JourneyLogStats(
+      entries: journeys.length,
+      bytes: bytes,
+      unreadable: unreadable,
+    );
   });
 
   @override
   Future<void> append(Iterable<ImageJourney> journeys) => _exclusive(() async {
     final incoming = journeys.toList();
     if (incoming.isEmpty) return;
-    final existing = await _readUnlocked();
+    // All incoming checkpoints must fit: silently trimming part of a new batch
+    // would allow processing without a durable initial record for every source.
+    final incomingIds = incoming.map((entry) => entry.id).toSet();
+    if (incomingIds.length > maxEntries ||
+        (incoming.length > 1 && _encodedBytes(incoming) > maxBytes)) {
+      throw StateError('Journey batch exceeds journal capacity');
+    }
+    final existing = await _readUnlocked(strict: true);
     // Newest first, and a re-written run replaces its own earlier entry
     // instead of appearing twice.
     final merged = <String, ImageJourney>{
@@ -78,9 +99,26 @@ class LocalJourneyLog implements JourneyLog {
     for (final journey in existing) {
       merged.putIfAbsent(journey.id, () => journey);
     }
-    var kept = merged.values.take(maxEntries).toList();
-    while (kept.length > 1 && _encodedBytes(kept) > maxBytes) {
-      kept = kept.sublist(0, kept.length - 1);
+    // Never evict unfinished checkpoints, including ones from other batches.
+    // Refuse the update if they cannot fit; callers can then prevent a new
+    // intake or warn about a later update without silently losing recovery data.
+    final kept = merged.values.toList();
+    final requiredIds = {
+      ...incomingIds,
+      for (final journey in existing)
+        if (journey.lifecycle == JourneyLifecycle.created ||
+            journey.lifecycle == JourneyLifecycle.processing)
+          journey.id,
+    };
+    while (kept.length > maxEntries ||
+        (kept.length > 1 && _encodedBytes(kept) > maxBytes)) {
+      final index = kept.lastIndexWhere(
+        (entry) => !requiredIds.contains(entry.id),
+      );
+      if (index < 0) {
+        throw StateError('Unfinished journeys exceed journal capacity');
+      }
+      kept.removeAt(index);
     }
     await _writeUnlocked(kept);
   });
@@ -96,33 +134,38 @@ class LocalJourneyLog implements JourneyLog {
     }
   });
 
-  Future<List<ImageJourney>> _readUnlocked() async {
-    final file = await _resolveFile(create: false);
+  Future<List<ImageJourney>> _readUnlocked({bool strict = false}) async {
+    final file = await _resolveFile(create: false, strict: strict);
     if (file == null) return const [];
     String raw;
     try {
       if (!await file.exists()) return const [];
       raw = await file.readAsString();
     } on FileSystemException {
+      if (strict) rethrow;
       return const [];
     }
     Object? decoded;
     try {
       decoded = jsonDecode(raw);
     } on FormatException {
+      if (strict) rethrow;
       return const [];
     }
-    if (decoded is! Map<String, Object?>) return const [];
-    final version = decoded['version'];
-    if (version != schemaVersion) return const [];
-    final entries = decoded['journeys'];
-    if (entries is! List) return const [];
+    if (decoded is! Map<String, Object?> ||
+        decoded['version'] != schemaVersion ||
+        decoded['journeys'] is! List) {
+      if (strict) throw const FormatException('Invalid journey log');
+      return const [];
+    }
+    final entries = decoded['journeys'] as List;
     final journeys = <ImageJourney>[];
     for (final entry in entries) {
       try {
         journeys.add(ImageJourney.fromJson(entry));
       } on Object {
-        // One damaged entry must not hide the others.
+        // Reading is tolerant; appending must not erase damaged entries.
+        if (strict) rethrow;
       }
     }
     return List.unmodifiable(journeys);
@@ -139,21 +182,16 @@ class LocalJourneyLog implements JourneyLog {
     final temporary = File('${file.path}.tmp');
     try {
       await temporary.writeAsString(document, flush: true);
-      try {
-        await temporary.rename(file.path);
-      } on FileSystemException {
-        // Some platforms refuse to replace an existing file on rename.
-        if (await file.exists()) await file.delete();
-        await temporary.rename(file.path);
-      }
-    } on FileSystemException {
-      // The report is a courtesy: never fail the import because it could not
-      // be filed. The next append retries with a fresh temporary file.
+      // Never delete the existing log on rename failure. A failed replacement
+      // is reported to the caller, who may retry without losing the old file.
+      await temporary.rename(file.path);
+    } on Object {
       try {
         if (await temporary.exists()) await temporary.delete();
       } on FileSystemException {
-        // Ignore: nothing else can be done here.
+        // The failed temporary file is not authoritative.
       }
+      rethrow;
     }
   }
 
@@ -161,7 +199,10 @@ class LocalJourneyLog implements JourneyLog {
       .encode(jsonEncode([for (final journey in journeys) journey.toJson()]))
       .length;
 
-  Future<File?> _resolveFile({required bool create}) async {
+  Future<File?> _resolveFile({
+    required bool create,
+    bool strict = false,
+  }) async {
     try {
       final folder = _folder ??= Directory(
         '${(await _supportDirectory()).path}'
@@ -175,12 +216,12 @@ class LocalJourneyLog implements JourneyLog {
       }
       return File('${folder.path}${Platform.pathSeparator}$fileName');
     } on Object {
+      if (create || strict) rethrow;
       return null;
     }
   }
 
-  /// Serialises every operation: appends never interleave, and a reader always
-  /// observes a whole file.
+  /// Serialises operations across instances in this isolate only.
   Future<T> _exclusive<T>(Future<T> Function() action) {
     final completer = Completer<T>();
     _tail = _tail.then((_) async {

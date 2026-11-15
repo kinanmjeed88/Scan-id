@@ -14,9 +14,16 @@ import 'safe_files.dart';
 /// and any symbolic-link component. Directory walks never follow links, so a
 /// link planted inside the root can only ever delete the link itself.
 class LocalStorageMaintenance implements StorageMaintenance {
-  const LocalStorageMaintenance(this.files, {this.clock = DateTime.now});
+  const LocalStorageMaintenance(
+    this.files, {
+    this.clock = DateTime.now,
+    this.projects,
+  });
   final SafeFiles files;
   final DateTime Function() clock;
+
+  /// Used to recheck live references immediately before deletion.
+  final ProjectRepository? projects;
   static const _projects = 'projects';
   static const _staging = 'staging';
   static const _minimumAge = Duration(hours: 24);
@@ -26,6 +33,11 @@ class LocalStorageMaintenance implements StorageMaintenance {
   Future<void> deleteProjectFiles(String projectId) async {
     validId(projectId);
     final relative = '$_projects/$projectId';
+    final repository = projects;
+    require(repository != null, _liveCheckUnavailable);
+    final live = await repository!.list();
+    require(!live.any((project) => project.id == projectId), _keptByLive);
+    require(!_under(relative, _referencesOf(live)), _keptByLive);
     require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
     await _deleteTree(await files.checkedPath(relative));
   }
@@ -37,6 +49,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     // folder named here is historical, not garbage.
     final recovery = await _recoveryReferences();
     final knownProjects = {for (final project in projects) project.id};
+    final incompleteAssets = _incompleteAssets(projects);
     // Files being written right now are not orphans. An asset directory exists
     // briefly before its project record is committed.
     final cutoff = clock().toUtc().subtract(_grace);
@@ -95,8 +108,14 @@ class LocalStorageMaintenance implements StorageMaintenance {
                 retained.add(revisionRelative);
                 break;
               case _Use.unused:
-                orphans.add(revisionRelative);
-                bytes += await _size(revision.path);
+                if (incompleteAssets.contains(relative) &&
+                    (p.basename(group.path) == 'edits' ||
+                        p.basename(group.path) == 'replacements')) {
+                  retained.add(revisionRelative);
+                } else {
+                  orphans.add(revisionRelative);
+                  bytes += await _size(revision.path);
+                }
               case _Use.live:
                 break;
             }
@@ -127,10 +146,33 @@ class LocalStorageMaintenance implements StorageMaintenance {
   @override
   Future<int> deleteFiles(Iterable<String> relativePaths) async {
     final recovery = await _recoveryReferences();
-    var removed = 0;
+    final repository = projects;
+    final liveProjects = repository == null
+        ? <Project>[]
+        : await repository.list();
+    final live = _referencesOf(liveProjects);
+    final incomplete = _incompleteAssets(liveProjects);
+    final targets = <String>[];
     for (final relative in relativePaths) {
+      if (relative == 'projects' || relative.startsWith('projects/')) {
+        require(repository != null, _liveCheckUnavailable);
+      }
       require(!_under(relative, recovery), _keptByRecovery);
-      final path = await files.checkedPath(relative);
+      require(!_under(relative, live), _keptByLive);
+      require(
+        !incomplete.any(
+          (asset) =>
+              relative == '$asset/edits' ||
+              relative.startsWith('$asset/edits/') ||
+              relative == '$asset/replacements' ||
+              relative.startsWith('$asset/replacements/'),
+        ),
+        _keptByUnresolved,
+      );
+      targets.add(await files.checkedPath(relative));
+    }
+    var removed = 0;
+    for (final path in targets) {
       if (await _deleteTree(path)) {
         removed++;
       }
@@ -158,6 +200,18 @@ class LocalStorageMaintenance implements StorageMaintenance {
     return removed;
   }
 
+  Set<String> _incompleteAssets(Iterable<Project> projects) => {
+    for (final project in projects)
+      for (final asset in project.assets)
+        if (!asset.revisionHistoryComplete)
+          'projects/${project.id}/assets/${asset.id}',
+  };
+
+  static const _liveCheckUnavailable =
+      'تعذر التحقق من مراجع المشاريع؛ لن تُحذف الملفات.';
+  static const _keptByLive = 'ملفات المشروع ما زالت مستخدمة؛ لن تُحذف.';
+  static const _keptByUnresolved =
+      'تاريخ المراجعة القديمة غير محسوم؛ لن تُحذف ملفاتها.';
   static const _keptByRecovery =
       'نقطة استرداد أو نسخة ترقية ما زالت تشير إلى هذه الملفات، فتُحفظ حتى تُحدَّث.';
 
@@ -170,6 +224,12 @@ class LocalStorageMaintenance implements StorageMaintenance {
         asset.workingPath,
         asset.thumbnailPath,
         asset.processingInputPath,
+        for (final revision in asset.revisionHistory) ...[
+          revision.originalPath,
+          revision.workingPath,
+          revision.thumbnailPath,
+          revision.processingInputPath,
+        ],
       ],
       // Recognition references may name an older revision after a later
       // crop/replacement. Keep that file alive while any document record,

@@ -172,6 +172,12 @@ bool _referencesFolder(Project project, String directory) {
           asset.workingPath,
           asset.thumbnailPath,
           asset.processingInputPath,
+          for (final revision in asset.revisionHistory) ...[
+            revision.originalPath,
+            revision.workingPath,
+            revision.thumbnailPath,
+            revision.processingInputPath,
+          ],
         ].any(inside),
       ) ||
       project.documents.any(

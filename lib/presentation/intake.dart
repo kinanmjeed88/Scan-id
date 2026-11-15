@@ -26,6 +26,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../application/cancellation.dart';
+import '../application/contracts.dart' show StorageException;
 import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
 import '../application/project_service.dart';
@@ -41,6 +42,8 @@ class IntakeRun {
     this.layout,
     this.error,
     this.trace,
+    this.journeyWriteFailed = false,
+    this.journeyStartBlocked = false,
   });
 
   /// The last committed project state — never a half-applied one.
@@ -59,6 +62,12 @@ class IntakeRun {
 
   /// The runner finishes before a screen adopts the returned saved state.
   final ImportTrace? trace;
+
+  /// At least one checkpoint write failed after retry.
+  final bool journeyWriteFailed;
+
+  /// The initial checkpoint failed and no source was opened.
+  final bool journeyStartBlocked;
   void markUiStateApplied() => trace?.emit('ui_state_applied');
 
   List<ImportFailure> get failures => import.failures;
@@ -123,32 +132,102 @@ class IntakeRunner {
     final taskId = context.taskId;
     final startedAt = DateTime.now().toUtc();
     final picked = <ImportedImageFact>[];
+    var journeyWriteFailed = false;
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
 
-    // Files this run's reports. Reporting is a courtesy: a full disk, a
-    // revoked directory or a malformed entry must never turn a successful
-    // import into a failed one, so failures here are swallowed on purpose.
-    Future<void> fileJourneys(Project latest, {bool committed = true}) async {
+    final pending = createPendingJourneys(
+      batchId: taskId,
+      project: project,
+      names: [for (final source in sources) source.name],
+      startedAt: startedAt,
+    );
+
+    // Before the first project commit a configured journal is required. Later
+    // failures remain warnings and must not undo an already committed image.
+    Future<bool> writeCheckpoint(List<ImageJourney> journeys) async {
       final log = service.journeyLog;
-      if (log == null || picked.isEmpty) return;
+      if (log == null || journeys.isEmpty) return true;
       try {
-        // Building the report is inside the guard as well: it validates what
-        // it composes, and a refusal there is no more a reason to fail the
-        // intake than a full disk is.
-        final journeys = buildImageJourneys(
-          batchId: taskId,
-          project: latest,
-          images: picked,
-          startedAt: startedAt,
-          savedRevision: committed ? latest.revision : null,
-        );
-        _lastJourneys = journeys;
-        await log.append(journeys);
-      } on Object {
-        // The import already succeeded; the report can be missing.
+        try {
+          await log.append(journeys);
+        } on Object {
+          await log.append(journeys);
+        }
+        return true;
+      } on Object catch (error) {
+        journeyWriteFailed = true;
+        context.emit('journey_write_failed', error: error);
+        return false;
       }
     }
+
+    List<ImageJourney> checkpoint(
+      Project latest, {
+      required bool finished,
+      bool committed = true,
+      bool interrupted = false,
+    }) {
+      final built = buildImageJourneys(
+        batchId: taskId,
+        project: latest,
+        images: picked,
+        startedAt: startedAt,
+        savedRevision: committed ? latest.revision : null,
+        stablePickedIds: true,
+      );
+      return [
+        for (var i = 0; i < pending.length; i++)
+          if (i < built.length)
+            built[i].withLifecycle(
+              !finished
+                  ? JourneyLifecycle.processing
+                  : interrupted
+                  ? JourneyLifecycle.failed
+                  : !built[i].imported
+                  ? JourneyLifecycle.failed
+                  : built[i].verdict == JourneyOutcome.passed
+                  ? JourneyLifecycle.completed
+                  : JourneyLifecycle.reviewRequired,
+            )
+          else if (!finished && i == built.length)
+            pending[i].withLifecycle(JourneyLifecycle.processing)
+          else
+            pending[i],
+      ];
+    }
+
+    Future<void> saveProgress(
+      Project latest, {
+      required bool finished,
+      bool committed = true,
+      bool interrupted = false,
+    }) async {
+      try {
+        final journeys = checkpoint(
+          latest,
+          finished: finished,
+          committed: committed,
+          interrupted: interrupted,
+        );
+        if (finished) _lastJourneys = journeys;
+        await writeCheckpoint(journeys);
+      } on Object catch (error) {
+        journeyWriteFailed = true;
+        context.emit('journey_write_failed', error: error);
+      }
+    }
+
+    Future<void> fileJourneys(
+      Project latest, {
+      bool committed = true,
+      bool interrupted = false,
+    }) => saveProgress(
+      latest,
+      finished: true,
+      committed: committed,
+      interrupted: interrupted,
+    );
 
     var terminal = 'failed';
     void reportProgress(BatchProgress progress) {
@@ -179,6 +258,24 @@ class IntakeRunner {
     _running = true;
     trace('import', 'started');
     try {
+      // Do not start a new import without its required initial checkpoint.
+      // Nothing has been committed yet, so report a refusal, not an import
+      // failure after success. Hosts without a journal retain their old policy.
+      if (!await writeCheckpoint(pending)) {
+        await service.discardSources(sources);
+        return IntakeRun(
+          project: project,
+          import: ImportReport(project, 0, [
+            for (final source in sources)
+              ImportFailure(source.name, journeyStartFailure),
+          ]),
+          error: const StorageException(journeyStartFailure),
+          trace: context,
+          journeyWriteFailed: true,
+          journeyStartBlocked: true,
+        );
+      }
+      await saveProgress(project, finished: false, committed: false);
       final existingIds = project.assets.map((a) => a.id).toSet();
       late final ImportReport import;
       try {
@@ -200,6 +297,8 @@ class IntakeRunner {
               copiedHeight: result.asset?.height,
             ),
           ),
+          onSourceCheckpoint: (result, current) =>
+              saveProgress(current, finished: false),
         );
       } catch (error) {
         trace('import', 'failed', error);
@@ -223,12 +322,17 @@ class IntakeRunner {
         } on Object catch (recoveryError) {
           trace('manual-recovery', 'failed', recoveryError);
         }
-        await fileJourneys(latest, committed: importedIds.isNotEmpty);
+        await fileJourneys(
+          latest,
+          committed: importedIds.isNotEmpty,
+          interrupted: true,
+        );
         return IntakeRun(
           project: latest,
           import: ImportReport(latest, importedIds.length, const []),
           error: error,
           trace: context,
+          journeyWriteFailed: journeyWriteFailed,
         );
       }
       trace('import', 'completed');
@@ -322,13 +426,18 @@ class IntakeRunner {
           : failure != null || import.failures.isNotEmpty
           ? 'failed'
           : 'completed';
-      await fileJourneys(latest, committed: importedIds.isNotEmpty);
+      await fileJourneys(
+        latest,
+        committed: importedIds.isNotEmpty,
+        interrupted: failure != null || token.isCancelled,
+      );
       return IntakeRun(
         project: latest,
         import: import,
         layout: layout,
         error: failure,
         trace: context,
+        journeyWriteFailed: journeyWriteFailed,
       );
     } finally {
       trace('task', terminal);
@@ -343,6 +452,14 @@ class IntakeRunner {
     }
   }
 }
+
+/// Initial journal failure prevents starting; later failures do not undo saves.
+const String journeyStartFailure =
+    'لم يبدأ الاستيراد لأن سجل الرحلات الأساسي غير قابل للحفظ. تحقق من التخزين والصلاحيات ثم أعد المحاولة.';
+
+/// A diagnostic-log failure is separate from the outcome of the import.
+const String journeyWriteWarning =
+    'تعذّر حفظ سجل الرحلات؛ تحقق من مساحة التخزين والصلاحيات. لا يعني ذلك فشل استيراد الصور.';
 
 /// The arrangement screen's intake summary: what the automatic pass produced,
 /// plus — on its own line — how many regions the gates refused and why.

@@ -41,7 +41,7 @@ void main() {
         );
         final malformed = [
           '{"version":1,"project":',
-          jsonEncode({'version': 1, 'project': {}}),
+          jsonEncode({'version': 1, 'project': <String, Object?>{}}),
           jsonEncode({'version': 2, 'project': project.toJson()}),
         ];
         for (final raw in malformed) {

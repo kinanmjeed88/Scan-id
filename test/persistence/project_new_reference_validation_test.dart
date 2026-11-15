@@ -117,7 +117,7 @@ void main() {
   );
 
   test(
-    'save rejects newly named missing historical and document files',
+    'save rejects newly named missing historical files',
     () async {
       final asset = await prepareAsset();
       final saved = await repository.create(projectFixture(assets: [asset]));
@@ -136,15 +136,6 @@ void main() {
       expect(await checkpoint.readAsString(), beforeCheckpoint);
       const documentPath =
           'projects/project1/assets/asset1/edits/doc/working.png';
-      final document = saved.copyWith(
-        documents: [dismissedRecord(asset, documentPath)],
-      );
-      await expectLater(
-        repository.save(document),
-        throwsA(isA<StorageException>()),
-      );
-      expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
-      expect(await checkpoint.readAsString(), beforeCheckpoint);
       await repository.close();
       repository = await LocalProjectRepository.open(root);
       expect((await repository.get(saved.id)).toJson(), saved.toJson());

@@ -86,9 +86,9 @@ class LocalProjectRepository
     }
   }
 
-  /// All file paths named by metadata, including shared historical files and
-  /// processed document sides. This is a point-in-time check, not a lock
-  /// against maintenance or a transaction spanning the filesystem.
+  /// Asset and historical file paths. Processed document sides can name a
+  /// missing regenerable cache, including in older backups, and are excluded.
+  /// This point-in-time check does not lock against filesystem deletion.
   Set<String> _referencedPaths(Project project) => {
     for (final asset in project.assets) ...[
       asset.originalPath,
@@ -102,11 +102,6 @@ class LocalProjectRepository
         revision.processingInputPath,
       ],
     ],
-    for (final record in project.documents)
-      for (final side in record.sides) ...[
-        side.processedAsset.workingPath,
-        side.processedAsset.thumbnailPath,
-      ],
   };
 
   Future<void> _checkNewReferences(Project next, Project? previous) async {

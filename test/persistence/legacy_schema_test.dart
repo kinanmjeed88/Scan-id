@@ -6,6 +6,7 @@ import 'package:sembast/sembast_io.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
+import 'package:scan_id/persistence/local_storage_maintenance.dart';
 
 import '../legacy_schemas/v1_1c68dbc/geometry.dart' as v1g;
 import '../legacy_schemas/v1_1c68dbc/project.dart' as v1;
@@ -103,6 +104,14 @@ void main() {
         );
         expect(repeated.migratedAssetIds, isEmpty);
         expect(repeated.project.revision, revision);
+        // Both the pre-upgrade snapshot and the revision migration snapshot
+        // must remain readable to the fail-closed maintenance scan.
+        final maintenance = LocalStorageMaintenance(
+          repository.files,
+          projects: repository,
+        );
+        final orphans = await maintenance.findOrphans(await repository.list());
+        expect(orphans.paths, isNot(contains('projects/$_projectId')));
         await repository.close();
         for (final entry in files.entries) {
           expect(

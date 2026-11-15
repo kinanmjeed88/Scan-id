@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -36,7 +37,10 @@ class LocalStorageMaintenance implements StorageMaintenance {
     final repository = projects;
     require(repository != null, _liveCheckUnavailable);
     final live = await repository!.list();
-    require(!live.any((project) => project.id == projectId), _keptByLive);
+    require(
+      !live.any((project) => _pathKey(project.id) == _pathKey(projectId)),
+      _keptByLive,
+    );
     require(!_under(relative, _referencesOf(live)), _keptByLive);
     require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
     await _deleteTree(await files.checkedPath(relative));
@@ -48,7 +52,9 @@ class LocalStorageMaintenance implements StorageMaintenance {
     // Copies that are not live but can still be restored or rolled back. A
     // folder named here is historical, not garbage.
     final recovery = await _recoveryReferences();
-    final knownProjects = {for (final project in projects) project.id};
+    final knownProjects = {
+      for (final project in projects) _pathKey(project.id),
+    };
     final incompleteAssets = _incompleteAssets(projects);
     // Files being written right now are not orphans. An asset directory exists
     // briefly before its project record is committed.
@@ -62,7 +68,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     await for (final project in _directories(projectsPath)) {
       final id = p.basename(project.path);
       final projectRelative = '$_projects/$id';
-      if (!knownProjects.contains(id)) {
+      if (!knownProjects.contains(_pathKey(id))) {
         if ((await _modified(project.path)).isAfter(cutoff)) {
           continue;
         }
@@ -108,9 +114,9 @@ class LocalStorageMaintenance implements StorageMaintenance {
                 retained.add(revisionRelative);
                 break;
               case _Use.unused:
-                if (incompleteAssets.contains(relative) &&
-                    (p.basename(group.path) == 'edits' ||
-                        p.basename(group.path) == 'replacements')) {
+                if (incompleteAssets.contains(_pathKey(relative)) &&
+                    (_pathKey(p.basename(group.path)) == 'edits' ||
+                        _pathKey(p.basename(group.path)) == 'replacements')) {
                   retained.add(revisionRelative);
                 } else {
                   orphans.add(revisionRelative);
@@ -154,18 +160,29 @@ class LocalStorageMaintenance implements StorageMaintenance {
     final incomplete = _incompleteAssets(liveProjects);
     final targets = <String>[];
     for (final relative in relativePaths) {
-      if (relative == 'projects' || relative.startsWith('projects/')) {
+      validAssetPath(relative);
+      final key = _pathKey(relative);
+      if (key == 'projects' || key.startsWith('projects/')) {
         require(repository != null, _liveCheckUnavailable);
       }
+      // A live project may have no current assets and hence no named paths.
+      // Do not treat its whole directory as orphaned on that basis.
+      require(
+        !liveProjects.any(
+          (project) =>
+              key == 'projects' || key == 'projects/${_pathKey(project.id)}',
+        ),
+        _keptByLive,
+      );
       require(!_under(relative, recovery), _keptByRecovery);
       require(!_under(relative, live), _keptByLive);
       require(
         !incomplete.any(
           (asset) =>
-              relative == '$asset/edits' ||
-              relative.startsWith('$asset/edits/') ||
-              relative == '$asset/replacements' ||
-              relative.startsWith('$asset/replacements/'),
+              key == '$asset/edits' ||
+              key.startsWith('$asset/edits/') ||
+              key == '$asset/replacements' ||
+              key.startsWith('$asset/replacements/'),
         ),
         _keptByUnresolved,
       );
@@ -204,7 +221,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     for (final project in projects)
       for (final asset in project.assets)
         if (!asset.revisionHistoryComplete)
-          'projects/${project.id}/assets/${asset.id}',
+          _pathKey('projects/${project.id}/assets/${asset.id}'),
   };
 
   static const _liveCheckUnavailable =
@@ -217,7 +234,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
 
   /// Every path a saved project names, including the older revisions that
   /// recognition records still refer to.
-  Set<String> _referencesOf(Iterable<Project> projects) => {
+  Set<String> _referencesOf(Iterable<Project> projects) => <String>{
     for (final project in projects) ...[
       for (final asset in project.assets) ...[
         asset.originalPath,
@@ -240,35 +257,58 @@ class LocalStorageMaintenance implements StorageMaintenance {
           side.processedAsset.thumbnailPath,
         ],
     ],
-  };
+  }.map(_pathKey).toSet();
 
   /// Paths named by the recovery copies of live projects and by the pre-upgrade
   /// snapshots. Deleted-project checkpoints are not read by [read] and so name
   /// nothing. The scan is deliberately broad: any `projects/` string in a
   /// snapshot protects that path, so an unknown field can only keep data.
   Future<Set<String>> _recoveryReferences() async {
-    final copies = await RecoveryCheckpoints(files).read();
+    final copies = await RecoveryCheckpoints(files).read(strict: true);
     final paths = _referencesOf(copies);
     final snapshots = Directory(await files.checkedPath('migration-snapshots'));
     if (await snapshots.exists()) {
-      final pattern = RegExp(r'projects/[^"\\\s]+');
+      final pattern = RegExp(r'projects/[^"\\\s]+', caseSensitive: false);
       await for (final entity in snapshots.list(followLinks: false)) {
-        if (entity is! File || !entity.path.endsWith('.json')) {
+        if (!entity.path.endsWith('.json')) {
           continue;
         }
-        for (final match in pattern.allMatches(await entity.readAsString())) {
-          paths.add(match.group(0)!);
+        require(
+          entity is File,
+          'تعذر قراءة لقطة الترقية بأمان؛ لن تُحذف الملفات.',
+        );
+        final raw = await (entity as File).readAsString();
+        final envelope = objectMap(jsonDecode(raw));
+        require(
+          envelope['version'] == 1,
+          'إصدار لقطة الترقية غير مدعوم؛ لن تُحذف الملفات.',
+        );
+        // If the record cannot be understood, absence of a path is not proof
+        // that the snapshot never named it. Refuse the whole deletion batch.
+        Project.fromJson(envelope['project']);
+        for (final match in pattern.allMatches(raw)) {
+          paths.add(_pathKey(match.group(0)!));
         }
       }
     }
     return paths;
   }
 
-  /// Whether [relative] is named by a path in [paths]: as itself or as a
-  /// directory that contains the named path.
+  // Project paths use portable ASCII components. Windows treats case and
+  // trailing dots as aliases; using that conservative key everywhere can
+  // retain an unrelated case-distinct file on other systems, never delete one.
+  static final _trailingDots = RegExp(r'\.+$');
+  static String _pathKey(String path) => path
+      .split('/')
+      .map((part) => part.replaceFirst(_trailingDots, '').toLowerCase())
+      .join('/');
+
+  /// Whether [relative] is named by a normalized path in [paths]: as itself
+  /// or as a directory that contains the named path.
   bool _under(String relative, Set<String> paths) {
-    final prefix = '$relative/';
-    return paths.any((path) => path == relative || path.startsWith(prefix));
+    final key = _pathKey(relative);
+    final prefix = '$key/';
+    return paths.any((path) => path == key || path.startsWith(prefix));
   }
 
   _Use _useOf(String relative, Set<String> live, Set<String> recovery) {

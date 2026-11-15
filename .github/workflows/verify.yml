@@ -213,7 +213,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m unittest test.tool.branch_cleanup_test test.tool.test_local_annotation_validator test.tool.test_format_report test.tool.test_android_r8 --verbose
+          python -m unittest test.tool.branch_cleanup_test test.tool.test_local_annotation_validator test.tool.test_format_report test.tool.test_android_r8 test.tool.test_storage_owner_primitives --verbose
           bash -n tool/run_android_release_regression.sh
           script=$(mktemp --suffix=.js)
           python - "$script" <<'PY'

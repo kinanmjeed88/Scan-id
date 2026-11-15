@@ -121,14 +121,18 @@ class RecoveryCheckpoints {
     }
   }
 
-  Future<List<Project>> read() async {
+  Future<List<Project>> read({bool strict = false}) async {
     final directory = Directory(await files.checkedPath('checkpoints'));
     if (!await directory.exists()) {
       return [];
     }
     final result = <Project>[];
     await for (final entity in directory.list(followLinks: false)) {
-      if (entity is! File || !entity.path.endsWith('.json')) {
+      if (!entity.path.endsWith('.json')) {
+        continue;
+      }
+      if (entity is! File) {
+        require(!strict, 'تعذر قراءة نقطة الاسترداد بأمان؛ لن تُحذف الملفات.');
         continue;
       }
       require(

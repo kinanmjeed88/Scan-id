@@ -850,11 +850,11 @@ void main() {
         await File(p.join(snapshots.path, '$id.json')).writeAsString(
           jsonEncode({
             'version': 1,
-            'schemaVersion': 4,
+            'schemaVersion': Project.schemaVersion,
             'project': {
-              'assets': [
-                {'originalPath': 'projects/$id/assets/archived/original.png'},
-              ],
+              ...project.toJson(),
+              // Unknown fields remain protected by the broad snapshot scan.
+              'archivedPath': 'PROJECTS/$id/ASSETS/ARCHIVED/original.png',
             },
           }),
         );

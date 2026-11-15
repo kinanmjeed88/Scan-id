@@ -89,75 +89,117 @@ void main() {
     await root.delete(recursive: true);
   });
 
-  test('create rejects a missing historical reference without a record', () async {
-    final asset = await prepareAsset();
-    const missing = 'projects/project1/assets/asset1/edits/old/working.png';
-    final invalid = projectFixture(assets: [withHistoricalPath(asset, missing)]);
-    await expectLater(repository.create(invalid), throwsA(isA<StorageException>()));
-    expect(await repository.list(), isEmpty);
-    await repository.close();
-    repository = await LocalProjectRepository.open(root);
-    expect(await repository.list(), isEmpty);
-    await write(missing);
-    final saved = await repository.create(invalid);
-    await repository.close();
-    repository = await LocalProjectRepository.open(root);
-    final reopened = await repository.get(saved.id);
-    expect(reopened.toJson(), saved.toJson());
-    expect(await File('${root.path}/$missing').readAsBytes(), [1, 2, 3]);
-  });
+  test(
+    'create rejects a missing historical reference without a record',
+    () async {
+      final asset = await prepareAsset();
+      const missing = 'projects/project1/assets/asset1/edits/old/working.png';
+      final invalid = projectFixture(
+        assets: [withHistoricalPath(asset, missing)],
+      );
+      await expectLater(
+        repository.create(invalid),
+        throwsA(isA<StorageException>()),
+      );
+      expect(await repository.list(), isEmpty);
+      await repository.close();
+      repository = await LocalProjectRepository.open(root);
+      expect(await repository.list(), isEmpty);
+      await write(missing);
+      final saved = await repository.create(invalid);
+      await repository.close();
+      repository = await LocalProjectRepository.open(root);
+      final reopened = await repository.get(saved.id);
+      expect(reopened.toJson(), saved.toJson());
+      expect(await File('${root.path}/$missing').readAsBytes(), [1, 2, 3]);
+    },
+  );
 
-  test('save rejects newly named missing historical and document files', () async {
-    final asset = await prepareAsset();
-    final saved = await repository.create(projectFixture(assets: [asset]));
-    final checkpoint = File('${root.path}/checkpoints/${saved.id}.json');
-    final beforeCheckpoint = await checkpoint.readAsString();
-    const historyPath = 'projects/project1/assets/asset1/edits/old/working.png';
-    final history = saved.copyWith(assets: [withHistoricalPath(asset, historyPath)]);
-    await expectLater(repository.save(history), throwsA(isA<StorageException>()));
-    expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
-    expect(await checkpoint.readAsString(), beforeCheckpoint);
-    const documentPath = 'projects/project1/assets/asset1/edits/doc/working.png';
-    final document = saved.copyWith(documents: [dismissedRecord(asset, documentPath)]);
-    await expectLater(repository.save(document), throwsA(isA<StorageException>()));
-    expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
-    expect(await checkpoint.readAsString(), beforeCheckpoint);
-    await repository.close();
-    repository = await LocalProjectRepository.open(root);
-    expect((await repository.get(saved.id)).toJson(), saved.toJson());
-    await write(historyPath);
-    await write(documentPath);
-    final next = await repository.save(
-      saved.copyWith(
+  test(
+    'save rejects newly named missing historical and document files',
+    () async {
+      final asset = await prepareAsset();
+      final saved = await repository.create(projectFixture(assets: [asset]));
+      final checkpoint = File('${root.path}/checkpoints/${saved.id}.json');
+      final beforeCheckpoint = await checkpoint.readAsString();
+      const historyPath =
+          'projects/project1/assets/asset1/edits/old/working.png';
+      final history = saved.copyWith(
         assets: [withHistoricalPath(asset, historyPath)],
+      );
+      await expectLater(
+        repository.save(history),
+        throwsA(isA<StorageException>()),
+      );
+      expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
+      expect(await checkpoint.readAsString(), beforeCheckpoint);
+      const documentPath =
+          'projects/project1/assets/asset1/edits/doc/working.png';
+      final document = saved.copyWith(
         documents: [dismissedRecord(asset, documentPath)],
-      ),
-    );
-    await repository.close();
-    repository = await LocalProjectRepository.open(root);
-    final reopened = await repository.get(next.id);
-    expect(reopened.toJson(), next.toJson());
-    expect(reopened.assets.single.revisionHistory.single.workingPath, historyPath);
-    expect(reopened.documents.single.sides.single.processedAsset.workingPath, documentPath);
-    for (final path in [asset.originalPath, asset.workingPath, asset.thumbnailPath, historyPath, documentPath]) {
-      expect(await File('${root.path}/$path').readAsBytes(), [1, 2, 3]);
-    }
-  });
+      );
+      await expectLater(
+        repository.save(document),
+        throwsA(isA<StorageException>()),
+      );
+      expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
+      expect(await checkpoint.readAsString(), beforeCheckpoint);
+      await repository.close();
+      repository = await LocalProjectRepository.open(root);
+      expect((await repository.get(saved.id)).toJson(), saved.toJson());
+      await write(historyPath);
+      await write(documentPath);
+      final next = await repository.save(
+        saved.copyWith(
+          assets: [withHistoricalPath(asset, historyPath)],
+          documents: [dismissedRecord(asset, documentPath)],
+        ),
+      );
+      await repository.close();
+      repository = await LocalProjectRepository.open(root);
+      final reopened = await repository.get(next.id);
+      expect(reopened.toJson(), next.toJson());
+      expect(
+        reopened.assets.single.revisionHistory.single.workingPath,
+        historyPath,
+      );
+      expect(
+        reopened.documents.single.sides.single.processedAsset.workingPath,
+        documentPath,
+      );
+      for (final path in [
+        asset.originalPath,
+        asset.workingPath,
+        asset.thumbnailPath,
+        historyPath,
+        documentPath,
+      ]) {
+        expect(await File('${root.path}/$path').readAsBytes(), [1, 2, 3]);
+      }
+    },
+  );
 
-  test('previously missing historical paths are not newly invented or removed', () async {
-    final asset = await prepareAsset();
-    const historical = 'projects/project1/assets/asset1/edits/old/working.png';
-    await write(historical);
-    final saved = await repository.create(
-      projectFixture(assets: [withHistoricalPath(asset, historical)]),
-    );
-    await File('${root.path}/$historical').delete();
-    final renamed = await repository.save(saved.copyWith(name: 'renamed'));
-    await repository.close();
-    repository = await LocalProjectRepository.open(root);
-    final reopened = await repository.get(renamed.id);
-    expect(reopened.assets.single.revisionHistory.single.workingPath, historical);
-    expect(await File('${root.path}/$historical').exists(), isFalse);
-    expect(reopened.name, 'renamed');
-  });
+  test(
+    'previously missing historical paths are not newly invented or removed',
+    () async {
+      final asset = await prepareAsset();
+      const historical =
+          'projects/project1/assets/asset1/edits/old/working.png';
+      await write(historical);
+      final saved = await repository.create(
+        projectFixture(assets: [withHistoricalPath(asset, historical)]),
+      );
+      await File('${root.path}/$historical').delete();
+      final renamed = await repository.save(saved.copyWith(name: 'renamed'));
+      await repository.close();
+      repository = await LocalProjectRepository.open(root);
+      final reopened = await repository.get(renamed.id);
+      expect(
+        reopened.assets.single.revisionHistory.single.workingPath,
+        historical,
+      );
+      expect(await File('${root.path}/$historical').exists(), isFalse);
+      expect(reopened.name, 'renamed');
+    },
+  );
 }

@@ -116,60 +116,56 @@ void main() {
     },
   );
 
-  test(
-    'save rejects newly named missing historical files',
-    () async {
-      final asset = await prepareAsset();
-      final saved = await repository.create(projectFixture(assets: [asset]));
-      final checkpoint = File('${root.path}/checkpoints/${saved.id}.json');
-      final beforeCheckpoint = await checkpoint.readAsString();
-      const historyPath =
-          'projects/project1/assets/asset1/edits/old/working.png';
-      final history = saved.copyWith(
+  test('save rejects newly named missing historical files', () async {
+    final asset = await prepareAsset();
+    final saved = await repository.create(projectFixture(assets: [asset]));
+    final checkpoint = File('${root.path}/checkpoints/${saved.id}.json');
+    final beforeCheckpoint = await checkpoint.readAsString();
+    const historyPath = 'projects/project1/assets/asset1/edits/old/working.png';
+    final history = saved.copyWith(
+      assets: [withHistoricalPath(asset, historyPath)],
+    );
+    await expectLater(
+      repository.save(history),
+      throwsA(isA<StorageException>()),
+    );
+    expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
+    expect(await checkpoint.readAsString(), beforeCheckpoint);
+    const documentPath =
+        'projects/project1/assets/asset1/edits/doc/working.png';
+    await repository.close();
+    repository = await LocalProjectRepository.open(root);
+    expect((await repository.get(saved.id)).toJson(), saved.toJson());
+    await write(historyPath);
+    await write(documentPath);
+    final next = await repository.save(
+      saved.copyWith(
         assets: [withHistoricalPath(asset, historyPath)],
-      );
-      await expectLater(
-        repository.save(history),
-        throwsA(isA<StorageException>()),
-      );
-      expect((await repository.metadata(saved.id)).toJson(), saved.toJson());
-      expect(await checkpoint.readAsString(), beforeCheckpoint);
-      const documentPath =
-          'projects/project1/assets/asset1/edits/doc/working.png';
-      await repository.close();
-      repository = await LocalProjectRepository.open(root);
-      expect((await repository.get(saved.id)).toJson(), saved.toJson());
-      await write(historyPath);
-      await write(documentPath);
-      final next = await repository.save(
-        saved.copyWith(
-          assets: [withHistoricalPath(asset, historyPath)],
-          documents: [dismissedRecord(asset, documentPath)],
-        ),
-      );
-      await repository.close();
-      repository = await LocalProjectRepository.open(root);
-      final reopened = await repository.get(next.id);
-      expect(reopened.toJson(), next.toJson());
-      expect(
-        reopened.assets.single.revisionHistory.single.workingPath,
-        historyPath,
-      );
-      expect(
-        reopened.documents.single.sides.single.processedAsset.workingPath,
-        documentPath,
-      );
-      for (final path in [
-        asset.originalPath,
-        asset.workingPath,
-        asset.thumbnailPath,
-        historyPath,
-        documentPath,
-      ]) {
-        expect(await File('${root.path}/$path').readAsBytes(), [1, 2, 3]);
-      }
-    },
-  );
+        documents: [dismissedRecord(asset, documentPath)],
+      ),
+    );
+    await repository.close();
+    repository = await LocalProjectRepository.open(root);
+    final reopened = await repository.get(next.id);
+    expect(reopened.toJson(), next.toJson());
+    expect(
+      reopened.assets.single.revisionHistory.single.workingPath,
+      historyPath,
+    );
+    expect(
+      reopened.documents.single.sides.single.processedAsset.workingPath,
+      documentPath,
+    );
+    for (final path in [
+      asset.originalPath,
+      asset.workingPath,
+      asset.thumbnailPath,
+      historyPath,
+      documentPath,
+    ]) {
+      expect(await File('${root.path}/$path').readAsBytes(), [1, 2, 3]);
+    }
+  });
 
   test(
     'previously missing historical paths are not newly invented or removed',

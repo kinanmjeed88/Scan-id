@@ -101,6 +101,10 @@ jobs:
       - name: Resolve dependencies
         shell: bash
         run: python tool/ci_gate.py bootstrap bash tool/bootstrap.sh
+      # Candidate OS primitive only: the application does not yet use this
+      # lock. Real child processes verify exclusion and release on owner death.
+      - name: Test Windows storage lock candidate
+        run: python -m unittest test.tool.test_storage_owner_primitives --verbose
       - name: Build Windows release
         run: python tool/ci_gate.py windows-build flutter build windows --release
       - name: Build native Windows scaler regression tests

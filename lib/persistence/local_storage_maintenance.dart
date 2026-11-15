@@ -37,7 +37,10 @@ class LocalStorageMaintenance implements StorageMaintenance {
     final repository = projects;
     require(repository != null, _liveCheckUnavailable);
     final live = await repository!.list();
-    require(!live.any((project) => _pathKey(project.id) == _pathKey(projectId)), _keptByLive);
+    require(
+      !live.any((project) => _pathKey(project.id) == _pathKey(projectId)),
+      _keptByLive,
+    );
     require(!_under(relative, _referencesOf(live)), _keptByLive);
     require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
     await _deleteTree(await files.checkedPath(relative));
@@ -49,7 +52,9 @@ class LocalStorageMaintenance implements StorageMaintenance {
     // Copies that are not live but can still be restored or rolled back. A
     // folder named here is historical, not garbage.
     final recovery = await _recoveryReferences();
-    final knownProjects = {for (final project in projects) _pathKey(project.id)};
+    final knownProjects = {
+      for (final project in projects) _pathKey(project.id),
+    };
     final incompleteAssets = _incompleteAssets(projects);
     // Files being written right now are not orphans. An asset directory exists
     // briefly before its project record is committed.
@@ -162,8 +167,13 @@ class LocalStorageMaintenance implements StorageMaintenance {
       }
       // A live project may have no current assets and hence no named paths.
       // Do not treat its whole directory as orphaned on that basis.
-      require(!liveProjects.any((project) =>
-          key == 'projects' || key == 'projects/${_pathKey(project.id)}'), _keptByLive);
+      require(
+        !liveProjects.any(
+          (project) =>
+              key == 'projects' || key == 'projects/${_pathKey(project.id)}',
+        ),
+        _keptByLive,
+      );
       require(!_under(relative, recovery), _keptByRecovery);
       require(!_under(relative, live), _keptByLive);
       require(

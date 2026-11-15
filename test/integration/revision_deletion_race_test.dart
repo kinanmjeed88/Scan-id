@@ -85,7 +85,7 @@ _runRace() async {
     // This save publishes a valid reference to the already written revision.
     project = await repository.save(project.copyWith(assets: [revision]));
     gate.resume.complete();
-    await deletion;
+    expect(await deletion, 1);
 
     final exists = await working.exists();
     await repository.close();
@@ -94,7 +94,7 @@ _runRace() async {
     var reopened = true;
     try {
       await repository.get(project.id);
-    } catch (_) {
+    } on StorageException {
       reopened = false;
     }
     return (

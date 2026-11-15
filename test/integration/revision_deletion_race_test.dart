@@ -8,6 +8,7 @@ import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
@@ -22,6 +23,7 @@ void main() {
     () async {
       final result = await _runRace();
       expect(result.metadataPointsToRevision, isTrue);
+      expect(result.removed, 1);
       expect(
         result.fileExists,
         isFalse,
@@ -36,6 +38,7 @@ void main() {
     () async {
       final result = await _runRace();
       expect(result.metadataPointsToRevision, isTrue);
+      expect(result.removed, isNot(1));
       expect(result.fileExists, isTrue);
       expect(result.reopenSucceeded, isTrue);
     },
@@ -43,7 +46,7 @@ void main() {
   );
 }
 
-Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded})>
+Future<({bool metadataPointsToRevision, bool fileExists, bool reopenSucceeded, int? removed})>
 _runRace() async {
   final root = await Directory.systemTemp.createTemp('revision_race_');
   var repository = await LocalProjectRepository.open(root);
@@ -85,7 +88,14 @@ _runRace() async {
     // This save publishes a valid reference to the already written revision.
     project = await repository.save(project.copyWith(assets: [revision]));
     gate.resume.complete();
-    expect(await deletion, 1);
+    int? removed;
+    try {
+      removed = await deletion;
+    } on ValidationException {
+      // Refusal is a safe outcome for the desired invariant.
+    } on StorageException {
+      // Storage may also refuse deletion if a new reference is observed.
+    }
 
     final exists = await working.exists();
     await repository.close();
@@ -102,6 +112,7 @@ _runRace() async {
           stored.assets.single.workingPath == revision.workingPath,
       fileExists: exists,
       reopenSucceeded: reopened,
+      removed: removed,
     );
   } finally {
     if (!gate.resume.isCompleted) gate.resume.complete();

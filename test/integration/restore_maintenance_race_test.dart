@@ -38,14 +38,27 @@ void main() {
         source.assets.single,
         CropDraft.fullImage().toRecipe(80, 60),
       );
-      final backup = await LocalProjectBackups(repository, repository.files)
-          .create(source, root);
-      final restore = LocalProjectBackups(gate, repository.files).restore(backup);
-      outcome = restore.then<Object>((value) => value, onError: (Object e) => e);
+      final backup = await LocalProjectBackups(
+        repository,
+        repository.files,
+      ).create(source, root);
+      final restore = LocalProjectBackups(
+        gate,
+        repository.files,
+      ).restore(backup);
+      outcome = restore.then<Object>(
+        (value) => value,
+        onError: (Object e) => e,
+      );
       final unpublished = await gate.published.future;
-      final working = File('${root.path}/${unpublished.assets.single.workingPath}');
+      final working = File(
+        '${root.path}/${unpublished.assets.single.workingPath}',
+      );
       expect(await working.exists(), isTrue);
-      expect((await repository.list()).any((p) => p.id == unpublished.id), isFalse);
+      expect(
+        (await repository.list()).any((p) => p.id == unpublished.id),
+        isFalse,
+      );
 
       // Simulate a restore stalled beyond the grace period without a sleep.
       final maintenance = LocalStorageMaintenance(
@@ -68,8 +81,10 @@ void main() {
       final reopenedSource = await repository.get(source.id);
       expect(reopenedSource.toJson(), source.toJson());
       await _expectAllAssetFiles(root, reopenedSource);
-      final retry = await LocalProjectBackups(repository, repository.files)
-          .restore(backup);
+      final retry = await LocalProjectBackups(
+        repository,
+        repository.files,
+      ).restore(backup);
       expect(retry.id, isNot(unpublished.id));
       await repository.close();
       repository = await LocalProjectRepository.open(root);

@@ -37,9 +37,7 @@ class RecoveryCheckpoints {
       coordination.runExclusive(() async {
         final work = _tail.then((_) async {
           final temporary = File(
-            await files.checkedPath(
-              'checkpoints/${project.id}-${newId()}.tmp',
-            ),
+            await files.checkedPath('checkpoints/${project.id}-${newId()}.tmp'),
           );
           try {
             await temporary.parent.create(recursive: true);

@@ -117,19 +117,23 @@ class LocalProjectRepository
   }
 
   @override
-  Future<Project> create(Project project) => coordination.runExclusive(() async {
-    require(project.revision == 0, 'المشروع الجديد يجب أن يبدأ من مراجعة صفر.');
-    await _checkNewReferences(project, null);
-    final saved = await _database.transaction((txn) async {
-      if (await _projects.record(project.id).exists(txn)) {
-        throw const RevisionConflict();
-      }
-      await _projects.record(project.id).put(txn, project.toJson());
-      return project;
-    });
-    await checkpoints.save(saved);
-    return saved;
-  });
+  Future<Project> create(Project project) =>
+      coordination.runExclusive(() async {
+        require(
+          project.revision == 0,
+          'المشروع الجديد يجب أن يبدأ من مراجعة صفر.',
+        );
+        await _checkNewReferences(project, null);
+        final saved = await _database.transaction((txn) async {
+          if (await _projects.record(project.id).exists(txn)) {
+            throw const RevisionConflict();
+          }
+          await _projects.record(project.id).put(txn, project.toJson());
+          return project;
+        });
+        await checkpoints.save(saved);
+        return saved;
+      });
 
   /// Explicitly assign a persistent identity to provable CURRENT revisions.
   /// Nothing is rewritten on open. The complete raw pre-migration record is

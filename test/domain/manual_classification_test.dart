@@ -98,9 +98,7 @@ void main() {
           recognition: RecognitionResult(
             documentKind: DocumentKind.unifiedNationalId,
             status: RecognitionStatus.uncertain,
-            confidences: ConfidenceSet(
-              finalConfidence: Confidence(value: .8),
-            ),
+            confidences: ConfidenceSet(finalConfidence: Confidence(value: .8)),
             preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
           ),
           pairing: PairingState.ambiguous,

@@ -212,10 +212,7 @@ Project acceptPair(
   require(documentIdA != documentIdB, 'لا يمكن اقتران المستند بنفسه.');
   final a = _record(project, documentIdA);
   final b = _record(project, documentIdB);
-  require(
-    !isDismissed(a) && !isDismissed(b),
-    'لا يمكن اقتران مستند مستبعد.',
-  );
+  require(!isDismissed(a) && !isDismissed(b), 'لا يمكن اقتران مستند مستبعد.');
   require(
     a.sides.length == 1 && b.sides.length == 1,
     'اقتران الوجهين يتطلب سجلاً مستقلاً لكل وجه.',
@@ -233,9 +230,7 @@ Project acceptPair(
   final sideA = effectiveSide(a, a.sides.single);
   final sideB = effectiveSide(b, b.sides.single);
   require(
-    sideA == SideKind.unknown ||
-        sideB == SideKind.unknown ||
-        sideA != sideB,
+    sideA == SideKind.unknown || sideB == SideKind.unknown || sideA != sideB,
     'وجها المستند يحملان التصنيف نفسه؛ حدّد وجهاً أمامياً وآخر خلفياً.',
   );
   require(
@@ -285,8 +280,7 @@ Project acceptPair(
   require(
     next.layoutGroups.every(
       (existing) =>
-          existing.id == groupId ||
-          !existing.itemIds.any(memberIds.contains),
+          existing.id == groupId || !existing.itemIds.any(memberIds.contains),
     ),
     'أحد الوجهين عضو في مجموعة تخطيط أخرى؛ افصل المجموعة أولاً.',
   );
@@ -294,8 +288,7 @@ Project acceptPair(
       .where((existing) => existing.id == groupId)
       .firstOrNull;
   require(
-    priorPairGroup == null ||
-        priorPairGroup.itemIds.every(memberIds.contains),
+    priorPairGroup == null || priorPairGroup.itemIds.every(memberIds.contains),
     'مجموعة الاقتران الحالية تضم عناصر أخرى؛ افصلها أولاً.',
   );
   final group = LayoutGroup(

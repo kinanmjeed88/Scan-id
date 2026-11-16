@@ -168,48 +168,51 @@ void main() {
   });
 
   group('pair consistency after corrections', () {
-    test('Project validates linked states but retains legacy unlinked states', () {
-      final proposed = _ambiguousPair();
-      expect(
-        () => proposed.copyWith(
-          documents: [
-            for (final record in proposed.documents)
-              record.id == 'rec-item-a'
-                  ? record.copyWith(pairing: PairingState.paired)
-                  : record,
-          ],
-        ),
-        throwsA(isA<ValidationException>()),
-      );
+    test(
+      'Project validates linked states but retains legacy unlinked states',
+      () {
+        final proposed = _ambiguousPair();
+        expect(
+          () => proposed.copyWith(
+            documents: [
+              for (final record in proposed.documents)
+                record.id == 'rec-item-a'
+                    ? record.copyWith(pairing: PairingState.paired)
+                    : record,
+            ],
+          ),
+          throwsA(isA<ValidationException>()),
+        );
 
-      final base = _project();
-      final legacy = base.copyWith(
-        documents: [
-          for (final record in base.documents)
-            record.copyWith(pairing: PairingState.paired),
-        ],
-      );
-      final restored = Project.fromJson(legacy.toJson());
-      expect(
-        restored.documents.every(
-          (record) =>
-              record.pairing == PairingState.paired &&
-              record.pairedDocumentId == null,
-        ),
-        isTrue,
-        reason: 'older v5 pair statuses did not store partner ids',
-      );
-    });
+        final base = _project();
+        final legacy = base.copyWith(
+          documents: [
+            for (final record in base.documents)
+              record.copyWith(pairing: PairingState.paired),
+          ],
+        );
+        final restored = Project.fromJson(legacy.toJson());
+        expect(
+          restored.documents.every(
+            (record) =>
+                record.pairing == PairingState.paired &&
+                record.pairedDocumentId == null,
+          ),
+          isTrue,
+          reason: 'older v5 pair statuses did not store partner ids',
+        );
+      },
+    );
 
     test('a type correction dissolves an ambiguous pair symmetrically', () {
       final before = _ambiguousPair();
-      final next = setKindWithOverride(
-        before,
-        'item-a',
-        DocumentKind.passport,
+      final next = setKindWithOverride(before, 'item-a', DocumentKind.passport);
+      final a = next.documents.firstWhere(
+        (record) => record.id == 'rec-item-a',
       );
-      final a = next.documents.firstWhere((record) => record.id == 'rec-item-a');
-      final b = next.documents.firstWhere((record) => record.id == 'rec-item-b');
+      final b = next.documents.firstWhere(
+        (record) => record.id == 'rec-item-b',
+      );
 
       expect(a.pairing, PairingState.single);
       expect(a.pairedDocumentId, isNull);
@@ -227,8 +230,12 @@ void main() {
         'rec-item-a',
         SideKind.front,
       );
-      final a = next.documents.firstWhere((record) => record.id == 'rec-item-a');
-      final b = next.documents.firstWhere((record) => record.id == 'rec-item-b');
+      final a = next.documents.firstWhere(
+        (record) => record.id == 'rec-item-a',
+      );
+      final b = next.documents.firstWhere(
+        (record) => record.id == 'rec-item-b',
+      );
 
       expect(a.pairing, PairingState.single);
       expect(a.pairedDocumentId, isNull);
@@ -265,9 +272,7 @@ void main() {
       final grouped = project.copyWith(
         items: [
           for (final item in project.items)
-            item.id == 'item-a'
-                ? item.copyWith(groupId: 'other-group')
-                : item,
+            item.id == 'item-a' ? item.copyWith(groupId: 'other-group') : item,
         ],
         layoutGroups: [
           LayoutGroup(id: 'other-group', itemIds: ['item-a']),
@@ -280,38 +285,41 @@ void main() {
       );
     });
 
-    test('explicit pairing will not replace a proposal to another document', () {
-      final base = _project();
-      final withThird = base.copyWith(
-        assets: [...base.assets, _asset('c')],
-        items: [...base.items, _item('item-c', 'c')],
-        documents: [...base.documents, _record('item-c', 'c')],
-      );
-      final proposed = withThird.copyWith(
-        documents: [
-          for (final record in withThird.documents)
-            if (record.id == 'rec-item-a')
-              record.copyWith(
-                pairing: PairingState.ambiguous,
-                pairedDocumentId: 'rec-item-b',
-                pairingConfidence: .8,
-              )
-            else if (record.id == 'rec-item-b')
-              record.copyWith(
-                pairing: PairingState.ambiguous,
-                pairedDocumentId: 'rec-item-a',
-                pairingConfidence: .8,
-              )
-            else
-              record,
-        ],
-      );
+    test(
+      'explicit pairing will not replace a proposal to another document',
+      () {
+        final base = _project();
+        final withThird = base.copyWith(
+          assets: [...base.assets, _asset('c')],
+          items: [...base.items, _item('item-c', 'c')],
+          documents: [...base.documents, _record('item-c', 'c')],
+        );
+        final proposed = withThird.copyWith(
+          documents: [
+            for (final record in withThird.documents)
+              if (record.id == 'rec-item-a')
+                record.copyWith(
+                  pairing: PairingState.ambiguous,
+                  pairedDocumentId: 'rec-item-b',
+                  pairingConfidence: .8,
+                )
+              else if (record.id == 'rec-item-b')
+                record.copyWith(
+                  pairing: PairingState.ambiguous,
+                  pairedDocumentId: 'rec-item-a',
+                  pairingConfidence: .8,
+                )
+              else
+                record,
+          ],
+        );
 
-      expect(
-        () => acceptPair(proposed, 'rec-item-a', 'rec-item-c'),
-        throwsA(isA<ValidationException>()),
-      );
-    });
+        expect(
+          () => acceptPair(proposed, 'rec-item-a', 'rec-item-c'),
+          throwsA(isA<ValidationException>()),
+        );
+      },
+    );
   });
 
   group('review confirmation', () {

@@ -45,7 +45,10 @@ class LocalStorageMaintenance implements StorageMaintenance {
           _keptByLive,
         );
         require(!_under(relative, _referencesOf(live)), _keptByLive);
-        require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
+        require(
+          !_under(relative, await _recoveryReferences()),
+          _keptByRecovery,
+        );
         await _deleteTree(await files.checkedPath(relative));
       });
 

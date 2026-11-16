@@ -180,16 +180,15 @@ Uint8List _solidScene(img.ColorRgb8 color) {
 
 Future<SegmentationResult> _pairingApplyFailureSegmentation(
   Uint8List bytes,
-) async =>
-    const SegmentationResult(
-      multi: true,
-      candidates: [
-        SegmentCandidate(
-          region: [.05, .05, .95, .95],
-          reason: 'no-trustworthy-quad',
-        ),
-      ],
-    );
+) async => const SegmentationResult(
+  multi: true,
+  candidates: [
+    SegmentCandidate(
+      region: [.05, .05, .95, .95],
+      reason: 'no-trustworthy-quad',
+    ),
+  ],
+);
 
 Future<SegmentationResult> _pairingWithUnknownMultiRegion(
   Uint8List bytes,
@@ -1748,7 +1747,8 @@ void main() {
       expect(
         result.project.assets.any((asset) => asset.id == sourceIds[1]),
         isTrue,
-        reason: 'a failed per-image apply must not drop the committed source asset',
+        reason:
+            'a failed per-image apply must not drop the committed source asset',
       );
       expect(
         Project.fromJson(result.project.toJson()).toJson(),

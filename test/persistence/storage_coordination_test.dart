@@ -11,12 +11,12 @@ void _holdStorageLock(List<Object?> arguments) async {
   final ready = arguments[1] as SendPort;
   final release = ReceivePort();
   try {
-    await StorageCoordination(
-      SafeFiles(Directory(rootPath)),
-    ).runExclusive(() async {
-      ready.send(release.sendPort);
-      await release.first;
-    });
+    await StorageCoordination(SafeFiles(Directory(rootPath))).runExclusive(
+      () async {
+        ready.send(release.sendPort);
+        await release.first;
+      },
+    );
   } finally {
     release.close();
   }
@@ -44,11 +44,13 @@ void main() {
     try {
       final coordination = StorageCoordination(SafeFiles(root));
       var nestedActionRan = false;
-      await coordination.runExclusive(() async {
-        await coordination.runExclusive(() async {
-          nestedActionRan = true;
-        });
-      }).timeout(const Duration(seconds: 3));
+      await coordination
+          .runExclusive(() async {
+            await coordination.runExclusive(() async {
+              nestedActionRan = true;
+            });
+          })
+          .timeout(const Duration(seconds: 3));
       expect(nestedActionRan, isTrue);
     } finally {
       await root.delete(recursive: true);
@@ -67,9 +69,11 @@ void main() {
       );
 
       var nextOperationRan = false;
-      await coordination.runExclusive(() async {
-        nextOperationRan = true;
-      }).timeout(const Duration(seconds: 3));
+      await coordination
+          .runExclusive(() async {
+            nextOperationRan = true;
+          })
+          .timeout(const Duration(seconds: 3));
       expect(nextOperationRan, isTrue);
     } finally {
       await root.delete(recursive: true);
@@ -84,20 +88,19 @@ void main() {
     SendPort? release;
     Future<void>? contender;
     try {
-      holder = await Isolate.spawn<List<Object?>>(
-        _holdStorageLock,
-        [root.path, ready.sendPort],
-        onExit: exited.sendPort,
-      );
-      release = await ready.first.timeout(const Duration(seconds: 5)) as SendPort;
+      holder = await Isolate.spawn<List<Object?>>(_holdStorageLock, [
+        root.path,
+        ready.sendPort,
+      ], onExit: exited.sendPort);
+      release =
+          await ready.first.timeout(const Duration(seconds: 5)) as SendPort;
 
       final entered = Completer<bool>();
       final lockPathChecked = Completer<void>();
-      contender = StorageCoordination(
-        _ObservedSafeFiles(root, lockPathChecked),
-      ).runExclusive(() async {
-        if (!entered.isCompleted) entered.complete(true);
-      });
+      contender = StorageCoordination(_ObservedSafeFiles(root, lockPathChecked))
+          .runExclusive(() async {
+            if (!entered.isCompleted) entered.complete(true);
+          });
       await lockPathChecked.future.timeout(const Duration(seconds: 5));
 
       // The holder acknowledges acquisition first; the contender confirms it

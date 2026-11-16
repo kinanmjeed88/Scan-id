@@ -39,7 +39,7 @@ class LocalProjectBackups implements ProjectBackups {
         ).create(recursive: true);
         try {
           final output = '${folder.path}/project.scanid';
-          await Isolate.run(() => _writeBackup(latest, root, output));
+          await _writeBackupIsolated(latest, root, output);
           return File(output);
         } catch (_) {
           await folder.delete(recursive: true);
@@ -53,7 +53,7 @@ class LocalProjectBackups implements ProjectBackups {
     final input = source.path;
     // A new identity and staging directory are chosen locally, never by a backup.
     final id = newId();
-    final restored = await Isolate.run(() => _readBackup(input, root, id));
+    final restored = await _readBackupIsolated(input, root, id);
     // Hold the same cross-process protocol from extraction through publication.
     // Otherwise cleanup could classify the renamed restore directory as orphaned
     // in the interval before the project row and its recovery copy exist.
@@ -62,6 +62,15 @@ class LocalProjectBackups implements ProjectBackups {
     return projects.create(restored);
   });
 }
+
+Future<void> _writeBackupIsolated(
+  Project project,
+  String root,
+  String output,
+) => Isolate.run(() => _writeBackup(project, root, output));
+
+Future<Project> _readBackupIsolated(String input, String root, String id) =>
+    Isolate.run(() => _readBackup(input, root, id));
 
 Set<String> _references(Project p) => {
   for (final a in p.assets) ...[

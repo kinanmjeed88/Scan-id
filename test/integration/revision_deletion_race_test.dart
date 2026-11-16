@@ -93,5 +93,5 @@ void main() {
   );
 }
 
-Future<Object> _capture<T>(Future<T> operation) =>
+Future<Object> _capture<T extends Object>(Future<T> operation) =>
     operation.then<Object>((value) => value, onError: (Object error) => error);

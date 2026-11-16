@@ -7,12 +7,14 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
+import 'package:scan_id/application/ocr_engine.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/application/smart_recognition.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/ocr_evidence.dart';
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -168,6 +170,96 @@ Uint8List _photo() {
     color: img.ColorRgb8(226, 230, 235),
   );
   return Uint8List.fromList(img.encodePng(source));
+}
+
+Uint8List _solidScene(img.ColorRgb8 color) {
+  final source = img.Image(width: 1000, height: 1000);
+  img.fill(source, color: color);
+  return Uint8List.fromList(img.encodePng(source));
+}
+
+Future<SegmentationResult> _pairingApplyFailureSegmentation(
+  Uint8List bytes,
+) async =>
+    const SegmentationResult(
+      multi: true,
+      candidates: [
+        SegmentCandidate(
+          region: [.05, .05, .95, .95],
+          reason: 'no-trustworthy-quad',
+        ),
+      ],
+    );
+
+Future<SegmentationResult> _pairingWithUnknownMultiRegion(
+  Uint8List bytes,
+) async {
+  final pixel = img.decodeImage(bytes)!.getPixel(0, 0);
+  if (pixel.gNormalized >= .6 && pixel.rNormalized < .5) {
+    return const SegmentationResult(
+      multi: true,
+      candidates: [
+        SegmentCandidate(
+          region: [.05, .05, .45, .95],
+          reason: 'no-trustworthy-quad',
+        ),
+        SegmentCandidate(
+          region: [.55, .05, .95, .95],
+          reason: 'no-trustworthy-quad',
+        ),
+      ],
+    );
+  }
+  return const SegmentationResult(
+    multi: false,
+    candidates: [
+      SegmentCandidate(
+        region: [.05, .05, .95, .95],
+        reason: 'no-trustworthy-quad',
+      ),
+    ],
+  );
+}
+
+class _PairingOcr implements OcrEngine {
+  @override
+  String get version => 'synthetic-pairing-ocr';
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async {
+    token?.throwIfCancelled();
+    return OcrTextResult.available(
+      lines: [
+        OcrLine(text: 'البطاقة الوطنية الموحدة', confidence: .96),
+        OcrLine(text: 'الرقم الوطني', confidence: .94),
+      ],
+      engineVersion: version,
+    );
+  }
+}
+
+class _PairingProvenanceOcr extends _PairingOcr {
+  @override
+  String get version => 'synthetic-provenance-pairing-ocr';
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async {
+    token?.throwIfCancelled();
+    final pixel = img.decodeImage(imageBytes)!.getPixel(0, 0);
+    if (pixel.gNormalized >= .6 && pixel.rNormalized < .5) {
+      return OcrTextResult.available(lines: const [], engineVersion: version);
+    }
+    return super.recognize(imageBytes, token: token);
+  }
 }
 
 Uint8List _jpegSofOnly(int width, int height) => Uint8List.fromList([
@@ -1602,6 +1694,129 @@ void main() {
       expect(recordsNeedingReview(confirmed), isEmpty);
       final saved = await projects.save(confirmed);
       expect(recordsNeedingReview(await projects.get(saved.id)), isEmpty);
+    },
+  );
+
+  test(
+    'pairing confidence uses source-image gap across a failed apply before success',
+    () async {
+      final s = service();
+      var project = await s.create('synthetic failed-source pairing gap');
+      final sources = [
+        _solidScene(img.ColorRgb8(35, 55, 210)),
+        _solidScene(img.ColorRgb8(225, 35, 35)),
+        _solidScene(img.ColorRgb8(35, 55, 210)),
+      ];
+      project = (await s.importImages(project, [
+        for (final entry in sources.asMap().entries)
+          ImportSource(
+            'source-${entry.key}.png',
+            () => Stream.value(entry.value),
+          ),
+      ])).project;
+      final sourceIds = project.assets.map((asset) => asset.id).toList();
+      final intake = SmartIntake(
+        projects: projects,
+        assets: assets,
+        editor: LocalImageEditor(projects.files),
+        segment: _pairingApplyFailureSegmentation,
+        ocr: _PairingOcr(),
+        cropRegion: (original, region) async {
+          final color = img.decodeImage(original)!.getPixel(0, 0);
+          if (color.rNormalized > .6) {
+            throw StateError('synthetic per-image apply failure');
+          }
+          return defaultRegionCrop(original, region);
+        },
+      );
+
+      final result = await intake.run(project, sourceIds);
+      expect(result.project.documents, hasLength(2));
+      final recordsBySource = {
+        for (final record in result.project.documents)
+          record.sourceImageId: record,
+      };
+      expect(recordsBySource.containsKey(sourceIds[1]), isFalse);
+      final first = recordsBySource[sourceIds[0]]!;
+      final third = recordsBySource[sourceIds[2]]!;
+      expect(first.pairing, PairingState.ambiguous);
+      expect(first.pairedDocumentId, third.id);
+      expect(third.pairing, PairingState.ambiguous);
+      expect(third.pairedDocumentId, first.id);
+      expect(first.pairingConfidence, closeTo(.7682, .0001));
+      expect(third.pairingConfidence, first.pairingConfidence);
+      expect(
+        result.project.assets.any((asset) => asset.id == sourceIds[1]),
+        isTrue,
+        reason: 'a failed per-image apply must not drop the committed source asset',
+      );
+      expect(
+        Project.fromJson(result.project.toJson()).toJson(),
+        result.project.toJson(),
+      );
+      expect(
+        (await projects.get(project.id)).toJson(),
+        result.project.toJson(),
+      );
+    },
+  );
+
+  test(
+    'pairing skips emitted unknown regions but uses their source image index',
+    () async {
+      final s = service();
+      var project = await s.create('synthetic multi-region pairing provenance');
+      final sources = [
+        _solidScene(img.ColorRgb8(35, 55, 210)),
+        _solidScene(img.ColorRgb8(35, 200, 55)),
+        _solidScene(img.ColorRgb8(35, 55, 210)),
+      ];
+      project = (await s.importImages(project, [
+        for (final entry in sources.asMap().entries)
+          ImportSource(
+            'source-${entry.key}.png',
+            () => Stream.value(entry.value),
+          ),
+      ])).project;
+      final sourceIds = project.assets.map((asset) => asset.id).toList();
+      final intake = SmartIntake(
+        projects: projects,
+        assets: assets,
+        editor: LocalImageEditor(projects.files),
+        segment: _pairingWithUnknownMultiRegion,
+        ocr: _PairingProvenanceOcr(),
+      );
+
+      final result = await intake.run(project, sourceIds);
+      final first = result.project.documents.firstWhere(
+        (record) => record.sourceImageId == sourceIds[0],
+      );
+      final middle = result.project.documents
+          .where((record) => record.sourceImageId == sourceIds[1])
+          .toList();
+      final third = result.project.documents.firstWhere(
+        (record) => record.sourceImageId == sourceIds[2],
+      );
+
+      expect(middle, hasLength(2), reason: 'one source emits two regions');
+      for (final record in middle) {
+        expect(record.recognition!.documentKind, DocumentKind.unknown);
+        expect(record.pairing, PairingState.single);
+        expect(record.pairedDocumentId, isNull);
+      }
+      expect(first.pairing, PairingState.ambiguous);
+      expect(first.pairedDocumentId, third.id);
+      expect(third.pairing, PairingState.ambiguous);
+      expect(third.pairedDocumentId, first.id);
+      expect(first.pairingConfidence, closeTo(.7682, .0001));
+      expect(
+        (await projects.get(project.id)).toJson(),
+        result.project.toJson(),
+      );
+      expect(
+        Project.fromJson(result.project.toJson()).toJson(),
+        result.project.toJson(),
+      );
     },
   );
 

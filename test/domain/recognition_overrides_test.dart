@@ -79,6 +79,22 @@ Project _project() => Project(
   documents: [_record('item-a', 'a'), _record('item-b', 'b')],
 );
 
+Project _ambiguousPair() {
+  final project = _project();
+  return project.copyWith(
+    documents: [
+      for (final record in project.documents)
+        record.copyWith(
+          pairing: PairingState.ambiguous,
+          pairedDocumentId: record.id == 'rec-item-a'
+              ? 'rec-item-b'
+              : 'rec-item-a',
+          pairingConfidence: .8,
+        ),
+    ],
+  );
+}
+
 void main() {
   group('effective values', () {
     test('kind: latest override wins over recognition', () {
@@ -148,6 +164,153 @@ void main() {
       final next = setKindWithOverride(base, 'item-x', DocumentKind.passport);
       expect(next.items.single.documentKind, DocumentKind.passport);
       expect(next.documents, isEmpty);
+    });
+  });
+
+  group('pair consistency after corrections', () {
+    test('Project validates linked states but retains legacy unlinked states', () {
+      final proposed = _ambiguousPair();
+      expect(
+        () => proposed.copyWith(
+          documents: [
+            for (final record in proposed.documents)
+              record.id == 'rec-item-a'
+                  ? record.copyWith(pairing: PairingState.paired)
+                  : record,
+          ],
+        ),
+        throwsA(isA<ValidationException>()),
+      );
+
+      final base = _project();
+      final legacy = base.copyWith(
+        documents: [
+          for (final record in base.documents)
+            record.copyWith(pairing: PairingState.paired),
+        ],
+      );
+      final restored = Project.fromJson(legacy.toJson());
+      expect(
+        restored.documents.every(
+          (record) =>
+              record.pairing == PairingState.paired &&
+              record.pairedDocumentId == null,
+        ),
+        isTrue,
+        reason: 'older v5 pair statuses did not store partner ids',
+      );
+    });
+
+    test('a type correction dissolves an ambiguous pair symmetrically', () {
+      final before = _ambiguousPair();
+      final next = setKindWithOverride(
+        before,
+        'item-a',
+        DocumentKind.passport,
+      );
+      final a = next.documents.firstWhere((record) => record.id == 'rec-item-a');
+      final b = next.documents.firstWhere((record) => record.id == 'rec-item-b');
+
+      expect(a.pairing, PairingState.single);
+      expect(a.pairedDocumentId, isNull);
+      expect(b.pairing, PairingState.single);
+      expect(b.pairedDocumentId, isNull);
+      expect(effectiveKind(a), DocumentKind.passport);
+      expect(b.recognition!.documentKind, DocumentKind.unifiedNationalId);
+      expect(next.layoutGroups, isEmpty);
+      expect(next.items.every((item) => item.groupId == null), isTrue);
+    });
+
+    test('a face correction dissolves an ambiguous pair symmetrically', () {
+      final next = setSideOverride(
+        _ambiguousPair(),
+        'rec-item-a',
+        SideKind.front,
+      );
+      final a = next.documents.firstWhere((record) => record.id == 'rec-item-a');
+      final b = next.documents.firstWhere((record) => record.id == 'rec-item-b');
+
+      expect(a.pairing, PairingState.single);
+      expect(a.pairedDocumentId, isNull);
+      expect(b.pairing, PairingState.single);
+      expect(b.pairedDocumentId, isNull);
+      expect(effectiveSide(a, a.sides.single), SideKind.front);
+      expect(b.overrides.last.pairing, PairingState.single);
+    });
+
+    test('explicit pairing rejects conflicting kinds and known same faces', () {
+      final differentKinds = setKindWithOverride(
+        _project(),
+        'item-a',
+        DocumentKind.passport,
+      );
+      expect(
+        () => acceptPair(differentKinds, 'rec-item-a', 'rec-item-b'),
+        throwsA(isA<ValidationException>()),
+      );
+
+      final sameFaces = setSideOverride(
+        setSideOverride(_project(), 'rec-item-a', SideKind.front),
+        'rec-item-b',
+        SideKind.front,
+      );
+      expect(
+        () => acceptPair(sameFaces, 'rec-item-a', 'rec-item-b'),
+        throwsA(isA<ValidationException>()),
+      );
+    });
+
+    test('explicit pairing will not overwrite another layout group', () {
+      final project = _project();
+      final grouped = project.copyWith(
+        items: [
+          for (final item in project.items)
+            item.id == 'item-a'
+                ? item.copyWith(groupId: 'other-group')
+                : item,
+        ],
+        layoutGroups: [
+          LayoutGroup(id: 'other-group', itemIds: ['item-a']),
+        ],
+      );
+
+      expect(
+        () => acceptPair(grouped, 'rec-item-a', 'rec-item-b'),
+        throwsA(isA<ValidationException>()),
+      );
+    });
+
+    test('explicit pairing will not replace a proposal to another document', () {
+      final base = _project();
+      final withThird = base.copyWith(
+        assets: [...base.assets, _asset('c')],
+        items: [...base.items, _item('item-c', 'c')],
+        documents: [...base.documents, _record('item-c', 'c')],
+      );
+      final proposed = withThird.copyWith(
+        documents: [
+          for (final record in withThird.documents)
+            if (record.id == 'rec-item-a')
+              record.copyWith(
+                pairing: PairingState.ambiguous,
+                pairedDocumentId: 'rec-item-b',
+                pairingConfidence: .8,
+              )
+            else if (record.id == 'rec-item-b')
+              record.copyWith(
+                pairing: PairingState.ambiguous,
+                pairedDocumentId: 'rec-item-a',
+                pairingConfidence: .8,
+              )
+            else
+              record,
+        ],
+      );
+
+      expect(
+        () => acceptPair(proposed, 'rec-item-a', 'rec-item-c'),
+        throwsA(isA<ValidationException>()),
+      );
     });
   });
 

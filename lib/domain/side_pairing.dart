@@ -1,8 +1,8 @@
 /// Front/back pairing engine. Proposes pairs of single-sided documents from
 /// one import batch, with an explicit pairing confidence built from named
-/// evidence. Same document type ALONE is never sufficient: without an
-/// identifier match (an OCR capability that is currently unavailable) the
-/// combined confidence is capped below the automatic-acceptance threshold, so
+/// evidence. Same document type ALONE is never sufficient: the current keyword
+/// OCR pipeline does not produce identifier-match evidence, so confidence
+/// without that independent signal is capped below automatic acceptance. Such
 /// a proposal can only reach `ambiguous` (user review) — unrelated cards are
 /// never silently paired.
 library;
@@ -76,9 +76,17 @@ double _pairScore(
       : .35;
   reasons.add('adjacency:$gap');
 
-  // Shape agreement: both sides of one card share the physical outline.
-  final ratio = a.aspect / b.aspect;
-  final aspectDelta = (ratio - 1).abs();
+  // Shape agreement: both sides of one card share the physical outline. Use
+  // larger/smaller so swapping candidate order cannot change this evidence.
+  final largerAspect = a.aspect >= b.aspect ? a.aspect : b.aspect;
+  final smallerAspect = a.aspect >= b.aspect ? b.aspect : a.aspect;
+  final aspectDelta =
+      largerAspect.isFinite &&
+          smallerAspect.isFinite &&
+          smallerAspect > 0 &&
+          largerAspect >= smallerAspect
+      ? largerAspect / smallerAspect - 1
+      : 1.0;
   final aspectScore = (1 - aspectDelta / .08).clamp(0.0, 1.0) * .9 + .05;
   reasons.add('aspect-delta:${aspectDelta.toStringAsFixed(3)}');
 

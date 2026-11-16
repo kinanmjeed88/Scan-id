@@ -76,6 +76,86 @@ void main() {
     },
   );
 
+  test('manual face correction dissolves an ambiguous proposal', () {
+    final front = assetFixture(id: 'front');
+    final back = assetFixture(id: 'back');
+    DocumentRecord record(String id, ImageAsset asset, String partnerId) =>
+        DocumentRecord(
+          id: id,
+          sourceImageId: asset.id,
+          sides: [
+            DocumentSide(
+              id: 'side-${asset.id}',
+              side: SideKind.unknown,
+              processedAsset: ProcessedAssetRef(
+                workingPath: asset.workingPath,
+                thumbnailPath: asset.thumbnailPath,
+                width: asset.width,
+                height: asset.height,
+              ),
+            ),
+          ],
+          recognition: RecognitionResult(
+            documentKind: DocumentKind.unifiedNationalId,
+            status: RecognitionStatus.uncertain,
+            confidences: ConfidenceSet(
+              finalConfidence: Confidence(value: .8),
+            ),
+            preset: const PresetSelection.resolved('builtin-unifiedNationalId'),
+          ),
+          pairing: PairingState.ambiguous,
+          pairedDocumentId: partnerId,
+          pairingConfidence: .8,
+          provenance: Provenance(
+            sourceImageId: asset.id,
+            detectionIds: const [],
+            processedAssetVersion: 'fixture',
+            pipelineVersion: 'fixture',
+          ),
+        );
+    final original = projectFixture(
+      assets: [front, back],
+      items: [
+        pending('front-item', front.id).copyWith(
+          documentKind: DocumentKind.unifiedNationalId,
+          documentId: 'rec-front',
+          sideId: 'side-front',
+        ),
+        pending('back-item', back.id).copyWith(
+          documentKind: DocumentKind.unifiedNationalId,
+          documentId: 'rec-back',
+          sideId: 'side-back',
+        ),
+      ],
+      documents: [
+        record('rec-front', front, 'rec-back'),
+        record('rec-back', back, 'rec-front'),
+      ],
+    );
+
+    final corrected = classifyItemManually(
+      original,
+      itemId: 'front-item',
+      kind: DocumentKind.unifiedNationalId,
+      side: SideKind.front,
+      nextId: id,
+    );
+    final frontRecord = corrected.documents.firstWhere(
+      (entry) => entry.id == 'rec-front',
+    );
+    final backRecord = corrected.documents.firstWhere(
+      (entry) => entry.id == 'rec-back',
+    );
+    expect(frontRecord.pairing, PairingState.single);
+    expect(frontRecord.pairedDocumentId, isNull);
+    expect(backRecord.pairing, PairingState.single);
+    expect(backRecord.pairedDocumentId, isNull);
+    expect(
+      rec.effectiveSide(frontRecord, frontRecord.sides.single),
+      SideKind.front,
+    );
+  });
+
   test(
     'the user explicitly selects the opposite face; both are adjacent without moving a locked item',
     () {

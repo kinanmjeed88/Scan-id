@@ -1,41 +1,31 @@
 # OCR evaluation — Scan ID
 
-**Status superseded (2026-11-04): an OCR engine now ships.** The decision below
-was reversed after the official ONNX exports of PP-OCRv5 became available: the
-shipped engine, its tensors, dictionary, licences, limits and verification status
-are documented in [`OCR_ENGINE.md`](OCR_ENGINE.md). What follows is kept as the
-record of the options evaluation that led to shipping nothing at the time — the
-reasons for rejecting ML Kit, Tesseract and Windows.Media.Ocr still hold, and the
-"PaddleOCR as a research candidate only" section is the path that was eventually
-taken with a pinned export rather than an unverified third-party artifact.
+**Current status (2026-11-15):** the shipped application composes a local PP-OCRv5 Arabic engine through `createPlatformOcrEngine()` and ONNX Runtime. `UnavailableOcrEngine` remains the honest default for an unconfigured host or a test that does not inject OCR; it does not describe the production composition root. The engine, pinned weights, tensor/runtime path and synthetic inference evidence are documented in [`OCR_ENGINE.md`](OCR_ENGINE.md).
 
-**Previous status (2026-11-04): no OCR engine ships in this build.** The current code adds a disabled-by-default `OcrEngine` seam, per-region in-memory cropping, and conservative multi-anchor OCR evidence. Synthetic fixed-string tests exercise those contracts only; they do not execute OCR, measure CER/WER, or establish Iraqi-document accuracy. This document records why no engine was selected and what must be true before one can be.
+The real model is exercised on generated test pages, but this is only an inference smoke test. No CER/WER, Iraqi-document OCR accuracy or field classification accuracy has been measured here. The repository has no authorized, session-separated Iraqi OCR benchmark with independently adjudicated transcripts. The current local annotation/split tooling concerns document presence, boundaries and kinds; it is not an OCR transcript dataset or CER/WER runner.
+
+OCR inference itself is local and does not use the network. The application has `INTERNET` permission for its separate update-feed/download flow; see [ADR-005](adr/ADR-005.md). No document image or OCR transcript is sent to that flow.
 
 **Historical source revision audited:** `d142e85ab927e7c5503c61c9b105216409d1e69a` on `arena/84234269-scan-id`; GitHub Actions run `40335966175` built/tested Android and Windows successfully, but contains no OCR runtime or CER/WER test. Those historical results do not validate the current branch.
 
-The current classifier does not infer document kind from filenames, paths,
-image dimensions, or boundary aspect. With `UnavailableOcrEngine`, it receives
-no independent kind evidence and returns `unknown`; boundary analysis remains
-independent. The historical classification policy described in older reports
-is superseded by the explicit-evidence implementation.
+## Historical candidate review (pre-integration snapshot)
 
-The abstraction in `lib/application/ocr_engine.dart` is deliberately honest:
-the production pipeline runs against `UnavailableOcrEngine`, whose version
-string is `ocr-unavailable-1` and which reports an explicit, non-fatal
-unavailable state. Nothing in this repository claims OCR capability.
+Everything in this section records the decision and information available before PP-OCRv5 was integrated. It is retained for provenance, **not as a description of the current build or a current engine-selection decision**. Accuracy and field-validation gaps below remain open.
 
-Related locked decisions: ADR-005 (offline-first, no runtime model download),
-ADR-007 (OCR is evidence, never the sole classifier), ADR-006 (classical CV
-first).
+The classifier does not infer document kind from filenames, paths, image dimensions, or boundary aspect. A host that leaves the OCR seam unconfigured receives no independent kind evidence and returns `unknown`; boundary analysis remains independent. The current application instead injects the local engine, described above and in [`OCR_ENGINE.md`](OCR_ENGINE.md).
 
-## What the engine would have to satisfy
+At the historical revision, the abstraction in `lib/application/ocr_engine.dart` used `UnavailableOcrEngine` (`ocr-unavailable-1`) so absent OCR was an explicit, non-fatal state. That historical default remains available for tests and other hosts, but is not the engine injected by the shipped app.
+
+Related locked decisions: ADR-005 (offline-first inference and no runtime model download), ADR-007 (OCR is evidence, never the sole classifier), ADR-006 (classical CV first).
+
+## What the engine would have had to satisfy
 
 | Requirement | Why |
 |---|---|
 | Arabic text recognition | Iraqi national ID, civil-status identity, residence card, ration card and passport are Arabic-first documents |
 | Android (arm64, and armv7 while it is still shipped) | primary target |
 | Windows x64 | primary target |
-| Fully offline execution | ADR-005; the release Android manifest declares no INTERNET permission |
+| Offline OCR inference | OCR must read bundled weights locally and make no network requests; the app separately uses its existing INTERNET permission for OTA checks/downloads under ADR-005 |
 | Permissive, reviewable licence | bundled and shipped in a binary |
 | Model size acceptable for a mobile app | download and on-device footprint |
 | CPU-only inference within a phone memory budget | no GPU assumption |
@@ -106,17 +96,14 @@ Supports Arabic through a language pack, offline, with zero added app size.
 would mean two engines with two accuracy profiles for the same Iraqi document —
 which is worse for the user than having no OCR and saying so.
 
-## Decision (superseded — see OCR_ENGINE.md)
+### Historical decision at the pre-integration revision (superseded)
 
-**No OCR engine is integrated or selected.** *(This was the decision at the time
-of writing; it was superseded by the shipped PP-OCRv5 engine documented in
-[`OCR_ENGINE.md`](OCR_ENGINE.md), whose weights are pinned by size and SHA-256 and
-whose real inference now runs in CI. No Arabic accuracy figure is claimed for it:
-the gap described in point 1 below is still open.)* ONNX Runtime plus a PP-OCRv5
-Arabic detection/recognition export is one research route behind the existing
-`OcrEngine` interface; the approximately 12.2 MiB size is a third-party report,
-not a verified project artifact. It is not shippable on the evidence available
-here, because:
+At that time, **no OCR engine was integrated or selected**. This decision was
+superseded when the pinned PP-OCRv5 engine was shipped; its actual weights,
+size, SHA-256, licences and synthetic inference checks are in
+[`OCR_ENGINE.md`](OCR_ENGINE.md). No Arabic field-accuracy figure is claimed;
+the evaluation gap described below remains open. The original decision against
+shipping an unverified model at that revision was based on these points:
 
 1. **No suitable Arabic accuracy figure is published for the candidate model.** Arabic
    is a cursive, right-to-left script with contextual shaping and ligatures;
@@ -137,9 +124,7 @@ here, because:
    the classifier returns `unknown`. Filename, aspect, and pixel dimensions do
    not substitute for OCR or a validated visual classifier.
 
-The abstraction stays honest: `UnavailableOcrEngine` is explicit, versioned and
-recorded in provenance (`modelVersions['ocr']`), so a later engine drop changes
-one implementation and nothing else.
+At that revision the abstraction kept `UnavailableOcrEngine` explicit and versioned in provenance (`modelVersions['ocr']`), so a future engine could implement the same interface. The shipped app now injects PP-OCRv5 through the same seam.
 
 ## Local-only work performed on 2026-10-25
 
@@ -150,18 +135,23 @@ The run completed on the Python ONNX mirror; with no independent labels it is
 not an accuracy benchmark and says nothing about CER/WER. Its aggregate-only
 method and limits are documented in
 [`scan-id-local-evaluation-2026-10-25.md`](reports/scan-id-local-evaluation-2026-10-25.md).
-The still-image directory is excluded from all GitHub Actions checkouts using
-sparse partial checkout; CI also checks that exclusion rule. No image, text,
-per-image outcome, OCR model, or OCR output was added to CI or this report. As of 2026-10-26 the 21 files under `Mostmskat/` remain on the authorized local disk but are removed from the current index and ignored. Their prior Git history (including the base branch) is not erased by the tip deletion; no history rewrite or public purge was attempted.
+The still-image directory is excluded from GitHub Actions checkouts using
+sparse partial checkout; CI also checks that exclusion rule. That 2026-10
+boundary-only run added no image, text, per-image outcome or OCR output to CI.
+The current workflow separately restores pinned OCR weights and runs the
+synthetic inference test documented in [`OCR_ENGINE.md`](OCR_ENGINE.md). As of
+2026-10-26 the 21 files under `Mostmskat/` were reported as removed from the
+index and ignored; their prior Git history (including the base branch) was not
+erased by that tip deletion and no history rewrite or public purge was attempted.
 
 A second local screen on 2026-10-26 processed the same 19 still images for
 boundary behavior only: zero decode/inference errors, no OCR engine call, and no
 text read or saved. It is not an OCR evaluation; the aggregate boundary results
 and limits are in [`MODEL_EVALUATION.md`](reports/MODEL_EVALUATION.md).
 
-**Current checkout note (2026-11-04):** `Mostmskat/` is absent from this
-worktree. The older local-screen summaries above are historical only; no image
-corpus or real OCR input was used by the current changes or their tests.
+**Checkout note recorded on 2026-11-04:** `Mostmskat/` was absent from that
+worktree. Those local-screen summaries are historical only; they were not OCR
+runs and did not produce reference text or CER/WER.
 
 The existing OCR-evidence unit tests use synthetic fixed strings only to test
 normalization and keyword-rule behavior. They are not image-derived transcripts,
@@ -177,29 +167,29 @@ CER/WER was computed. The local annotation studio can hold a manually verified f
 private JSON export; no such transcripts have been created or reviewed yet. The
 protocol for double transcription, adjudication, privacy, normalization and
 acceptance criteria is in [`LOCAL_EVALUATION_PROTOCOL.md`](LOCAL_EVALUATION_PROTOCOL.md).
-This tooling does not provide an OCR engine or evidence that labels exist.
+This tooling does not itself create an OCR benchmark or prove that reference labels exist.
 
-## What must happen before an engine is adopted
+## Remaining validation before accuracy claims
 
-1. A new ADR covering runtime choice, ABI matrix, model provenance and hashes,
-   licence review, size budget and the build-time-fetch question.
-2. A representative, licensed Iraqi document test set (the four catalog
+The engine is integrated, but quality claims still require:
+
+1. A representative, licensed Iraqi document test set (the four catalog
    categories, front and back, several capture qualities) with independent,
    reviewed OCR references and session-separated splits. The unlabelled local
    sample is not an OCR benchmark and must remain outside CI and external services.
-3. Measured on-device numbers on the lowest supported Android device and on
+2. Measured on-device numbers on the lowest supported Android device and on
    Windows x64: Arabic character/word error rate on *label anchor fields only*
    (ADR-007 forbids extracting or persisting personal values), peak memory,
    cold and warm latency per document.
-4. Confirmation that OCR evidence only ever enters the classifier as evidence
-   and never becomes the sole classifier.
+3. Confirmation on those real inputs that OCR evidence only enters the
+   classifier as evidence and never becomes the sole classifier.
 
-## Local verification limits
-
-No OCR option was benchmarked in this environment: Dart/Flutter is unavailable,
-and no Arabic/Latin OCR references are labeled. Figures in the option tables
-are source-reported, not project measurements. The local boundary behavior
-screen above is not an OCR run and cannot produce CER/WER.
+The shipped integration has pinned model files, build-time restoration,
+licence/size notes and a synthetic ONNX inference test; see
+[`OCR_ENGINE.md`](OCR_ENGINE.md). Those are integration and reproducibility
+evidence, not field validation. No OCR option was benchmarked on labeled
+references in this environment; Dart/Flutter is unavailable, and the local
+boundary screen above is not an OCR run and cannot produce CER/WER.
 
 [mlkit-langs]: https://developers.google.com/ml-kit/vision/text-recognition/v2/languages
 [mlkit-arabic]: https://www.b4x.com/android/forum/threads/textrecognition-based-on-mlkit-will-it-support-arabic.161926/

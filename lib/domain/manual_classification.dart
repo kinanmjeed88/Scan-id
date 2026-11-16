@@ -68,16 +68,12 @@ Project classifyItemManually(
   }
   var record = next.documents.firstWhere((d) => d.id == item.documentId);
   require(record.sides.length == 1, 'اختر وجهاً واحداً لتصنيفه.');
-  // A changed type or face can no longer truthfully share the old pair.
-  // Dissolve it symmetrically, leaving both images and their positions intact;
-  // the dialog warns about this before the user confirms the change.
-  if (record.pairing == PairingState.paired &&
-      (rec.effectiveKind(record) != kind ||
-          rec.effectiveSide(record, record.sides.single) != side)) {
-    next = rec.rejectPair(next, record.id);
-    record = next.documents.firstWhere((entry) => entry.id == record.id);
-  }
+  final recordId = record.id;
+  // The recognition override operations own pair invalidation, so this manual
+  // path behaves exactly like correcting the kind or face from the review UI.
+  // Both proposed and confirmed pairs dissolve symmetrically on a changed value.
   next = rec.setKindWithOverride(next, itemId, kind);
+  record = next.documents.firstWhere((entry) => entry.id == recordId);
   final classified = PageLayout.item(next, itemId);
   final asset = next.assets.firstWhere((a) => a.id == classified.assetId);
   final processed = record.sides.single.processedAsset;

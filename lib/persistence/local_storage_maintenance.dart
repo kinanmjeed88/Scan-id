@@ -8,6 +8,7 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'recovery_checkpoints.dart';
 import 'safe_files.dart';
+import 'storage_coordination.dart';
 
 /// File maintenance inside the application-owned root.
 ///
@@ -21,6 +22,7 @@ class LocalStorageMaintenance implements StorageMaintenance {
     this.projects,
   });
   final SafeFiles files;
+  StorageCoordination get coordination => StorageCoordination(files);
   final DateTime Function() clock;
 
   /// Used to recheck live references immediately before deletion.
@@ -31,20 +33,21 @@ class LocalStorageMaintenance implements StorageMaintenance {
   static const _grace = Duration(minutes: 10);
 
   @override
-  Future<void> deleteProjectFiles(String projectId) async {
-    validId(projectId);
-    final relative = '$_projects/$projectId';
-    final repository = projects;
-    require(repository != null, _liveCheckUnavailable);
-    final live = await repository!.list();
-    require(
-      !live.any((project) => _pathKey(project.id) == _pathKey(projectId)),
-      _keptByLive,
-    );
-    require(!_under(relative, _referencesOf(live)), _keptByLive);
-    require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
-    await _deleteTree(await files.checkedPath(relative));
-  }
+  Future<void> deleteProjectFiles(String projectId) =>
+      coordination.runExclusive(() async {
+        validId(projectId);
+        final relative = '$_projects/$projectId';
+        final repository = projects;
+        require(repository != null, _liveCheckUnavailable);
+        final live = await repository!.list();
+        require(
+          !live.any((project) => _pathKey(project.id) == _pathKey(projectId)),
+          _keptByLive,
+        );
+        require(!_under(relative, _referencesOf(live)), _keptByLive);
+        require(!_under(relative, await _recoveryReferences()), _keptByRecovery);
+        await _deleteTree(await files.checkedPath(relative));
+      });
 
   @override
   Future<OrphanFiles> findOrphans(List<Project> projects) async {
@@ -150,72 +153,83 @@ class LocalStorageMaintenance implements StorageMaintenance {
   /// still names is refused, not deleted: the caller reports why, and the path
   /// is removed once that copy has been rewritten.
   @override
-  Future<int> deleteFiles(Iterable<String> relativePaths) async {
-    final recovery = await _recoveryReferences();
-    final repository = projects;
-    final liveProjects = repository == null
-        ? <Project>[]
-        : await repository.list();
-    final live = _referencesOf(liveProjects);
-    final incomplete = _incompleteAssets(liveProjects);
-    final targets = <String>[];
-    for (final relative in relativePaths) {
-      validAssetPath(relative);
-      final key = _pathKey(relative);
-      if (key == 'projects' || key.startsWith('projects/')) {
-        require(repository != null, _liveCheckUnavailable);
+  Future<int> deleteFiles(Iterable<String> relativePaths) {
+    final requested = relativePaths.toList(growable: false);
+    return coordination.runExclusive(() async {
+      // Read all live and recovery references only after acquiring the same OS
+      // lock used by publishers, then keep it through recursive deletion. A
+      // snapshot taken before this lease is not safe authorization to delete.
+      final recovery = await _recoveryReferences();
+      final repository = projects;
+      final liveProjects = repository == null
+          ? <Project>[]
+          : await repository.list();
+      final live = _referencesOf(liveProjects);
+      final incomplete = _incompleteAssets(liveProjects);
+      final targets = <String>[];
+      for (final relative in requested) {
+        validAssetPath(relative);
+        final key = _pathKey(relative);
+        require(
+          key != storageCoordinationLockName.toLowerCase(),
+          'ملف تنسيق التخزين محمي ولا يجوز حذفه.',
+        );
+        if (key == 'projects' || key.startsWith('projects/')) {
+          require(repository != null, _liveCheckUnavailable);
+        }
+        // A live project may have no current assets and hence no named paths.
+        // Do not treat its whole directory as orphaned on that basis.
+        require(
+          !liveProjects.any(
+            (project) =>
+                key == 'projects' || key == 'projects/${_pathKey(project.id)}',
+          ),
+          _keptByLive,
+        );
+        require(!_under(relative, recovery), _keptByRecovery);
+        require(!_under(relative, live), _keptByLive);
+        require(
+          !incomplete.any(
+            (asset) =>
+                key == '$asset/edits' ||
+                key.startsWith('$asset/edits/') ||
+                key == '$asset/replacements' ||
+                key.startsWith('$asset/replacements/'),
+          ),
+          _keptByUnresolved,
+        );
+        targets.add(await files.checkedPath(relative));
       }
-      // A live project may have no current assets and hence no named paths.
-      // Do not treat its whole directory as orphaned on that basis.
-      require(
-        !liveProjects.any(
-          (project) =>
-              key == 'projects' || key == 'projects/${_pathKey(project.id)}',
-        ),
-        _keptByLive,
-      );
-      require(!_under(relative, recovery), _keptByRecovery);
-      require(!_under(relative, live), _keptByLive);
-      require(
-        !incomplete.any(
-          (asset) =>
-              key == '$asset/edits' ||
-              key.startsWith('$asset/edits/') ||
-              key == '$asset/replacements' ||
-              key.startsWith('$asset/replacements/'),
-        ),
-        _keptByUnresolved,
-      );
-      targets.add(await files.checkedPath(relative));
-    }
-    var removed = 0;
-    for (final path in targets) {
-      if (await _deleteTree(path)) {
-        removed++;
+      var removed = 0;
+      for (final path in targets) {
+        if (await _deleteTree(path)) {
+          removed++;
+        }
       }
-    }
-    return removed;
+      return removed;
+    });
   }
 
   @override
-  Future<int> pruneStaging({Duration olderThan = _minimumAge}) async {
-    final path = await files.checkedPath(_staging);
-    if (await FileSystemEntity.type(path, followLinks: false) !=
-        FileSystemEntityType.directory) {
-      return 0;
-    }
-    final cutoff = clock().toUtc().subtract(olderThan);
-    var removed = 0;
-    await for (final entity in Directory(path).list(followLinks: false)) {
-      if ((await _modified(entity.path)).isAfter(cutoff)) {
-        continue;
-      }
-      if (await _deleteTree(entity.path)) {
-        removed++;
-      }
-    }
-    return removed;
-  }
+  Future<int> pruneStaging({Duration olderThan = _minimumAge}) =>
+      coordination.runExclusive(() async {
+        final path = await files.checkedPath(_staging);
+        if (await FileSystemEntity.type(path, followLinks: false) !=
+            FileSystemEntityType.directory) {
+          return 0;
+        }
+        final cutoff = clock().toUtc().subtract(olderThan);
+        var removed = 0;
+        await for (final entity in Directory(path).list(followLinks: false)) {
+          if ((await _modified(entity.path)).isAfter(cutoff)) {
+            continue;
+          }
+          if (await _deleteTree(entity.path)) {
+            removed++;
+          }
+        }
+        return removed;
+      });
 
   Set<String> _incompleteAssets(Iterable<Project> projects) => {
     for (final project in projects)

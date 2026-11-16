@@ -68,6 +68,20 @@ void main() {
     expect(proposals, isEmpty);
   });
 
+  test('shape compatibility is symmetric when candidate order is reversed', () {
+    final forward = proposePairs([
+      _candidate('doc-a', aspect: 1.58, importIndex: 0),
+      _candidate('doc-b', aspect: 1.63, importIndex: 1),
+    ]).single;
+    final reversed = proposePairs([
+      _candidate('doc-b', aspect: 1.63, importIndex: 1),
+      _candidate('doc-a', aspect: 1.58, importIndex: 0),
+    ]).single;
+
+    expect(reversed.confidence, closeTo(forward.confidence, 1e-12));
+    expect(reversed.reasons, forward.reasons);
+  });
+
   test('identifier evidence can push a pair into auto-accept', () {
     final proposals = proposePairs([
       _candidate('doc-a', importIndex: 0, identifierMatchScore: .99),

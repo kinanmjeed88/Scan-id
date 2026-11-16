@@ -1,8 +1,9 @@
-"""OS lock-candidate diagnostics, not a test of Scan-id's storage protocol.
+"""OS lock-primitive diagnostics, not a test of Scan-id's Dart protocol.
 
-The app does not yet use these primitives. This probes independent handles and
-real child processes, including abrupt owner death; it does not prove Android,
-Dart FFI, Sembast, filesystem lifecycle, or protection against uncooperative IO.
+The app uses POSIX flock through Dart FFI (and Dart's file lock on Windows).
+This probes the corresponding OS primitive with independent handles and real
+child processes, including abrupt process death; it does not prove the Dart FFI
+binding, Android runtime, Sembast, filesystem lifecycle, or uncooperative IO.
 """
 
 import os

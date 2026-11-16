@@ -82,11 +82,13 @@ class _Analyzed {
     this.analysis,
     this.sourceWidth,
     this.sourceHeight,
+    this.importIndex,
   );
   final ImageAsset asset;
   final ImageAnalysis analysis;
   final int sourceWidth;
   final int sourceHeight;
+  final int importIndex;
 }
 
 /// The bounded analysis of a batch of source images, in input order.
@@ -317,9 +319,21 @@ class SmartIntake {
       }
     }
 
-    // Pairing pass over this batch's single-sided recognized documents.
+    // Pairing uses each record's source-image position, not its position among
+    // emitted document records (a source can yield several regions, no record,
+    // or a failed apply). Keep that input provenance through analysis.
+    final sourceImportIndices = {
+      for (final outcome in outcomes)
+        if (outcome.succeeded)
+          outcome.value!.asset.id: outcome.value!.importIndex,
+    };
     ImportTrace.syncStage('pairing', () {
-      _applyPairing(newDocuments, newItems, newGroups);
+      _applyPairing(
+        newDocuments,
+        newItems,
+        newGroups,
+        sourceImportIndices: sourceImportIndices,
+      );
       return true;
     });
 
@@ -463,18 +477,25 @@ class SmartIntake {
                   phase: 'preview',
                 );
                 ImportTrace.current?.emit('image_decoded');
+                final importIndex = pending.indexOf(asset);
                 final analysis = await pipeline.analyze(
                   PipelineImageInput(
                     assetId: asset.id,
                     previewBytes: source.preview,
                     sourceWidth: source.width,
                     sourceHeight: source.height,
-                    importIndex: pending.indexOf(asset),
+                    importIndex: importIndex,
                     captureId: asset.captureId,
                   ),
                   token: imageToken,
                 );
-                return _Analyzed(asset, analysis, source.width, source.height);
+                return _Analyzed(
+                  asset,
+                  analysis,
+                  source.width,
+                  source.height,
+                  importIndex,
+                );
               },
               budget: analysisBudget,
               name: 'image-analysis',
@@ -2311,15 +2332,17 @@ class SmartIntake {
   void _applyPairing(
     List<DocumentRecord> newDocuments,
     List<DocumentItem> newItems,
-    List<LayoutGroup> newGroups,
-  ) {
+    List<LayoutGroup> newGroups, {
+    required Map<String, int> sourceImportIndices,
+  }) {
     final candidates = <PairCandidate>[];
-    for (var index = 0; index < newDocuments.length; index++) {
-      final record = newDocuments[index];
+    for (final record in newDocuments) {
       final recognition = record.recognition;
+      final importIndex = sourceImportIndices[record.sourceImageId];
       if (recognition == null ||
           recognition.documentKind == DocumentKind.unknown ||
-          record.sides.length != 1) {
+          record.sides.length != 1 ||
+          importIndex == null) {
         continue;
       }
       final processed = record.sides.single.processedAsset;
@@ -2330,7 +2353,7 @@ class SmartIntake {
           documentId: record.id,
           kind: recognition.documentKind,
           aspect: short == 0 ? 1 : long / short,
-          importIndex: index,
+          importIndex: importIndex,
           sourceImageId: record.sourceImageId,
         ),
       );

@@ -7,15 +7,15 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
 import 'package:scan_id/persistence/local_project_backups.dart';
 import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/persistence/local_storage_maintenance.dart';
 
-/// Diagnostic of a known race, not an assertion that restoration is safe.
 void main() {
-  test('characterizes cleanup of a published restore before create', () async {
+  test('maintenance waits for restore publication before deleting files', () async {
     final root = await Directory.systemTemp.createTemp('restore_race_');
     var repository = await LocalProjectRepository.open(root);
     final gate = _PausedCreate(repository);
@@ -48,57 +48,52 @@ void main() {
       ).restore(backup);
       outcome = restore.then<Object>(
         (value) => value,
-        onError: (Object e) => e,
+        onError: (Object error) => error,
       );
       final unpublished = await gate.published.future;
       final working = File(
         '${root.path}/${unpublished.assets.single.workingPath}',
       );
+      final directory = 'projects/${unpublished.id}';
       expect(await working.exists(), isTrue);
       expect(
-        (await repository.list()).any((p) => p.id == unpublished.id),
+        (await repository.list()).any((project) => project.id == unpublished.id),
         isFalse,
       );
 
-      // Simulate a restore stalled beyond the grace period without a sleep.
+      // It is a valid stale-orphan candidate before create. Physical deletion
+      // must nevertheless serialize with the restore's publication lease.
       final maintenance = LocalStorageMaintenance(
         repository.files,
         projects: repository,
         clock: () => DateTime.now().toUtc().add(const Duration(hours: 2)),
       );
-      final directory = 'projects/${unpublished.id}';
       final candidates = await maintenance.findOrphans(await repository.list());
       expect(candidates.paths, contains(directory));
-      expect(await maintenance.deleteFiles([directory]), 1);
-      expect(await working.exists(), isFalse);
-      gate.resume.complete();
-      expect(await outcome, isA<StorageException>());
+      final deletion = maintenance.deleteFiles([directory]).then<Object>(
+        (value) => value,
+        onError: (Object error) => error,
+      );
 
-      // The committed source and its history still reopen. A fresh retry uses
-      // the separate backup to restore the deleted unpublished bytes.
+      gate.resume.complete();
+      final restored = await outcome;
+      expect(restored, isA<Project>());
+      final deleteResult = await deletion;
+      expect(
+        deleteResult,
+        anyOf(isA<ValidationException>(), isA<StorageException>()),
+        reason: 'fresh live references must refuse the stale candidate',
+      );
+      expect(await working.exists(), isTrue);
+
       await repository.close();
       repository = await LocalProjectRepository.open(root);
+      final reopened = await repository.get(unpublished.id);
+      expect(reopened.toJson(), (restored as Project).toJson());
+      await _expectAllAssetFiles(root, reopened);
       final reopenedSource = await repository.get(source.id);
       expect(reopenedSource.toJson(), source.toJson());
       await _expectAllAssetFiles(root, reopenedSource);
-      final retry = await LocalProjectBackups(
-        repository,
-        repository.files,
-      ).restore(backup);
-      expect(retry.id, isNot(unpublished.id));
-      await repository.close();
-      repository = await LocalProjectRepository.open(root);
-      final reopenedRetry = await repository.get(retry.id);
-      expect(reopenedRetry.toJson(), retry.toJson());
-      expect(
-        reopenedRetry.assets.single.revisionHistory.length,
-        source.assets.single.revisionHistory.length,
-      );
-      expect(
-        reopenedRetry.assets.single.parentRevisionId,
-        source.assets.single.parentRevisionId,
-      );
-      await _expectAllAssetFiles(root, reopenedRetry);
     } finally {
       if (!gate.resume.isCompleted) gate.resume.complete();
       if (outcome != null) await outcome;

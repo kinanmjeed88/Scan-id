@@ -283,7 +283,8 @@ void main() {
     final record = editor.saved.documents.firstWhere(
       (d) => d.id == 'rec-front',
     );
-    expect(record.overrides.single.documentKind, DocumentKind.passport);
+    expect(record.overrides, hasLength(2));
+    expect(record.overrides.last.documentKind, DocumentKind.passport);
     expect(tester.takeException(), isNull);
   });
 

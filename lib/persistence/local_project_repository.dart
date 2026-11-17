@@ -10,12 +10,15 @@ import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'safe_files.dart';
 import 'recovery_checkpoints.dart';
+import 'storage_coordination.dart';
 
 class LocalProjectRepository
     implements ProjectRepository, LegacyRevisionMigrator {
   LocalProjectRepository._(this._database, this.files)
-    : checkpoints = RecoveryCheckpoints(files);
+    : checkpoints = RecoveryCheckpoints(files),
+      coordination = StorageCoordination(files);
   final RecoveryCheckpoints checkpoints;
+  final StorageCoordination coordination;
   final Database _database;
   final SafeFiles files;
   static final _projects = stringMapStoreFactory.store('projects');
@@ -86,9 +89,10 @@ class LocalProjectRepository
     }
   }
 
-  /// Asset and historical file paths. Processed document sides can name a
-  /// missing regenerable cache, including in older backups, and are excluded.
-  /// This point-in-time check does not lock against filesystem deletion.
+  /// Asset and historical file paths that must exist before a new reference is
+  /// committed. Processed document sides can name a missing regenerable cache,
+  /// including in older backups, and are excluded. Callers that publish project
+  /// metadata hold [coordination] across this check and the commit.
   Set<String> _referencedPaths(Project project) => {
     for (final asset in project.assets) ...[
       asset.originalPath,
@@ -113,19 +117,23 @@ class LocalProjectRepository
   }
 
   @override
-  Future<Project> create(Project project) async {
-    require(project.revision == 0, 'المشروع الجديد يجب أن يبدأ من مراجعة صفر.');
-    await _checkNewReferences(project, null);
-    final saved = await _database.transaction((txn) async {
-      if (await _projects.record(project.id).exists(txn)) {
-        throw const RevisionConflict();
-      }
-      await _projects.record(project.id).put(txn, project.toJson());
-      return project;
-    });
-    await checkpoints.save(saved);
-    return saved;
-  }
+  Future<Project> create(Project project) =>
+      coordination.runExclusive(() async {
+        require(
+          project.revision == 0,
+          'المشروع الجديد يجب أن يبدأ من مراجعة صفر.',
+        );
+        await _checkNewReferences(project, null);
+        final saved = await _database.transaction((txn) async {
+          if (await _projects.record(project.id).exists(txn)) {
+            throw const RevisionConflict();
+          }
+          await _projects.record(project.id).put(txn, project.toJson());
+          return project;
+        });
+        await checkpoints.save(saved);
+        return saved;
+      });
 
   /// Explicitly assign a persistent identity to provable CURRENT revisions.
   /// Nothing is rewritten on open. The complete raw pre-migration record is
@@ -135,7 +143,7 @@ class LocalProjectRepository
   @override
   Future<LegacyRevisionMigrationResult> migrateLegacyRevisionIdentities(
     String projectId,
-  ) async {
+  ) => coordination.runExclusive(() async {
     final current = await get(projectId);
     final raw = await _projects.record(projectId).get(_database);
     if (raw == null || Project.fromJson(raw).revision != current.revision) {
@@ -211,7 +219,7 @@ class LocalProjectRepository
       List.unmodifiable(migrated),
       List.unmodifiable(unresolved),
     );
-  }
+  });
 
   Future<void> _snapshotRevisionMigration(
     String id,
@@ -258,7 +266,7 @@ class LocalProjectRepository
   ///    a revision conflict. The copy stays outdated, which is reported by
   ///    [staleRecoveryPoints] and repaired by [refreshRecoveryPoint].
   @override
-  Future<Project> save(Project project) async {
+  Future<Project> save(Project project) => coordination.runExclusive(() async {
     await _checkAssets(project);
     final saved = await _database.transaction((txn) async {
       final previous = await _projects.record(project.id).get(txn);
@@ -274,8 +282,9 @@ class LocalProjectRepository
         'لا يجوز تغيير هوية المشروع أو تاريخ إنشائه.',
       );
       // Existing broken historical references remain readable and repairable;
-      // do not add new paths that are already missing at this point. This
-      // check does not serialize the transaction with filesystem deletion.
+      // do not add new paths that are already missing at this point. The outer
+      // storage-coordination lease serializes this check + commit with physical
+      // deletion, including deletion in another isolate or process.
       await _checkNewReferences(project, old);
       // Failure-safe pre-upgrade snapshot: capture the raw legacy bytes before
       // the first v5 rewrite. If this write fails, the transaction aborts and
@@ -292,7 +301,7 @@ class LocalProjectRepository
     });
     await checkpoints.save(saved);
     return saved;
-  }
+  });
 
   /// Writes the raw pre-upgrade record to `migration-snapshots/<id>.json`,
   /// write-if-absent, only when the stored record is legacy (`schemaVersion` <
@@ -344,7 +353,7 @@ class LocalProjectRepository
   /// Intentional metadata-only deletion. Never recursively delete a path
   /// derived from a project file; GC and backup retention need a later design.
   @override
-  Future<void> remove(Project project) async {
+  Future<void> remove(Project project) => coordination.runExclusive(() async {
     final current = await _projects.record(project.id).get(_database);
     if (current == null) {
       throw const RevisionConflict();
@@ -369,7 +378,7 @@ class LocalProjectRepository
       await checkpoints.save(live);
       rethrow;
     }
-  }
+  });
 
   /// Projects whose recovery copy does not match the saved data. Durable.
   Future<Set<String>> staleRecoveryPoints() async =>
@@ -377,37 +386,40 @@ class LocalProjectRepository
 
   /// Rewrites one project's recovery copy from the committed record. Throws
   /// if the copy still cannot be written.
-  Future<void> refreshRecoveryPoint(String projectId) async {
-    final project = await metadata(projectId);
-    await checkpoints.saveRequired(project);
-  }
+  Future<void> refreshRecoveryPoint(String projectId) =>
+      coordination.runExclusive(() async {
+        final project = await metadata(projectId);
+        await checkpoints.saveRequired(project);
+      });
 
   /// Explicit recovery only: the previous database is never overwritten/deleted.
   static Future<LocalProjectRepository> recover(Directory directory) async {
     final files = SafeFiles(Directory(await directory.resolveSymbolicLinks()));
-    final snapshots = await RecoveryCheckpoints(files).read();
-    require(
-      snapshots.isNotEmpty,
-      'لا توجد نقاط استرداد سليمة. احتفظ بمساحة التطبيق واستعد نسختك الخارجية أو اطلب استرداداً متخصصاً.',
-    );
-    final name = 'recovered-${newId()}.db';
-    final database = await databaseFactoryIo.openDatabase(
-      await files.checkedPath(name),
-    );
-    try {
-      await database.transaction((txn) async {
-        for (final project in snapshots) {
-          await _projects.record(project.id).put(txn, project.toJson());
-        }
-      });
-      final pointer = File(await files.checkedPath('active-${newId()}.tmp'));
-      await pointer.writeAsString(jsonEncode({'name': name}), flush: true);
-      await pointer.rename(await files.checkedPath('active-store.json'));
-      return LocalProjectRepository._(database, files);
-    } catch (_) {
-      await database.close();
-      rethrow;
-    }
+    return StorageCoordination(files).runExclusive(() async {
+      final snapshots = await RecoveryCheckpoints(files).read();
+      require(
+        snapshots.isNotEmpty,
+        'لا توجد نقاط استرداد سليمة. احتفظ بمساحة التطبيق واستعد نسختك الخارجية أو اطلب استرداداً متخصصاً.',
+      );
+      final name = 'recovered-${newId()}.db';
+      final database = await databaseFactoryIo.openDatabase(
+        await files.checkedPath(name),
+      );
+      try {
+        await database.transaction((txn) async {
+          for (final project in snapshots) {
+            await _projects.record(project.id).put(txn, project.toJson());
+          }
+        });
+        final pointer = File(await files.checkedPath('active-${newId()}.tmp'));
+        await pointer.writeAsString(jsonEncode({'name': name}), flush: true);
+        await pointer.rename(await files.checkedPath('active-store.json'));
+        return LocalProjectRepository._(database, files);
+      } catch (_) {
+        await database.close();
+        rethrow;
+      }
+    });
   }
 
   @override

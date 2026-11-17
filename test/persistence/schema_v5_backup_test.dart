@@ -68,6 +68,14 @@ void main() {
           finalConfidence: Confidence(value: 0.9, producer: 'p', version: '1'),
         ),
         preset: const PresetSelection.resolved('builtin-passport'),
+        evidence: [
+          RecognitionEvidence(
+            source: EvidenceSource.ocr,
+            kind: 'keyword-match',
+            score: 0.82,
+            reason: 'title+independent-support',
+          ),
+        ],
         pipelineVersion: 'pipe-1',
         validated: true,
       ),
@@ -142,6 +150,12 @@ void main() {
     expect(record.id, 'rec-card');
     expect(record.recognition!.confidences.classification!.value, 0.9);
     expect(record.recognition!.preset.variantId, 'builtin-passport');
+    expect(record.recognition!.evidence.single.toJson(), {
+      'source': 'ocr',
+      'kind': 'keyword-match',
+      'score': 0.82,
+      'reason': 'title+independent-support',
+    });
     expect(record.overrides.single.documentKind, DocumentKind.residenceCard);
     // The processed-asset reference is remapped to the new project folder.
     final working = record.sides.single.processedAsset.workingPath;

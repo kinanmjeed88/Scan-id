@@ -55,8 +55,16 @@ Project setKindWithOverride(Project project, String itemId, DocumentKind kind) {
   var next = DocumentEdits.setKind(project, itemId, kind);
   final documentId = before.documentId;
   if (documentId == null) return next;
-  final record = _record(next, documentId);
+  var record = _record(next, documentId);
   if (effectiveKind(record) == kind) return next;
+  // A kind correction invalidates both a proposed and a confirmed pair. Keep
+  // the partner's image/layout/evidence, but remove the reciprocal link and
+  // pair group before storing a conflicting type override.
+  if (record.pairing != PairingState.single ||
+      record.pairedDocumentId != null) {
+    next = rejectPair(next, documentId);
+    record = _record(next, documentId);
+  }
   final variantId = next.catalog.natural(kind) != null
       ? builtinVariantId(kind)
       : null;
@@ -160,10 +168,21 @@ Project dismissRecognition(Project project, String documentId) {
   }, documentsOverride: updatedRecords);
 }
 
-/// Records the user's front/back choice for a document.
+/// Records the user's front/back choice for a document. Changing an existing
+/// face decision dissolves a proposed or confirmed pair before the new choice
+/// is appended; equal effective choices are idempotent.
 Project setSideOverride(Project project, String documentId, SideKind side) {
-  final record = _record(project, documentId);
-  return _replaceRecords(project, [
+  var next = project;
+  var record = _record(next, documentId);
+  if (record.sides.every((entry) => effectiveSide(record, entry) == side)) {
+    return project;
+  }
+  if (record.pairing != PairingState.single ||
+      record.pairedDocumentId != null) {
+    next = rejectPair(next, documentId);
+    record = _record(next, documentId);
+  }
+  return _replaceRecords(next, [
     record.copyWith(
       overrides: [
         ...record.overrides,
@@ -193,11 +212,37 @@ Project acceptPair(
   require(documentIdA != documentIdB, 'لا يمكن اقتران المستند بنفسه.');
   final a = _record(project, documentIdA);
   final b = _record(project, documentIdB);
+  require(!isDismissed(a) && !isDismissed(b), 'لا يمكن اقتران مستند مستبعد.');
+  require(
+    a.sides.length == 1 && b.sides.length == 1,
+    'اقتران الوجهين يتطلب سجلاً مستقلاً لكل وجه.',
+  );
+  final kindA = effectiveKind(a);
+  final kindB = effectiveKind(b);
+  require(
+    kindA != DocumentKind.unknown && kindA == kindB,
+    'لا يمكن اقتران مستندين من نوعين مختلفين أو غير محددين.',
+  );
+  require(
+    a.sourceImageId != b.sourceImageId,
+    'لا يمكن اعتبار منطقتين من الصورة نفسها وجهي مستند واحد.',
+  );
+  final sideA = effectiveSide(a, a.sides.single);
+  final sideB = effectiveSide(b, b.sides.single);
+  require(
+    sideA == SideKind.unknown || sideB == SideKind.unknown || sideA != sideB,
+    'وجها المستند يحملان التصنيف نفسه؛ حدّد وجهاً أمامياً وآخر خلفياً.',
+  );
+  require(
+    project.items.any((item) => item.documentId == a.id) &&
+        project.items.any((item) => item.documentId == b.id),
+    'كل وجه مقترن يجب أن يملك عنصراً في التخطيط.',
+  );
   for (final record in [a, b]) {
+    final expectedPartnerId = record.id == a.id ? b.id : a.id;
     require(
-      record.pairing != PairingState.paired ||
-          record.pairedDocumentId == a.id ||
-          record.pairedDocumentId == b.id,
+      record.pairedDocumentId == null ||
+          record.pairedDocumentId == expectedPartnerId,
       'أحد المستندين مقترن مسبقاً بمستند آخر.',
     );
   }
@@ -223,8 +268,29 @@ Project acceptPair(
     for (final item in next.items)
       if (item.documentId == a.id || item.documentId == b.id) item.id,
   ];
-  if (itemIds.length < 2) return next;
+  require(itemIds.length >= 2, 'كل وجه مقترن يجب أن يملك عنصراً مستقلاً.');
   final groupId = pairGroupId(a.id, b.id);
+  final memberIds = itemIds.toSet();
+  require(
+    next.items
+        .where((item) => memberIds.contains(item.id))
+        .every((item) => item.groupId == null || item.groupId == groupId),
+    'أحد الوجهين ينتمي إلى مجموعة تخطيط أخرى؛ افصل المجموعة أولاً.',
+  );
+  require(
+    next.layoutGroups.every(
+      (existing) =>
+          existing.id == groupId || !existing.itemIds.any(memberIds.contains),
+    ),
+    'أحد الوجهين عضو في مجموعة تخطيط أخرى؛ افصل المجموعة أولاً.',
+  );
+  final priorPairGroup = next.layoutGroups
+      .where((existing) => existing.id == groupId)
+      .firstOrNull;
+  require(
+    priorPairGroup == null || priorPairGroup.itemIds.every(memberIds.contains),
+    'مجموعة الاقتران الحالية تضم عناصر أخرى؛ افصلها أولاً.',
+  );
   final group = LayoutGroup(
     id: groupId,
     itemIds: itemIds,

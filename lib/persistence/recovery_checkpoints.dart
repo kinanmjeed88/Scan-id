@@ -5,6 +5,7 @@ import '../application/ids.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'safe_files.dart';
+import 'storage_coordination.dart';
 
 /// A second local copy of committed metadata, not a complete/external backup.
 ///
@@ -14,9 +15,10 @@ import 'safe_files.dart';
 /// commit it follows into a failure, because the new data is already durable.
 /// The failure is kept, reported, and repaired explicitly with [saveRequired].
 class RecoveryCheckpoints {
-  RecoveryCheckpoints(this.files);
+  RecoveryCheckpoints(this.files) : coordination = StorageCoordination(files);
   final SafeFiles files;
-  Future<void> _tail = Future.value();
+  final StorageCoordination coordination;
+  Future<void> _tail = Future<void>.value();
 
   /// Copy writes that failed and have not been followed by a successful write
   /// of the same project. Session-only; the durable view is [staleAgainst].
@@ -31,38 +33,39 @@ class RecoveryCheckpoints {
   /// been retried successfully since.
   bool isStale(String projectId) => _failed.containsKey(projectId);
 
-  Future<void> save(Project project, {bool deleted = false}) {
-    final work = _tail.then((_) async {
-      final temporary = File(
-        await files.checkedPath('checkpoints/${project.id}-${newId()}.tmp'),
-      );
-      try {
-        await temporary.parent.create(recursive: true);
-        await temporary.writeAsString(
-          jsonEncode({
-            'version': 1,
-            'deleted': deleted,
-            'project': project.toJson(),
-          }),
-          flush: true,
-        );
-        await temporary.rename(
-          await files.checkedPath('checkpoints/${project.id}.json'),
-        );
-        _failed.remove(project.id);
-      } finally {
-        if (await temporary.exists()) {
-          await temporary.delete();
-        }
-      }
-    });
-    // The failure is recorded with its cause, not dropped. It is reported
-    // through [warning] and [isStale]; the caller's commit is not undone.
-    _tail = work.catchError((Object error) {
-      _failed[project.id] = error;
-    });
-    return _tail;
-  }
+  Future<void> save(Project project, {bool deleted = false}) =>
+      coordination.runExclusive(() async {
+        final work = _tail.then((_) async {
+          final temporary = File(
+            await files.checkedPath('checkpoints/${project.id}-${newId()}.tmp'),
+          );
+          try {
+            await temporary.parent.create(recursive: true);
+            await temporary.writeAsString(
+              jsonEncode({
+                'version': 1,
+                'deleted': deleted,
+                'project': project.toJson(),
+              }),
+              flush: true,
+            );
+            await temporary.rename(
+              await files.checkedPath('checkpoints/${project.id}.json'),
+            );
+            _failed.remove(project.id);
+          } finally {
+            if (await temporary.exists()) {
+              await temporary.delete();
+            }
+          }
+        });
+        // The failure is recorded with its cause, not dropped. It is reported
+        // through [warning] and [isStale]; the caller's commit is not undone.
+        _tail = work.catchError((Object error) {
+          _failed[project.id] = error;
+        });
+        await _tail;
+      });
 
   /// Like [save], but a copy that could not be written is an error for the
   /// caller. Used where the copy is the only thing being changed (repair), and

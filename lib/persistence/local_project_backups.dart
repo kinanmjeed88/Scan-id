@@ -10,6 +10,7 @@ import '../application/project_backups.dart';
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'safe_files.dart';
+import 'storage_coordination.dart';
 
 // Stored (not compressed) payloads: streaming restores cannot be zip bombs.
 // The manifest is bounded; hashes detect corruption, not authenticity/encryption.
@@ -22,41 +23,54 @@ class LocalProjectBackups implements ProjectBackups {
   const LocalProjectBackups(this.projects, this.files);
   final ProjectRepository projects;
   final SafeFiles files;
+  StorageCoordination get coordination => StorageCoordination(files);
 
   @override
-  Future<File> create(Project project, Directory temporary) async {
-    final latest = await projects.get(project.id);
-    require(
-      latest.revision == project.revision,
-      'تغير المشروع؛ أعد فتحه قبل النسخ الاحتياطي.',
-    );
-    final root = files.root.path;
-    final folder = await Directory(
-      '${temporary.path}/scan-backup-${newId()}',
-    ).create(recursive: true);
-    try {
-      final output = '${folder.path}/project.scanid';
-      await Isolate.run(() => _writeBackup(latest, root, output));
-      return File(output);
-    } catch (_) {
-      await folder.delete(recursive: true);
-      rethrow;
-    }
-  }
+  Future<File> create(Project project, Directory temporary) =>
+      coordination.runExclusive(() async {
+        final latest = await projects.get(project.id);
+        require(
+          latest.revision == project.revision,
+          'تغير المشروع؛ أعد فتحه قبل النسخ الاحتياطي.',
+        );
+        final root = files.root.path;
+        final folder = await Directory(
+          '${temporary.path}/scan-backup-${newId()}',
+        ).create(recursive: true);
+        try {
+          final output = '${folder.path}/project.scanid';
+          await _writeBackupIsolated(latest, root, output);
+          return File(output);
+        } catch (_) {
+          await folder.delete(recursive: true);
+          rethrow;
+        }
+      });
 
   @override
-  Future<Project> restore(File source) async {
+  Future<Project> restore(File source) => coordination.runExclusive(() async {
     final root = files.root.path;
     final input = source.path;
     // A new identity and staging directory are chosen locally, never by a backup.
     final id = newId();
-    final restored = await Isolate.run(() => _readBackup(input, root, id));
-    // Only publish metadata after all bytes, hashes and references are durable.
+    final restored = await _readBackupIsolated(input, root, id);
+    // Hold the same cross-process protocol from extraction through publication.
+    // Otherwise cleanup could classify the renamed restore directory as orphaned
+    // in the interval before the project row and its recovery copy exist.
     // On DB failure, retain the verified new folder for recovery, never delete
     // files that might already have been committed when the OS reported an error.
     return projects.create(restored);
-  }
+  });
 }
+
+Future<void> _writeBackupIsolated(
+  Project project,
+  String root,
+  String output,
+) => Isolate.run(() => _writeBackup(project, root, output));
+
+Future<Project> _readBackupIsolated(String input, String root, String id) =>
+    Isolate.run(() => _readBackup(input, root, id));
 
 Set<String> _references(Project p) => {
   for (final a in p.assets) ...[

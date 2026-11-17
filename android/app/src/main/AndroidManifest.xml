@@ -1,11 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- The app works entirely offline: recognition, storage and export never
-         touch the network. Exactly two permissions are declared, both for the
-         update flow the person starts from Settings, and nothing else:
-         INTERNET lets the update check reach its release feed (without it every
-         request dies in EACCES), and REQUEST_INSTALL_PACKAGES lets the system
-         installer accept a package the app verified. No CAMERA, no storage, no
-         location. -->
+    <!-- Document processing, OCR, storage and export stay local; no document
+         image or text is sent over the network. Exactly two permissions are
+         declared, both for OTA and nothing else: INTERNET is used by the silent
+         release-feed check at launch and the on-demand Settings check; a package
+         download/install is offered only after user consent. REQUEST_INSTALL_PACKAGES
+         lets the Android system installer accept a verified package. No CAMERA,
+         broad storage, or location permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application

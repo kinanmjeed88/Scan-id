@@ -1092,8 +1092,17 @@ class Project {
               throw const ValidationException('مستند يشير إلى قرين مفقود.'),
         );
         require(
+          record.pairing == PairingState.paired ||
+              record.pairing == PairingState.ambiguous,
+          'حالة المستند لا تسمح بوجود قرين.',
+        );
+        require(
           partner.pairedDocumentId == record.id,
           'اقتران المستندين غير متبادل.',
+        );
+        require(
+          partner.pairing == record.pairing,
+          'حالة الاقتران غير متطابقة بين المستندين.',
         );
       }
     }

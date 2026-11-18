@@ -1,7 +1,7 @@
 # Boundary / instance audit — report
 
 Reference commit: `8c9200372df8b9be0bb2a4c66b0b87002ac53ac8` (base `searchidf`)
-Final commit on this branch: `02aac94643bfc07fe78e813cfdbeb067f2c9fb25`
+Final commit on this branch: `fc0e675fae3acd3610df0630af3f8d2e9ae6192e`
 Branch: `arena/d2061602-scan-id`
 
 Everything below is either a measured number or an explicit statement that the
@@ -186,7 +186,7 @@ connections; npm and PyPI cannot supply a Dart VM). Therefore:
 
 ## 6. Verification actually run
 
-On `02aac94` (run [44395032337](https://github.com/kinanmjeed88/Scan-id/actions/runs/44395032337)) — **all jobs green**:
+On `fc0e675` (run [44403852566](https://github.com/kinanmjeed88/Scan-id/actions/runs/44403852566)) — **all jobs green**:
 
 | Step | Result |
 |---|---|
@@ -207,6 +207,11 @@ Local checks: `python3 tool/check_source.py` and
 `python3 tool/check_detector_retirement.py` pass; the ground-truth builder and
 both evaluation scripts run reproducibly (identical numbers before and after the
 sandbox reset).
+
+The run before it (`75f949c`) failed only on the Android 16 startup evidence
+step — `adb: device emulator-5554 not found` while installing the diagnostic APK,
+after the build and every test had passed. That is an emulator infrastructure
+failure, not a code failure; the commit was re-run and passed.
 
 Earlier runs on this branch failed and were fixed, each at its root cause:
 format gate (4 formatter diffs), analyze (`goodQuad` was local to `main`), tests

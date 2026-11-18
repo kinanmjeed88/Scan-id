@@ -143,24 +143,28 @@ void _multiDocumentContract() {
   //
   // The test stays here, skipped, so the day such a detector lands removing the
   // skip is the acceptance check.
-  test('two cards touching each other are two regions, not one', () {
-    final image = _background(900, 700);
-    _card(image, 100, 200, 430, 430);
-    _card(image, 434, 200, 764, 430);
-    final result = segmentDecoded(image);
-    for (final candidate in result.candidates) {
-      final horizontalSpan = candidate.region[2] - candidate.region[0];
-      final coversLeftCard = candidate.region[0] <= 100 / 899;
-      final coversRightCard = candidate.region[2] >= 764 / 899;
-      expect(
-        coversLeftCard && coversRightCard && horizontalSpan > .55,
-        isFalse,
-        reason:
-            'a single region must not enclose two separate cards '
-            '(region ${candidate.region})',
-      );
-    }
-  }, skip: 'known limitation: adjacent cards merge into one region');
+  test(
+    'two cards touching each other are two regions, not one',
+    () {
+      final image = _background(900, 700);
+      _card(image, 100, 200, 430, 430);
+      _card(image, 434, 200, 764, 430);
+      final result = segmentDecoded(image);
+      for (final candidate in result.candidates) {
+        final horizontalSpan = candidate.region[2] - candidate.region[0];
+        final coversLeftCard = candidate.region[0] <= 100 / 899;
+        final coversRightCard = candidate.region[2] >= 764 / 899;
+        expect(
+          coversLeftCard && coversRightCard && horizontalSpan > .55,
+          isFalse,
+          reason:
+              'a single region must not enclose two separate cards '
+              '(region ${candidate.region})',
+        );
+      }
+    },
+    skip: 'known limitation: adjacent cards merge into one region',
+  );
 
   test('a merged two-card component never reports frame contact it lacks', () {
     // A 4 px gap is far narrower than the mask's morphological close, so the

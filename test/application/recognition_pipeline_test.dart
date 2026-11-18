@@ -912,14 +912,8 @@ void main() {
       final ids = analysis.allRegions.map((d) => d.detectionId).toList();
       expect(ids.toSet(), hasLength(2), reason: 'ids must be distinct');
       // The unresolved region keeps its measured bounds instead of a guess.
-      expect(
-        analysis.allRegions.where((d) => d.region == null),
-        isEmpty,
-      );
-      expect(
-        analysis.allRegions.map((d) => d.region![0]).toList(),
-        [.05, .55],
-      );
+      expect(analysis.allRegions.where((d) => d.region == null), isEmpty);
+      expect(analysis.allRegions.map((d) => d.region![0]).toList(), [.05, .55]);
     },
   );
 

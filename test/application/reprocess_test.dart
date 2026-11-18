@@ -542,10 +542,9 @@ void main() {
         ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
       ])).project;
       final sourceId = project.assets.single.id;
-      final first = (await s.arrangeImportedImages(
-        project,
-        [sourceId],
-      )).project;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
       expect(first.documents, hasLength(2));
       final recordIds = first.documents.map((d) => d.id).toSet();
       // Which card each record is, BEFORE the reordered pass.

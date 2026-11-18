@@ -1150,8 +1150,7 @@ class SmartIntake {
     final bottom = math.min(a[3], b[3]);
     if (right <= left || bottom <= top) return 0;
     final intersection = (right - left) * (bottom - top);
-    double area(List<double> r) =>
-        math.max(0.0, (r[2] - r[0]) * (r[3] - r[1]));
+    double area(List<double> r) => math.max(0.0, (r[2] - r[0]) * (r[3] - r[1]));
     final union = area(a) + area(b) - intersection;
     return union <= 0 ? 0.0 : intersection / union;
   }

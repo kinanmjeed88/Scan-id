@@ -130,6 +130,13 @@ class _RegionOutput {
 /// while still finite: the batch must always reach the next image.
 const Duration defaultImageAnalysisBudget = Duration(minutes: 2);
 
+/// How much two measured normalized regions must overlap before a reprocess
+/// treats them as the same document. Deliberately strict: pairing the wrong
+/// record would refresh one card with another card's image, while a missed
+/// match only costs a second record the user can dismiss. Two cards in one
+/// photograph share no rectangle at all, so 0.6 leaves ample margin.
+const double _sameRegionOverlap = 0.6;
+
 class SmartIntake {
   const SmartIntake({
     required this.projects,
@@ -955,17 +962,28 @@ class SmartIntake {
       warnings.add('${sourceAsset.name}: $refused');
       onRejected(analyzed.analysis.rejectedRegions);
     }
-    // Existing records of THIS source, keyed by the deterministic detection
-    // id. The segmenter is deterministic, so re-analysing the same original
-    // reproduces the same region ids and matching is exact.
-    final byDetectionId = <String, DocumentRecord>{};
-    for (final record in current.documents) {
-      if (record.sourceImageId != sourceAsset.id) continue;
-      if (record.sides.length != 1) continue;
-      final detection = record.sides.single.detection;
-      if (detection == null) continue;
-      byDetectionId.putIfAbsent(detection.detectionId, () => record);
-    }
+    // Records of THIS source that a region may still claim. Identity is
+    // resolved by WHERE the region was measured first and by the positional
+    // detection id only as a fallback.
+    //
+    // The detection id is `asset-dN`, i.e. the region's POSITION in the list,
+    // which is stable only while the list itself is. It is not: a later pass
+    // can measure the same cards in another order, or one region fewer. Then
+    // `d0` names the other card — so matching on the id would either append a
+    // second record for a card the project already holds (one photo of two
+    // cards becoming four documents) or refresh card A with card B's image.
+    // The measured region rectangle is stored with the record and is a property
+    // of the photograph, so it answers "which card is this" apart from any
+    // ordering. A record whose region is known is therefore matched on geometry
+    // and never on its id; the id is used only for records that predate the
+    // stored region.
+    final claimable = <DocumentRecord>[
+      for (final record in current.documents)
+        if (record.sourceImageId == sourceAsset.id &&
+            record.sides.length == 1 &&
+            record.sides.single.detection != null)
+          record,
+    ];
 
     Uint8List? originalBytes;
     try {
@@ -974,7 +992,7 @@ class SmartIntake {
       for (final detection in analyzed.analysis.allRegions) {
         cancellation?.throwIfCancelled();
         position++;
-        final existing = byDetectionId[detection.detectionId];
+        final existing = _claimRecord(claimable, detection);
         if (existing != null && existing.overrides.isNotEmpty) {
           // Preserve the distinct decision: dismissal is not confirmation, and
           // neither may be silently overwritten or reintroduced as a new item.
@@ -1044,6 +1062,98 @@ class SmartIntake {
       originalBytes = null;
     }
     return current;
+  }
+
+  /// Takes the record of this source that [detection] continues, or null when
+  /// this region is a document the project does not hold yet.
+  ///
+  /// Preference order is evidence order:
+  /// 1. a record whose MEASURED region covers the same part of the photograph;
+  /// 2. a record with the same positional detection id, but only when the
+  ///    record carries no measured region to check it against (records from
+  ///    the region was persisted).
+  ///
+  /// A claimed record leaves [claimable], so two regions can never resolve to
+  /// one document and one record can never be refreshed twice in a pass.
+  DocumentRecord? _claimRecord(
+    List<DocumentRecord> claimable,
+    DetectionAnalysis detection,
+  ) {
+    final record = _claimByMeasuredGeometry(claimable, detection);
+    if (record != null) return record;
+    for (final candidate in claimable) {
+      final detectionRef = candidate.sides.single.detection!;
+      if (detectionRef.detectionId != detection.detectionId) continue;
+      // Its geometry is known and did not match, so this is another document.
+      if (_regionFromTrace(detectionRef.detectionTrace) != null) continue;
+      claimable.remove(candidate);
+      return candidate;
+    }
+    return null;
+  }
+
+  /// Takes the claimable record whose MEASURED boundary covers the same part of
+  /// the photograph as [detection], and removes it from [claimable] so that one
+  /// record can never be claimed twice.
+  ///
+  /// The comparison uses the normalized region rectangle the segmenter
+  /// measured, which is stored with the record. It is a measurement, not
+  /// a guess: re-analysing the same bytes reproduces it, while two different
+  /// cards in one photo occupy different rectangles. Two regions are the same
+  /// when their intersection covers most of both — deliberately strict, because
+  /// pairing the wrong record would refresh one card with another card's image.
+  /// When nothing matches closely enough, no record is claimed and the region
+  /// is correctly treated as a new document.
+  DocumentRecord? _claimByMeasuredGeometry(
+    List<DocumentRecord> claimable,
+    DetectionAnalysis detection,
+  ) {
+    final region = detection.region;
+    if (region == null || region.length != 4) return null;
+    DocumentRecord? best;
+    var bestScore = 0.0;
+    for (final record in claimable) {
+      final known = record.sides.single.detection?.detectionTrace;
+      final previous = known == null ? null : _regionFromTrace(known);
+      if (previous == null) continue;
+      final score = _regionOverlap(previous, region);
+      if (score > bestScore) {
+        bestScore = score;
+        best = record;
+      }
+    }
+    if (best == null || bestScore < _sameRegionOverlap) return null;
+    claimable.remove(best);
+    return best;
+  }
+
+  /// The measured region a record was created from, recovered from its
+  /// detection trace, or null when the record predates that trace.
+  static List<double>? _regionFromTrace(List<String> trace) {
+    for (final entry in trace) {
+      if (!entry.startsWith('region=')) continue;
+      final parts = entry.substring('region='.length).split(',');
+      if (parts.length != 4) return null;
+      final values = [for (final part in parts) double.tryParse(part)];
+      if (values.any((value) => value == null || !value.isFinite)) return null;
+      return [for (final value in values) value!];
+    }
+    return null;
+  }
+
+  /// Intersection over union of two normalized `[left, top, right, bottom]`
+  /// rectangles.
+  static double _regionOverlap(List<double> a, List<double> b) {
+    final left = math.max(a[0], b[0]);
+    final top = math.max(a[1], b[1]);
+    final right = math.min(a[2], b[2]);
+    final bottom = math.min(a[3], b[3]);
+    if (right <= left || bottom <= top) return 0;
+    final intersection = (right - left) * (bottom - top);
+    double area(List<double> r) =>
+        math.max(0.0, (r[2] - r[0]) * (r[3] - r[1]));
+    final union = area(a) + area(b) - intersection;
+    return union <= 0 ? 0.0 : intersection / union;
   }
 
   /// A region that produced no document yet — for example a first attempt that
@@ -2168,7 +2278,11 @@ class SmartIntake {
       pairing: PairingState.single,
       provenance: Provenance(
         sourceImageId: sourceAssetId,
-        detectionIds: [detection.detectionId],
+        // The measured region travels with the record as its detection id too:
+        // this is what survives independently of the region ORDER, so a later
+        // pass can recognise the same card in a differently numbered list. It
+        // carries numbers only — never a path, a sentence or recognized text.
+        detectionIds: [detection.detectionId, _regionKeyOf(detection)],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
         modelVersions: _modelVersions,
@@ -2208,7 +2322,7 @@ class SmartIntake {
       recognition: _recognitionFor(current, classification),
       provenance: Provenance(
         sourceImageId: existing.provenance.sourceImageId,
-        detectionIds: [detection.detectionId],
+        detectionIds: [detection.detectionId, _regionKeyOf(detection)],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
         modelVersions: _modelVersions,
@@ -2219,6 +2333,21 @@ class SmartIntake {
   }
 
   static String _fixed(double value) => value.toStringAsFixed(3);
+
+  /// The stable id of the region a detection was measured from.
+  ///
+  /// Derived from the region rectangle, i.e. from the photograph, so it names
+  /// the same document however the regions are ordered in a later pass. Encoded
+  /// in the id alphabet `[a-zA-Z0-9_-]` that `validId` enforces — units of
+  /// 1/10000 of the frame: `[.1, .1, .9, .6]` -> `r1000_1000_9000_6000`.
+  static String _regionKeyOf(DetectionAnalysis detection) {
+    final region = detection.region;
+    if (region == null || region.length != 4) return detection.detectionId;
+    final parts = [
+      for (final value in region) (value * 10000).round().clamp(0, 10000),
+    ];
+    return 'r${parts.join('_')}';
+  }
 
   DetectionRef _detectionRef(
     DetectionAnalysis detection, {
@@ -2262,6 +2391,13 @@ class SmartIntake {
       // without ever storing recognized text or a path.
       detectionTrace: [
         for (final entry in traces) entry.encode(),
+        // WHERE the segmenter measured this region, as four normalized numbers.
+        // Persisted because it is the only measurement that survives with the
+        // record and still identifies the region if a later pass numbers the
+        // regions differently: without it a reprocess can only trust the
+        // positional id, and then a reordered region list duplicates documents.
+        if (detection.region != null && detection.region!.length == 4)
+          'region=${detection.region!.map(_fixed).join(',')}',
         if (disagreement != null) 'disagreement=${_fixed(disagreement)}',
         if (aspect != null) 'aspect=${_fixed(aspect)}',
         if (catalogAspect != null) 'catalogAspect=${_fixed(catalogAspect)}',

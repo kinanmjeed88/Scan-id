@@ -873,6 +873,56 @@ void main() {
     },
   );
 
+  test(
+    'two measured regions stay two regions, and each carries its own identity',
+    () async {
+      // The contract that makes instance separation checkable: N measured
+      // regions must yield N analyses with DISTINCT ids, and none may be
+      // dropped or collapsed by the boundary gate — even when a region has no
+      // trustworthy quadrilateral.
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (bytes) async =>
+            fail('a measured multi-image skips single'),
+        segment: (bytes) async => SegmentationResult(
+          multi: true,
+          candidates: [
+            SegmentCandidate(
+              region: const [.05, .08, .45, .92],
+              corners: [
+                Point2(.06, .10),
+                Point2(.44, .10),
+                Point2(.44, .90),
+                Point2(.06, .90),
+              ],
+              detectionConfidence: .9,
+              reason: 'component-support',
+            ),
+            const SegmentCandidate(
+              region: [.55, .08, .95, .92],
+              reason: 'no-trustworthy-quad',
+            ),
+          ],
+        ),
+      );
+
+      final analysis = await pipeline.analyze(_input());
+
+      expect(analysis.allRegions, hasLength(2));
+      expect(analysis.regionCount, 2);
+      final ids = analysis.allRegions.map((d) => d.detectionId).toList();
+      expect(ids.toSet(), hasLength(2), reason: 'ids must be distinct');
+      // The unresolved region keeps its measured bounds instead of a guess.
+      expect(
+        analysis.allRegions.where((d) => d.region == null),
+        isEmpty,
+      );
+      expect(
+        analysis.allRegions.map((d) => d.region![0]).toList(),
+        [.05, .55],
+      );
+    },
+  );
+
   test('an unresolved region is kept and reportable, never dropped', () async {
     final pipeline = RecognitionPipeline(
       suggestSingle: (bytes) async => _quad(),

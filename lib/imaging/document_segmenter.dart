@@ -402,6 +402,12 @@ SegmentationResult segmentDecoded(img.Image image) {
         corners: mapped,
         detectionConfidence: support,
         reason: 'component-support',
+        // A document whose measured corner sits on the frame edge may continue
+        // past the photo, so its crop cannot be certified as complete. Report
+        // that measurement instead of leaving the flag false: `verifyBoundary`
+        // treats it as a review reason, which is exactly the right outcome, and
+        // an under-reported flag is a silent false accept.
+        touchesFrameEdge: quadTouchesFrame(mapped),
       ),
     );
   }
@@ -743,6 +749,18 @@ List<SegmentCandidate> _suppressDuplicates(List<SegmentCandidate> input) {
   final ordered = survivors.toList()..sort();
   return [for (final index in ordered) input[index]];
 }
+
+/// True when any of [corners] lies inside [frameTouchBand] of the image border.
+///
+/// `frameTouchBand` lives with `verifyBoundary`, the decision that consumes it,
+/// so the segmenter's flag and the verifier's own check cannot drift apart.
+bool quadTouchesFrame(List<Point2> corners) => corners.any(
+  (p) =>
+      p.x <= frameTouchBand ||
+      p.x >= 1 - frameTouchBand ||
+      p.y <= frameTouchBand ||
+      p.y >= 1 - frameTouchBand,
+);
 
 int _hasQuad(SegmentCandidate candidate) => candidate.corners != null ? 1 : 0;
 

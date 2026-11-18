@@ -546,6 +546,11 @@ String _describeDetectionTrace(Iterable<String> codes) =>
     } else if (key == 'rejection') {
       fields['rejection'] = _boundedCode(raw);
       parts.add(_quadRejectionLabel(raw));
+    } else if (key == 'region') {
+      // The measured region rectangle, kept verbatim: it is what a reprocess
+      // uses to recognise the same document when the region order changes.
+      final parts = raw.split(',');
+      fields['region'] = parts.length == 4 ? _boundedCode(raw) : 'invalid';
     } else if (key == 'catalogAspect' && number != null) {
       fields['catalogAspect'] = _round4(number);
     } else if (key == 'catalogShape') {

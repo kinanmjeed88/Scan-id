@@ -58,7 +58,7 @@ void main() {
     );
   });
 
-  group('multi-document and frame-contact contract', () {
+  group('multi-document contract', () {
     _multiDocumentContract();
   });
 

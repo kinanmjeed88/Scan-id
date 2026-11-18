@@ -162,7 +162,7 @@ void main() {
       final project = await ProjectService(projects, assets).create('كاميرا');
       final file = await File(
         '${root.path}/broken.jpg',
-      ).writeAsString('broken');
+      ).writeAsBytes(List.filled(40, 0x00));
       port.photo = PendingCapture(
         id: 'capture2',
         projectId: project.id,

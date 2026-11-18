@@ -26,6 +26,13 @@ class _PendingCamera implements CameraPort {
   }
 }
 
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 80; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (finder.evaluate().isNotEmpty) return;
+  }
+}
+
 void main() {
   testWidgets(
     'opening a project offers a journalled camera capture instead of dropping it',
@@ -60,11 +67,12 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await _pumpUntilFound(tester, find.text('التقاط غير مؤكد الحفظ'));
 
       expect(find.text('التقاط غير مؤكد الحفظ'), findsOneWidget);
       await tester.tap(find.text('إلغاء'));
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(await port.pending(), isNotNull);
     },
   );
@@ -97,7 +105,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('التقاط غير مؤكد الحفظ'), findsNothing);
 
       final file = await File(
@@ -111,7 +120,8 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await _pumpUntilFound(tester, find.text('التقاط غير مؤكد الحفظ'));
 
       expect(find.text('التقاط غير مؤكد الحفظ'), findsOneWidget);
     },

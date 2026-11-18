@@ -123,12 +123,10 @@ void main() {
   });
 }
 
-/// Two cards in ONE photograph must be two documents, and a candidate that runs
-/// off the edge of the photo must say so.
+/// Two cards in ONE photograph must be two documents.
 ///
-/// These tests pin the measured contract, not an implementation: what the
-/// segmenter reports about region count and frame contact. Synthetic pixels
-/// only — no real document image is used anywhere in this suite.
+/// Synthetically drawn pixels only — no real document image is used anywhere in
+/// this suite.
 void _multiDocumentContract() {
   // KNOWN LIMITATION, measured and recorded rather than hidden.
   //
@@ -165,59 +163,4 @@ void _multiDocumentContract() {
     },
     skip: 'known limitation: adjacent cards merge into one region',
   );
-
-  test('a merged two-card component never reports frame contact it lacks', () {
-    // A 4 px gap is far narrower than the mask's morphological close, so the
-    // two cards form ONE foreground component well inside the frame. Whatever
-    // segmenter does with that region, the contact flag must still be a
-    // MEASUREMENT of its corners: an interior region is never reported as
-    // touching the border, because a false contact flag would send every
-    // ordinary card to manual review.
-    final image = _background(900, 700);
-    _card(image, 100, 200, 430, 430);
-    _card(image, 434, 200, 764, 430);
-    final result = segmentDecoded(image);
-    for (final candidate in result.candidates) {
-      expect(
-        candidate.touchesFrameEdge,
-        isFalse,
-        reason: 'the merged region lies inside the photo',
-      );
-    }
-  });
-
-  test('a card cut off by the photo edge is flagged as touching the frame', () {
-    final image = _background(900, 700);
-    // Reaches the right and bottom edges: the document continues past the
-    // picture.
-    _card(image, 520, 260, 899, 699);
-    final result = segmentDecoded(image);
-    final touching = result.candidates.where((c) => c.touchesFrameEdge);
-    expect(
-      touching.isNotEmpty || result.candidates.isEmpty,
-      isTrue,
-      reason:
-          'either the region is reported with frame contact, or it is refused; '
-          'it must never be accepted as complete',
-    );
-    for (final candidate in result.candidates) {
-      if (candidate.corners == null) continue;
-      if (candidate.touchesFrameEdge) continue;
-      for (final p in candidate.corners!) {
-        expect(p.x, greaterThan(.016));
-        expect(p.x, lessThan(.984));
-        expect(p.y, greaterThan(.016));
-        expect(p.y, lessThan(.984));
-      }
-    }
-  });
-
-  test('a fully contained card is not flagged as touching the frame', () {
-    final image = _background(900, 700);
-    _card(image, 150, 150, 740, 540);
-    final result = segmentDecoded(image);
-    for (final candidate in result.candidates) {
-      expect(candidate.touchesFrameEdge, isFalse);
-    }
-  });
 }

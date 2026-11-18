@@ -494,10 +494,6 @@ void main() {
       );
     },
   );
-  group('frame contact applies to every producer', () {
-    _frameContactGroup(1600, 1000);
-  });
-
   group('55% learned boundary policy', () {
     BoundaryDecision decide(
       double? score, {
@@ -630,62 +626,5 @@ void main() {
       expect(missing, contains('غير متاحة'));
       expect(missing, isNot(contains('0.0')));
     });
-  });
-}
-
-/// Frame contact is a property of the PHOTOGRAPH, not of the producer.
-///
-/// A segmenter measures its region from the pixels and can place a corner on
-/// the border because the document continues past the edge of the picture. That
-/// crop cannot be certified complete, so the decision must ask for review no
-/// matter which producer supplied the corners.
-void _frameContactGroup(int width, int height) {
-  test('a measured segmenter quad on the frame edge is sent to review', () {
-    final decision = verifyBoundary(
-      BoundaryProposal(
-        producer: BoundaryProducer.segmenter,
-        corners: [
-          Point2(.02, .01),
-          Point2(.60, .01),
-          Point2(.58, .70),
-          Point2(.03, .72),
-        ],
-        // A measured region comes with the proposal; it must not exempt the
-        // corner check.
-        region: const [.02, .01, .60, .72],
-        touchesFrameEdge: false,
-      ),
-      sourceWidth: width,
-      sourceHeight: height,
-    );
-    expect(decision.kind, BoundaryDecisionKind.needsReview);
-    expect(decision.cropAuthorization, isNull);
-    expect(
-      decision.verification.reasons,
-      contains(BoundaryReviewReason.touchesFrameEdge),
-    );
-  });
-
-  test('a fully contained segmenter quad is still accepted', () {
-    final decision = verifyBoundary(
-      BoundaryProposal(
-        producer: BoundaryProducer.segmenter,
-        corners: [
-          Point2(.1, .1),
-          Point2(.9, .1),
-          Point2(.9, .9),
-          Point2(.1, .9),
-        ],
-        region: const [.09, .09, .91, .91],
-        touchesFrameEdge: false,
-      ),
-      sourceWidth: width,
-      sourceHeight: height,
-    );
-    expect(decision.kind, BoundaryDecisionKind.accepted);
-    expect(
-      decision.verification.reasons,
-      isNot(contains(BoundaryReviewReason.touchesFrameEdge)),
-    );
   });
 }

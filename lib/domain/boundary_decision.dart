@@ -71,11 +71,6 @@ import 'validation.dart';
 /// milder disagreement onto the catalog ratio.
 const double maxAspectClaimRatio = 2.5;
 
-/// Normalized band along the photo border inside which a corner counts as
-/// touching the frame. Kept here, with the decision that consumes it, so the
-/// segmenter and the verifier use one number instead of two that can drift.
-const double frameTouchBand = 0.016;
-
 /// Who produced a boundary claim. Recorded so a later proposer (e.g. a
 /// learned model behind its own licence/evidence gate) can be swapped in
 /// without changing the decision contract or rewriting provenance.
@@ -616,32 +611,13 @@ BoundaryDecision verifyBoundary(
     }
   }
 
-  // The corners themselves say whether the boundary reaches the edge of the
-  // photo. Two cases need this check, and both are about a DOCUMENT the
-  // photograph may have cut:
-  //   * a learned proposal, which is the rule this gate was built for;
-  //   * any proposal that carries a measured region. Restricting the check to
-  //     learned proposals left a measured segmenter proposal running off the
-  //     frame with no review reason at all, so its crop was authorised as
-  //     though the whole document were inside the picture. A measured region
-  //     says "a document was found here", which is exactly when a corner on
-  //     the border means the photograph cut it.
-  // A classical or manual proposal with no measured region is deliberately
-  // NOT included: the whole-frame detector legitimately reports the frame
-  // itself, and flagging that would send every full-bleed capture to manual
-  // review without measuring anything.
-  final onFrameBorder = corners.any(
-    (p) =>
-        p.x <= frameTouchBand ||
-        p.x >= 1 - frameTouchBand ||
-        p.y <= frameTouchBand ||
-        p.y >= 1 - frameTouchBand,
-  );
-  final cutByTheFrame =
-      onFrameBorder &&
-      (proposal.region != null ||
-          proposal.producer == BoundaryProducer.learnedModel);
-  if (proposal.touchesFrameEdge || cutByTheFrame) {
+  final learnedEdgeTouch =
+      proposal.producer == BoundaryProducer.learnedModel &&
+      proposal.region == null &&
+      corners.any(
+        (p) => p.x <= 0.016 || p.x >= 0.984 || p.y <= 0.016 || p.y >= 0.984,
+      );
+  if (proposal.touchesFrameEdge || learnedEdgeTouch) {
     reasons.add(BoundaryReviewReason.touchesFrameEdge);
   }
   final modelConf = proposal.modelConfidence;

@@ -670,7 +670,12 @@ void _frameContactGroup(int width, int height) {
     final decision = verifyBoundary(
       BoundaryProposal(
         producer: BoundaryProducer.segmenter,
-        corners: goodQuad(),
+        corners: [
+          Point2(.1, .1),
+          Point2(.9, .1),
+          Point2(.9, .9),
+          Point2(.1, .9),
+        ],
         region: const [.09, .09, .91, .91],
         touchesFrameEdge: false,
       ),

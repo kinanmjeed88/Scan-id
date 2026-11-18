@@ -24,6 +24,17 @@ abstract interface class CameraPort {
   Future<void> discard(String id);
 }
 
+/// A camera output that is too small to be a JPEG is a cancelled or failed
+/// capture, not a document. Some camera apps leave the empty EXTRA_OUTPUT
+/// file after RESULT_CANCELED.
+Future<bool> isUsableCapture(File file, {int minBytes = 32}) async {
+  try {
+    return await file.exists() && await file.length() >= minBytes;
+  } on FileSystemException {
+    return false;
+  }
+}
+
 class CameraCapture {
   const CameraCapture(this.projects, this.assets, this.port);
   final ProjectRepository projects;
@@ -31,7 +42,16 @@ class CameraCapture {
   final CameraPort port;
   Future<Project?> capture(String projectId) async {
     final photo = await port.capture(projectId);
-    return photo == null ? null : accept(photo, projectId);
+    if (photo == null) return null;
+    if (!await isUsableCapture(photo.file)) {
+      try {
+        await port.discard(photo.id);
+      } catch (_) {
+        /* Empty leftovers must not block the next capture. */
+      }
+      return null;
+    }
+    return accept(photo, projectId);
   }
 
   Future<Project> accept(PendingCapture photo, String projectId) async {

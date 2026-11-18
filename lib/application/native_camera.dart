@@ -20,7 +20,15 @@ class NativeCamera implements CameraPort {
           'projectId': projectId,
         }),
       );
+    } on MissingPluginException {
+      // Engine reconfigured while the camera was open. Recover the JPEG only
+      // when the camera already wrote it; an empty journal must stay so a
+      // still-open camera can finish without Dart deleting the file.
+      return _journalIfUsable();
     } on PlatformException catch (error) {
+      if (error.code == 'interrupted') {
+        return _journalIfUsable();
+      }
       throw StorageException(
         error.code == 'pending'
             ? 'يوجد التقاط معلق؛ استرده أو احذفه صراحة قبل التقاط صورة جديدة.'
@@ -29,9 +37,25 @@ class NativeCamera implements CameraPort {
     }
   }
 
+  Future<PendingCapture?> _journalIfUsable() async {
+    final photo = await pending();
+    if (photo == null || !await isUsableCapture(photo.file)) return null;
+    return photo;
+  }
+
   @override
-  Future<PendingCapture?> pending() async =>
-      _photo(await _channel.invokeMapMethod<Object?, Object?>('pending'));
+  Future<PendingCapture?> pending() async {
+    try {
+      return _photo(
+        await _channel.invokeMapMethod<Object?, Object?>('pending'),
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   @override
   Future<void> discard(String id) async {
     await _channel.invokeMethod<void>('discard', {'id': id});

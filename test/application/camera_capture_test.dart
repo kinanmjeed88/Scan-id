@@ -77,12 +77,38 @@ void main() {
     },
   );
 
+  test('isUsableCapture rejects missing and tiny files', () async {
+    expect(await isUsableCapture(File('${root.path}/missing.jpg')), isFalse);
+    final tiny = await File('${root.path}/tiny.jpg').writeAsBytes([1, 2]);
+    expect(await isUsableCapture(tiny), isFalse);
+    final ok = await File(
+      '${root.path}/ok.jpg',
+    ).writeAsBytes(List.filled(40, 1));
+    expect(await isUsableCapture(ok), isTrue);
+  });
+
   test(
     'camera cancellation creates no image and changes no project revision',
     () async {
       final project = await ProjectService(projects, assets).create('كاميرا');
       expect(await camera.capture(project.id), isNull);
       expect((await projects.get(project.id)).toJson(), project.toJson());
+    },
+  );
+  test(
+    'an empty camera file is treated as cancellation and discarded',
+    () async {
+      final project = await ProjectService(projects, assets).create('كاميرا');
+      final file = await File('${root.path}/empty.jpg').create();
+      port.photo = PendingCapture(
+        id: 'empty-capture',
+        projectId: project.id,
+        file: file,
+      );
+      expect(await camera.capture(project.id), isNull);
+      expect(await file.exists(), isFalse);
+      expect(await port.pending(), isNull);
+      expect((await projects.get(project.id)).assets, isEmpty);
     },
   );
   test(
@@ -136,7 +162,7 @@ void main() {
       final project = await ProjectService(projects, assets).create('كاميرا');
       final file = await File(
         '${root.path}/broken.jpg',
-      ).writeAsString('broken');
+      ).writeAsBytes(List.filled(40, 0x00));
       port.photo = PendingCapture(
         id: 'capture2',
         projectId: project.id,

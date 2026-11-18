@@ -440,6 +440,36 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      # The weight is git-ignored (83 MB) and fetched from its pinned upstream
+      # release. Without this step `flutter analyze --fatal-infos` reports
+      # asset_does_not_exist for docaligner_fastvit_sa24_7f9f5a89.onnx and the
+      # Android/Windows packaging steps fail the same way. The cache key is the
+      # pinned SHA-256; fetch_docaligner_model.py re-hashes a restored copy.
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error title=docaligner-asset::The pinned DocAligner asset could not be fetched and verified." >&2
+          exit 1
+
       # The OCR graphs are 12.8 MiB of Apache-2.0 weights, git-ignored and
       # fetched from their pinned upstream revisions. The fetch verifies the byte
       # size and SHA-256 before the files are used, so a substituted or truncated
@@ -639,6 +669,33 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+
+      # Same pinned 83 MB asset as verify.yml. Missing it makes
+      # `flutter build windows` fail: no file for the pubspec asset.
+      - name: Restore the pinned DocAligner asset
+        id: docaligner-cache
+        continue-on-error: true
+        uses: actions/cache@v6
+        with:
+          path: assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx
+          key: docaligner-1.1.1-7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc
+
+      - name: Prepare verified DocAligner 1.1.1 model asset
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3 4; do
+            echo "Preparing pinned DocAligner asset (attempt $attempt/4)"
+            if python tool/fetch_docaligner_model.py; then
+              exit 0
+            fi
+            if (( attempt < 4 )); then
+              sleep $((attempt * 10))
+            fi
+          done
+          echo "::error title=docaligner-asset::The pinned DocAligner asset could not be fetched and verified." >&2
+          exit 1
 
       # The OCR graphs are 12.8 MiB of Apache-2.0 weights, git-ignored and
       # fetched from their pinned upstream revisions. The fetch verifies the byte

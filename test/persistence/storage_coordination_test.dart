@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/persistence/safe_files.dart';
 import 'package:scan_id/persistence/storage_coordination.dart';
 
@@ -76,6 +77,49 @@ void main() {
           .timeout(const Duration(seconds: 3));
       expect(nextOperationRan, isTrue);
     } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
+  test('a held lock times out instead of hanging save', () async {
+    final root = await Directory.systemTemp.createTemp('storage_timeout_');
+    final ready = ReceivePort();
+    final exited = ReceivePort();
+    Isolate? holder;
+    SendPort? release;
+    try {
+      holder = await Isolate.spawn<List<Object?>>(_holdStorageLock, [
+        root.path,
+        ready.sendPort,
+      ], onExit: exited.sendPort);
+      release =
+          await ready.first.timeout(const Duration(seconds: 5)) as SendPort;
+
+      final coordination = StorageCoordination(
+        SafeFiles(root),
+        acquireTimeout: const Duration(milliseconds: 200),
+      );
+      await expectLater(
+        coordination.runExclusive(() async => true),
+        throwsA(
+          isA<StorageException>().having(
+            (error) => error.message,
+            'message',
+            contains('عملية تخزين أخرى'),
+          ),
+        ),
+      );
+    } finally {
+      release?.send(null);
+      if (holder != null) {
+        try {
+          await exited.first.timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          holder.kill(priority: Isolate.immediate);
+        }
+      }
+      ready.close();
+      exited.close();
       await root.delete(recursive: true);
     }
   });

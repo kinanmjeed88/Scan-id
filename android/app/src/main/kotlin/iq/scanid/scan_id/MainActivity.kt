@@ -69,6 +69,7 @@ class MainActivity : FlutterActivity() {
             )
             throw error
         }
+        dropPendingReply("interrupted", "Document request interrupted")
         startupMark("native.camera_channel.configure.begin (no capture)")
         camera.configure(engine)
         startupMark("native.camera_channel.configure.complete (no capture)")
@@ -200,6 +201,30 @@ class MainActivity : FlutterActivity() {
             }
         StartupProbe.mark("startup_probe.channel.registered")
     }
+    private fun dropPendingReply(code: String, message: String) {
+        completePending(pending) { it.error(code, message, null) }
+    }
+
+    /**
+     * Completes a stored MethodChannel reply at most once. Engine
+     * reconfiguration may already have failed the same Result; a second
+     * success/error from a copy thread must not crash the activity.
+     */
+    private fun completePending(
+        reply: MethodChannel.Result?,
+        send: (MethodChannel.Result) -> Unit,
+    ) {
+        if (pending === reply) {
+            pending = null
+            source = null
+        }
+        if (reply == null) return
+        try {
+            send(reply)
+        } catch (_: Exception) {
+        }
+    }
+
     /** A file the app owns and may read or hand over; anything else is refused. */
     private fun privateFile(raw: String): File {
         val file = File(raw).canonicalFile
@@ -263,10 +288,14 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     if (folder.listFiles()?.isEmpty() == true) folder.delete()
-                    runOnUiThread { pending = null; result.success(selected) }
+                    runOnUiThread { completePending(result) { it.success(selected) } }
                 } catch (error: Exception) {
                     folder.deleteRecursively()
-                    runOnUiThread { pending = null; result.error("read", "Unable to read documents", null) }
+                    runOnUiThread {
+                        completePending(result) {
+                            it.error("read", "Unable to read documents", null)
+                        }
+                    }
                 }
             }.start()
             return
@@ -286,9 +315,13 @@ class MainActivity : FlutterActivity() {
                     require(output != null)
                     file.inputStream().use { input -> input.copyTo(output) }
                 }
-                runOnUiThread { pending = null; source = null; result.success(true) }
+                runOnUiThread { completePending(result) { it.success(true) } }
             } catch (error: Exception) {
-                runOnUiThread { pending = null; source = null; result.error("write", "Unable to write document", null) }
+                runOnUiThread {
+                    completePending(result) {
+                        it.error("write", "Unable to write document", null)
+                    }
+                }
             }
         }.start()
     }

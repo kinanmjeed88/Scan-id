@@ -2,13 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image/image.dart' as img;
 import 'package:scan_id/application/camera_capture.dart';
 import 'package:scan_id/application/project_service.dart';
-import 'package:scan_id/persistence/local_asset_repository.dart';
-import 'package:scan_id/persistence/local_project_repository.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/project_screen.dart';
+
+import 'editor_harness.dart';
 
 class _PendingCamera implements CameraPort {
   _PendingCamera(this.photo);
@@ -26,17 +25,12 @@ class _PendingCamera implements CameraPort {
   }
 }
 
-Future<void> _pumpOffer(WidgetTester tester) async {
+Future<void> _allowFileRead(WidgetTester tester) async {
   await tester.pump();
-  for (var i = 0; i < 20; i++) {
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    });
-    await tester.pump();
-    if (find.text('التقاط غير مؤكد الحفظ').evaluate().isNotEmpty) {
-      return;
-    }
-  }
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 50)),
+  );
+  await tester.pump();
 }
 
 void main() {
@@ -52,28 +46,26 @@ void main() {
       addTearDown(() async {
         if (await root.exists()) await root.delete(recursive: true);
       });
-      final repository = await LocalProjectRepository.open(root);
-      addTearDown(repository.close);
-      final assets = LocalAssetRepository(repository.files);
-      final project = await ProjectService(repository, assets).create('كاميرا');
+      final repository = MemoryProjects();
+      final project = await repository.create(editorProject(items: []));
       final file = await File(
         '${root.path}/shot.jpg',
-      ).writeAsBytes(img.encodeJpg(img.Image(width: 80, height: 60)));
+      ).writeAsBytes(List.filled(40, 0x00));
       final port = _PendingCamera(
         PendingCapture(id: 'pending-1', projectId: project.id, file: file),
       );
-      final camera = CameraCapture(repository, assets, port);
+      final camera = CameraCapture(repository, NoAssets(), port);
 
       await tester.pumpWidget(
         AppShell(
           home: ProjectScreen(
             project: project,
-            service: ProjectService(repository, assets, camera: camera),
+            service: ProjectService(repository, NoAssets(), camera: camera),
             pickImages: () async => [],
           ),
         ),
       );
-      await _pumpOffer(tester);
+      await _allowFileRead(tester);
 
       expect(find.text('التقاط غير مؤكد الحفظ'), findsOneWidget);
       await tester.tap(find.text('إلغاء'));
@@ -94,18 +86,16 @@ void main() {
       addTearDown(() async {
         if (await root.exists()) await root.delete(recursive: true);
       });
-      final repository = await LocalProjectRepository.open(root);
-      addTearDown(repository.close);
-      final assets = LocalAssetRepository(repository.files);
-      final project = await ProjectService(repository, assets).create('كاميرا');
+      final repository = MemoryProjects();
+      final project = await repository.create(editorProject(items: []));
       final port = _PendingCamera(null);
-      final camera = CameraCapture(repository, assets, port);
+      final camera = CameraCapture(repository, NoAssets(), port);
 
       await tester.pumpWidget(
         AppShell(
           home: ProjectScreen(
             project: project,
-            service: ProjectService(repository, assets, camera: camera),
+            service: ProjectService(repository, NoAssets(), camera: camera),
             pickImages: () async => [],
           ),
         ),
@@ -113,18 +103,17 @@ void main() {
       await tester.pump();
       expect(find.text('التقاط غير مؤكد الحفظ'), findsNothing);
 
-      final file = await File(
-        '${root.path}/shot.jpg',
-      ).writeAsBytes(img.encodeJpg(img.Image(width: 80, height: 60)));
       port.photo = PendingCapture(
         id: 'pending-resume',
         projectId: project.id,
-        file: file,
+        file: await File(
+          '${root.path}/shot.jpg',
+        ).writeAsBytes(List.filled(40, 0x00)),
       );
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _pumpOffer(tester);
+      await _allowFileRead(tester);
 
       expect(find.text('التقاط غير مؤكد الحفظ'), findsOneWidget);
     },

@@ -43,9 +43,9 @@ void main() {
       addTearDown(repository.close);
       final assets = LocalAssetRepository(repository.files);
       final project = await ProjectService(repository, assets).create('كاميرا');
-      final file = await File('${root.path}/shot.jpg').writeAsBytes(
-        img.encodeJpg(img.Image(width: 80, height: 60)),
-      );
+      final file = await File(
+        '${root.path}/shot.jpg',
+      ).writeAsBytes(img.encodeJpg(img.Image(width: 80, height: 60)));
       final port = _PendingCamera(
         PendingCapture(id: 'pending-1', projectId: project.id, file: file),
       );
@@ -100,9 +100,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('التقاط غير مؤكد الحفظ'), findsNothing);
 
-      final file = await File('${root.path}/shot.jpg').writeAsBytes(
-        img.encodeJpg(img.Image(width: 80, height: 60)),
-      );
+      final file = await File(
+        '${root.path}/shot.jpg',
+      ).writeAsBytes(img.encodeJpg(img.Image(width: 80, height: 60)));
       port.photo = PendingCapture(
         id: 'pending-resume',
         projectId: project.id,

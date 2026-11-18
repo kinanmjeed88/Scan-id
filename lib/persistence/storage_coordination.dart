@@ -118,11 +118,7 @@ class _PosixFileLock {
   }
 
   static _ErrnoDart _errnoLocation(DynamicLibrary libc) {
-    const names = <String>[
-      '__errno',
-      '__errno_location',
-      '__error',
-    ];
+    const names = <String>['__errno', '__errno_location', '__error'];
     for (final name in names) {
       if (!libc.providesSymbol(name)) continue;
       return libc.lookupFunction<_ErrnoNative, _ErrnoDart>(name);

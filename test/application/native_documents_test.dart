@@ -24,15 +24,12 @@ void main() {
     expect(windowsExplorerSelectArguments(path), hasLength(1));
   });
 
-  test(
-    'an interrupted picker returns no files instead of hanging',
-    () async {
-      answer((call) async {
-        throw PlatformException(code: 'interrupted', message: 'engine');
-      });
-      expect(await pickAndroidImages(), isEmpty);
-    },
-  );
+  test('an interrupted picker returns no files instead of hanging', () async {
+    answer((call) async {
+      throw PlatformException(code: 'interrupted', message: 'engine');
+    });
+    expect(await pickAndroidImages(), isEmpty);
+  });
 
   test('a busy picker is treated as cancellation', () async {
     answer((call) async {

@@ -34,11 +34,7 @@ void main() {
         throw PlatformException(code: 'interrupted', message: 'engine');
       }
       expect(call.method, 'pending');
-      return {
-        'id': 'capture-1',
-        'projectId': 'project-1',
-        'path': file.path,
-      };
+      return {'id': 'capture-1', 'projectId': 'project-1', 'path': file.path};
     });
 
     final photo = await NativeCamera().capture('project-1');
@@ -59,11 +55,7 @@ void main() {
           throw MissingPluginException('iq.scanid/camera');
         }
         pendingCalls++;
-        return {
-          'id': 'capture-2',
-          'projectId': 'project-1',
-          'path': file.path,
-        };
+        return {'id': 'capture-2', 'projectId': 'project-1', 'path': file.path};
       });
 
       final photo = await NativeCamera().capture('project-1');

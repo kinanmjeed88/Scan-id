@@ -1,18 +1,41 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+/// A native session that never returned, after the caller already abandoned
+/// the generation. Further [RetirableResource.run] calls must not create more
+/// ONNX sessions on top of leaked ones.
+class NativeSessionExhausted implements Exception {
+  const NativeSessionExhausted();
+
+  @override
+  String toString() => 'native-session-exhausted';
+}
+
 /// Owns one lazily created resource generation. Retiring a generation stops
 /// new users from acquiring it, but disposal waits for all existing users.
 /// A native operation that never finishes necessarily retains its generation:
 /// a timeout cannot safely free a resource still used by native code.
 class RetirableResource<T> {
-  RetirableResource({required this.create, required this.dispose});
+  RetirableResource({
+    required this.create,
+    required this.dispose,
+    this.maxUnresolvedGenerations = 2,
+  });
 
   final Future<T> Function() create;
   final Future<void> Function(T resource) dispose;
+
+  /// Abandoned generations whose native work has not finished. Creating more
+  /// than this would pin additional CPU/RAM on a device whose plugin never
+  /// replies.
+  final int maxUnresolvedGenerations;
   _ResourceGeneration<T>? _current;
+  var _unresolved = 0;
 
   Future<R> run<R>(Future<R> Function(T resource) use) async {
+    if (_current == null && _unresolved >= maxUnresolvedGenerations) {
+      throw const NativeSessionExhausted();
+    }
     final generation = _current ??= _ResourceGeneration<T>(
       Future<T>.sync(create),
     );
@@ -42,6 +65,12 @@ class RetirableResource<T> {
     _current = null;
     if (generation == null) return Future<void>.value();
     generation.retired = true;
+    _unresolved++;
+    unawaited(
+      generation.disposed.future.whenComplete(() {
+        if (_unresolved > 0) _unresolved--;
+      }),
+    );
     if (generation.users == 0) _disposeWhenIdle(generation);
     return generation.disposed.future;
   }

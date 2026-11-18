@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/paddle_ocr_engine.dart';
 import 'package:scan_id/application/paddle_ocr_runtime.dart';
+import 'package:scan_id/application/retirable_resource.dart';
 import 'package:scan_id/domain/ocr_decoding.dart';
 import 'package:scan_id/imaging/ocr_tensor.dart';
 
@@ -258,6 +259,17 @@ void main() {
     expect(result.lines, hasLength(1));
     expect(runtime.abandoned, 1);
     expect(runtime.abandonedGraphs, [PpocrGraph.recognition]);
+  });
+
+  test('exhausted native sessions are unavailable, not a hang', () async {
+    final runtime = _FakeRuntime(
+      detection: (input) => throw const NativeSessionExhausted(),
+    );
+    final result = await _engine(runtime).recognize(_documentPng());
+
+    expect(result.isAvailable, isFalse);
+    expect(result.unavailableReason, 'native-session-exhausted');
+    expect(result.lines, isEmpty);
   });
 
   test('a stalled detector is abandoned and the next call recovers', () async {

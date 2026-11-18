@@ -44,6 +44,7 @@ import 'import_trace.dart';
 import 'ocr_engine.dart';
 import 'ocr_model_assets.dart';
 import 'paddle_ocr_runtime.dart';
+import 'retirable_resource.dart';
 import 'stage_budget.dart';
 
 /// Most text lines recognised per document. A card carries far fewer; the cap
@@ -307,6 +308,13 @@ class PaddleOcrEngine implements OcrEngine {
       );
     } on OperationCancelled {
       rethrow;
+    } on NativeSessionExhausted {
+      ImportTrace.current?.emit('ocr_runtime_failed', phase: stage);
+      lastFailureDiagnostic = 'stage=$stage type=NativeSessionExhausted';
+      return OcrTextResult.unavailable(
+        unavailableReason: 'native-session-exhausted',
+        engineVersion: version,
+      );
     } on PlatformException catch (error) {
       ImportTrace.current?.emit(
         'ocr_runtime_failed',

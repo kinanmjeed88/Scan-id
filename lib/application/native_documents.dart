@@ -8,6 +8,9 @@ import 'project_service.dart';
 
 const _documents = MethodChannel('iq.scanid/local_documents');
 
+/// Explorer requires `/select,` glued to the path as one argument.
+List<String> windowsExplorerSelectArguments(String path) => ['/select,$path'];
+
 /// Where generated files can be handed to another application, if anywhere.
 ShareTarget get shareTargetOnThisPlatform {
   if (Platform.isAndroid) {
@@ -38,8 +41,12 @@ Future<bool> shareDocuments(List<String> paths, String mime) async {
   }
   if (Platform.isWindows) {
     // explorer.exe reports exit code 1 after opening the window it was asked
-    // for, so both 0 and 1 mean the request was accepted.
-    final result = await Process.run('explorer.exe', ['/select,', paths.first]);
+    // for, so both 0 and 1 mean the request was accepted. `/select,path` must
+    // be a single argument; splitting it makes Explorer ignore the file.
+    final result = await Process.run(
+      'explorer.exe',
+      windowsExplorerSelectArguments(paths.first),
+    );
     return result.exitCode == 0 || result.exitCode == 1;
   }
   throw const StorageException(
@@ -63,14 +70,26 @@ Future<bool> saveDocument(File source, String mime) async {
   return true;
 }
 
+Future<List<Object?>> _openDocuments(Map<String, Object?> arguments) async {
+  try {
+    return await _documents.invokeListMethod<Object?>('open', arguments) ??
+        const [];
+  } on MissingPluginException {
+    return const [];
+  } on PlatformException catch (error) {
+    if (error.code == 'interrupted' || error.code == 'busy') {
+      return const [];
+    }
+    throw StorageException('تعذر فتح منتقي الملفات.');
+  }
+}
+
 Future<List<ImportSource>> pickAndroidImages() async {
-  final records =
-      await _documents.invokeListMethod<Object?>('open', {
-        'mime': 'image/*',
-        'multiple': true,
-        'maxBytes': 20 * 1024 * 1024,
-      }) ??
-      [];
+  final records = await _openDocuments({
+    'mime': 'image/*',
+    'multiple': true,
+    'maxBytes': 20 * 1024 * 1024,
+  });
   return records.map((value) {
     final record = Map<String, Object?>.from(value! as Map);
     final error = record['error'] as String?;
@@ -84,13 +103,11 @@ Future<List<ImportSource>> pickAndroidImages() async {
 }
 
 Future<File?> pickAndroidBackup() async {
-  final records =
-      await _documents.invokeListMethod<Object?>('open', {
-        'mime': 'application/octet-stream',
-        'multiple': false,
-        'maxBytes': 64 * 1024 * 1024 * 1024 + 16 * 1024 * 1024 + 64,
-      }) ??
-      [];
+  final records = await _openDocuments({
+    'mime': 'application/octet-stream',
+    'multiple': false,
+    'maxBytes': 64 * 1024 * 1024 * 1024 + 16 * 1024 * 1024 + 64,
+  });
   if (records.isEmpty) {
     return null;
   }
@@ -105,13 +122,11 @@ Future<File?> pickAndroidBackup() async {
 /// picker. The returned temporary file is app-owned and must be cleaned with
 /// [removePickedFile]; no path from the provider is persisted.
 Future<File?> pickAndroidReferenceJson() async {
-  final records =
-      await _documents.invokeListMethod<Object?>('open', {
-        'mime': 'application/json',
-        'multiple': false,
-        'maxBytes': 128 * 1024 * 1024,
-      }) ??
-      [];
+  final records = await _openDocuments({
+    'mime': 'application/json',
+    'multiple': false,
+    'maxBytes': 128 * 1024 * 1024,
+  });
   if (records.isEmpty) return null;
   final record = Map<String, Object?>.from(records.single! as Map);
   if (record['error'] != null) {

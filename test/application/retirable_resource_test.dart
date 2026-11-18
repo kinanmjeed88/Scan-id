@@ -102,4 +102,50 @@ void main() {
       expect(disposed, [10]);
     },
   );
+
+  test(
+    'refuses a new session while abandoned native work is still in flight',
+    () async {
+      final resource = RetirableResource<int>(
+        create: () async => 1,
+        dispose: (_) async {},
+        maxUnresolvedGenerations: 1,
+      );
+      final gate = Completer<void>();
+      final first = resource.run((_) => gate.future);
+      await Future<void>.delayed(Duration.zero);
+      final retired = resource.retire();
+
+      await expectLater(
+        resource.run((value) async => value),
+        throwsA(isA<NativeSessionExhausted>()),
+      );
+
+      gate.complete();
+      await first;
+      await retired;
+      expect(await resource.run((value) async => value), 1);
+    },
+  );
+
+  test('a second stall is allowed, a third is refused', () async {
+    final resource = RetirableResource<int>(
+      create: () async => 1,
+      dispose: (_) async {},
+      maxUnresolvedGenerations: 2,
+    );
+    final firstGate = Completer<void>();
+    final secondGate = Completer<void>();
+    unawaited(resource.run((_) => firstGate.future));
+    await Future<void>.delayed(Duration.zero);
+    unawaited(resource.retire());
+    unawaited(resource.run((_) => secondGate.future));
+    await Future<void>.delayed(Duration.zero);
+    unawaited(resource.retire());
+
+    await expectLater(
+      resource.run((value) async => value),
+      throwsA(isA<NativeSessionExhausted>()),
+    );
+  });
 }

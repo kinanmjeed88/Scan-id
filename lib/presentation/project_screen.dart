@@ -4,10 +4,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
-import '../application/contracts.dart';
 import '../application/backup_transfer.dart';
-import '../application/project_service.dart';
+import '../application/camera_capture.dart';
+import '../application/contracts.dart';
 import '../application/image_reader.dart';
+import '../application/project_service.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_deletion.dart';
 import '../domain/project.dart';
@@ -36,22 +37,72 @@ class ProjectScreen extends StatefulWidget {
   State<ProjectScreen> createState() => _ProjectScreenState();
 }
 
-class _ProjectScreenState extends State<ProjectScreen> {
+class _ProjectScreenState extends State<ProjectScreen>
+    with WidgetsBindingObserver {
   late Project _project = widget.project;
   bool _busy = false;
   // Whether this project's recovery copy is behind its saved data. Read from
   // the copies, so it stays visible after a restart until it is repaired.
   bool _recoveryStale = false;
   bool _refreshingRecovery = false;
+  var _pausedForCamera = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_checkRecoveryPoint());
-    if (widget.startWithImagePicker) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_import());
-      });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.startWithImagePicker) {
+        unawaited(_import());
+      } else {
+        unawaited(_offerPendingCapture());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _pausedForCamera = true;
+      return;
+    }
+    if (state != AppLifecycleState.resumed || !_pausedForCamera) return;
+    _pausedForCamera = false;
+    if (!mounted || _busy) return;
+    // Engine recreation can finish Dart capture() before the camera writes.
+    // Returning from the system camera must offer the journalled JPEG.
+    unawaited(_offerPendingCapture());
+  }
+
+  /// After a process death during camera capture the JPEG is still in the
+  /// journal. Opening the project must offer it; burying recover behind a
+  /// maintenance tile loses the photo.
+  Future<void> _offerPendingCapture() async {
+    final camera = widget.service.camera;
+    if (camera == null || _busy) return;
+    try {
+      final photo = await camera.port.pending();
+      if (!mounted || photo == null) return;
+      if (photo.projectId != _project.id) return;
+      if (!await isUsableCapture(photo.file)) {
+        try {
+          await camera.port.discard(photo.id);
+        } catch (_) {
+          /* Empty leftovers must not block the next capture. */
+        }
+        return;
+      }
+      await _recoverCapture();
+    } catch (_) {
+      // Opening a project must not fail because the journal is unreadable.
     }
   }
 

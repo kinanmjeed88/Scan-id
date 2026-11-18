@@ -37,7 +37,16 @@ class NativeCamera(private val activity: Activity) {
         if (photo.exists()) check(photo.delete())
         check(preferences.edit().clear().commit())
     }
+    fun abandonReply(code: String, message: String) {
+        val reply = result
+        result = null
+        try {
+            reply?.error(code, message, null)
+        } catch (_: Exception) {
+        }
+    }
     fun configure(engine: FlutterEngine) {
+        abandonReply("interrupted", "Capture interrupted")
         MethodChannel(engine.dartExecutor.binaryMessenger, "iq.scanid/camera").setMethodCallHandler { call, reply ->
             try {
                 when (call.method) {
@@ -78,10 +87,16 @@ class NativeCamera(private val activity: Activity) {
         try {
             val id = preferences.getString("id", null)
             if (id != null) {
-                val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.capture", file(id))
+                val photo = file(id)
+                val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.capture", photo)
                 activity.revokeUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                if (status != Activity.RESULT_OK) { discard(id); reply?.success(null) }
-                else { reply?.success(describe()) }
+                val length = if (photo.exists()) photo.length() else 0L
+                if (!CaptureOutcome.shouldImport(status, length)) {
+                    discard(id)
+                    reply?.success(null)
+                } else {
+                    reply?.success(describe())
+                }
             } else { reply?.success(null) }
         } catch (error: Exception) { reply?.error("camera", "Capture could not be completed", null) }
         return true

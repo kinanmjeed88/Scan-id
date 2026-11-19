@@ -64,7 +64,13 @@ void main() {
         // Both endpoints plus the middle: an off-by-one in the divisor is
         // invisible in the middle and maximal at the far edge.
         Set<double> samples(int extent) => {
-          for (final value in [0, 1, (extent - 1) / 2, extent - 2, extent - 1])
+          for (final value in <double>[
+            0,
+            1,
+            (extent - 1) / 2,
+            extent - 2,
+            extent - 1,
+          ])
             if (value >= 0 && value <= extent - 1) value,
         };
         final pixels = [
@@ -129,7 +135,7 @@ void main() {
       // Arithmetic property of the mapping, not a reachable model output: the
       // heatmap's last centre is 4*63.5 = 254, four pixels short of the edge.
       final corners = map(
-        [(width - 1, height - 1)],
+        [(width - 1.0, height - 1.0)],
         box,
         frameWidth: width,
         frameHeight: height,
@@ -157,7 +163,7 @@ void main() {
 
     test('a corner a few pixels inside the edge stays off the edge', () {
       final corners = map(
-        [(width - 24, height - 24)],
+        [(width - 24.0, height - 24.0)],
         box,
         frameWidth: width,
         frameHeight: height,
@@ -271,7 +277,7 @@ void main() {
       test('${width}x$height reports the last pixel as exactly 1', () {
         final box = letterbox(width, height);
         final corners = map(
-          [(width - 1, height - 1)],
+          [(width - 1.0, height - 1.0)],
           box,
           frameWidth: width,
           frameHeight: height,

@@ -734,31 +734,42 @@ class RecognitionPipeline {
       ),
     );
     // Option 2: the person named the category. That is an ASSERTION we were
-    // given, not evidence we measured, so the classifier's verdict is kept in
-    // `candidates` and the reason list records that a human decided. The
-    // confidence stays at the measured value: a typed category never becomes a
-    // 100 % confidence, which would let it authorize an automatic placement it
-    // did not earn.
+    // given, not something we measured, so it is recorded as such and it never
+    // borrows the classifier's confidence.
+    //
+    // Carrying the measured score across would be the dangerous shortcut: a
+    // 0.9 score earned by "ration card" evidence would then sit on "passport"
+    // and satisfy `qualifiesForAutomaticPlacement`, letting a typed category
+    // authorize an automatic placement nobody measured. So the classification
+    // confidence is DROPPED (absent, per ConfidenceSet) and the outcome is
+    // `uncertain` with no single candidate, which is exactly how this codebase
+    // already says «a human must confirm the size». What the assertion buys is
+    // the KIND — downstream presets and review open on the right category —
+    // not an authorization. The classifier's own verdict stays in `evidence`.
     final assertedKind = options?.kind ?? DocumentKind.unknown;
     if (assertedKind != DocumentKind.unknown &&
         assertedKind != classification.kind) {
       classification = ClassificationOutcome(
         kind: assertedKind,
-        status: RecognitionStatus.recognized,
-        confidences: classification.confidences,
+        status: RecognitionStatus.uncertain,
+        confidences: ConfidenceSet(
+          detection: classification.confidences.detection,
+          geometry: classification.confidences.geometry,
+          ocr: classification.confidences.ocr,
+          // Deliberately absent: nobody measured agreement with this kind.
+          classification: null,
+        ),
         evidence: [
           ...classification.evidence,
           RecognitionEvidence(
             source: EvidenceSource.structure,
-            kind: assertedKind,
-            score: classification.confidences.classification?.value ?? 0,
-            reason: 'user-asserted',
+            kind: 'user-asserted',
+            score: 1,
+            reason: 'المستخدم حدّد النوع',
           ),
         ],
         routing: classification.routing,
-        candidates: classification.candidates.isEmpty
-            ? [classification.kind]
-            : classification.candidates,
+        candidates: const [],
       );
     }
     // Evidence read from the wider area describes the document in the frame,

@@ -535,35 +535,38 @@ class ProjectService {
     // arrangement so a batch arrives centred rather than being re-centred after
     // the sheet was already filled.
     var working = project;
-    if (options != null && options.centerDocuments != working.layout.centerCaptures) {
+    if (options != null &&
+        options.centerDocuments != working.layout.centerCaptures) {
       working = working.copyWith(
-        layout: working.layout.copyWith(centerCaptures: options.centerDocuments),
+        layout: working.layout.copyWith(
+          centerCaptures: options.centerDocuments,
+        ),
       );
     }
     // Multi-document detection runs only when the person asked for it AND the
     // build has a qualified detector. Asking for something this build cannot do
     // is recorded as such rather than silently ignored.
     final multiRequested = options?.multiDocument ?? false;
-    final multiAllowed =
-        multiRequested && IntakeOptions.multiDocumentAvailable;
+    final multiAllowed = multiRequested && IntakeOptions.multiDocumentAvailable;
     if (smartRecognitionEnabled && smartEditor != null) {
-      final report = await SmartIntake(
-        projects: projects,
-        assets: assets,
-        editor: smartEditor,
-        segment: segmenter ?? defaultSegment,
-        ocr: ocr,
-        fullResolutionJpegCropper: fullResolutionJpegCropper,
-        options: options,
-        stageLog: stageLog,
-      ).run(
-        working,
-        assetIds,
-        keepPlaced: keepPlaced,
-        cancellation: cancellation,
-        onProgress: onProgress,
-        allowMultiDocument: multiAllowed,
-      );
+      final report =
+          await SmartIntake(
+            projects: projects,
+            assets: assets,
+            editor: smartEditor,
+            segment: segmenter ?? defaultSegment,
+            ocr: ocr,
+            fullResolutionJpegCropper: fullResolutionJpegCropper,
+            options: options,
+            stageLog: stageLog,
+          ).run(
+            working,
+            assetIds,
+            keepPlaced: keepPlaced,
+            cancellation: cancellation,
+            onProgress: onProgress,
+            allowMultiDocument: multiAllowed,
+          );
       return report;
     }
 
@@ -1024,8 +1027,7 @@ class ProjectService {
             // still refuses what it refuses: only geometry this build already
             // measured as usable is approved, and a proposal with no usable
             // geometry is still reported instead of being cropped anyway.
-            final approveSuggested =
-                options?.acceptSuggestedBoundary ?? false;
+            final approveSuggested = options?.acceptSuggestedBoundary ?? false;
             final effective = approveSuggested
                 ? decision.approvedByUser()
                 : decision;

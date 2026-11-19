@@ -36,7 +36,8 @@ class IntakeStageRecord {
     fields: {
       for (final entry in fields.entries)
         if (entry.key.length <= JourneyStep.maxFieldKeyLength)
-          entry.key: entry.value is String &&
+          entry.key:
+              entry.value is String &&
                   (entry.value! as String).length >
                       JourneyStep.maxFieldValueLength
               ? (entry.value! as String).substring(
@@ -92,26 +93,32 @@ class IntakeStageLog {
   }
 
   /// Records a stage that could not run, with the reason.
-  void block(JourneyStage stage, String reason, {Map<String, Object?> fields = const {}}) =>
-      record(
-        IntakeStageRecord(
-          stage: stage,
-          outcome: JourneyOutcome.blocked,
-          detail: reason,
-          fields: fields,
-        ),
-      );
+  void block(
+    JourneyStage stage,
+    String reason, {
+    Map<String, Object?> fields = const {},
+  }) => record(
+    IntakeStageRecord(
+      stage: stage,
+      outcome: JourneyOutcome.blocked,
+      detail: reason,
+      fields: fields,
+    ),
+  );
 
   /// Records a stage that ran but routed the image to a human.
-  void review(JourneyStage stage, String reason, {Map<String, Object?> fields = const {}}) =>
-      record(
-        IntakeStageRecord(
-          stage: stage,
-          outcome: JourneyOutcome.review,
-          detail: reason,
-          fields: fields,
-        ),
-      );
+  void review(
+    JourneyStage stage,
+    String reason, {
+    Map<String, Object?> fields = const {},
+  }) => record(
+    IntakeStageRecord(
+      stage: stage,
+      outcome: JourneyOutcome.review,
+      detail: reason,
+      fields: fields,
+    ),
+  );
 
   /// Records a stage that completed.
   void pass(
@@ -225,14 +232,12 @@ class IntakeBatchLog {
   Iterable<IntakeStageLog> get logs => _byAsset.values;
 
   /// Every asset whose log records a failure.
-  Iterable<IntakeStageLog> get failed => _byAsset.values.where(
-    (log) => log.hasFailure,
-  );
+  Iterable<IntakeStageLog> get failed =>
+      _byAsset.values.where((log) => log.hasFailure);
 
   /// Assets that need a human, whether through failure or review.
-  Iterable<IntakeStageLog> get needingAttention => _byAsset.values.where(
-    (log) => log.problems.isNotEmpty,
-  );
+  Iterable<IntakeStageLog> get needingAttention =>
+      _byAsset.values.where((log) => log.problems.isNotEmpty);
 
   /// The batch verdict for a summary banner.
   String get summary {

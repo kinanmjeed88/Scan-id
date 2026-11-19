@@ -55,7 +55,10 @@ void main() {
         IntakeOptionKey.acceptSuggestedBoundary,
         value: false,
       );
-      expect(ticked.confirmed, contains(IntakeOptionKey.acceptSuggestedBoundary));
+      expect(
+        ticked.confirmed,
+        contains(IntakeOptionKey.acceptSuggestedBoundary),
+      );
       expect(unticked.confirmed, isEmpty);
     });
 
@@ -140,7 +143,10 @@ void main() {
       log.block(JourneyStage.detection, 'فشل أول.');
       log.pass(JourneyStage.detection, 'نجح في المحاولة الثانية.');
       expect(log.hasFailure, isFalse);
-      expect(log.records.where((r) => r.stage == JourneyStage.detection), hasLength(1));
+      expect(
+        log.records.where((r) => r.stage == JourneyStage.detection),
+        hasLength(1),
+      );
     });
 
     test('fields too long for the journal are clipped, not rejected', () {

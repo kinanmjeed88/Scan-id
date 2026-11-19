@@ -87,7 +87,8 @@ void main() {
     expect(
       approved.kind,
       isNot(BoundaryDecisionKind.accepted),
-      reason: 'a user approval is an approval of geometry the app measured, '
+      reason:
+          'a user approval is an approval of geometry the app measured, '
           'not a licence to crop a degenerate quad',
     );
     expect(approved.cropAuthorization, isNull);

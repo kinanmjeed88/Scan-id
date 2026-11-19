@@ -6,17 +6,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../application/ids.dart';
-import '../application/layout_session.dart';
 import '../application/intake_stage_log.dart';
+import '../application/layout_session.dart';
 import '../application/project_service.dart';
 import '../domain/arrangement.dart';
 import '../domain/crop_draft.dart';
 import '../domain/document_edits.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/intake_options.dart';
 import '../domain/manual_classification.dart' as manual;
 import '../domain/page_layout.dart';
-import '../domain/intake_options.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_overrides.dart' as rec;
@@ -786,10 +786,7 @@ class LayoutEditorController extends ChangeNotifier {
       options = await optionsHook(sources.length);
       if (options == null) return;
     }
-    final stageLog = IntakeBatchLog(
-      batchId: newId(),
-      options: options,
-    );
+    final stageLog = IntakeBatchLog(batchId: newId(), options: options);
     lastIntakeLog = stageLog;
     // The shared runner: the editor and the project screen therefore expose
     // the same real progress, cooperative cancellation and committed final
@@ -801,6 +798,8 @@ class LayoutEditorController extends ChangeNotifier {
       service: service,
       project: session.current,
       keepPlaced: true,
+      options: options,
+      stageLog: stageLog,
     );
     _intake = runner;
     IntakeRun? outcome;
@@ -809,8 +808,6 @@ class LayoutEditorController extends ChangeNotifier {
       ok = await run(() async {
         outcome = await runner.run(
           sources,
-          options: options,
-          stageLog: stageLog,
           onProgress: (progress) {
             recognitionProgress =
                 '${progress.stage}: ${progress.completed}/${progress.total}';

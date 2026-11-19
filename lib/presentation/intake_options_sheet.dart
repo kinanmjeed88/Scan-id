@@ -20,10 +20,7 @@ Future<IntakeOptions?> showIntakeOptionsSheet(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => _IntakeOptionsSheet(
-    initial: initial,
-    imageCount: imageCount,
-  ),
+  builder: (_) => _IntakeOptionsSheet(initial: initial, imageCount: imageCount),
 );
 
 class _IntakeOptionsSheet extends StatefulWidget {
@@ -58,7 +55,9 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                count == 1 ? 'خيارات معالجة الصورة' : 'خيارات معالجة $count صور',
+                count == 1
+                    ? 'خيارات معالجة الصورة'
+                    : 'خيارات معالجة $count صور',
                 style: theme.textTheme.titleMedium,
               ),
               const SizedBox(height: 2),
@@ -236,14 +235,16 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
   }
 }
 
-const List<DocumentKind> _selectableKinds = [
-  DocumentKind.unifiedNationalId,
-  DocumentKind.rationCard,
-  DocumentKind.residenceCard,
-  DocumentKind.passport,
-  DocumentKind.civilStatusId,
-  DocumentKind.other,
-];
+/// The categories the sheet offers, in the order the rest of the app already
+/// uses. Derived from [DocumentKindDetails.order] rather than restated here, so
+/// a new category appears in the sheet automatically and the two lists cannot
+/// drift. `unknown` is excluded because it IS the «تعرّف تلقائي» choice; `other`
+/// is the free/A4 document whose size is entered by hand.
+final List<DocumentKind> _selectableKinds =
+    [
+      for (final kind in DocumentKind.values)
+        if (kind != DocumentKind.unknown) kind,
+    ]..sort((a, b) => a.order.compareTo(b.order));
 
 String _sideLabel(SideKind side) => switch (side) {
   SideKind.front => 'وجه أول',

@@ -11,6 +11,7 @@ import '../application/stage_budget.dart';
 import '../domain/acceptance_policy.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
+import '../domain/image_limits.dart';
 import 'prepare_image.dart';
 
 const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';

@@ -25,9 +25,12 @@ Box letterbox(int sourceWidth, int sourceHeight, {int input = 256}) {
   );
 }
 
-/// The `x256` the heatmap reports for a corner resting on [pixel], i.e. the
-/// exact inverse of the production back-mapping.
+/// The `x256`/`y256` the heatmap would report for a corner resting on a given
+/// pixel, i.e. the exact inverse of the production back-mapping. Each axis has
+/// its own letterbox offset, and mixing them up is precisely the class of error
+/// this file exists to catch.
 double x256For(double pixel, Box box) => pixel * box.scale + box.offsetX;
+double y256For(double pixel, Box box) => pixel * box.scale + box.offsetY;
 
 List<Point2> map(
   List<(double, double)> pixels,
@@ -35,7 +38,7 @@ List<Point2> map(
   required int frameWidth,
   required int frameHeight,
 }) => docQuadCorners(
-  [for (final (x, y) in pixels) (x256: x256For(x, box), y256: x256For(y, box))],
+  [for (final (x, y) in pixels) (x256: x256For(x, box), y256: y256For(y, box))],
   scale: box.scale,
   offsetX: box.offsetX,
   offsetY: box.offsetY,

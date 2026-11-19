@@ -35,10 +35,7 @@ List<Point2> map(
   required int frameWidth,
   required int frameHeight,
 }) => docQuadCorners(
-  [
-    for (final (x, y) in pixels)
-      (x256: x256For(x, box), y256: x256For(y, box)),
-  ],
+  [for (final (x, y) in pixels) (x256: x256For(x, box), y256: x256For(y, box))],
   scale: box.scale,
   offsetX: box.offsetX,
   offsetY: box.offsetY,
@@ -236,8 +233,12 @@ void main() {
       const height = 900;
       final box = letterbox(width, height);
       final corners = docQuadCorners(
-        [(x256: 130, y256: 0), (x256: 254, y256: 0),
-         (x256: 254, y256: 254), (x256: 130, y256: 254)],
+        [
+          (x256: 130, y256: 0),
+          (x256: 254, y256: 0),
+          (x256: 254, y256: 254),
+          (x256: 130, y256: 254),
+        ],
         scale: box.scale,
         offsetX: box.offsetX,
         offsetY: box.offsetY,

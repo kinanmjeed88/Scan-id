@@ -29,9 +29,11 @@ import '../application/cancellation.dart';
 import '../application/contracts.dart' show StorageException;
 import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
+import '../application/intake_stage_log.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
 import '../domain/image_journey.dart';
+import '../domain/intake_options.dart';
 import '../domain/project.dart';
 
 /// The outcome of one intake run.
@@ -82,11 +84,19 @@ class IntakeRunner {
     required this.project,
     this.keepPlaced = true,
     this.onTrace,
+    this.options,
+    this.stageLog,
   });
 
   final ProjectService service;
   final Project project;
   final bool keepPlaced;
+
+  /// The options the person chose for this batch, or null when not offered.
+  final IntakeOptions? options;
+
+  /// The stage-by-stage record filled in as the batch runs.
+  final IntakeBatchLog? stageLog;
   final void Function(ImportTraceEvent event)? onTrace;
   CancellationToken _token = CancellationToken();
   bool _running = false;
@@ -352,6 +362,8 @@ class IntakeRunner {
             importedIds,
             keepPlaced: keepPlaced,
             cancellation: token,
+            options: options,
+            stageLog: stageLog,
             onProgress: (progress) {
               if (progress.stage == 'تحليل الصور' && progress.completed == 0) {
                 trace('analysis', 'started');
@@ -388,6 +400,13 @@ class IntakeRunner {
           trace('arrangement', 'completed');
         } catch (error) {
           trace('arrangement', 'failed', error);
+          // The report carried this, but a stage record is what makes it
+          // attributable per image: without it the log showed only the stages
+          // that ran, with no row explaining why the batch stopped there.
+          stageLog?.failBatch(
+            JourneyStage.placement,
+            'تعذّر ترتيب المستمسكات على الورقة؛ راجع الدليل في التقرير.',
+          );
           // The imports are already committed: reload so a successful crop
           // revision is never hidden by a later arrangement failure.
           failure = error;

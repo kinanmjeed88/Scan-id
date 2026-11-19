@@ -14,8 +14,10 @@ import 'dart:typed_data';
 import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/intake_options.dart';
 import '../domain/ocr_evidence.dart';
 import '../domain/quad_assessment.dart';
+import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
 import '../imaging/document_segmenter.dart';
@@ -238,7 +240,15 @@ class RecognitionPipeline {
     this.catalog = const DocumentSizeCatalog(),
     this.thresholds = defaultThresholds,
     this.ocrBudget = defaultPipelineOcrBudget,
+    this.options,
   });
+
+  /// The batch options the person chose, or null when they were not offered.
+  ///
+  /// Read here because both of the options it decides are verdicts formed
+  /// inside this pipeline: whether a usable proposal is approved despite its
+  /// aspect, and whether a category the person named replaces the classifier's.
+  final IntakeOptions? options;
 
   /// The existing precise single-document detector seam
   /// (`ImageEditor.suggest`); used when segmentation reports no multi-
@@ -714,7 +724,7 @@ class RecognitionPipeline {
       }
     }
 
-    final classification = classifyDocument(
+    var classification = classifyDocument(
       ClassificationInput(
         detectionConfidence: detectionConfidence,
         geometryConfidence: assessment?.geometryConfidence,
@@ -723,6 +733,34 @@ class RecognitionPipeline {
         thresholds: thresholds,
       ),
     );
+    // Option 2: the person named the category. That is an ASSERTION we were
+    // given, not evidence we measured, so the classifier's verdict is kept in
+    // `candidates` and the reason list records that a human decided. The
+    // confidence stays at the measured value: a typed category never becomes a
+    // 100 % confidence, which would let it authorize an automatic placement it
+    // did not earn.
+    final assertedKind = options?.kind ?? DocumentKind.unknown;
+    if (assertedKind != DocumentKind.unknown &&
+        assertedKind != classification.kind) {
+      classification = ClassificationOutcome(
+        kind: assertedKind,
+        status: RecognitionStatus.recognized,
+        confidences: classification.confidences,
+        evidence: [
+          ...classification.evidence,
+          RecognitionEvidence(
+            source: EvidenceSource.structure,
+            kind: assertedKind,
+            score: classification.confidences.classification?.value ?? 0,
+            reason: 'user-asserted',
+          ),
+        ],
+        routing: classification.routing,
+        candidates: classification.candidates.isEmpty
+            ? [classification.kind]
+            : classification.candidates,
+      );
+    }
     // Evidence read from the wider area describes the document in the frame,
     // not the content of the proposal, so it never corroborates that proposal
     // into an automatic crop: the catalog gate only ever sees text read from
@@ -744,6 +782,20 @@ class RecognitionPipeline {
         quadExcludesText(corners, widerLineCentres)) {
       resolvedDecision = refuseProposalExcludingText(decision);
       reviewSuggestedCorners = null;
+    }
+    // Option 3: the person approved the proposed boundary. Applied AFTER the
+    // geometry gate and only to geometry it measured as usable, so it cannot
+    // turn an unusable quad, a missing quad or a frame artifact into a crop. It
+    // is recorded as a user approval rather than an automatic acceptance.
+    if (options?.acceptSuggestedBoundary ?? false) {
+      final approved = resolvedDecision.approvedByUser();
+      if (approved.kind == BoundaryDecisionKind.accepted &&
+          resolvedDecision.kind != BoundaryDecisionKind.accepted) {
+        resolvedDecision = approved;
+        issues.removeWhere(
+          (issue) => issue.category == RecognitionErrorCategory.geometryFailure,
+        );
+      }
     }
     if (resolvedDecision.kind == BoundaryDecisionKind.accepted &&
         decision.kind != BoundaryDecisionKind.accepted) {

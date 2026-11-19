@@ -25,6 +25,7 @@ import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
 import '../domain/image_limits.dart';
+import '../domain/intake_options.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
@@ -40,6 +41,7 @@ import 'contracts.dart';
 import 'full_resolution_jpeg_cropper.dart';
 import 'ids.dart';
 import 'import_trace.dart';
+import 'intake_stage_log.dart';
 import 'image_reader.dart';
 import 'ocr_engine.dart';
 import 'project_service.dart';
@@ -150,7 +152,15 @@ class SmartIntake {
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.thresholds = defaultThresholds,
     this.analysisBudget = defaultImageAnalysisBudget,
+    this.options,
+    this.stageLog,
   });
+
+  /// The batch options the person chose, or null when they were not offered.
+  final IntakeOptions? options;
+
+  /// The stage-by-stage record of this batch, filled in as it runs.
+  final IntakeBatchLog? stageLog;
 
   final ProjectRepository projects;
   final AssetRepository assets;
@@ -191,6 +201,7 @@ class SmartIntake {
     bool deferArrangement = false,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    bool allowMultiDocument = true,
   }) async {
     var current = project;
     var cropped = 0;
@@ -472,6 +483,7 @@ class SmartIntake {
           ocr: ocr,
           catalog: project.catalog,
           thresholds: thresholds,
+          options: options,
         );
         try {
           return await ImportTrace.stage(
@@ -1550,7 +1562,22 @@ class SmartIntake {
       onRejected(analysis.rejectedRegions);
     }
 
+    // A photo holding several measured regions NEVER goes through the
+    // single-document path: that path crops the SOURCE to the one quad it
+    // found, which would make every other region unrecoverable (ADR-003). So
+    // this branch is taken whenever the regions exist, whatever the person
+    // asked for. What option 5 governs is narrower and honest: whether the batch
+    // REPORTS the photo as multi-document, which is what the counts and the
+    // review queue describe. Turning the option off must not destroy data, and
+    // it does not.
     if (analysis.needsMultiIntake || asset.hasScaledLargeSource) {
+      if (analysis.allRegions.length > 1 && !allowMultiDocument) {
+        warnings.add(
+          '${asset.name}: احتُوت الصورة ${analysis.allRegions.length} مناطق، '
+          'ولم يُطلب اكتشاف المستندات المتعددة؛ حُفظت كل المناطق للمراجعة '
+          'بدل قصّ واحدة منها فقط.',
+        );
+      }
       // A source holding more than one measured region NEVER goes through the
       // single-document path: that path crops the SOURCE asset to the one quad
       // it found, which would make every other region of the photo
@@ -2263,7 +2290,13 @@ class SmartIntake {
       sides: [
         DocumentSide(
           id: 'side-$itemId',
-          side: SideKind.unknown,
+          // Option 1: the person said which side this batch shows. When they
+          // did not, the side stays unknown — ONE side, which is what «بدون
+          // تحديد يُعتبر وجه واحد» means. It is deliberately NOT front: that
+          // would assert a facing nobody stated. The override is recorded the
+          // same way a manual choice is, so the review screen treats it as a
+          // human decision rather than a detector result.
+          side: options?.side ?? SideKind.unknown,
           processedAsset: processed,
           detection: _detectionRef(
             detection,

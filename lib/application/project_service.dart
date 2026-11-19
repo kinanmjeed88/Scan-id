@@ -7,8 +7,10 @@ import '../domain/boundary_decision.dart';
 import '../domain/boundary_suggestion.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/image_journey.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
+import '../domain/intake_options.dart';
 import '../domain/geometry.dart';
 import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
@@ -16,6 +18,7 @@ import '../domain/validation.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
 import 'intake_diagnostics.dart';
+import 'intake_stage_log.dart';
 import 'project_backups.dart';
 import 'camera_capture.dart';
 import 'project_recovery.dart';
@@ -521,42 +524,78 @@ class ProjectService {
     bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     final smartEditor = imageEditor;
+    // Option 4: centring. This is not a second placement algorithm — it sets
+    // the project's existing, persisted `centerCaptures` switch that
+    // `arrangeDocuments` already honours, so the result is identical to the app
+    // centring the same documents from the layout screen. Applied before
+    // arrangement so a batch arrives centred rather than being re-centred after
+    // the sheet was already filled.
+    var working = project;
+    if (options != null && options.centerDocuments != working.layout.centerCaptures) {
+      working = working.copyWith(
+        layout: working.layout.copyWith(centerCaptures: options.centerDocuments),
+      );
+    }
+    // Multi-document detection runs only when the person asked for it AND the
+    // build has a qualified detector. Asking for something this build cannot do
+    // is recorded as such rather than silently ignored.
+    final multiRequested = options?.multiDocument ?? false;
+    final multiAllowed =
+        multiRequested && IntakeOptions.multiDocumentAvailable;
     if (smartRecognitionEnabled && smartEditor != null) {
-      return SmartIntake(
+      final report = await SmartIntake(
         projects: projects,
         assets: assets,
         editor: smartEditor,
         segment: segmenter ?? defaultSegment,
         ocr: ocr,
         fullResolutionJpegCropper: fullResolutionJpegCropper,
+        options: options,
+        stageLog: stageLog,
       ).run(
-        project,
+        working,
         assetIds,
         keepPlaced: keepPlaced,
         cancellation: cancellation,
         onProgress: onProgress,
+        allowMultiDocument: multiAllowed,
+      );
+      return report;
+    }
+
+    if (multiRequested && !IntakeOptions.multiDocumentAvailable) {
+      stageLog?.failBatch(
+        JourneyStage.detection,
+        'طُلب اكتشاف المستندات المتعددة لكنه غير مفعّل في هذه النسخة؛ '
+        'استُخدم مسار المستند الواحد.',
       );
     }
 
-    if (multiDocumentSegmentationEnabled && smartEditor != null) {
+    if (multiAllowed && smartEditor != null) {
       return _arrangeWithMultiDocumentSegmentation(
-        project,
+        working,
         assetIds,
         editor: smartEditor,
         keepPlaced: keepPlaced,
         cancellation: cancellation,
         onProgress: onProgress,
+        options: options,
+        stageLog: stageLog,
       );
     }
 
     return _arrangeLegacyImportedImages(
-      project,
+      working,
       assetIds,
       keepPlaced: keepPlaced,
       cancellation: cancellation,
       onProgress: onProgress,
+      options: options,
+      stageLog: stageLog,
     );
   }
 
@@ -652,6 +691,8 @@ class ProjectService {
     required bool keepPlaced,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     final ids = assetIds.toSet().toList();
     final pendingIds = <String>[];
@@ -716,12 +757,42 @@ class ProjectService {
           final source = await editor.open(asset, cancellation: cancellation);
           final result = await (segmenter ?? defaultSegment)(source.preview);
           segments[id] = result;
+          stageLog
+              ?.forAsset(id, name: asset.name)
+              .record(
+                IntakeStageRecord(
+                  stage: JourneyStage.detection,
+                  outcome: result.candidates.isEmpty
+                      ? JourneyOutcome.review
+                      : JourneyOutcome.passed,
+                  detail: result.candidates.isEmpty
+                      ? 'لم يُقَس أي مستند في هذا المصدر؛ بقي للمراجعة اليدوية.'
+                      : 'قِيست ${result.candidates.length} منطقة '
+                            '${result.candidates.length > 1 ? '(متعددة)' : ''}.',
+                  fields: {
+                    'regions': result.candidates.length,
+                    'rejected': result.rejected.length,
+                    'multi': result.multi,
+                  },
+                ),
+              );
         } on RevisionConflict {
           rethrow;
         } catch (error) {
+          final reason = userError(error);
           segmentationWarnings[id] =
               '${asset.name}: تعذر فحص التقسيم متعدد المستمسكات؛ '
-              'استُخدم مسار الاستيراد المعتاد (${userError(error)}).';
+              'استُخدم مسار الاستيراد المعتاد ($reason).';
+          // The batch report carried this warning, but the stage record is what
+          // makes it attributable: without it the log showed only «no region
+          // found», which is indistinguishable from a clean single document.
+          stageLog
+              ?.forAsset(id, name: asset.name)
+              .block(
+                JourneyStage.detection,
+                'تعذّر فحص التقسيم متعدد المستمسكات: $reason',
+                fields: {'errorType': error.runtimeType.toString()},
+              );
         }
       }
       progress(index + 1, 'فحص تقسيم الصور');
@@ -861,6 +932,8 @@ class ProjectService {
     bool deferArrangement = false,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     var current = project;
     var cropped = 0;
@@ -893,9 +966,14 @@ class ProjectService {
       var asset = current.assets[assetIndex];
 
       final editor = imageEditor;
+      final stages = stageLog?.forAsset(id, name: asset.name);
       if (editor == null) {
         notDetected++;
         warnings.add('${asset.name}: كشف الحدود غير متاح في هذا البناء.');
+        stages?.block(
+          JourneyStage.detection,
+          'كشف الحدود غير متاح في هذا البناء؛ لم تُقَس أي حدود.',
+        );
       } else {
         try {
           final source = await editor.open(asset, cancellation: cancellation);
@@ -912,6 +990,10 @@ class ProjectService {
             notDetected++;
             warnings.add(
               '${asset.name}: لا يتوفر كشف تلقائي للحدود في هذا الإصدار؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
+            );
+            stages?.block(
+              JourneyStage.detection,
+              'لم يُقترح أي رباعي حدود لهذه الصورة؛ لا إحداثيات لتُعتمد.',
             );
           } else {
             // Boundary authorization is independent of the file name,
@@ -936,7 +1018,31 @@ class ProjectService {
               sourceWidth: source.width,
               sourceHeight: source.height,
             );
-            final authorization = decision.cropAuthorization;
+            // Option 3: the person ticked «موافقة على القص المقترح». That is an
+            // approval of the DETECTOR's geometry, however its aspect compares
+            // to the catalog — not a relaxation of any threshold. The detector
+            // still refuses what it refuses: only geometry this build already
+            // measured as usable is approved, and a proposal with no usable
+            // geometry is still reported instead of being cropped anyway.
+            final approveSuggested =
+                options?.acceptSuggestedBoundary ?? false;
+            final effective = approveSuggested
+                ? decision.approvedByUser()
+                : decision;
+            final authorization = effective.cropAuthorization;
+            if (approveSuggested && authorization != null) {
+              stages?.pass(
+                JourneyStage.detection,
+                effective.verification.userApproved &&
+                        decision.kind != BoundaryDecisionKind.accepted
+                    ? 'اعتمد المستخدم الحدود المقترحة كما قيست، دون مراجعة.'
+                    : 'قُبلت الحدود هندسياً دون الحاجة إلى اعتماد إضافي.',
+                fields: {
+                  'approvedByUser': effective.verification.userApproved,
+                  'detectorVerdict': decision.kind.name,
+                },
+              );
+            }
             if (IntakeDiagnostics.isActive) {
               IntakeDiagnostics.record(
                 IntakeDiagnosticEntry(
@@ -1006,8 +1112,26 @@ class ProjectService {
       // The legacy import path has no independent OCR/visual type model. Keep
       // the measured image editable with a provisional size; never infer a
       // catalog kind from its name or aspect ratio.
-      const kind = DocumentKind.unknown;
+      //
+      // Option 2 is different in kind from inference: the PERSON typed the
+      // category, so it is an assertion we were given, not a guess we made. It
+      // still does not confirm a size — the item keeps `sizeConfirmed: false`
+      // and the usual size-confirmation step applies — so a wrong category
+      // cannot silently dictate a print size.
+      final kind = options?.kind ?? DocumentKind.unknown;
       const recognitionConfidence = 0.0;
+      if (options != null && options.assertsKind) {
+        stages?.pass(
+          JourneyStage.recognition,
+          'حدّد المستخدم النوع «${kind.label}»؛ لم يُستخدم مصنّف آلي.',
+          fields: {'kind': kind.name, 'assertedByUser': true},
+        );
+      } else {
+        stages?.review(
+          JourneyStage.recognition,
+          'لم يحدّد المستخدم نوعاً ولم يتوفر مصنّف مستقل؛ النوع غير معروف.',
+        );
+      }
       final size = provisionalSize(width: asset.width, height: asset.height);
       warnings.add(
         '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',

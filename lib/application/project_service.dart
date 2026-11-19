@@ -698,6 +698,10 @@ class ProjectService {
     IntakeBatchLog? stageLog,
   }) async {
     final ids = assetIds.toSet().toList();
+    // Derived here rather than passed in: whether the build can run
+    // multi-document detection is a property of the build, not of the call, so
+    // this method asks the same question as its caller and cannot drift.
+    final multiAllowed = IntakeOptions.multiDocumentAvailable;
     final pendingIds = <String>[];
     for (final id in ids) {
       final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
@@ -824,6 +828,12 @@ class ProjectService {
               segment: (_) async => segmentation,
               ocr: ocr,
               fullResolutionJpegCropper: fullResolutionJpegCropper,
+              // The same options as the single-document path. Dropping them
+              // here would make the side and kind choices silently stop
+              // applying to exactly the photos that hold several documents,
+              // which is where a side/kind mistake is most likely.
+              options: options,
+              stageLog: stageLog,
             ).run(
               current,
               [id],
@@ -832,6 +842,10 @@ class ProjectService {
               cancellation: cancellation,
               onProgress: (value) =>
                   progress(index + value.completed, value.stage),
+              // The person asked for multi-document detection; this source has
+              // several measured regions, so honour the request here instead of
+              // re-deciding it downstream.
+              allowMultiDocument: multiAllowed,
             );
         merge(report);
         hasNewItems = hasNewItems || report.project.items.length > beforeItems;
@@ -859,6 +873,12 @@ class ProjectService {
         cancellation: cancellation,
         onProgress: (value) =>
             progress(firstIndex + value.completed, value.stage),
+        // The fallback must honour the same options as the primary path: an
+        // option that silently stops working when segmentation finds nothing
+        // would be worse than not offering it, because the person cannot tell
+        // which path their batch took.
+        options: options,
+        stageLog: stageLog,
       );
       merge(report);
       hasNewItems = hasNewItems || report.project.items.length > beforeItems;

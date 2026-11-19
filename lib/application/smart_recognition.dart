@@ -290,6 +290,7 @@ class SmartIntake {
               onMulti: () => imageMulti++,
               onRejected: (_) {},
               cancellation: imageToken,
+              allowMultiDocument: allowMultiDocument,
             ),
             budget: analysisBudget,
             name: 'image-apply',
@@ -1544,6 +1545,7 @@ class SmartIntake {
     required void Function() onMulti,
     required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
+    bool allowMultiDocument = true,
   }) async {
     var asset = analyzed.asset;
     final analysis = analyzed.analysis;

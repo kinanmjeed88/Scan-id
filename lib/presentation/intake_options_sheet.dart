@@ -201,9 +201,8 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
               Row(
                 children: [
                   TextButton(
-                    onPressed: () => setState(
-                      () => _options = IntakeOptions.defaults,
-                    ),
+                    onPressed: () =>
+                        setState(() => _options = IntakeOptions.defaults),
                     child: const Text('إعادة الافتراضي'),
                   ),
                   const Spacer(),
@@ -240,11 +239,10 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
 /// a new category appears in the sheet automatically and the two lists cannot
 /// drift. `unknown` is excluded because it IS the «تعرّف تلقائي» choice; `other`
 /// is the free/A4 document whose size is entered by hand.
-final List<DocumentKind> _selectableKinds =
-    [
-      for (final kind in DocumentKind.values)
-        if (kind != DocumentKind.unknown) kind,
-    ]..sort((a, b) => a.order.compareTo(b.order));
+final List<DocumentKind> _selectableKinds = [
+  for (final kind in DocumentKind.values)
+    if (kind != DocumentKind.unknown) kind,
+]..sort((a, b) => a.order.compareTo(b.order));
 
 String _sideLabel(SideKind side) => switch (side) {
   SideKind.front => 'وجه أول',

@@ -11,7 +11,6 @@ import '../application/stage_budget.dart';
 import '../domain/acceptance_policy.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/geometry.dart';
-import '../domain/image_limits.dart';
 import 'prepare_image.dart';
 
 const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
@@ -20,37 +19,67 @@ const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
 /// and reports refer to the id production emits, not to a look-alike.
 const docQuadNetModelId = 'DocQuadNet-256/ORT-1.28';
 
-/// The image the detector actually sees: the bounded preview's own size.
+/// Maps DocQuadNet heatmap peaks back to source-normalized corners.
 ///
-/// The learned models are fed a bounded display preview
-/// (`prepareBoundedPreview`, long edge <= 1200 px), but a corner they return is
-/// a fraction of THAT preview. Everything downstream — the measured classical
-/// arbitration, `verifyBoundary` and all crop geometry — works in the source
-/// image's own coordinate frame. A preview keeps the source aspect ratio, so
-/// the two frames coincide only when the longest source edge is already within
-/// the preview bound. A 1600x1200 source shrinks to 1200x900, and the raw
-/// fractions would then be read against a 4:3 frame they no longer describe — a
-/// silent ~25 % geometric error on one axis, with no failing gate to catch it.
+/// Coordinate contract, verified against the production call path:
 ///
-/// This returns the source aspect ratio expressed in the preview's own frame,
-/// so a detector fraction multiplies a ratio of the same shape. It never
-/// resizes, so no pixel is invented and no extra decode is performed.
-({int width, int height}) detectorFrame({
-  required int sourceWidth,
-  required int sourceHeight,
+/// * The frame is the image `_letterbox` was actually given. [frameWidth] and
+///   [frameHeight] are `source.width`/`source.height` from the same decoded
+///   image the letterbox was built from, so the two can never disagree.
+/// * The bounded preview means this frame is already at most
+///   `maxRecognitionPreviewLongEdge` on its long edge for every production
+///   caller, so no second rescale is applied here. Adding one would shrink an
+///   already-bounded frame again and move every corner away from where the
+///   model placed it.
+/// * `_Peak.x256`/`y256` are 4x the heatmap cell centre, so un-letterboxing
+///   with `(x256 - offset) / scale` yields a pixel coordinate in the frame.
+///   [frameWidth] is the pixel count, and the frame spans indices
+///   `0 .. frameWidth - 1`; the fractional convention the rest of the app uses
+///   is `index / (frameWidth - 1)` (see `assessQuad` and `warpPerspective`,
+///   which multiply by `sourceWidth - 1`). Dividing by the pixel count instead
+///   would make the normalized error `index / (frameWidth * (frameWidth - 1))`,
+///   which is `index / frameWidth` pixels — under one pixel at the far edge,
+///   but always inward, and always in the same direction for every corner.
+///
+/// Kept pure and top-level so the round trip can be asserted without a native
+/// session: a plausible-looking rectangle in the wrong place passes every
+/// downstream geometry gate, so only a coordinate test can catch it.
+List<Point2> docQuadCorners(
+  List<({double x256, double y256})> peaks, {
+  required double scale,
+  required double offsetX,
+  required double offsetY,
+  required int frameWidth,
+  required int frameHeight,
 }) {
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return (width: sourceWidth, height: sourceHeight);
-  }
-  final longest = math.max(sourceWidth, sourceHeight);
-  if (longest <= maxRecognitionPreviewLongEdge) {
-    return (width: sourceWidth, height: sourceHeight);
-  }
-  final scale = maxRecognitionPreviewLongEdge / longest;
-  return (
-    width: math.max(1, (sourceWidth * scale).round()),
-    height: math.max(1, (sourceHeight * scale).round()),
-  );
+  final spanX = math.max(1, frameWidth - 1).toDouble();
+  final spanY = math.max(1, frameHeight - 1).toDouble();
+  return [
+    for (final peak in peaks)
+      Point2(
+        _snapToFrame(((peak.x256 - offsetX) / scale) / spanX),
+        _snapToFrame(((peak.y256 - offsetY) / scale) / spanY),
+      ),
+  ];
+}
+
+/// Absorbs floating-point overshoot at the frame edge, and nothing else.
+///
+/// Dividing by `frameWidth - 1` is the exact inverse of what `assessQuad` and
+/// `warpPerspective` do, but it is not exact in binary: the last pixel of some
+/// frames comes back as `1.0000000000000018`. `normalizedQuadIssue` rejects any
+/// coordinate strictly greater than 1, so an un-snapped legitimate edge corner
+/// would discard the whole proposal as out of bounds.
+///
+/// The tolerance is deliberately far smaller than one heatmap cell (which is
+/// ~18 px on a 900 px frame), so a peak that really sits in the letterbox
+/// padding — which is what a bogus detection looks like — still surfaces as
+/// out of range and is still rejected downstream.
+double _snapToFrame(double fraction) {
+  const epsilon = 1e-9;
+  if (fraction > 1 && fraction <= 1 + epsilon) return 1;
+  if (fraction < 0 && fraction >= -epsilon) return 0;
+  return fraction;
 }
 
 /// Small seam that allows the image editor to use a learned proposer while
@@ -69,14 +98,6 @@ abstract interface class BoundaryProposalModel {
 /// The source image is already oriented and bounded by [LocalImageEditor]. This
 /// class only preprocesses that preview, runs the bundled model, and returns a
 /// normalized proposal. It never writes image pixels or authorizes a crop.
-///
-/// Coordinate contract: a returned corner is a fraction of the SOURCE image,
-/// i.e. of the same frame every gate and crop step uses. The model sees a
-/// bounded, letterboxed 256 sample of the preview, so the back-mapping undoes
-/// the letterbox, divides by the detector frame size (see [detectorFrame]) and
-/// uses the pixel-centre convention for every axis. Getting any of those
-/// wrong produces a plausible-looking rectangle in the wrong place, which no
-/// downstream gate can detect — only a coordinate test can, and one exists.
 class DocQuadNet256 implements BoundaryProposalModel {
   DocQuadNet256({OnnxRuntime? runtime}) : _runtime = runtime ?? OnnxRuntime();
 
@@ -190,24 +211,14 @@ class DocQuadNet256 implements BoundaryProposalModel {
             return null;
           }
 
-          // Un-letterbox into the detector's own frame, then express that as a
-          // fraction of it. `_Peak` positions are pixel CENTRES (x + .5), so
-          // the last pixel centre is width - 1, not width: dividing by the
-          // width would place every corner of a document touching the edge at
-          // 1 - 1/width and report it as strictly interior.
-          final frame = detectorFrame(
-            sourceWidth: sourceWidth,
-            sourceHeight: sourceHeight,
+          final corners = docQuadCorners(
+            [for (final peak in peaks) (x256: peak.x256, y256: peak.y256)],
+            scale: input.scale,
+            offsetX: input.offsetX,
+            offsetY: input.offsetY,
+            frameWidth: sourceWidth,
+            frameHeight: sourceHeight,
           );
-          final corners = [
-            for (final peak in peaks)
-              Point2(
-                ((peak.x256 - input.offsetX) / input.scale) /
-                    math.max(1, frame.width - 1),
-                ((peak.y256 - input.offsetY) / input.scale) /
-                    math.max(1, frame.height - 1),
-              ),
-          ];
           final proposal = BoundaryProposal(
             producer: BoundaryProducer.learnedModel,
             corners: corners,

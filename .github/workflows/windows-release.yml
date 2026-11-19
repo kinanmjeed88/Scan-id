@@ -130,16 +130,13 @@ jobs:
           $size = (Get-Item $zip).Length
           Write-Host "Created $zip ($size bytes)"
           if ($size -eq 0) { throw "Windows ZIP is empty" }
-      - name: Windows application
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-windows
-          path: |
-            build/windows/x64/runner/Release/
-            !build/windows/x64/runner/Release/large_jpeg_scaler_test.exe
-            !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
-          retention-days: 14
-          if-no-files-found: error
+      # Only the portable ZIP is published. The same Release tree used to be
+      # uploaded a second time as the unpacked `scan-id-windows` artifact, which
+      # nothing ever downloaded: the release path attaches scan-id-windows.zip,
+      # the app selects a .zip/.exe/.msi asset, and no workflow or document
+      # refers to the directory form. Uploading it duplicated every shipped byte
+      # and gave one build two artifact names, so a stale run looked like a
+      # second deliverable.
       - name: Windows portable ZIP
         uses: actions/upload-artifact@v6
         with:

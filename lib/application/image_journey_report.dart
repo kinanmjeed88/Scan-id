@@ -1126,6 +1126,12 @@ List<JourneyStep> _overlayStageLog(
   for (final log in stageLog.logs) {
     if (log.assetId != assetId) continue;
     for (final step in log.toSteps()) {
+      // `skipped` here means «this log kept no record for that stage», not «the
+      // stage did not run» — `toSteps` fills the gaps so a reader never sees an
+      // omission. Treating that placeholder as evidence would let it overwrite
+      // a stage the project demonstrably got through, so it is ignored and the
+      // derived step stands.
+      if (step.outcome == JourneyOutcome.skipped) continue;
       recorded[step.stage] = step;
     }
   }

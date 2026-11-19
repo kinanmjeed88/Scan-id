@@ -103,6 +103,33 @@ void main() {
     expect(steps.single.detail, 'قِيست منطقة واحدة.');
   });
 
+  test("a stage the log never recorded keeps the project's verdict", () {
+    final log = batch();
+    // Only the copy stage was recorded. `toSteps` fills the rest as `skipped`,
+    // which means «this log kept no record», NOT «the stage did not run».
+    log.forAsset('asset-1').pass(JourneyStage.copy, 'نُسخت إلى مساحة التطبيق.');
+
+    final derived = [
+      JourneyStep(
+        stage: JourneyStage.copy,
+        outcome: JourneyOutcome.passed,
+        detail: 'نُسخت إلى مساحة التطبيق.',
+      ),
+      JourneyStep(
+        stage: JourneyStage.placement,
+        outcome: JourneyOutcome.passed,
+        detail: 'وُضعت على الورقة.',
+      ),
+    ];
+    final steps = overlayStageLogForTest(derived, log, 'asset-1');
+    final placement = steps.firstWhere(
+      (step) => step.stage == JourneyStage.placement,
+    );
+    // The project shows the item on the page; a placeholder must not deny it.
+    expect(placement.outcome, JourneyOutcome.passed);
+    expect(placement.detail, 'وُضعت على الورقة.');
+  });
+
   test('no stage log leaves the derived journey exactly as it was', () {
     final derived = [
       JourneyStep(

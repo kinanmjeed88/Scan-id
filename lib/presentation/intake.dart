@@ -185,6 +185,9 @@ class IntakeRunner {
         startedAt: startedAt,
         savedRevision: committed ? latest.revision : null,
         stablePickedIds: true,
+        // The stages recorded while this batch ran, so the filed journey says
+        // WHY a stage failed and not merely that the project holds nothing.
+        stageLog: stageLog,
       );
       return [
         for (var i = 0; i < pending.length; i++)

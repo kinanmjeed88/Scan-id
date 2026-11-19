@@ -158,7 +158,7 @@ class IntakeOptions {
   String toString() =>
       'IntakeOptions(side: ${side.name}, kind: ${kind.name}, '
       'accept: $acceptSuggestedBoundary, center: $centerDocuments, '
-      'multi: $multiDocument/${multiDocumentRuns})';
+      'multi: $multiDocument/$multiDocumentRuns)';
 }
 
 /// The options a person can tick, as stable keys.

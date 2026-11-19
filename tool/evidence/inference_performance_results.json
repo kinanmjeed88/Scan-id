@@ -1,0 +1,48 @@
+{
+  "runtime": "1.32.0",
+  "python": "3.11.2",
+  "provider": "CPUExecutionProvider",
+  "threads": 2,
+  "model_bytes": 13404960,
+  "session_create_first_ms": 32.0,
+  "session_create_repeat_ms": [
+    20.7,
+    13.8,
+    14.0,
+    15.0,
+    16.7
+  ],
+  "inference_ms": {
+    "trials": 30,
+    "min": 25.79,
+    "p50": 28.48,
+    "p95": 34.47,
+    "max": 41.45,
+    "mean": 30.08
+  },
+  "memory_mib": {
+    "idle_rss": 47.1,
+    "after_session_rss": 87.4,
+    "session_delta": 40.3,
+    "peak_during_session_load": 87.4,
+    "rss_after_release": 95.4,
+    "retained_after_release": 48.3,
+    "peak_total": 95.4,
+    "peak_delta_over_idle": 48.3,
+    "rss_after_100_inferences": 95.2
+  },
+  "sustained_ms_per_image": [
+    36.82,
+    34.49,
+    28.32,
+    27.82,
+    28.9
+  ],
+  "sustained_drift_pct": -21.5,
+  "not_measured": [
+    "flutter_onnxruntime platform-channel overhead",
+    "Android ART / Dart isolate scheduling",
+    "device thermal throttling and sustained throughput",
+    "real camera JPEG decode (no device, no corpus in this workspace)"
+  ]
+}

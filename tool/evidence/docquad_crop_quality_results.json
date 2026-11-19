@@ -1,0 +1,288 @@
+{
+  "note": "Pure-Python port of the shipped geometry. Not a Dart run; CI runs the Dart tests. Synthetic imagery only.",
+  "geometry_only": [
+    {
+      "scene": "landscape mild",
+      "source": "1200x900",
+      "corner_max_px": 0.0,
+      "corner_max_pct_diag": 0.0,
+      "reprojection_max_px": 1.3543417520061952e-13,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "portrait mild",
+      "source": "900x1200",
+      "corner_max_px": 0.0,
+      "corner_max_pct_diag": 0.0,
+      "reprojection_max_px": 1.3311574065255627e-13,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "square",
+      "source": "1200x1200",
+      "corner_max_px": 0.0,
+      "corner_max_pct_diag": 0.0,
+      "reprojection_max_px": 0.0,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "strong perspective",
+      "source": "1200x1000",
+      "corner_max_px": 1.1368683772161603e-13,
+      "corner_max_pct_diag": 7.284622073032314e-15,
+      "reprojection_max_px": 1.732660165070474e-13,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "touching left edge",
+      "source": "1200x900",
+      "corner_max_px": 0.0,
+      "corner_max_pct_diag": 0.0,
+      "reprojection_max_px": 1.3311574065255627e-13,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "touching all edges",
+      "source": "1200x900",
+      "corner_max_px": 0.0,
+      "corner_max_pct_diag": 0.0,
+      "reprojection_max_px": 0.0,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "near edge",
+      "source": "1200x900",
+      "corner_max_px": 1.1368683772161603e-13,
+      "corner_max_pct_diag": 7.586202903321591e-15,
+      "reprojection_max_px": 9.980904991380157e-14,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "unusual aspect 4.4:1",
+      "source": "1200x275",
+      "corner_max_px": 5.684341886080802e-14,
+      "corner_max_pct_diag": 4.6217568013442854e-15,
+      "reprojection_max_px": 0.0,
+      "size_error_pct": 0.0
+    },
+    {
+      "scene": "tall and narrow",
+      "source": "320x1200",
+      "corner_max_px": 5.684341886080802e-14,
+      "corner_max_pct_diag": 4.581522355118676e-15,
+      "reprojection_max_px": 1.3311574065255627e-13,
+      "size_error_pct": 0.0
+    }
+  ],
+  "model_on_synthetic": [
+    {
+      "scene": "landscape mild",
+      "source": "1200x900",
+      "corner_max_px": 810.4222958741941,
+      "corner_mean_px": 223.1727065119287,
+      "corner_max_pct_diag": 54.07862596136224,
+      "reprojection_max_px": null,
+      "reprojection_mean_px": null,
+      "output": "602.3x746.2",
+      "truth_size": "815.8x656.7",
+      "size_error_pct": 26.16624957756317,
+      "outside_frame": false
+    },
+    {
+      "scene": "portrait mild",
+      "source": "900x1200",
+      "corner_max_px": 7.085298158863895,
+      "corner_mean_px": 5.613697604227078,
+      "corner_max_pct_diag": 0.47279448123353396,
+      "reprojection_max_px": 1.6637802395200623e-13,
+      "reprojection_mean_px": 7.487344115114062e-14,
+      "output": "638.6x844.0",
+      "truth_size": "630.3x851.5",
+      "size_error_pct": 1.3127992374387296,
+      "outside_frame": false
+    },
+    {
+      "scene": "square",
+      "source": "1200x1200",
+      "corner_max_px": 34.817757681964736,
+      "corner_mean_px": 16.49339310915057,
+      "corner_max_pct_diag": 2.0533671862074456,
+      "reprojection_max_px": 1.8825408579618464e-13,
+      "reprojection_mean_px": 4.706352144904616e-14,
+      "output": "834.9x815.7",
+      "truth_size": "839.3x839.3",
+      "size_error_pct": 0.5244869002983175,
+      "outside_frame": false
+    },
+    {
+      "scene": "strong perspective",
+      "source": "1200x1000",
+      "corner_max_px": 531.7826244340821,
+      "corner_mean_px": 332.45379359946304,
+      "corner_max_pct_diag": 34.074616918217004,
+      "reprojection_max_px": 1.1091128016005314e-13,
+      "reprojection_mean_px": 6.931955010003321e-14,
+      "output": "274.0x406.7",
+      "truth_size": "821.1x648.5",
+      "size_error_pct": 66.62956643129355,
+      "outside_frame": false
+    },
+    {
+      "scene": "touching left edge",
+      "source": "1200x900",
+      "corner_max_px": 915.6355666147969,
+      "corner_mean_px": 438.20446494397,
+      "corner_max_pct_diag": 61.09939666759642,
+      "reprojection_max_px": null,
+      "reprojection_mean_px": null,
+      "output": "479.5x484.7",
+      "truth_size": "923.4x647.5",
+      "size_error_pct": 48.07787707211005,
+      "outside_frame": false
+    },
+    {
+      "scene": "touching all edges",
+      "source": "1200x900",
+      "corner_max_px": 1018.366599633943,
+      "corner_mean_px": 751.0352835175029,
+      "corner_max_pct_diag": 67.95453026590647,
+      "reprojection_max_px": null,
+      "reprojection_mean_px": null,
+      "output": "105.4x50.5",
+      "truth_size": "1199.0x899.0",
+      "size_error_pct": 91.20656960130682,
+      "outside_frame": false
+    },
+    {
+      "scene": "near edge",
+      "source": "1200x900",
+      "corner_max_px": 664.0611943563634,
+      "corner_mean_px": 585.0792537622532,
+      "corner_max_pct_diag": 44.312103859773345,
+      "reprojection_max_px": 1.199658140766168e-13,
+      "reprojection_mean_px": 5.494371599760459e-14,
+      "output": "88.8x325.5",
+      "truth_size": "1079.1x791.2",
+      "size_error_pct": 91.77108769394115,
+      "outside_frame": false
+    },
+    {
+      "scene": "unusual aspect 4.4:1",
+      "source": "1200x275",
+      "corner_max_px": 526.8255064535125,
+      "corner_mean_px": 285.9865261709275,
+      "corner_max_pct_diag": 42.83449898633627,
+      "reprojection_max_px": 1.3311574065255627e-13,
+      "reprojection_mean_px": 3.518019209280965e-14,
+      "output": "541.8x291.0",
+      "truth_size": "1055.1x208.2",
+      "size_error_pct": 48.65181069382581,
+      "outside_frame": true
+    },
+    {
+      "scene": "tall and narrow",
+      "source": "320x1200",
+      "corner_max_px": 9.761057832018077,
+      "corner_mean_px": 7.495570478778153,
+      "corner_max_pct_diag": 0.7867314381019862,
+      "reprojection_max_px": 1.3318933465253778e-13,
+      "reprojection_mean_px": 5.193391386453728e-14,
+      "output": "245.5x1003.1",
+      "truth_size": "237.3x1007.2",
+      "size_error_pct": 3.484625460097561,
+      "outside_frame": false
+    }
+  ],
+  "corner_identity": [
+    {
+      "scene": "landscape mild",
+      "shift_means_px": [
+        223.17,
+        611.59,
+        862.29,
+        786.68
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "portrait mild",
+      "shift_means_px": [
+        5.61,
+        741.59,
+        1058.29,
+        740.62
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "square",
+      "shift_means_px": [
+        16.49,
+        837.06,
+        1176.91,
+        827.51
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "strong perspective",
+      "shift_means_px": [
+        332.45,
+        602.21,
+        779.55,
+        597.1
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "touching left edge",
+      "shift_means_px": [
+        438.2,
+        639.09,
+        719.42,
+        766.54
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "touching all edges",
+      "shift_means_px": [
+        751.04,
+        758.08,
+        795.56,
+        810.31
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "near edge",
+      "shift_means_px": [
+        585.08,
+        724.63,
+        798.1,
+        669.87
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "unusual aspect 4.4:1",
+      "shift_means_px": [
+        285.99,
+        615.73,
+        839.26,
+        590.92
+      ],
+      "best_shift": 0
+    },
+    {
+      "scene": "tall and narrow",
+      "shift_means_px": [
+        7.5,
+        624.39,
+        1033.4,
+        622.13
+      ],
+      "best_shift": 0
+    }
+  ]
+}

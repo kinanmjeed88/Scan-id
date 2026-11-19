@@ -1,0 +1,112 @@
+{
+  "models": [
+    {
+      "name": "DocQuadNet-256",
+      "path": "assets/models/docquadnet256_trained_opset17.ort",
+      "kind": "ort",
+      "status": "PRESENT",
+      "bytes": 13404960,
+      "sha256": "f0f2f52d7d79ff02d346c8f9d0c9e903407366aeea1747cdcff160c401e3e72a",
+      "operators": [
+        {
+          "domain": "ai.onnx",
+          "opset": 1,
+          "op": "GlobalAveragePool"
+        },
+        {
+          "domain": "ai.onnx",
+          "opset": 6,
+          "op": "HardSigmoid"
+        },
+        {
+          "domain": "ai.onnx",
+          "opset": 11,
+          "op": "Conv"
+        },
+        {
+          "domain": "ai.onnx",
+          "opset": 13,
+          "op": "Resize"
+        },
+        {
+          "domain": "ai.onnx",
+          "opset": 14,
+          "op": "Mul"
+        },
+        {
+          "domain": "com.microsoft",
+          "opset": 1,
+          "op": "FusedConv"
+        }
+      ]
+    },
+    {
+      "name": "DocAligner FastViT-SA24",
+      "path": "assets/models/docaligner_fastvit_sa24_7f9f5a89.onnx",
+      "kind": "onnx",
+      "status": "ABSENT"
+    },
+    {
+      "name": "PP-OCRv5 det",
+      "path": "assets/models/ppocrv5_mobile_det.onnx",
+      "kind": "onnx",
+      "status": "ABSENT"
+    },
+    {
+      "name": "PP-OCRv5 arabic rec",
+      "path": "assets/models/ppocrv5_arabic_mobile_rec.onnx",
+      "kind": "onnx",
+      "status": "ABSENT"
+    }
+  ],
+  "union": [
+    {
+      "domain": "ai.onnx",
+      "op": "Conv",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    },
+    {
+      "domain": "ai.onnx",
+      "op": "GlobalAveragePool",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    },
+    {
+      "domain": "ai.onnx",
+      "op": "HardSigmoid",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    },
+    {
+      "domain": "ai.onnx",
+      "op": "Mul",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    },
+    {
+      "domain": "ai.onnx",
+      "op": "Resize",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    },
+    {
+      "domain": "com.microsoft",
+      "op": "FusedConv",
+      "requiredBy": [
+        "DocQuadNet-256"
+      ]
+    }
+  ],
+  "missing": [
+    "DocAligner FastViT-SA24",
+    "PP-OCRv5 det",
+    "PP-OCRv5 arabic rec"
+  ],
+  "complete": false
+}

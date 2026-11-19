@@ -4,21 +4,21 @@
   "provider": "CPUExecutionProvider",
   "threads": 2,
   "model_bytes": 13404960,
-  "session_create_first_ms": 32.0,
+  "session_create_first_ms": 39.2,
   "session_create_repeat_ms": [
-    20.7,
-    13.8,
-    14.0,
-    15.0,
-    16.7
+    20.6,
+    16.9,
+    16.2,
+    17.7,
+    14.4
   ],
   "inference_ms": {
     "trials": 30,
-    "min": 25.79,
-    "p50": 28.48,
-    "p95": 34.47,
-    "max": 41.45,
-    "mean": 30.08
+    "min": 24.84,
+    "p50": 27.07,
+    "p95": 31.52,
+    "max": 33.09,
+    "mean": 28.1
   },
   "memory_mib": {
     "idle_rss": 47.1,
@@ -28,17 +28,17 @@
     "rss_after_release": 95.4,
     "retained_after_release": 48.3,
     "peak_total": 95.4,
-    "peak_delta_over_idle": 48.3,
+    "peak_delta_over_idle": 48.4,
     "rss_after_100_inferences": 95.2
   },
   "sustained_ms_per_image": [
-    36.82,
-    34.49,
-    28.32,
-    27.82,
-    28.9
+    30.35,
+    32.49,
+    33.13,
+    32.89,
+    30.84
   ],
-  "sustained_drift_pct": -21.5,
+  "sustained_drift_pct": 1.6,
   "not_measured": [
     "flutter_onnxruntime platform-channel overhead",
     "Android ART / Dart isolate scheduling",

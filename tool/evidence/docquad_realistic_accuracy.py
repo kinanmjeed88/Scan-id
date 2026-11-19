@@ -74,6 +74,44 @@ def snap(fraction: float) -> float:
     return fraction
 
 
+def sigmoid(value: float) -> float:
+    if value >= 0:
+        return 1 / (1 + math.exp(-value))
+    return math.exp(value) / (1 + math.exp(value))
+
+
+def corner_mask_iou(peaks64, mask) -> float:
+    """Port of DocQuadNet256._cornerMaskIou.
+
+    Peaks are in HEATMAP CELL units here (`_Peak.x` = column + 0.5), not the
+    256-space x4 values. Feeding 256-space values against a 64-space mask
+    silently returns ~0 and makes the production gate look broken; that mistake
+    was made and corrected while building this file.
+    """
+    intersection = union = 0
+    for y in range(HEATMAP):
+        for x in range(HEATMAP):
+            inside = False
+            for index in range(4):
+                a = peaks64[index]
+                b = peaks64[(index + 1) % 4]
+                if (a[1] > y + .5) != (b[1] > y + .5) and (
+                    x + .5
+                    < a[0] + (y + .5 - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                ):
+                    inside = not inside
+            in_mask = bool(mask[y][x] > 0)
+            if inside and in_mask:
+                intersection += 1
+            if inside or in_mask:
+                union += 1
+    return intersection / union if union else 0.0
+
+
+# DocQuadNet256._minimumReviewEvidence
+MINIMUM_REVIEW_EVIDENCE = 0.05
+
+
 def corners_of(peaks, box):
     width, height = box["size"]
     sx, sy = max(1, width - 1), max(1, height - 1)
@@ -198,6 +236,15 @@ def main() -> int:
                 index = int(np.argmax(heatmaps[0, channel]))
                 row, column = divmod(index, HEATMAP)
                 peaks.append(((column + 0.5) * 4, (row + 0.5) * 4))
+            peaks64 = [(x / 4, y / 4) for x, y in peaks]
+            probabilities = [
+                sigmoid(float(heatmaps[0, channel].ravel()[
+                    int(np.argmax(heatmaps[0, channel]))
+                ]))
+                for channel in range(4)
+            ]
+            evidence = corner_mask_iou(peaks64, _mask[0, 0]) * min(probabilities)
+            gate_passes = evidence >= MINIMUM_REVIEW_EVIDENCE
             detected = corners_of(peaks, box)
             inside = all(0 <= x <= 1 and 0 <= y <= 1 for x, y in detected)
             diagonal = math.hypot(width - 1, height - 1)
@@ -214,6 +261,8 @@ def main() -> int:
                     "shape": f"{width}x{height}",
                     "trial": trial,
                     "in_frame": inside,
+                    "evidence": evidence,
+                    "gate_passes": gate_passes,
                     "corner_max_px": max(errors),
                     "corner_mean_px": statistics.fmean(errors),
                     "corner_max_pct_diag": 100 * max(errors) / diagonal,
@@ -223,12 +272,19 @@ def main() -> int:
             )
 
     total = len(rows)
-    accepted = [row for row in rows if row["in_frame"]]
+    accepted = [row for row in rows if row["gate_passes"]]
     print(f"SYNTHETIC REALISTIC CAPTURES  ({total} scenes, seed {SEED})")
     print("These simulate a desk shot; they are NOT real photographs.")
     print()
-    print(f"detection returned an in-frame quad : {len(accepted)}/{total} "
+    print("Scored through the PRODUCTION gate (_minimumReviewEvidence = "
+          f"{MINIMUM_REVIEW_EVIDENCE}), not on raw output:")
+    print(f"  proposals the app would keep : {len(accepted)}/{total} "
           f"({100*len(accepted)/total:.1f} %)")
+    rejected = [row for row in rows if not row["gate_passes"]]
+    over_rejected = [row for row in rejected if row["iou"] >= 0.9]
+    bad_accept = [row for row in accepted if row["iou"] < 0.9]
+    print(f"  over-rejected good quads (IoU>=0.90) : {len(over_rejected)}")
+    print(f"  accepted poor quads (IoU<0.90)       : {len(bad_accept)}")
     if accepted:
         for key, label in (("corner_max_px", "corner max px"),
                            ("corner_mean_px", "corner mean px"),
@@ -241,20 +297,21 @@ def main() -> int:
                   f"p90 {values[int(len(values)*0.9)-1]:8.3f}  "
                   f"max {values[-1]:8.3f}")
         good = [row for row in accepted if row["iou"] >= 0.9]
-        print(f"  quads with IoU >= 0.90 : {len(good)}/{total} "
-              f"({100*len(good)/total:.1f} % of all scenes)")
+        print(f"  of the kept proposals, IoU >= 0.90 : {len(good)}/{len(accepted)} "
+              f"({100*len(good)/max(1,len(accepted)):.1f} %)")
 
     print()
-    print("per-shape breakdown (in-frame scenes only)")
+    print("per-shape breakdown (scored through the production gate)")
     for width, height in shapes:
         shape = f"{width}x{height}"
-        subset = [row for row in accepted if row["shape"] == shape]
+        every = [row for row in rows if row["shape"] == shape]
+        subset = [row for row in every if row["gate_passes"]]
         if not subset:
-            print(f"  {shape:10s} no in-frame detections")
+            print(f"  {shape:10s} gate kept 0/{len(every)}")
             continue
         median_corner = statistics.median(r["corner_max_px"] for r in subset)
         median_iou = statistics.median(r["iou"] for r in subset)
-        print(f"  {shape:10s} n={len(subset):2d}  "
+        print(f"  {shape:10s} kept {len(subset)}/{len(every)}  "
               f"median corner {median_corner:7.2f} px  "
               f"median IoU {median_iou:.3f}")
 

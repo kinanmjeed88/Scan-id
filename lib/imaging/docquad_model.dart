@@ -19,6 +19,39 @@ const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
 /// and reports refer to the id production emits, not to a look-alike.
 const docQuadNetModelId = 'DocQuadNet-256/ORT-1.28';
 
+/// The image the detector actually sees: the bounded preview's own size.
+///
+/// The learned models are fed a bounded display preview
+/// (`prepareBoundedPreview`, long edge <= 1200 px), but a corner they return is
+/// a fraction of THAT preview. Everything downstream — the measured classical
+/// arbitration, `verifyBoundary` and all crop geometry — works in the source
+/// image's own coordinate frame. A preview keeps the source aspect ratio, so
+/// the two frames coincide only when the longest source edge is already within
+/// the preview bound. A 1600x1200 source shrinks to 1200x900, and the raw
+/// fractions would then be read against a 4:3 frame they no longer describe — a
+/// silent ~25 % geometric error on one axis, with no failing gate to catch it.
+///
+/// This returns the source aspect ratio expressed in the preview's own frame,
+/// so a detector fraction multiplies a ratio of the same shape. It never
+/// resizes, so no pixel is invented and no extra decode is performed.
+({int width, int height}) detectorFrame({
+  required int sourceWidth,
+  required int sourceHeight,
+}) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return (width: sourceWidth, height: sourceHeight);
+  }
+  final longest = math.max(sourceWidth, sourceHeight);
+  if (longest <= maxRecognitionPreviewLongEdge) {
+    return (width: sourceWidth, height: sourceHeight);
+  }
+  final scale = maxRecognitionPreviewLongEdge / longest;
+  return (
+    width: math.max(1, (sourceWidth * scale).round()),
+    height: math.max(1, (sourceHeight * scale).round()),
+  );
+}
+
 /// Small seam that allows the image editor to use a learned proposer while
 /// keeping geometric validation, persistence and manual approval in the app.
 abstract interface class BoundaryProposalModel {
@@ -35,6 +68,14 @@ abstract interface class BoundaryProposalModel {
 /// The source image is already oriented and bounded by [LocalImageEditor]. This
 /// class only preprocesses that preview, runs the bundled model, and returns a
 /// normalized proposal. It never writes image pixels or authorizes a crop.
+///
+/// Coordinate contract: a returned corner is a fraction of the SOURCE image,
+/// i.e. of the same frame every gate and crop step uses. The model sees a
+/// bounded, letterboxed 256 sample of the preview, so the back-mapping undoes
+/// the letterbox, divides by the detector frame size (see [detectorFrame]) and
+/// uses the pixel-centre convention for every axis. Getting any of those
+/// wrong produces a plausible-looking rectangle in the wrong place, which no
+/// downstream gate can detect — only a coordinate test can, and one exists.
 class DocQuadNet256 implements BoundaryProposalModel {
   DocQuadNet256({OnnxRuntime? runtime}) : _runtime = runtime ?? OnnxRuntime();
 
@@ -148,11 +189,22 @@ class DocQuadNet256 implements BoundaryProposalModel {
             return null;
           }
 
+          // Un-letterbox into the detector's own frame, then express that as a
+          // fraction of it. `_Peak` positions are pixel CENTRES (x + .5), so
+          // the last pixel centre is width - 1, not width: dividing by the
+          // width would place every corner of a document touching the edge at
+          // 1 - 1/width and report it as strictly interior.
+          final frame = detectorFrame(
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+          );
           final corners = [
             for (final peak in peaks)
               Point2(
-                ((peak.x256 - input.offsetX) / input.scale) / sourceWidth,
-                ((peak.y256 - input.offsetY) / input.scale) / sourceHeight,
+                ((peak.x256 - input.offsetX) / input.scale) /
+                    math.max(1, frame.width - 1),
+                ((peak.y256 - input.offsetY) / input.scale) /
+                    math.max(1, frame.height - 1),
               ),
           ];
           final proposal = BoundaryProposal(

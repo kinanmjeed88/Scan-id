@@ -35,8 +35,11 @@ MIN_REGION_AREA_FRACTION = 0.015  # `box.area >= total * .015`
 MIN_BOX_SIDE = 10               # `box.width >= 10 && box.height >= 10`
 MIN_BOX_FILL = 0.4              # `box.fill >= .4`
 MAX_BOX_AREA_FRACTION = 0.95    # `box.width * box.height <= total * .95`
-MIN_ABSORB_FILL = 0.5
-ABSORB_FIX = True
+# 0.0 reproduces the SHIPPED containment rule (any box absorbs any box it
+# contains). The measured experiment that required a solid container is available
+# with --absorb-fix and was REJECTED: precision 0.4667 -> 0.459 with no recall
+# gain, so the shipped behaviour is the default here too.
+MIN_ABSORB_FILL = 0.0
 MERGE_IOU = 0.2                 # `_mergeBoxes` IoU threshold
 MARGIN_FRACTION = 0.08          # `_measure` margin
 MAX_PLAUSIBLE_ASPECT = 8.0      # `maxPlausibleRegionAspect`
@@ -480,6 +483,7 @@ def evaluate(image, truth_instances, iou_threshold: float = 0.5) -> dict:
     matched_truth = set()
     matched_predicted = set()
     ious = []
+    corner_errors: list[float] = []
     for p_index, region in enumerate(predicted):
         quad = _quad_from_region(region)
         best = (0.0, None)
@@ -491,6 +495,11 @@ def evaluate(image, truth_instances, iou_threshold: float = 0.5) -> dict:
             matched_truth.add(best[1])
             matched_predicted.add(p_index)
             ious.append(best[0])
+            predicted_corners = quad
+            truth_corners = np.array(truth[best[1]], dtype=np.float64)
+            for point in predicted_corners:
+                distances = np.linalg.norm(truth_corners - point, axis=1)
+                corner_errors.append(float(distances.min()))
     return {
         "documents": len(truth_instances),
         "scorable": len(truth),
@@ -504,6 +513,18 @@ def evaluate(image, truth_instances, iou_threshold: float = 0.5) -> dict:
                    for i in range(len(truth)) if i not in matched_truth],
         "spurious": len(predicted) - len(matched_predicted),
         "ious": [round(v, 4) for v in ious],
+        # Corner error of the matched pairs, in normalized image units. Each
+        # predicted rectangle corner is compared with the nearest truth corner
+        # (the order is TL,TR,BR,BL for both, but a match is a match), and the
+        # RMS of all four distances is reported next to the mean. A region stage
+        # only has a rectangle, so this is the FLOOR of the corner error a
+        # corner search downstream can still improve on.
+        "corner_rms": round(float(np.sqrt(np.mean(corner_errors))), 5)
+        if corner_errors
+        else None,
+        "corner_mean": round(float(np.mean(corner_errors)), 5)
+        if corner_errors
+        else None,
         "rejected_regions": len(result["rejected"]),
     }
 
@@ -514,10 +535,10 @@ def main() -> int:
     parser.add_argument("--truth", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
-        "--no-absorb-fix",
+        "--absorb-fix",
         action="store_true",
-        help="reproduce the shipped containment rule (any box absorbs any "
-        "box it contains)",
+        help="require a container to be solid before it swallows a contained "
+        "box (REJECTED experiment: precision falls with no recall gain)",
     )
     parser.add_argument(
         "--adaptive",
@@ -533,8 +554,8 @@ def main() -> int:
     global SPLIT_TOUCHING_CARDS, ADAPTIVE_FALLBACK, MIN_ABSORB_FILL
     SPLIT_TOUCHING_CARDS = not args.no_split
     ADAPTIVE_FALLBACK = args.adaptive
-    if args.no_absorb_fix:
-        MIN_ABSORB_FILL = 0.0
+    if args.absorb_fix:
+        MIN_ABSORB_FILL = 0.5
 
     truth = json.loads(args.truth.read_text(encoding="utf-8"))
     by_image: dict[int, list[dict]] = {}

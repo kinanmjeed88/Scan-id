@@ -543,11 +543,20 @@ class ProjectService {
         ),
       );
     }
-    // Multi-document detection runs only when the person asked for it AND the
-    // build has a qualified detector. Asking for something this build cannot do
-    // is recorded as such rather than silently ignored.
+    // Two DIFFERENT questions, and conflating them was a defect:
+    //
+    // * May the service run multi-document segmentation at all? That is
+    //   `multiDocumentSegmentationEnabled` — a property of this ProjectService,
+    //   set by whoever constructed it (the app, or a test that needs the path).
+    // * Did the person ask for it for this batch? That is the option.
+    //
+    // The option must never be able to turn OFF a capability the service was
+    // built with. Substituting "did the user ask?" for the service flag silently
+    // changed the behaviour of every existing caller and every test that relied
+    // on that capability, which is exactly what happened here.
     final multiRequested = options?.multiDocument ?? false;
-    final multiAllowed = multiRequested && IntakeOptions.multiDocumentAvailable;
+    // What actually decides whether segmentation may run.
+    final multiEnabled = multiDocumentSegmentationEnabled;
     if (smartRecognitionEnabled && smartEditor != null) {
       final report =
           await SmartIntake(
@@ -565,12 +574,18 @@ class ProjectService {
             keepPlaced: keepPlaced,
             cancellation: cancellation,
             onProgress: onProgress,
-            allowMultiDocument: multiAllowed,
+            // This flag governs ONE thing: whether a photo holding several
+            // measured regions is reported as multi-document. Without the
+            // options (no sheet) the old behaviour stands, so nothing changes
+            // for callers that never asked. With them, it follows the request.
+            allowMultiDocument: options?.multiDocument ?? true,
           );
       return report;
     }
 
-    if (multiRequested && !IntakeOptions.multiDocumentAvailable) {
+    // The person asked for multi-document detection and this build cannot run
+    // it: say so plainly instead of doing nothing.
+    if (multiRequested && !multiEnabled) {
       stageLog?.failBatch(
         JourneyStage.detection,
         'طُلب اكتشاف المستندات المتعددة لكنه غير مفعّل في هذه النسخة؛ '
@@ -578,7 +593,7 @@ class ProjectService {
       );
     }
 
-    if (multiAllowed && smartEditor != null) {
+    if (multiEnabled && smartEditor != null) {
       return _arrangeWithMultiDocumentSegmentation(
         working,
         assetIds,
@@ -698,10 +713,10 @@ class ProjectService {
     IntakeBatchLog? stageLog,
   }) async {
     final ids = assetIds.toSet().toList();
-    // Derived here rather than passed in: whether the build can run
-    // multi-document detection is a property of the build, not of the call, so
-    // this method asks the same question as its caller and cannot drift.
-    final multiAllowed = IntakeOptions.multiDocumentAvailable;
+    // Same rule as the caller's: an unrequested batch keeps the old behaviour,
+    // a request is honoured. This is the reporting flag, not the capability —
+    // reaching this method at all already proves the capability.
+    final multiAllowed = options?.multiDocument ?? true;
     final pendingIds = <String>[];
     for (final id in ids) {
       final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
@@ -842,9 +857,9 @@ class ProjectService {
               cancellation: cancellation,
               onProgress: (value) =>
                   progress(index + value.completed, value.stage),
-              // The person asked for multi-document detection; this source has
-              // several measured regions, so honour the request here instead of
-              // re-deciding it downstream.
+              // Reporting only: this source HAS several measured regions, so it
+              // is reported as multi-document unless the person turned the
+              // option off. It never affects whether data is preserved.
               allowMultiDocument: multiAllowed,
             );
         merge(report);

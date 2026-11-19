@@ -13,31 +13,34 @@ import 'package:scan_id/domain/image_journey.dart';
 void main() {
   IntakeBatchLog batch() => IntakeBatchLog(batchId: 'batch-0001');
 
-  test('a recorded failure is preserved even when the project derives a pass', () {
-    final log = batch();
-    log
-        .forAsset('asset-1')
-        .block(
-          JourneyStage.detection,
-          'تعذّر فحص التقسيم متعدد المستمسكات: صورة غير صالحة',
-        );
+  test(
+    'a recorded failure is preserved even when the project derives a pass',
+    () {
+      final log = batch();
+      log
+          .forAsset('asset-1')
+          .block(
+            JourneyStage.detection,
+            'تعذّر فحص التقسيم متعدد المستمسكات: صورة غير صالحة',
+          );
 
-    // The project side has nothing to reason about, so every derived step is a
-    // placeholder. The recorded block must survive the merge.
-    final steps = overlayStageLogForTest(
-      [
-        JourneyStep(
-          stage: JourneyStage.detection,
-          outcome: JourneyOutcome.passed,
-          detail: 'قِيست منطقة واحدة.',
-        ),
-      ],
-      log,
-      'asset-1',
-    );
-    expect(steps.first.outcome, JourneyOutcome.blocked);
-    expect(steps.first.detail, contains('تعذّر فحص التقسيم'));
-  });
+      // The project side has nothing to reason about, so every derived step is
+      // a placeholder. The recorded block must survive the merge.
+      final steps = overlayStageLogForTest(
+        [
+          JourneyStep(
+            stage: JourneyStage.detection,
+            outcome: JourneyOutcome.passed,
+            detail: 'قِيست منطقة واحدة.',
+          ),
+        ],
+        log,
+        'asset-1',
+      );
+      expect(steps.first.outcome, JourneyOutcome.blocked);
+      expect(steps.first.detail, contains('تعذّر فحص التقسيم'));
+    },
+  );
 
   test('a recorded pass does not erase a failure the project shows', () {
     final log = batch();

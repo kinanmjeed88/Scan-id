@@ -564,12 +564,25 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -camera-back none
           script: bash tool/run_android_release_regression.sh
 
+      # The Release package itself, so its size and contents are measurable rather
+      # than inferred from the debug APK. Signed with the disposable test key only.
+      - name: Upload signed Release APK (test-key evidence)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scan-id-android-signed-release-apk
+          path: diagnostics/android-release/scan-id-scanid-release.apk
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload Android R8 release evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: scan-id-android-r8-release-evidence
-          path: diagnostics/android-release/
+          path: |
+            diagnostics/android-release/
+            !diagnostics/android-release/scan-id-scanid-release.apk
           if-no-files-found: warn
           retention-days: 7
 

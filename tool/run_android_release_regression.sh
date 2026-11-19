@@ -147,4 +147,52 @@ if (( status != 0 )); then
   echo "::error title=android-release-intake::Signed Release R8 intake regression failed (exit=$status). See uploaded evidence." >&2
   exit "$status"
 fi
-echo '::notice title=android-release-intake::Actual signed Release/AOT native inference, import, reopen and retry passed with a disposable test key; no APK was published.'
+# Capture the Release package itself. Until this step existed the workflow built a
+# signed Release APK, installed it, and then discarded it, so the release package
+# could never be measured and every release-size figure in the reports had to be
+# carried over from an unrelated debug build. This is CI evidence under the
+# ordinary artifact retention window, signed with the disposable one-day test key
+# above; it is not a published release and carries no production certificate.
+release_apk=diagnostics/android-release/scan-id-scanid-release.apk
+cp "$apk" "$release_apk"
+python3 - "$release_apk" > diagnostics/android-release/apk-summary.txt <<'PYAPK'
+import hashlib
+import sys
+import zipfile
+
+path = sys.argv[1]
+with open(path, "rb") as handle:
+    payload = handle.read()
+digest = hashlib.sha256(payload).hexdigest()
+print(f"releaseApkBytes={len(payload)}")
+print(f"releaseApkSha256={digest}")
+print(f"releaseApkMiB={len(payload) / 1048576:.1f}")
+
+with zipfile.ZipFile(path) as bundle:
+    entries = [(info, bundle.read(info.filename)) for info in bundle.infolist()]
+
+stored = [info for info, _ in entries if info.compress_type == zipfile.ZIP_STORED]
+deflated = [info for info, _ in entries if info.compress_type == zipfile.ZIP_DEFLATED]
+print(f"entries={len(entries)} stored={len(stored)} deflated={len(deflated)}")
+print(f"uncompressedBytes={sum(info.file_size for info, _ in entries)}")
+
+natives = {}
+for info, _ in entries:
+    if info.filename.startswith("lib/") and info.filename.endswith(".so"):
+        parts = info.filename.split("/")
+        natives.setdefault(parts[1], []).append(
+            (parts[2], info.file_size, info.compress_size)
+        )
+print(f"abis={','.join(sorted(natives)) or 'none'}")
+for abi in sorted(natives):
+    for name, raw, packed in sorted(natives[abi]):
+        print(f"native {abi}/{name} raw={raw} packed={packed}")
+
+for info, _ in entries:
+    if info.filename.endswith(".onnx") or info.filename.endswith(".ort"):
+        print(f"model {info.filename} raw={info.file_size} "
+              f"packed={info.compress_size}")
+PYAPK
+cat diagnostics/android-release/apk-summary.txt
+
+echo '::notice title=android-release-intake::Actual signed Release/AOT native inference, import, reopen and retry passed with a disposable test key; the Release package is attached as CI evidence only, not published.'

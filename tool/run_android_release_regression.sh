@@ -194,5 +194,12 @@ for info, _ in entries:
               f"packed={info.compress_size}")
 PYAPK
 cat diagnostics/android-release/apk-summary.txt
+# Also surface it as an annotation. Artifact downloads leave GitHub for blob
+# storage, so on a restricted network the uploaded file cannot be read back; a
+# notice carries the same numbers through the run's own API surface.
+apk_notice="$(tr '\n' '~' < diagnostics/android-release/apk-summary.txt | head -c 4000)"
+if [[ -n "$apk_notice" ]]; then
+  echo "::notice title=android-release-apk-summary::$apk_notice" >&2
+fi
 
 echo '::notice title=android-release-intake::Actual signed Release/AOT native inference, import, reopen and retry passed with a disposable test key; the Release package is attached as CI evidence only, not published.'

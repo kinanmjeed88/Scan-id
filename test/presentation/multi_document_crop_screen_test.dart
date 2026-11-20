@@ -227,11 +227,7 @@ void main() {
     // Two rectangles were rendered, and two assets were imported through the
     // normal repository. The banner text is part of the failure message: without
     // it a short count says nothing about which step refused the crop.
-    expect(
-      setup.editor.recipes,
-      hasLength(2),
-      reason: _bannerText(tester),
-    );
+    expect(setup.editor.recipes, hasLength(2), reason: _bannerText(tester));
     expect(setup.assets.names, hasLength(2));
     // The first crop is the first card's own corners, within a tap of them.
     final first = setup.editor.recipes[0].geometry.corners;

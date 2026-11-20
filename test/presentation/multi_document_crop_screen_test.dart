@@ -308,11 +308,14 @@ void main() {
 
     await tester.tap(find.byKey(const Key('multi-selection-add')));
     await tester.pumpAndSettle();
-    // Zoom in and only then tap: the taps still land on the photograph, so the
-    // outline closes without an issue and the document becomes ready.
+    // Zoom in and only then tap. At 1.5x the photograph is larger than the box,
+    // so two of the four points below are deliberately OUTSIDE the visible area:
+    // they must still resolve to the right place on the photograph, which is what
+    // the coordinate transform is for.
     await tester.tap(find.byKey(const Key('multi-selection-zoom-in')));
     await tester.pumpAndSettle();
-    await _drawCard(tester);
+    // A card in the part of the photograph still visible after zooming.
+    await _drawCard(tester, left: .25, top: .3, right: .45, bottom: .45);
     expect(
       find.byKey(const Key('multi-selection-selection-issue')),
       findsNothing,

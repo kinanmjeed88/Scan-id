@@ -189,7 +189,9 @@ class ManualSelectionSet {
   ManualSelectionSet add(ManualDocumentSelection selection) {
     require(selections.length < maxSelections, atCapacityMessage);
     require(byId(selection.id) == null, 'معرّف التحديد مستخدم بالفعل.');
-    return ManualSelectionSet._([...selections, selection]);
+    final next = [...selections, selection];
+    _requireNoOverlap(next);
+    return ManualSelectionSet._(next);
   }
 
   /// The one place the missing-id message lives, with a non-null result so
@@ -310,7 +312,8 @@ bool quadRingsOverlap(List<Point2> a, List<Point2> b) {
       // Inward normal of this edge; a gap on any axis separates the rings.
       final axisX = p.y - q.y;
       final axisY = q.x - p.x;
-      if (!_separated(a, b, axisX, axisY)) return false;
+      // Separated on ANY edge normal means the rings cannot overlap.
+      if (_separated(a, b, axisX, axisY)) return false;
     }
   }
   return true;

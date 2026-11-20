@@ -190,8 +190,18 @@ void main() {
       img.encodePng(image),
       CropDraft(corners: skewed).toRecipe(400, 300),
     );
-    expect(_brightFraction(img.encodePng(rectified)), greaterThan(.98));
+    // The rectified output is a rectangle of the averaged edge lengths, so it is
+    // wider than it is tall — the skew is gone.
     expect(rectified.width, greaterThan(rectified.height));
+    expect(rectified.width, closeTo(200 * 400 / 399, 3));
+    // Most of the output is the card. Not all of it: resampling along the two
+    // slanted edges blends them with the dark background, and pretending
+    // otherwise would hide the very geometry this test is checking.
+    expect(_brightFraction(img.encodePng(rectified)), greaterThan(.9));
+    // The card's own corners survive: the extreme corners of the output are
+    // blended edge, its middle is solid card.
+    final middle = rectified.getPixel(rectified.width ~/ 2, rectified.height ~/ 2);
+    expect(middle.r, greaterThan(200));
   });
 
   test('a tap point survives a zoom and a pan before it is stored', () {

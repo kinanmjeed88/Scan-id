@@ -194,6 +194,15 @@ void main() {
         ),
         throwsA(isA<ValidationException>()),
       );
+      expect(
+        () => ImageViewport(
+          viewport: const Size(800, 600),
+          imageWidth: 4000,
+          imageHeight: 3000,
+          scale: 99,
+        ),
+        throwsA(isA<ValidationException>()),
+      );
     },
   );
 }

@@ -27,7 +27,9 @@ const double multiSelectionMinSeparationPx = 20.0;
 /// The radius, in screen pixels, for grabbing an existing corner.
 const double multiSelectionGrabRadiusPx = 28.0;
 
-/// How far a pointer may travel and still count as a tap rather than a pan.
+/// How far a single pointer may travel and still count as a tap. Beyond this it
+/// is a pan or a corner drag: 10 px is comfortably larger than a steady finger
+/// wobble and far smaller than any deliberate move.
 const double _tapSlopPx = 10;
 
 /// Outlines several documents in ONE photograph and adds each as its own
@@ -80,10 +82,16 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   /// Gesture bookkeeping: which corner a drag grabbed, and whether the pointer
   /// has moved far enough to be a pan rather than a tap.
   int? _dragCorner;
-  Offset? _gestureOrigin;
-  Offset? _lastPointer;
+  Offset? _pressAt;
   bool _gestureMoved = false;
-  int _gesturePointers = 0;
+
+  /// Where every finger currently is, by pointer id. Two fingers are a pinch;
+  /// one finger is a pan, a corner drag, or a tap.
+  final Map<int, Offset> _pointers = {};
+
+  /// The previous two-finger distance, so a pinch zooms by the RATIO between
+  /// moves rather than from a recogniser's internal baseline.
+  double? _pinchSpan;
 
   @override
   void initState() {
@@ -213,6 +221,23 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     } on ValidationException catch (error) {
       setState(() => _error = error.message);
     }
+  }
+
+  /// Distance between the two fingers, or null when there are not exactly two.
+  double? get _twoFingerSpan {
+    if (_pointers.length != 2) return null;
+    final positions = _pointers.values.toList();
+    return (positions[0] - positions[1]).distance;
+  }
+
+  /// The midpoint between the two fingers, which is the point a pinch zooms
+  /// about.
+  Offset get _twoFingerFocus {
+    final positions = _pointers.values.toList();
+    return Offset(
+      (positions[0].dx + positions[1].dx) / 2,
+      (positions[0].dy + positions[1].dy) / 2,
+    );
   }
 
   /// The nearest corner of the active selection to [local], within the grab
@@ -420,36 +445,45 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     return LayoutBuilder(
       builder: (context, box) {
         final viewport = _viewport(Size(box.maxWidth, box.maxHeight));
-        return GestureDetector(
+        // Raw pointer tracking, not competing gesture recognisers.
+        //
+        // A tap must place a corner and a drag must pan or move one, with no
+        // arena deciding between them after the fact — that ambiguity is exactly
+        // how a tap silently became a two-pixel pan. Here the intent is decided
+        // once: a second finger is always a pinch, and a move of more than
+        // [_tapSlopPx] is always a pan or a corner drag.
+        return Listener(
           key: const Key('multi-selection-canvas'),
           behavior: HitTestBehavior.opaque,
-          onScaleStart: (details) {
-            _gestureOrigin = details.localFocalPoint;
-            _lastPointer = details.localFocalPoint;
+          onPointerDown: (event) {
+            _pointers[event.pointer] = event.localPosition;
+            _pressAt = event.localPosition;
             _gestureMoved = false;
-            _gesturePointers = details.pointerCount;
-            _dragCorner = _cornerAt(viewport, details.localFocalPoint);
+            _pinchSpan = _twoFingerSpan;
+            // A second finger means the person is zooming, so no corner is held.
+            _dragCorner = _pointers.length == 1
+                ? _cornerAt(viewport, event.localPosition)
+                : null;
           },
-          onScaleUpdate: (details) {
-            _gesturePointers = details.pointerCount;
-            _lastPointer = details.localFocalPoint;
-            if (details.pointerCount > 1) {
-              // A pinch zooms and must never also move a corner.
-              _dragCorner = null;
-              setState(
-                () => _applyView(
-                  viewport.scaledBy(
-                    details.scale,
-                    focus: details.localFocalPoint,
-                  ),
-                ),
-              );
-              return;
-            }
-            final origin = _gestureOrigin;
+          onPointerMove: (event) {
+            final known = _pointers.containsKey(event.pointer);
+            _pointers[event.pointer] = event.localPosition;
+            final origin = _pressAt;
             if (origin != null &&
-                (details.localFocalPoint - origin).distance > _tapSlopPx) {
+                (event.localPosition - origin).distance > _tapSlopPx) {
               _gestureMoved = true;
+            }
+            if (_pointers.length >= 2) {
+              final previous = _pinchSpan;
+              final span = _pinchSpan = _twoFingerSpan;
+              if (known && previous != null && span != null && previous > 0) {
+                setState(
+                  () => _applyView(
+                    viewport.scaledBy(span / previous, focus: _twoFingerFocus),
+                  ),
+                );
+              }
+              return;
             }
             setState(() {
               final grabbed = _dragCorner;
@@ -460,31 +494,36 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
                   _set = _set.moveCorner(
                     active.id,
                     grabbed,
-                    viewport.toImage(details.localFocalPoint),
+                    viewport.toImage(event.localPosition),
                   );
+                  _error = null;
                 } on ValidationException catch (error) {
                   // Refused at the last good position, with the reason stated.
                   _error = error.message;
                 }
               } else {
-                _applyView(viewport.translatedBy(details.focalPointDelta));
+                _applyView(viewport.translatedBy(event.localDelta));
               }
             });
           },
-          onScaleEnd: (details) {
-            // ScaleEndDetails carries no position, so the last place the pointer
-            // was seen is what a tap is placed at. A gesture that moved is a pan
-            // or a drag, never a placement.
-            final at = _lastPointer;
-            final wasTap = !_gestureMoved && _gesturePointers <= 1;
+          onPointerUp: (event) {
+            final wasTap = !_gestureMoved && _pointers.length == 1;
             final grabbed = _dragCorner;
+            _pointers.remove(event.pointer);
+            _pressAt = null;
+            _pinchSpan = null;
             _dragCorner = null;
-            _gestureOrigin = null;
-            _lastPointer = null;
-            _gesturePointers = 0;
-            if (wasTap && grabbed == null && at != null) {
-              _placePoint(viewport, at);
+            _gestureMoved = false;
+            if (wasTap && grabbed == null) {
+              _placePoint(viewport, event.localPosition);
             }
+          },
+          onPointerCancel: (event) {
+            _pointers.remove(event.pointer);
+            _pressAt = null;
+            _pinchSpan = null;
+            _dragCorner = null;
+            _gestureMoved = false;
           },
           child: ClipRect(
             child: Stack(

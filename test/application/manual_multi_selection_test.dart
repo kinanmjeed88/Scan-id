@@ -202,10 +202,16 @@ void main() {
       img.encodePng(image),
       CropDraft(corners: skewed).toRecipe(400, 300),
     );
-    // The rectified output is a rectangle of the averaged edge lengths, so it is
-    // wider than it is tall — the skew is gone.
-    expect(rectified.width, greaterThan(rectified.height));
-    expect(rectified.width, closeTo(200 * 400 / 399, 3));
+    // The rectified output is a RECTANGLE of the averaged edge lengths, which is
+    // what "the skew is gone" means: the slanted sides were 180 and 240 px tall
+    // (average 210) and the top/bottom were 200 px wide. This trapezoid is
+    // therefore taller than it is wide, and asserting otherwise — as an earlier
+    // version of this test did — asserts the wrong shape.
+    expect(rectified.width, closeTo(202, 2));
+    expect(rectified.height, closeTo(210, 2));
+    final rectifiedAspect = rectified.width / rectified.height;
+    final sourceAspect = 200 / 210;
+    expect(rectifiedAspect, closeTo(sourceAspect, .02));
     // Most of the output is the card. Not all of it: resampling along the two
     // slanted edges blends them with the dark background, and pretending
     // otherwise would hide the very geometry this test is checking.

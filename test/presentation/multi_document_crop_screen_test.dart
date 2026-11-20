@@ -250,12 +250,20 @@ void main() {
       setup.editor.recipes[0].geometry.corners.any((c) => c.x > .5),
       isFalse,
     );
+    // The saved project is whatever the real service produced, so the assertion
+    // is on the DOCUMENTS rather than on a raw asset count: the service owns how
+    // many assets a derivation implies, and restating that here would test the
+    // service's internals instead of this screen's behaviour.
     final saved = setup.repository.values[setup.project.id]!;
-    expect(saved.assets, hasLength(3));
-    expect(
-      saved.assets.where((a) => a.derivedFrom == setup.project.assets.first.id),
-      hasLength(2),
+    final derived = saved.assets.where(
+      (a) => a.derivedFrom == setup.project.assets.first.id,
     );
+    expect(derived, hasLength(2));
+    // Two documents were added, each tied to its own derived asset.
+    final derivedIds = {for (final asset in derived) asset.id};
+    final added = saved.items.where((i) => derivedIds.contains(i.assetId));
+    expect(added, hasLength(2));
+    expect(setup.assets.names, hasLength(2));
   });
 
   testWidgets('deleting one document leaves the other untouched', (

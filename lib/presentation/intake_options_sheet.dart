@@ -225,12 +225,12 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
     if (!_options.multiDocument) {
       return 'غير مطلوب؛ تُعالج كل صورة كمستند واحد';
     }
-    if (!IntakeOptions.multiDocumentAvailable) {
-      // Said plainly instead of silently doing nothing: the request is
-      // recorded, the reason is stated, and no document is lost.
-      return 'مطلوب، لكنه غير مفعّل في هذه النسخة؛ تُحفظ كل المناطق للمراجعة';
-    }
-    return 'يعمل نظام المستندات المتعددة';
+    // Automatic segmentation stays unavailable, and saying otherwise would be a
+    // lie. What IS available is the manual workspace: the person outlines each
+    // document themselves. The two are stated together so nobody expects the
+    // detector to find documents for them.
+    return 'مطلوب: تحدد أنت كل مستند يدوياً في مساحة العمل؛ '
+        'الكشف التلقائي للمناطق غير مفعّل في هذه النسخة';
   }
 }
 

@@ -21,6 +21,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../application/intake_stage_log.dart';
 import '../application/journey_log.dart';
 import '../domain/image_journey.dart';
 
@@ -39,8 +40,21 @@ class LocalJourneyLog implements JourneyLog {
   /// report that was just produced.
   final int maxBytes;
 
+  /// Newest stage reports kept. Smaller than [maxEntries] because a report is
+  /// far more detailed than a journey entry: a handful of the most recent runs
+  /// is what a person debugging an import needs, and older ones are dead weight.
+  final int maxStageReports = 20;
+
   static const int schemaVersion = 1;
   static const String fileName = 'image_journeys.json';
+
+  /// The stage reports live in their own file with their own schema version.
+  ///
+  /// Separate from the journeys on purpose: a report is larger and more
+  /// detailed, and filing one must never be able to evict the journeys that
+  /// describe what the user actually got.
+  static const int stageReportSchemaVersion = 1;
+  static const String stageReportFileName = 'image_stage_reports.json';
 
   final Future<Directory> Function() _supportDirectory;
   // Different instances in the same isolate can target the same file. A
@@ -133,6 +147,110 @@ class LocalJourneyLog implements JourneyLog {
       // Nothing to clear, or the file is already gone.
     }
   });
+
+  @override
+  Future<void> appendStageReport(IntakeStageReport report) =>
+      _exclusive(() async {
+        if (report.logs.isEmpty) return;
+        final encoded = utf8.encode(jsonEncode([report.toJson()])).length;
+        if (encoded > maxBytes) {
+          throw StateError('Stage report exceeds journal capacity');
+        }
+        final existing = await _readStageReportsUnlocked(strict: true);
+        // Newest first; a re-filed batch replaces its own report instead of
+        // appearing twice, exactly like a journey entry.
+        final merged = <String, IntakeStageReport>{report.batchId: report};
+        for (final other in existing) {
+          merged.putIfAbsent(other.batchId, () => other);
+        }
+        final kept = merged.values.toList();
+        while (kept.length > maxStageReports ||
+            (kept.length > 1 && _stageReportBytes(kept) > maxBytes)) {
+          kept.removeLast();
+        }
+        await _writeStageReportsUnlocked(kept);
+      });
+
+  @override
+  Future<List<IntakeStageReport>> readStageReports() =>
+      _exclusive(() => _readStageReportsUnlocked());
+
+  Future<List<IntakeStageReport>> _readStageReportsUnlocked({
+    bool strict = false,
+  }) async {
+    final file = await _resolveReportFile(create: false, strict: strict);
+    if (file == null) return const [];
+    String raw;
+    try {
+      if (!await file.exists()) return const [];
+      raw = await file.readAsString();
+    } on FileSystemException {
+      if (strict) rethrow;
+      return const [];
+    }
+    Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      if (strict) rethrow;
+      return const [];
+    }
+    if (decoded is! Map<String, Object?> ||
+        decoded['version'] != stageReportSchemaVersion ||
+        decoded['reports'] is! List) {
+      if (strict) throw const FormatException('Invalid stage report log');
+      return const [];
+    }
+    final reports = <IntakeStageReport>[];
+    for (final entry in decoded['reports'] as List) {
+      final report = IntakeStageReport.fromJson(entry);
+      if (report == null) {
+        if (strict) throw const FormatException('Invalid stage report entry');
+        continue;
+      }
+      reports.add(report);
+    }
+    return List.unmodifiable(reports);
+  }
+
+  Future<void> _writeStageReportsUnlocked(
+    List<IntakeStageReport> reports,
+  ) async {
+    final file = await _resolveReportFile(create: true);
+    if (file == null) return;
+    final document = jsonEncode({
+      'version': stageReportSchemaVersion,
+      'updated_utc': DateTime.now().toUtc().toIso8601String(),
+      'reports': [for (final report in reports) report.toJson()],
+    });
+    final temporary = File('${file.path}.tmp');
+    try {
+      await temporary.writeAsString(document, flush: true);
+      await temporary.rename(file.path);
+    } on Object {
+      try {
+        if (await temporary.exists()) await temporary.delete();
+      } on FileSystemException {
+        // The failed temporary file is not authoritative.
+      }
+      rethrow;
+    }
+  }
+
+  int _stageReportBytes(List<IntakeStageReport> reports) => utf8
+      .encode(jsonEncode([for (final report in reports) report.toJson()]))
+      .length;
+
+  Future<File?> _resolveReportFile({
+    required bool create,
+    bool strict = false,
+  }) async {
+    final folder = await _resolveFile(create: create, strict: strict);
+    if (folder == null) return null;
+    return File(
+      '${folder.parent.path}${Platform.pathSeparator}$stageReportFileName',
+    );
+  }
 
   Future<List<ImageJourney>> _readUnlocked({bool strict = false}) async {
     final file = await _resolveFile(create: false, strict: strict);

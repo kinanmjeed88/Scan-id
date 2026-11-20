@@ -16,6 +16,7 @@ import '../domain/image_journey.dart';
 import '../domain/ocr_evidence.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
+import 'intake_stage_log.dart';
 
 /// One picked source as the copy phase saw it.
 class ImportedImageFact {
@@ -66,6 +67,7 @@ List<ImageJourney> buildImageJourneys({
   required DateTime startedAt,
   int? savedRevision,
   bool stablePickedIds = false,
+  IntakeBatchLog? stageLog,
 }) {
   final journeys = <ImageJourney>[];
   // The journal stores one-line, bounded names and refuses anything else. A
@@ -81,6 +83,7 @@ List<ImageJourney> buildImageJourneys({
       projectName: projectName,
       savedRevision: savedRevision,
       isLast: index == images.length - 1,
+      stageLog: stageLog,
     );
     journeys.add(
       ImageJourney(
@@ -165,6 +168,7 @@ List<JourneyStep> _stepsFor(
   required String projectName,
   required int? savedRevision,
   required bool isLast,
+  IntakeBatchLog? stageLog,
 }) {
   final steps = <JourneyStep>[
     JourneyStep(
@@ -200,7 +204,7 @@ List<JourneyStep> _stepsFor(
       ),
     );
     steps.add(_saveStep(savedRevision, isLast: isLast));
-    return steps;
+    return _overlayStageLog(steps, stageLog, fact.assetId);
   }
 
   final records = [
@@ -223,7 +227,7 @@ List<JourneyStep> _stepsFor(
   steps.add(_sizingStep(items, records));
   steps.add(_placementStep(project, items, records));
   steps.add(_saveStep(savedRevision, isLast: isLast));
-  return steps;
+  return _overlayStageLog(steps, stageLog, fact.assetId);
 }
 
 JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
@@ -546,6 +550,11 @@ String _describeDetectionTrace(Iterable<String> codes) =>
     } else if (key == 'rejection') {
       fields['rejection'] = _boundedCode(raw);
       parts.add(_quadRejectionLabel(raw));
+    } else if (key == 'region') {
+      // The measured region rectangle, kept verbatim: it is what a reprocess
+      // uses to recognise the same document when the region order changes.
+      final parts = raw.split(',');
+      fields['region'] = parts.length == 4 ? _boundedCode(raw) : 'invalid';
     } else if (key == 'catalogAspect' && number != null) {
       fields['catalogAspect'] = _round4(number);
     } else if (key == 'catalogShape') {
@@ -1088,4 +1097,73 @@ String _clip(String value) {
   // A step refuses an empty detail; "nothing to add" is said explicitly.
   if (single.isEmpty) return 'لا تفصيل مسجَّل لهذه المرحلة.';
   return _shortened(single, JourneyStep.maxDetailLength);
+}
+
+/// Reconciles the DERIVED journey with the stages the pipeline RECORDED.
+///
+/// The two answer different questions and neither may silently overwrite the
+/// other:
+///
+/// * The derivation reads the committed project, the only source that cannot
+///   lie about what was saved — but it cannot see a stage that failed and was
+///   recovered from, which is exactly the case an operator needs.
+/// * The record was written while the stage ran, so it names the cause and
+///   carries the measured numbers — but a stage can report a pass whose result
+///   never reached the project.
+///
+/// So: any stage marked `blocked` on EITHER side is reported as blocked, and
+/// when both are blocked the record wins because it explains why. Otherwise the
+/// record wins, since it is the stage's own account. Stages that only the
+/// record knows about (a batch-wide arrangement failure, for example) are
+/// appended in pipeline position rather than dropped.
+List<JourneyStep> _overlayStageLog(
+  List<JourneyStep> derived,
+  IntakeBatchLog? stageLog,
+  String? assetId,
+) {
+  if (stageLog == null || assetId == null) return derived;
+  final recorded = <JourneyStage, JourneyStep>{};
+  for (final log in stageLog.logs) {
+    if (log.assetId != assetId) continue;
+    for (final step in log.toSteps()) {
+      // `skipped` here means «this log kept no record for that stage», not «the
+      // stage did not run» — `toSteps` fills the gaps so a reader never sees an
+      // omission. Treating that placeholder as evidence would let it overwrite
+      // a stage the project demonstrably got through, so it is ignored and the
+      // derived step stands.
+      if (step.outcome == JourneyOutcome.skipped) continue;
+      recorded[step.stage] = step;
+    }
+  }
+  if (recorded.isEmpty) return derived;
+  final steps = <JourneyStep>[
+    for (final step in derived) _reconcile(step, recorded[step.stage]),
+    for (final stage in JourneyStage.values)
+      if (recorded[stage] != null &&
+          !derived.any((step) => step.stage == stage))
+        recorded[stage]!,
+  ];
+  steps.sort((a, b) => a.stage.index.compareTo(b.stage.index));
+  return steps;
+}
+
+/// [_overlayStageLog], exposed so the precedence rule is tested directly.
+///
+/// The merge is the part of the report that can be WRONG in a way a person
+/// would not notice — a dropped failure reads as a clean run — so it is tested
+/// against its own inputs rather than only through a full project fixture.
+List<JourneyStep> overlayStageLogForTest(
+  List<JourneyStep> derived,
+  IntakeBatchLog? stageLog,
+  String? assetId,
+) => _overlayStageLog(derived, stageLog, assetId);
+
+/// The precedence rule stated in [_overlayStageLog].
+JourneyStep _reconcile(JourneyStep derived, JourneyStep? recorded) {
+  if (recorded == null) return derived;
+  final derivedBlocked = derived.outcome == JourneyOutcome.blocked;
+  final recordedBlocked = recorded.outcome == JourneyOutcome.blocked;
+  if (recordedBlocked && !derivedBlocked) return recorded;
+  if (derivedBlocked && !recordedBlocked) return derived;
+  return recorded;
 }

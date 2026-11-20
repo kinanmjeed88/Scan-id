@@ -29,9 +29,11 @@ import '../application/cancellation.dart';
 import '../application/contracts.dart' show StorageException;
 import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
+import '../application/intake_stage_log.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
 import '../domain/image_journey.dart';
+import '../domain/intake_options.dart';
 import '../domain/project.dart';
 
 /// The outcome of one intake run.
@@ -43,6 +45,7 @@ class IntakeRun {
     this.error,
     this.trace,
     this.journeyWriteFailed = false,
+    this.stageReportWriteFailed = false,
     this.journeyStartBlocked = false,
   });
 
@@ -66,6 +69,11 @@ class IntakeRun {
   /// At least one checkpoint write failed after retry.
   final bool journeyWriteFailed;
 
+  /// A diagnostic-report failure is separate from the import AND from the
+  /// journey journal: each can fail on its own, and the message names the one
+  /// that did instead of blaming the wrong subsystem.
+  final bool stageReportWriteFailed;
+
   /// The initial checkpoint failed and no source was opened.
   final bool journeyStartBlocked;
   void markUiStateApplied() => trace?.emit('ui_state_applied');
@@ -82,11 +90,19 @@ class IntakeRunner {
     required this.project,
     this.keepPlaced = true,
     this.onTrace,
+    this.options,
+    this.stageLog,
   });
 
   final ProjectService service;
   final Project project;
   final bool keepPlaced;
+
+  /// The options the person chose for this batch, or null when not offered.
+  final IntakeOptions? options;
+
+  /// The stage-by-stage record filled in as the batch runs.
+  final IntakeBatchLog? stageLog;
   final void Function(ImportTraceEvent event)? onTrace;
   CancellationToken _token = CancellationToken();
   bool _running = false;
@@ -133,6 +149,7 @@ class IntakeRunner {
     final startedAt = DateTime.now().toUtc();
     final picked = <ImportedImageFact>[];
     var journeyWriteFailed = false;
+    var stageReportWriteFailed = false;
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
 
@@ -162,6 +179,35 @@ class IntakeRunner {
       }
     }
 
+    /// Files the stage report for this batch, next to the journeys.
+    ///
+    /// Uses the SAME batch id as the journeys, so a report and the journeys it
+    /// explains can be matched without guessing. A journal failure here must
+    /// never undo a committed import: it is a diagnostic record, not the result.
+    Future<void> fileStageReport(Project latest) async {
+      final log = stageLog;
+      final journal = service.journeyLog;
+      if (log == null || journal == null || log.logs.isEmpty) return;
+      try {
+        await journal.appendStageReport(
+          IntakeStageReport(
+            batchId: taskId,
+            projectId: latest.id,
+            projectName: latest.name,
+            startedAt: startedAt,
+            summary: log.summary,
+            logs: log.logs.toList(growable: false),
+            options: log.options,
+          ),
+        );
+      } on Object catch (error) {
+        // A separate flag from journeyWriteFailed: the two can fail
+        // independently and the message names the one that did.
+        stageReportWriteFailed = true;
+        context.emit('stage_report_write_failed', error: error);
+      }
+    }
+
     List<ImageJourney> checkpoint(
       Project latest, {
       required bool finished,
@@ -175,6 +221,9 @@ class IntakeRunner {
         startedAt: startedAt,
         savedRevision: committed ? latest.revision : null,
         stablePickedIds: true,
+        // The stages recorded while this batch ran, so the filed journey says
+        // WHY a stage failed and not merely that the project holds nothing.
+        stageLog: stageLog,
       );
       return [
         for (var i = 0; i < pending.length; i++)
@@ -302,6 +351,14 @@ class IntakeRunner {
         );
       } catch (error) {
         trace('import', 'failed', error);
+        // Record it before anything else. This is the batch-level counterpart of
+        // the per-image blocks below: without a row for it, the filed journey
+        // could show every image «processed» while the batch itself threw, and a
+        // reader would have no cause at all.
+        stageLog?.failBatch(
+          JourneyStage.copy,
+          'توقف استيراد الدفعة: ${_causeOf(error)}',
+        );
         // A batch-level failure can occur after one or more commits. Reload
         // before reporting it; never present an exception as a successful run.
         var latest = project;
@@ -327,12 +384,14 @@ class IntakeRunner {
           committed: importedIds.isNotEmpty,
           interrupted: true,
         );
+        await fileStageReport(latest);
         return IntakeRun(
           project: latest,
           import: ImportReport(latest, importedIds.length, const []),
           error: error,
           trace: context,
           journeyWriteFailed: journeyWriteFailed,
+          stageReportWriteFailed: stageReportWriteFailed,
         );
       }
       trace('import', 'completed');
@@ -352,6 +411,8 @@ class IntakeRunner {
             importedIds,
             keepPlaced: keepPlaced,
             cancellation: token,
+            options: options,
+            stageLog: stageLog,
             onProgress: (progress) {
               if (progress.stage == 'تحليل الصور' && progress.completed == 0) {
                 trace('analysis', 'started');
@@ -388,6 +449,13 @@ class IntakeRunner {
           trace('arrangement', 'completed');
         } catch (error) {
           trace('arrangement', 'failed', error);
+          // The report carried this, but a stage record is what makes it
+          // attributable per image: without it the log showed only the stages
+          // that ran, with no row explaining why the batch stopped there.
+          stageLog?.failBatch(
+            JourneyStage.placement,
+            'تعذّر ترتيب المستمسكات على الورقة: ${_causeOf(error)}',
+          );
           // The imports are already committed: reload so a successful crop
           // revision is never hidden by a later arrangement failure.
           failure = error;
@@ -431,6 +499,7 @@ class IntakeRunner {
         committed: importedIds.isNotEmpty,
         interrupted: failure != null || token.isCancelled,
       );
+      await fileStageReport(latest);
       return IntakeRun(
         project: latest,
         import: import,
@@ -438,6 +507,7 @@ class IntakeRunner {
         error: failure,
         trace: context,
         journeyWriteFailed: journeyWriteFailed,
+        stageReportWriteFailed: stageReportWriteFailed,
       );
     } finally {
       trace('task', terminal);
@@ -456,6 +526,13 @@ class IntakeRunner {
 /// Initial journal failure prevents starting; later failures do not undo saves.
 const String journeyStartFailure =
     'لم يبدأ الاستيراد لأن سجل الرحلات الأساسي غير قابل للحفظ. تحقق من التخزين والصلاحيات ثم أعد المحاولة.';
+
+/// A stage-report write failure. Separate sentence on purpose: telling a person
+/// «تعذّر حفظ سجل الرحلات» when in fact the STAGE report failed would send them
+/// to investigate the wrong record.
+const String stageReportWriteWarning =
+    'تعذّر حفظ تقرير مراحل المعالجة؛ تحقق من مساحة التخزين والصلاحيات. '
+    'لا يعني ذلك فشل استيراد الصور.';
 
 /// A diagnostic-log failure is separate from the outcome of the import.
 const String journeyWriteWarning =
@@ -633,4 +710,28 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
       ),
     );
   }
+}
+
+/// A one-line, bounded technical cause for a caught object.
+///
+/// Deliberately NOT `toString()` of an arbitrary exception: that can carry a
+/// filesystem path, a user's file name or a request URL, and the stage report is
+/// kept on the device beside the project. The runtime TYPE names the failure
+/// class — which is what a reader needs to tell a decode error from a write
+/// error — and a `StateError`/`FormatException` message is included only when it
+/// is short, single-line and free of path separators.
+String _causeOf(Object error) {
+  final type = error.runtimeType.toString();
+  // `StateError.message` is a String; a FormatException carries `source` and
+  // `offset` instead, and `toString()` of it can quote the offending input, so
+  // only a StateError's message is ever reused.
+  final String? raw = error is StateError ? error.message : null;
+  final message = raw?.trim() ?? '';
+  final safe =
+      message.isNotEmpty &&
+      message.length <= 120 &&
+      !message.contains('\n') &&
+      !message.contains('/') &&
+      !message.contains('\\');
+  return safe ? '$type: $message' : type;
 }

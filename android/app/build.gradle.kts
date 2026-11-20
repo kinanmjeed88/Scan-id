@@ -298,9 +298,12 @@ android {
         }
         create("diagnostic") {
             dimension = "edition"
-            // `full` keeps the historical identity so the build that is known to
-            // start stays byte-for-byte the same product; the reduced variants
-            // get their own id so the phone can hold all of them at once.
+            // Each variant gets its own id so a phone can hold them side by
+            // side; `full` is the historical `.startupdiag` identity that the
+            // Android 16 startup-evidence job installs. The resolved id here is
+            // NOT the production `iq.scanid.scan_id`; a diagnostic build is never
+            // a drop-in replacement for the scanner package, and installing one
+            // leaves the real app untouched.
             val suffix = when (startupProbeAction) {
                 "full" -> ".startupdiag"
                 "off" -> ".startupdiagoff"

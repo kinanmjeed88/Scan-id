@@ -1,0 +1,112 @@
+{
+  "property_1_correct_pixels": {
+    "worst_round_trip_px": 2.3092638912203256e-14,
+    "passed": true
+  },
+  "property_2_edge_not_rejected": {
+    "overshooting_cases": 703,
+    "rescued": 703,
+    "still_rejected": 0,
+    "passed": true
+  },
+  "property_3_outside_rejected": {
+    "considered": 747,
+    "rejected": 747,
+    "passed": true
+  },
+  "property_4_tolerance_not_widened": {
+    "max_change": 5.000000413701855e-10,
+    "epsilon": 1e-09,
+    "heatmap_cell_px_on_900": 18.8,
+    "frame_touch_band": 0.016,
+    "epsilon_vs_heatmap_cell_pct": 5.319148936170213e-09,
+    "values_untouched_beyond_epsilon": [
+      {
+        "input": 1.000000002,
+        "output": 1.000000002,
+        "change": 0.0
+      },
+      {
+        "input": 1.000001,
+        "output": 1.000001,
+        "change": 0.0
+      },
+      {
+        "input": 1.05,
+        "output": 1.05,
+        "change": 0.0
+      },
+      {
+        "input": -2e-09,
+        "output": -2e-09,
+        "change": 0.0
+      },
+      {
+        "input": -0.001,
+        "output": -0.001,
+        "change": 0.0
+      }
+    ],
+    "passed": true
+  },
+  "property_5_edge_cases": {
+    "cases": [
+      {
+        "frame": "0x0",
+        "corners": [
+          [
+            0.0078125,
+            0.0078125
+          ]
+        ],
+        "finite": true
+      },
+      {
+        "frame": "1x1",
+        "corners": [
+          [
+            0.0078125,
+            0.0078125
+          ]
+        ],
+        "finite": true
+      },
+      {
+        "frame": "1x1200",
+        "corners": [
+          [
+            -590.125,
+            0.007819015846538782
+          ]
+        ],
+        "finite": true
+      },
+      {
+        "frame": "1200x1",
+        "corners": [
+          [
+            0.007819015846538782,
+            -590.125
+          ]
+        ],
+        "finite": true
+      },
+      {
+        "frame": "2x2",
+        "corners": [
+          [
+            0.015625,
+            0.015625
+          ]
+        ],
+        "finite": true
+      }
+    ],
+    "passed": true
+  },
+  "old_divisor_bias": {
+    "note": "f = index/extent then multiplied back by extent-1",
+    "max_px": 0.9991666666667243,
+    "always_inward": true
+  }
+}

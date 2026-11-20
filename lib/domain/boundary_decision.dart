@@ -346,6 +346,7 @@ class BoundaryVerification {
     this.measuredAspect,
     this.corroboration,
     this.corroboratingAspect,
+    this.userApproved = false,
   });
 
   /// Geometry assessment of the corners, null when there were none to assess.
@@ -363,6 +364,13 @@ class BoundaryVerification {
 
   /// Catalog long/short aspect used by that corroboration, when any.
   final double? corroboratingAspect;
+
+  /// True only when a PERSON explicitly approved this boundary.
+  ///
+  /// Kept in the verification rather than inferred from an empty [reasons],
+  /// because an approval and an automatic acceptance leave the same reason list
+  /// and must never be reported as the same evidence.
+  final bool userApproved;
 
   bool get hasUsableGeometry => assessment?.acceptable ?? false;
 }
@@ -394,6 +402,41 @@ class BoundaryDecision {
       kind == BoundaryDecisionKind.accepted
       ? AutomaticCropAuthorization._(this)
       : null;
+
+  /// The decision after the PERSON approved the proposed boundary themselves.
+  ///
+  /// This is the one path to an authorization that the geometry rules did not
+  /// grant, and it is deliberately narrow:
+  ///
+  /// * It requires [BoundaryVerification.hasUsableGeometry] — the same
+  ///   measurement the review queue trusts. It does NOT bypass geometry
+  ///   validation, an unusable quad, a missing quad, a frame-edge verdict or a
+  ///   detached proposer. Those stay refused, because the person is approving a
+  ///   boundary the app measured, not drawing one.
+  /// * It changes only the VERDICT, never the numbers: the corners, the
+  ///   measured aspect and the catalog comparison are untouched, so
+  ///   [catalogShapeMatches] still reports the disagreement honestly and the
+  ///   caller can size the sheet slot separately.
+  /// * It records that a human, not a threshold, accepted it, so no report can
+  ///   present a user approval as detector evidence.
+  ///
+  /// Returns this decision unchanged when the geometry is not usable.
+  BoundaryDecision approvedByUser() {
+    if (kind == BoundaryDecisionKind.accepted) return this;
+    if (!verification.hasUsableGeometry) return this;
+    return BoundaryDecision(
+      kind: BoundaryDecisionKind.accepted,
+      proposal: proposal,
+      verification: BoundaryVerification(
+        assessment: verification.assessment,
+        reasons: const [],
+        measuredAspect: verification.measuredAspect,
+        corroboration: verification.corroboration,
+        corroboratingAspect: verification.corroboratingAspect,
+        userApproved: true,
+      ),
+    );
+  }
 
   /// Whether the measured long/short aspect agrees with the imposed catalog
   /// aspect within [shapeTolerance], the same relative error classification

@@ -16,15 +16,17 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../domain/classification_gap.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
-import '../domain/acceptance_policy.dart';
+import '../domain/classification_gap.dart';
 import '../domain/crop_draft.dart';
-import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/image_adjustments.dart';
+import '../domain/image_journey.dart';
 import '../domain/image_limits.dart';
+import '../domain/intake_options.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
@@ -39,8 +41,9 @@ import 'cancellation.dart';
 import 'contracts.dart';
 import 'full_resolution_jpeg_cropper.dart';
 import 'ids.dart';
-import 'import_trace.dart';
 import 'image_reader.dart';
+import 'import_trace.dart';
+import 'intake_stage_log.dart';
 import 'ocr_engine.dart';
 import 'project_service.dart';
 import 'recognition_pipeline.dart';
@@ -92,6 +95,67 @@ class _Analyzed {
 }
 
 /// The bounded analysis of a batch of source images, in input order.
+/// Records what analysis MEASURED and what applying it PRODUCED.
+///
+/// Two separate stages, because they fail for different reasons and a reader
+/// needs to tell them apart: a photo can be analysed perfectly and still yield
+/// no document, and that is not an error. Detection reports the region counts
+/// the segmenter actually returned, including the ones it rejected and why it
+/// routed to the multi-region path; apply reports the outcome of the crop.
+///
+/// Only measured numbers are recorded — never a path, a name or recognized text.
+void _recordApplyStage(
+  IntakeBatchLog? stageLog,
+  _Analyzed analyzed, {
+  required int cropped,
+  required int notDetected,
+  required int multi,
+}) {
+  final log = stageLog?.forAsset(analyzed.asset.id, name: analyzed.asset.name);
+  if (log == null) return;
+  final analysis = analyzed.analysis;
+  final regions = analysis.allRegions.length;
+  // Detection PASSED when the segmenter measured at least one region, or when
+  // the whole-frame detector produced a usable one. Anything else is a review:
+  // the image is still usable, it simply has no measured boundary.
+  final measured = regions > 0 || analysis.detections.isNotEmpty;
+  final rejected = analysis.rejectedRegions.length;
+  final measuredDetail = regions > 1
+      ? 'قِيست $regions مناطق (متعددة)'
+      : 'قِيست $regions منطقة';
+  log.record(
+    IntakeStageRecord(
+      stage: JourneyStage.detection,
+      outcome: measured ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: measured
+          ? (rejected == 0
+                ? measuredDetail
+                : '$measuredDetail، ورُفضت $rejected.')
+          : 'لم تُقَس أي منطقة مستند في هذه الصورة.',
+      fields: {
+        'regions': regions,
+        'detections': analysis.detections.length,
+        'unresolved': analysis.unresolvedRegions.length,
+        'rejected': rejected,
+        'multi': multi > 0,
+      },
+    ),
+  );
+  // Apply: a crop happened, or the image stayed whole. A whole image is not a
+  // failure — it is the documented outcome when no boundary is trusted — so it
+  // is reported as needing review, not as blocked.
+  log.record(
+    IntakeStageRecord(
+      stage: JourneyStage.crop,
+      outcome: cropped > 0 ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: cropped > 0
+          ? 'قُصّت $cropped منطقة وأُنشئت نسخة مشتقة.'
+          : 'بقيت الصورة كاملة بلا قص؛ يمكن قصّها يدوياً.',
+      fields: {'cropped': cropped, 'notDetected': notDetected},
+    ),
+  );
+}
+
 class _Analysis {
   const _Analysis(this.pending, this.outcomes);
   final List<ImageAsset> pending;
@@ -130,6 +194,13 @@ class _RegionOutput {
 /// while still finite: the batch must always reach the next image.
 const Duration defaultImageAnalysisBudget = Duration(minutes: 2);
 
+/// How much two measured normalized regions must overlap before a reprocess
+/// treats them as the same document. Deliberately strict: pairing the wrong
+/// record would refresh one card with another card's image, while a missed
+/// match only costs a second record the user can dismiss. Two cards in one
+/// photograph share no rectangle at all, so 0.6 leaves ample margin.
+const double _sameRegionOverlap = 0.6;
+
 class SmartIntake {
   const SmartIntake({
     required this.projects,
@@ -143,7 +214,15 @@ class SmartIntake {
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.thresholds = defaultThresholds,
     this.analysisBudget = defaultImageAnalysisBudget,
+    this.options,
+    this.stageLog,
   });
+
+  /// The batch options the person chose, or null when they were not offered.
+  final IntakeOptions? options;
+
+  /// The stage-by-stage record of this batch, filled in as it runs.
+  final IntakeBatchLog? stageLog;
 
   final ProjectRepository projects;
   final AssetRepository assets;
@@ -184,6 +263,7 @@ class SmartIntake {
     bool deferArrangement = false,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    bool allowMultiDocument = true,
   }) async {
     var current = project;
     var cropped = 0;
@@ -225,6 +305,18 @@ class SmartIntake {
       if (!outcome.succeeded) {
         notDetected++;
         warnings.add('${sourceAsset.name}: ${outcome.failure!.message}');
+        // The failed analysis is where the stage record earns its keep: this is
+        // the only place the technical category survives. The warning carries a
+        // sentence for the person; the record carries the category code, so a
+        // reader can tell a decode failure from a detection failure instead of
+        // meeting the same «فشل التحليل» for both.
+        stageLog
+            ?.forAsset(sourceAsset.id, name: sourceAsset.name)
+            .block(
+              JourneyStage.detection,
+              'فشل تحليل الصورة: ${outcome.failure!.message}',
+              fields: {'errorType': outcome.failure!.category.name},
+            );
         if (outcome.failure!.category != RecognitionErrorCategory.cancelled) {
           // Fallback: the image still becomes a manual item, exactly like
           // the legacy intake when analysis is impossible.
@@ -272,6 +364,7 @@ class SmartIntake {
               onMulti: () => imageMulti++,
               onRejected: (_) {},
               cancellation: imageToken,
+              allowMultiDocument: allowMultiDocument,
             ),
             budget: analysisBudget,
             name: 'image-apply',
@@ -286,6 +379,13 @@ class SmartIntake {
         cropped += imageCropped;
         notDetected += imageNotDetected;
         multiImages += imageMulti;
+        _recordApplyStage(
+          stageLog,
+          analyzed,
+          cropped: imageCropped,
+          notDetected: imageNotDetected,
+          multi: imageMulti,
+        );
       } on RevisionConflict {
         rethrow;
       } on OperationCancelled {
@@ -296,6 +396,13 @@ class SmartIntake {
         // already saved; keep it as a manual item so nothing is lost and the
         // batch continues with the next image.
         notDetected++;
+        stageLog
+            ?.forAsset(analyzed.asset.id, name: analyzed.asset.name)
+            .block(
+              JourneyStage.crop,
+              'تجاوزت المعالجة المهلة الزمنية؛ بقيت الصورة الأصلية.',
+              fields: {'errorType': 'StageTimeout'},
+            );
         newItems.add(_fallbackItem(current, sourceAsset, newItems));
         warnings.add(
           '${analyzed.asset.name}: تجاوزت المعالجة المهلة الزمنية على هذا '
@@ -303,6 +410,13 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
+        stageLog
+            ?.forAsset(analyzed.asset.id, name: analyzed.asset.name)
+            .block(
+              JourneyStage.crop,
+              'تعذرت المعالجة الذكية: ${userError(error)}',
+              fields: {'errorType': error.runtimeType.toString()},
+            );
         // Do not commit partially staged results or create an item that
         // would cause a subsequent import arrangement retry to skip this asset.
         // The intake UI separately retains the committed source for a manual
@@ -465,6 +579,7 @@ class SmartIntake {
           ocr: ocr,
           catalog: project.catalog,
           thresholds: thresholds,
+          options: options,
         );
         try {
           return await ImportTrace.stage(
@@ -955,17 +1070,28 @@ class SmartIntake {
       warnings.add('${sourceAsset.name}: $refused');
       onRejected(analyzed.analysis.rejectedRegions);
     }
-    // Existing records of THIS source, keyed by the deterministic detection
-    // id. The segmenter is deterministic, so re-analysing the same original
-    // reproduces the same region ids and matching is exact.
-    final byDetectionId = <String, DocumentRecord>{};
-    for (final record in current.documents) {
-      if (record.sourceImageId != sourceAsset.id) continue;
-      if (record.sides.length != 1) continue;
-      final detection = record.sides.single.detection;
-      if (detection == null) continue;
-      byDetectionId.putIfAbsent(detection.detectionId, () => record);
-    }
+    // Records of THIS source that a region may still claim. Identity is
+    // resolved by WHERE the region was measured first and by the positional
+    // detection id only as a fallback.
+    //
+    // The detection id is `asset-dN`, i.e. the region's POSITION in the list,
+    // which is stable only while the list itself is. It is not: a later pass
+    // can measure the same cards in another order, or one region fewer. Then
+    // `d0` names the other card — so matching on the id would either append a
+    // second record for a card the project already holds (one photo of two
+    // cards becoming four documents) or refresh card A with card B's image.
+    // The measured region rectangle is stored with the record and is a property
+    // of the photograph, so it answers "which card is this" apart from any
+    // ordering. A record whose region is known is therefore matched on geometry
+    // and never on its id; the id is used only for records that predate the
+    // stored region.
+    final claimable = <DocumentRecord>[
+      for (final record in current.documents)
+        if (record.sourceImageId == sourceAsset.id &&
+            record.sides.length == 1 &&
+            record.sides.single.detection != null)
+          record,
+    ];
 
     Uint8List? originalBytes;
     try {
@@ -974,7 +1100,7 @@ class SmartIntake {
       for (final detection in analyzed.analysis.allRegions) {
         cancellation?.throwIfCancelled();
         position++;
-        final existing = byDetectionId[detection.detectionId];
+        final existing = _claimRecord(claimable, detection);
         if (existing != null && existing.overrides.isNotEmpty) {
           // Preserve the distinct decision: dismissal is not confirmation, and
           // neither may be silently overwritten or reintroduced as a new item.
@@ -1044,6 +1170,97 @@ class SmartIntake {
       originalBytes = null;
     }
     return current;
+  }
+
+  /// Takes the record of this source that [detection] continues, or null when
+  /// this region is a document the project does not hold yet.
+  ///
+  /// Preference order is evidence order:
+  /// 1. a record whose MEASURED region covers the same part of the photograph;
+  /// 2. a record with the same positional detection id, but only when the
+  ///    record carries no measured region to check it against (records from
+  ///    the region was persisted).
+  ///
+  /// A claimed record leaves [claimable], so two regions can never resolve to
+  /// one document and one record can never be refreshed twice in a pass.
+  DocumentRecord? _claimRecord(
+    List<DocumentRecord> claimable,
+    DetectionAnalysis detection,
+  ) {
+    final record = _claimByMeasuredGeometry(claimable, detection);
+    if (record != null) return record;
+    for (final candidate in claimable) {
+      final detectionRef = candidate.sides.single.detection!;
+      if (detectionRef.detectionId != detection.detectionId) continue;
+      // Its geometry is known and did not match, so this is another document.
+      if (_regionFromTrace(detectionRef.detectionTrace) != null) continue;
+      claimable.remove(candidate);
+      return candidate;
+    }
+    return null;
+  }
+
+  /// Takes the claimable record whose MEASURED boundary covers the same part of
+  /// the photograph as [detection], and removes it from [claimable] so that one
+  /// record can never be claimed twice.
+  ///
+  /// The comparison uses the normalized region rectangle the segmenter
+  /// measured, which is stored with the record. It is a measurement, not
+  /// a guess: re-analysing the same bytes reproduces it, while two different
+  /// cards in one photo occupy different rectangles. Two regions are the same
+  /// when their intersection covers most of both — deliberately strict, because
+  /// pairing the wrong record would refresh one card with another card's image.
+  /// When nothing matches closely enough, no record is claimed and the region
+  /// is correctly treated as a new document.
+  DocumentRecord? _claimByMeasuredGeometry(
+    List<DocumentRecord> claimable,
+    DetectionAnalysis detection,
+  ) {
+    final region = detection.region;
+    if (region == null || region.length != 4) return null;
+    DocumentRecord? best;
+    var bestScore = 0.0;
+    for (final record in claimable) {
+      final known = record.sides.single.detection?.detectionTrace;
+      final previous = known == null ? null : _regionFromTrace(known);
+      if (previous == null) continue;
+      final score = _regionOverlap(previous, region);
+      if (score > bestScore) {
+        bestScore = score;
+        best = record;
+      }
+    }
+    if (best == null || bestScore < _sameRegionOverlap) return null;
+    claimable.remove(best);
+    return best;
+  }
+
+  /// The measured region a record was created from, recovered from its
+  /// detection trace, or null when the record predates that trace.
+  static List<double>? _regionFromTrace(List<String> trace) {
+    for (final entry in trace) {
+      if (!entry.startsWith('region=')) continue;
+      final parts = entry.substring('region='.length).split(',');
+      if (parts.length != 4) return null;
+      final values = [for (final part in parts) double.tryParse(part)];
+      if (values.any((value) => value == null || !value.isFinite)) return null;
+      return [for (final value in values) value!];
+    }
+    return null;
+  }
+
+  /// Intersection over union of two normalized `[left, top, right, bottom]`
+  /// rectangles.
+  static double _regionOverlap(List<double> a, List<double> b) {
+    final left = math.max(a[0], b[0]);
+    final top = math.max(a[1], b[1]);
+    final right = math.min(a[2], b[2]);
+    final bottom = math.min(a[3], b[3]);
+    if (right <= left || bottom <= top) return 0;
+    final intersection = (right - left) * (bottom - top);
+    double area(List<double> r) => math.max(0.0, (r[2] - r[0]) * (r[3] - r[1]));
+    final union = area(a) + area(b) - intersection;
+    return union <= 0 ? 0.0 : intersection / union;
   }
 
   /// A region that produced no document yet — for example a first attempt that
@@ -1423,6 +1640,7 @@ class SmartIntake {
     required void Function() onMulti,
     required void Function(List<RejectedRegion> rejected) onRejected,
     required CancellationToken? cancellation,
+    bool allowMultiDocument = true,
   }) async {
     var asset = analyzed.asset;
     final analysis = analyzed.analysis;
@@ -1441,7 +1659,22 @@ class SmartIntake {
       onRejected(analysis.rejectedRegions);
     }
 
+    // A photo holding several measured regions NEVER goes through the
+    // single-document path: that path crops the SOURCE to the one quad it
+    // found, which would make every other region unrecoverable (ADR-003). So
+    // this branch is taken whenever the regions exist, whatever the person
+    // asked for. What option 5 governs is narrower and honest: whether the batch
+    // REPORTS the photo as multi-document, which is what the counts and the
+    // review queue describe. Turning the option off must not destroy data, and
+    // it does not.
     if (analysis.needsMultiIntake || asset.hasScaledLargeSource) {
+      if (analysis.allRegions.length > 1 && !allowMultiDocument) {
+        warnings.add(
+          '${asset.name}: احتُوت الصورة ${analysis.allRegions.length} مناطق، '
+          'ولم يُطلب اكتشاف المستندات المتعددة؛ حُفظت كل المناطق للمراجعة '
+          'بدل قصّ واحدة منها فقط.',
+        );
+      }
       // A source holding more than one measured region NEVER goes through the
       // single-document path: that path crops the SOURCE asset to the one quad
       // it found, which would make every other region of the photo
@@ -2154,7 +2387,13 @@ class SmartIntake {
       sides: [
         DocumentSide(
           id: 'side-$itemId',
-          side: SideKind.unknown,
+          // Option 1: the person said which side this batch shows. When they
+          // did not, the side stays unknown — ONE side, which is what «بدون
+          // تحديد يُعتبر وجه واحد» means. It is deliberately NOT front: that
+          // would assert a facing nobody stated. The override is recorded the
+          // same way a manual choice is, so the review screen treats it as a
+          // human decision rather than a detector result.
+          side: options?.side ?? SideKind.unknown,
           processedAsset: processed,
           detection: _detectionRef(
             detection,
@@ -2168,7 +2407,11 @@ class SmartIntake {
       pairing: PairingState.single,
       provenance: Provenance(
         sourceImageId: sourceAssetId,
-        detectionIds: [detection.detectionId],
+        // The measured region travels with the record as its detection id too:
+        // this is what survives independently of the region ORDER, so a later
+        // pass can recognise the same card in a differently numbered list. It
+        // carries numbers only — never a path, a sentence or recognized text.
+        detectionIds: [detection.detectionId, _regionKeyOf(detection)],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
         modelVersions: _modelVersions,
@@ -2208,7 +2451,7 @@ class SmartIntake {
       recognition: _recognitionFor(current, classification),
       provenance: Provenance(
         sourceImageId: existing.provenance.sourceImageId,
-        detectionIds: [detection.detectionId],
+        detectionIds: [detection.detectionId, _regionKeyOf(detection)],
         processedAssetVersion: recognitionPipelineVersion,
         pipelineVersion: recognitionPipelineVersion,
         modelVersions: _modelVersions,
@@ -2219,6 +2462,21 @@ class SmartIntake {
   }
 
   static String _fixed(double value) => value.toStringAsFixed(3);
+
+  /// The stable id of the region a detection was measured from.
+  ///
+  /// Derived from the region rectangle, i.e. from the photograph, so it names
+  /// the same document however the regions are ordered in a later pass. Encoded
+  /// in the id alphabet `[a-zA-Z0-9_-]` that `validId` enforces — units of
+  /// 1/10000 of the frame: `[.1, .1, .9, .6]` -> `r1000_1000_9000_6000`.
+  static String _regionKeyOf(DetectionAnalysis detection) {
+    final region = detection.region;
+    if (region == null || region.length != 4) return detection.detectionId;
+    final parts = [
+      for (final value in region) (value * 10000).round().clamp(0, 10000),
+    ];
+    return 'r${parts.join('_')}';
+  }
 
   DetectionRef _detectionRef(
     DetectionAnalysis detection, {
@@ -2262,6 +2520,13 @@ class SmartIntake {
       // without ever storing recognized text or a path.
       detectionTrace: [
         for (final entry in traces) entry.encode(),
+        // WHERE the segmenter measured this region, as four normalized numbers.
+        // Persisted because it is the only measurement that survives with the
+        // record and still identifies the region if a later pass numbers the
+        // regions differently: without it a reprocess can only trust the
+        // positional id, and then a reordered region list duplicates documents.
+        if (detection.region != null && detection.region!.length == 4)
+          'region=${detection.region!.map(_fixed).join(',')}',
         if (disagreement != null) 'disagreement=${_fixed(disagreement)}',
         if (aspect != null) 'aspect=${_fixed(aspect)}',
         if (catalogAspect != null) 'catalogAspect=${_fixed(catalogAspect)}',

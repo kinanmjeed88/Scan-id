@@ -15,6 +15,7 @@ import 'crop_screen.dart';
 import 'editor_controller.dart';
 import 'export_screen.dart';
 import 'intake.dart';
+import 'intake_options_sheet.dart';
 import 'manual_classification_dialog.dart';
 import 'review_screen.dart';
 import 'ribbon.dart';
@@ -71,7 +72,11 @@ class _LayoutScreenState extends State<LayoutScreen> {
           ..onImportReport = (report) async {
             if (mounted) await _showImportReport(report);
           }
-          ..onManualClassificationNeeded = _classifyPending;
+          ..onManualClassificationNeeded = _classifyPending
+          ..onPickIntakeOptions = (count) async {
+            if (!mounted) return null;
+            return showIntakeOptionsSheet(context, imageCount: count);
+          };
     _c.addListener(_changed);
     if (widget.autoClassifyItemIds.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -7,8 +7,10 @@ import '../domain/boundary_decision.dart';
 import '../domain/boundary_suggestion.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/image_journey.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
+import '../domain/intake_options.dart';
 import '../domain/geometry.dart';
 import '../domain/manual_boundary.dart';
 import '../domain/project.dart';
@@ -16,6 +18,7 @@ import '../domain/validation.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
 import 'intake_diagnostics.dart';
+import 'intake_stage_log.dart';
 import 'project_backups.dart';
 import 'camera_capture.dart';
 import 'project_recovery.dart';
@@ -521,42 +524,96 @@ class ProjectService {
     bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     final smartEditor = imageEditor;
+    // Option 4: centring. This is not a second placement algorithm — it sets
+    // the project's existing, persisted `centerCaptures` switch that
+    // `arrangeDocuments` already honours, so the result is identical to the app
+    // centring the same documents from the layout screen. Applied before
+    // arrangement so a batch arrives centred rather than being re-centred after
+    // the sheet was already filled.
+    var working = project;
+    if (options != null &&
+        options.centerDocuments != working.layout.centerCaptures) {
+      working = working.copyWith(
+        layout: working.layout.copyWith(
+          centerCaptures: options.centerDocuments,
+        ),
+      );
+    }
+    // Two DIFFERENT questions, and conflating them was a defect:
+    //
+    // * May the service run multi-document segmentation at all? That is
+    //   `multiDocumentSegmentationEnabled` — a property of this ProjectService,
+    //   set by whoever constructed it (the app, or a test that needs the path).
+    // * Did the person ask for it for this batch? That is the option.
+    //
+    // The option must never be able to turn OFF a capability the service was
+    // built with. Substituting "did the user ask?" for the service flag silently
+    // changed the behaviour of every existing caller and every test that relied
+    // on that capability, which is exactly what happened here.
+    final multiRequested = options?.multiDocument ?? false;
+    // What actually decides whether segmentation may run.
+    final multiEnabled = multiDocumentSegmentationEnabled;
     if (smartRecognitionEnabled && smartEditor != null) {
-      return SmartIntake(
-        projects: projects,
-        assets: assets,
-        editor: smartEditor,
-        segment: segmenter ?? defaultSegment,
-        ocr: ocr,
-        fullResolutionJpegCropper: fullResolutionJpegCropper,
-      ).run(
-        project,
-        assetIds,
-        keepPlaced: keepPlaced,
-        cancellation: cancellation,
-        onProgress: onProgress,
+      final report =
+          await SmartIntake(
+            projects: projects,
+            assets: assets,
+            editor: smartEditor,
+            segment: segmenter ?? defaultSegment,
+            ocr: ocr,
+            fullResolutionJpegCropper: fullResolutionJpegCropper,
+            options: options,
+            stageLog: stageLog,
+          ).run(
+            working,
+            assetIds,
+            keepPlaced: keepPlaced,
+            cancellation: cancellation,
+            onProgress: onProgress,
+            // This flag governs ONE thing: whether a photo holding several
+            // measured regions is reported as multi-document. Without the
+            // options (no sheet) the old behaviour stands, so nothing changes
+            // for callers that never asked. With them, it follows the request.
+            allowMultiDocument: options?.multiDocument ?? true,
+          );
+      return report;
+    }
+
+    // The person asked for multi-document detection and this build cannot run
+    // it: say so plainly instead of doing nothing.
+    if (multiRequested && !multiEnabled) {
+      stageLog?.failBatch(
+        JourneyStage.detection,
+        'طُلب اكتشاف المستندات المتعددة لكنه غير مفعّل في هذه النسخة؛ '
+        'استُخدم مسار المستند الواحد.',
       );
     }
 
-    if (multiDocumentSegmentationEnabled && smartEditor != null) {
+    if (multiEnabled && smartEditor != null) {
       return _arrangeWithMultiDocumentSegmentation(
-        project,
+        working,
         assetIds,
         editor: smartEditor,
         keepPlaced: keepPlaced,
         cancellation: cancellation,
         onProgress: onProgress,
+        options: options,
+        stageLog: stageLog,
       );
     }
 
     return _arrangeLegacyImportedImages(
-      project,
+      working,
       assetIds,
       keepPlaced: keepPlaced,
       cancellation: cancellation,
       onProgress: onProgress,
+      options: options,
+      stageLog: stageLog,
     );
   }
 
@@ -652,8 +709,14 @@ class ProjectService {
     required bool keepPlaced,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     final ids = assetIds.toSet().toList();
+    // Same rule as the caller's: an unrequested batch keeps the old behaviour,
+    // a request is honoured. This is the reporting flag, not the capability —
+    // reaching this method at all already proves the capability.
+    final multiAllowed = options?.multiDocument ?? true;
     final pendingIds = <String>[];
     for (final id in ids) {
       final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
@@ -716,12 +779,42 @@ class ProjectService {
           final source = await editor.open(asset, cancellation: cancellation);
           final result = await (segmenter ?? defaultSegment)(source.preview);
           segments[id] = result;
+          stageLog
+              ?.forAsset(id, name: asset.name)
+              .record(
+                IntakeStageRecord(
+                  stage: JourneyStage.detection,
+                  outcome: result.candidates.isEmpty
+                      ? JourneyOutcome.review
+                      : JourneyOutcome.passed,
+                  detail: result.candidates.isEmpty
+                      ? 'لم يُقَس أي مستند في هذا المصدر؛ بقي للمراجعة اليدوية.'
+                      : 'قِيست ${result.candidates.length} منطقة '
+                            '${result.candidates.length > 1 ? '(متعددة)' : ''}.',
+                  fields: {
+                    'regions': result.candidates.length,
+                    'rejected': result.rejected.length,
+                    'multi': result.multi,
+                  },
+                ),
+              );
         } on RevisionConflict {
           rethrow;
         } catch (error) {
+          final reason = userError(error);
           segmentationWarnings[id] =
               '${asset.name}: تعذر فحص التقسيم متعدد المستمسكات؛ '
-              'استُخدم مسار الاستيراد المعتاد (${userError(error)}).';
+              'استُخدم مسار الاستيراد المعتاد ($reason).';
+          // The batch report carried this warning, but the stage record is what
+          // makes it attributable: without it the log showed only «no region
+          // found», which is indistinguishable from a clean single document.
+          stageLog
+              ?.forAsset(id, name: asset.name)
+              .block(
+                JourneyStage.detection,
+                'تعذّر فحص التقسيم متعدد المستمسكات: $reason',
+                fields: {'errorType': error.runtimeType.toString()},
+              );
         }
       }
       progress(index + 1, 'فحص تقسيم الصور');
@@ -750,6 +843,12 @@ class ProjectService {
               segment: (_) async => segmentation,
               ocr: ocr,
               fullResolutionJpegCropper: fullResolutionJpegCropper,
+              // The same options as the single-document path. Dropping them
+              // here would make the side and kind choices silently stop
+              // applying to exactly the photos that hold several documents,
+              // which is where a side/kind mistake is most likely.
+              options: options,
+              stageLog: stageLog,
             ).run(
               current,
               [id],
@@ -758,6 +857,10 @@ class ProjectService {
               cancellation: cancellation,
               onProgress: (value) =>
                   progress(index + value.completed, value.stage),
+              // Reporting only: this source HAS several measured regions, so it
+              // is reported as multi-document unless the person turned the
+              // option off. It never affects whether data is preserved.
+              allowMultiDocument: multiAllowed,
             );
         merge(report);
         hasNewItems = hasNewItems || report.project.items.length > beforeItems;
@@ -785,6 +888,12 @@ class ProjectService {
         cancellation: cancellation,
         onProgress: (value) =>
             progress(firstIndex + value.completed, value.stage),
+        // The fallback must honour the same options as the primary path: an
+        // option that silently stops working when segmentation finds nothing
+        // would be worse than not offering it, because the person cannot tell
+        // which path their batch took.
+        options: options,
+        stageLog: stageLog,
       );
       merge(report);
       hasNewItems = hasNewItems || report.project.items.length > beforeItems;
@@ -861,6 +970,8 @@ class ProjectService {
     bool deferArrangement = false,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     var current = project;
     var cropped = 0;
@@ -893,9 +1004,14 @@ class ProjectService {
       var asset = current.assets[assetIndex];
 
       final editor = imageEditor;
+      final stages = stageLog?.forAsset(id, name: asset.name);
       if (editor == null) {
         notDetected++;
         warnings.add('${asset.name}: كشف الحدود غير متاح في هذا البناء.');
+        stages?.block(
+          JourneyStage.detection,
+          'كشف الحدود غير متاح في هذا البناء؛ لم تُقَس أي حدود.',
+        );
       } else {
         try {
           final source = await editor.open(asset, cancellation: cancellation);
@@ -912,6 +1028,10 @@ class ProjectService {
             notDetected++;
             warnings.add(
               '${asset.name}: لا يتوفر كشف تلقائي للحدود في هذا الإصدار؛ بقيت الصورة كاملة ويمكن ضبط القص يدوياً.',
+            );
+            stages?.block(
+              JourneyStage.detection,
+              'لم يُقترح أي رباعي حدود لهذه الصورة؛ لا إحداثيات لتُعتمد.',
             );
           } else {
             // Boundary authorization is independent of the file name,
@@ -936,7 +1056,30 @@ class ProjectService {
               sourceWidth: source.width,
               sourceHeight: source.height,
             );
-            final authorization = decision.cropAuthorization;
+            // Option 3: the person ticked «موافقة على القص المقترح». That is an
+            // approval of the DETECTOR's geometry, however its aspect compares
+            // to the catalog — not a relaxation of any threshold. The detector
+            // still refuses what it refuses: only geometry this build already
+            // measured as usable is approved, and a proposal with no usable
+            // geometry is still reported instead of being cropped anyway.
+            final approveSuggested = options?.acceptSuggestedBoundary ?? false;
+            final effective = approveSuggested
+                ? decision.approvedByUser()
+                : decision;
+            final authorization = effective.cropAuthorization;
+            if (approveSuggested && authorization != null) {
+              stages?.pass(
+                JourneyStage.detection,
+                effective.verification.userApproved &&
+                        decision.kind != BoundaryDecisionKind.accepted
+                    ? 'اعتمد المستخدم الحدود المقترحة كما قيست، دون مراجعة.'
+                    : 'قُبلت الحدود هندسياً دون الحاجة إلى اعتماد إضافي.',
+                fields: {
+                  'approvedByUser': effective.verification.userApproved,
+                  'detectorVerdict': decision.kind.name,
+                },
+              );
+            }
             if (IntakeDiagnostics.isActive) {
               IntakeDiagnostics.record(
                 IntakeDiagnosticEntry(
@@ -1006,8 +1149,26 @@ class ProjectService {
       // The legacy import path has no independent OCR/visual type model. Keep
       // the measured image editable with a provisional size; never infer a
       // catalog kind from its name or aspect ratio.
-      const kind = DocumentKind.unknown;
+      //
+      // Option 2 is different in kind from inference: the PERSON typed the
+      // category, so it is an assertion we were given, not a guess we made. It
+      // still does not confirm a size — the item keeps `sizeConfirmed: false`
+      // and the usual size-confirmation step applies — so a wrong category
+      // cannot silently dictate a print size.
+      final kind = options?.kind ?? DocumentKind.unknown;
       const recognitionConfidence = 0.0;
+      if (options != null && options.assertsKind) {
+        stages?.pass(
+          JourneyStage.recognition,
+          'حدّد المستخدم النوع «${kind.label}»؛ لم يُستخدم مصنّف آلي.',
+          fields: {'kind': kind.name, 'assertedByUser': true},
+        );
+      } else {
+        stages?.review(
+          JourneyStage.recognition,
+          'لم يحدّد المستخدم نوعاً ولم يتوفر مصنّف مستقل؛ النوع غير معروف.',
+        );
+      }
       final size = provisionalSize(width: asset.width, height: asset.height);
       warnings.add(
         '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',

@@ -9,7 +9,9 @@ import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/application/journey_log.dart';
+import 'package:scan_id/application/intake_stage_log.dart';
 import 'package:scan_id/domain/image_journey.dart';
+import 'package:scan_id/domain/intake_options.dart';
 import 'package:scan_id/persistence/journey_log_store.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
 import 'package:scan_id/persistence/local_image_editor.dart';
@@ -398,6 +400,18 @@ class _FailingJourneyLog implements JourneyLog {
 
   @override
   Future<void> clear() async => saved.clear();
+
+  // Stage reports are held here rather than forwarded: `saved` is this fake's
+  // own list of journeys, so forwarding to it was a type error.
+  final stageReports = <IntakeStageReport>[];
+
+  @override
+  Future<void> appendStageReport(IntakeStageReport report) async =>
+      stageReports.add(report);
+
+  @override
+  Future<List<IntakeStageReport>> readStageReports() async =>
+      List.unmodifiable(stageReports);
   @override
   Future<List<ImageJourney>> read() async => saved;
   @override
@@ -424,6 +438,12 @@ class _RecordingJourneyLog implements JourneyLog {
   @override
   Future<void> clear() => inner.clear();
   @override
+  Future<void> appendStageReport(IntakeStageReport report) =>
+      inner.appendStageReport(report);
+  @override
+  Future<List<IntakeStageReport>> readStageReports() =>
+      inner.readStageReports();
+  @override
   Future<List<ImageJourney>> read() => inner.read();
   @override
   Future<JourneyLogStats> stats() => inner.stats();
@@ -443,6 +463,12 @@ class _FailAfterFirstLog implements JourneyLog {
   @override
   Future<void> clear() => inner.clear();
   @override
+  Future<void> appendStageReport(IntakeStageReport report) =>
+      inner.appendStageReport(report);
+  @override
+  Future<List<IntakeStageReport>> readStageReports() =>
+      inner.readStageReports();
+  @override
   Future<List<ImageJourney>> read() => inner.read();
   @override
   Future<JourneyLogStats> stats() => inner.stats();
@@ -452,6 +478,14 @@ class _FailingAnalysisService extends ProjectService {
   _FailingAnalysisService(super.projects, super.assets, JourneyLog log)
     : super(journeyLog: log);
 
+  /// Mirrors the real signature exactly.
+  ///
+  /// Overriding a narrower signature compiled while the production method had
+  /// fewer options; once the entry point gained `options` and `stageLog`, the
+  /// double stopped being a valid override. The parameters are accepted and
+  /// ignored on purpose: this double exists to make the batch FAIL, and it must
+  /// fail for every shape of call — including one that carries the person's
+  /// choices — or a test could pass while silting over a real failure.
   @override
   Future<AutomaticLayoutReport> arrangeImportedImages(
     Project project,
@@ -459,6 +493,8 @@ class _FailingAnalysisService extends ProjectService {
     bool keepPlaced = true,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    IntakeOptions? options,
+    IntakeBatchLog? stageLog,
   }) async {
     throw StateError('analysis failed');
   }

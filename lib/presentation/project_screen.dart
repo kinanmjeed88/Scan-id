@@ -17,6 +17,7 @@ import 'crop_screen.dart';
 import 'export_screen.dart';
 import 'intake.dart';
 import 'layout_screen.dart';
+import 'multi_document_crop_screen.dart';
 import 'settings_screen.dart';
 
 class ProjectScreen extends StatefulWidget {
@@ -200,7 +201,8 @@ class _ProjectScreenState extends State<ProjectScreen>
       }
       if (result.failures.isNotEmpty ||
           result.notices.isNotEmpty ||
-          run.journeyWriteFailed) {
+          run.journeyWriteFailed ||
+          run.stageReportWriteFailed) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
@@ -212,6 +214,7 @@ class _ProjectScreenState extends State<ProjectScreen>
                     run.journeyStartBlocked
                         ? journeyStartFailure
                         : journeyWriteWarning,
+                  if (run.stageReportWriteFailed) stageReportWriteWarning,
                   if (result.failures.isNotEmpty || result.notices.isNotEmpty)
                     importReportDetails(result),
                 ].join('\n\n'),
@@ -624,6 +627,28 @@ class _ProjectScreenState extends State<ProjectScreen>
     }
   }
 
+  /// Opens the manual multi-selection workspace on the full original
+  /// photograph. Deliberately the ROOT asset, exactly like the single-document
+  /// extraction path: selecting inside a derived crop would nest documents.
+  Future<void> _multiSelect(ImageAsset asset) async {
+    final targetAsset = asset.derivedFrom == null
+        ? asset
+        : (_project.assets
+                  .where((a) => a.id == asset.derivedFrom)
+                  .firstOrNull ??
+              asset);
+    final saved = await Navigator.of(context).push<Project>(
+      MaterialPageRoute(
+        builder: (_) => MultiDocumentCropScreen(
+          project: _project,
+          asset: targetAsset,
+          service: widget.service,
+        ),
+      ),
+    );
+    if (saved != null && mounted) setState(() => _project = saved);
+  }
+
   Future<void> _layout({
     String? intakeSummary,
     List<String> intakeWarnings = const [],
@@ -707,6 +732,7 @@ class _ProjectScreenState extends State<ProjectScreen>
                 _AssetAction.extractDerived => unawaited(
                   _crop(asset, extractDerived: true),
                 ),
+                _AssetAction.multiSelect => unawaited(_multiSelect(asset)),
                 _AssetAction.replace => unawaited(_replace(asset)),
                 _AssetAction.moveUp => unawaited(_move(asset, index - 1)),
                 _AssetAction.moveDown => unawaited(_move(asset, index + 1)),
@@ -720,6 +746,11 @@ class _ProjectScreenState extends State<ProjectScreen>
                   const PopupMenuItem(
                     value: _AssetAction.extractDerived,
                     child: Text('استخراج مستمسك مستقل إلى A4'),
+                  ),
+                if (widget.service.imageEditor != null)
+                  const PopupMenuItem(
+                    value: _AssetAction.multiSelect,
+                    child: Text('تحديد عدة مستمسكات في هذه الصورة'),
                   ),
                 const PopupMenuItem(
                   value: _AssetAction.replace,
@@ -1132,6 +1163,7 @@ class _ProjectScreenState extends State<ProjectScreen>
 
 enum _AssetAction {
   extractDerived,
+  multiSelect,
   replace,
   moveUp,
   moveDown,

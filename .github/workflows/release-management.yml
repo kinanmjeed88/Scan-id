@@ -777,17 +777,8 @@ jobs:
           Remove-Item $check -Recurse -Force
           Write-Host "Windows ZIP verified."
 
-      - name: Windows application
-        uses: actions/upload-artifact@v6
-        with:
-          name: scan-id-windows
-          path: |
-            build/windows/x64/runner/Release/
-            !build/windows/x64/runner/Release/large_jpeg_scaler_test.exe
-            !build/windows/x64/runner/Release/large_jpeg_scaler_test.pdb
-          retention-days: 14
-          if-no-files-found: error
-
+      # Only the portable ZIP is published; see windows-release.yml for why the
+      # unpacked `scan-id-windows` directory artifact was removed.
       - name: Windows portable ZIP
         uses: actions/upload-artifact@v6
         with:

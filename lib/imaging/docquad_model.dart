@@ -19,6 +19,69 @@ const docQuadAssetPath = 'assets/models/docquadnet256_trained_opset17.ort';
 /// and reports refer to the id production emits, not to a look-alike.
 const docQuadNetModelId = 'DocQuadNet-256/ORT-1.28';
 
+/// Maps DocQuadNet heatmap peaks back to source-normalized corners.
+///
+/// Coordinate contract, verified against the production call path:
+///
+/// * The frame is the image `_letterbox` was actually given. [frameWidth] and
+///   [frameHeight] are `source.width`/`source.height` from the same decoded
+///   image the letterbox was built from, so the two can never disagree.
+/// * The bounded preview means this frame is already at most
+///   `maxRecognitionPreviewLongEdge` on its long edge for every production
+///   caller, so no second rescale is applied here. Adding one would shrink an
+///   already-bounded frame again and move every corner away from where the
+///   model placed it.
+/// * `_Peak.x256`/`y256` are 4x the heatmap cell centre, so un-letterboxing
+///   with `(x256 - offset) / scale` yields a pixel coordinate in the frame.
+///   [frameWidth] is the pixel count, and the frame spans indices
+///   `0 .. frameWidth - 1`; the fractional convention the rest of the app uses
+///   is `index / (frameWidth - 1)` (see `assessQuad` and `warpPerspective`,
+///   which multiply by `sourceWidth - 1`). Dividing by the pixel count instead
+///   would make the normalized error `index / (frameWidth * (frameWidth - 1))`,
+///   which is `index / frameWidth` pixels — under one pixel at the far edge,
+///   but always inward, and always in the same direction for every corner.
+///
+/// Kept pure and top-level so the round trip can be asserted without a native
+/// session: a plausible-looking rectangle in the wrong place passes every
+/// downstream geometry gate, so only a coordinate test can catch it.
+List<Point2> docQuadCorners(
+  List<({double x256, double y256})> peaks, {
+  required double scale,
+  required double offsetX,
+  required double offsetY,
+  required int frameWidth,
+  required int frameHeight,
+}) {
+  final spanX = math.max(1, frameWidth - 1).toDouble();
+  final spanY = math.max(1, frameHeight - 1).toDouble();
+  return [
+    for (final peak in peaks)
+      Point2(
+        _snapToFrame(((peak.x256 - offsetX) / scale) / spanX),
+        _snapToFrame(((peak.y256 - offsetY) / scale) / spanY),
+      ),
+  ];
+}
+
+/// Absorbs floating-point overshoot at the frame edge, and nothing else.
+///
+/// Dividing by `frameWidth - 1` is the exact inverse of what `assessQuad` and
+/// `warpPerspective` do, but it is not exact in binary: the last pixel of some
+/// frames comes back as `1.0000000000000018`. `normalizedQuadIssue` rejects any
+/// coordinate strictly greater than 1, so an un-snapped legitimate edge corner
+/// would discard the whole proposal as out of bounds.
+///
+/// The tolerance is deliberately far smaller than one heatmap cell (which is
+/// ~18 px on a 900 px frame), so a peak that really sits in the letterbox
+/// padding — which is what a bogus detection looks like — still surfaces as
+/// out of range and is still rejected downstream.
+double _snapToFrame(double fraction) {
+  const epsilon = 1e-9;
+  if (fraction > 1 && fraction <= 1 + epsilon) return 1;
+  if (fraction < 0 && fraction >= -epsilon) return 0;
+  return fraction;
+}
+
 /// Small seam that allows the image editor to use a learned proposer while
 /// keeping geometric validation, persistence and manual approval in the app.
 abstract interface class BoundaryProposalModel {
@@ -148,13 +211,14 @@ class DocQuadNet256 implements BoundaryProposalModel {
             return null;
           }
 
-          final corners = [
-            for (final peak in peaks)
-              Point2(
-                ((peak.x256 - input.offsetX) / input.scale) / sourceWidth,
-                ((peak.y256 - input.offsetY) / input.scale) / sourceHeight,
-              ),
-          ];
+          final corners = docQuadCorners(
+            [for (final peak in peaks) (x256: peak.x256, y256: peak.y256)],
+            scale: input.scale,
+            offsetX: input.offsetX,
+            offsetY: input.offsetY,
+            frameWidth: sourceWidth,
+            frameHeight: sourceHeight,
+          );
           final proposal = BoundaryProposal(
             producer: BoundaryProducer.learnedModel,
             corners: corners,

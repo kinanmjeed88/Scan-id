@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../application/ids.dart';
+import '../application/intake_stage_log.dart';
 import '../application/layout_session.dart';
 import '../application/project_service.dart';
 import '../domain/arrangement.dart';
@@ -13,6 +14,7 @@ import '../domain/crop_draft.dart';
 import '../domain/document_edits.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_adjustments.dart';
+import '../domain/intake_options.dart';
 import '../domain/manual_classification.dart' as manual;
 import '../domain/page_layout.dart';
 import '../domain/project.dart';
@@ -61,6 +63,16 @@ class LayoutEditorController extends ChangeNotifier {
 
   /// Prompt for newly imported items that could not be placed automatically.
   Future<void> Function(List<String> itemIds)? onManualClassificationNeeded;
+
+  /// Shows the floating intake-options sheet and returns the person's choices.
+  ///
+  /// A hook rather than a direct call so the controller stays free of widgets
+  /// and a host that offers no options (a test, a headless run) keeps working:
+  /// when it is null the documented defaults apply and nothing changes.
+  Future<IntakeOptions?> Function(int imageCount)? onPickIntakeOptions;
+
+  /// The stage record of the most recent import, for the processing log.
+  IntakeBatchLog? lastIntakeLog;
 
   final selected = <String>{};
   bool busy = false;
@@ -765,6 +777,17 @@ class LayoutEditorController extends ChangeNotifier {
       return;
     }
     if (sources.isEmpty) return;
+    // Option surface: shown AFTER the pick (so the count and the images are
+    // known) and BEFORE any processing. Cancelling the sheet cancels the whole
+    // import — the sources were never copied, so nothing is left half-done.
+    final optionsHook = onPickIntakeOptions;
+    IntakeOptions? options;
+    if (optionsHook != null) {
+      options = await optionsHook(sources.length);
+      if (options == null) return;
+    }
+    final stageLog = IntakeBatchLog(batchId: newId(), options: options);
+    lastIntakeLog = stageLog;
     // The shared runner: the editor and the project screen therefore expose
     // the same real progress, cooperative cancellation and committed final
     // state.
@@ -775,6 +798,8 @@ class LayoutEditorController extends ChangeNotifier {
       service: service,
       project: session.current,
       keepPlaced: true,
+      options: options,
+      stageLog: stageLog,
     );
     _intake = runner;
     IntakeRun? outcome;
@@ -847,6 +872,9 @@ class LayoutEditorController extends ChangeNotifier {
             ? journeyStartFailure
             : journeyWriteWarning,
       );
+    }
+    if (outcome?.stageReportWriteFailed == true) {
+      _say(stageReportWriteWarning);
     }
     final pendingIds = [
       for (final item in session.current.items)

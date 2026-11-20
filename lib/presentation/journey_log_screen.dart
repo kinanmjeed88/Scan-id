@@ -351,11 +351,49 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
                     step.detail,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  // The measured facts behind a verdict, shown where a verdict
+                  // needs explaining: the cause of a failure and the numbers
+                  // that decided it. Not shown for stages that simply passed —
+                  // the log has to stay readable, and a passing stage's numbers
+                  // are not what the person came here for.
+                  if (step.fields.isNotEmpty &&
+                      step.outcome != JourneyOutcome.passed) ...[
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 2,
+                      children: [
+                        for (final entry in step.fields.entries)
+                          _fact(context, entry.key, entry.value),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// One recorded fact, as a small read-only chip.
+  ///
+  /// The key stays visible: these codes are what the report's own documentation
+  /// refers to, and translating them here would invent names the domain does
+  /// not use.
+  Widget _fact(BuildContext context, String key, Object? value) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        value == null ? key : '$key=$value',
+        style: Theme.of(context).textTheme.labelSmall,
+        textDirection: TextDirection.ltr,
       ),
     );
   }

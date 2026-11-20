@@ -5,6 +5,7 @@
 library;
 
 import '../domain/image_journey.dart';
+import 'intake_stage_log.dart';
 
 /// How much the log currently holds, so Settings can state a fact instead of
 /// guessing: number of reported images and the bytes they occupy.
@@ -52,4 +53,18 @@ abstract interface class JourneyLog {
 
   /// Removes the whole log. The projects it describes are untouched.
   Future<void> clear();
+
+  /// Files the stage-by-stage report of ONE batch, next to the journeys.
+  ///
+  /// Separate from [append] because it answers a different question: the
+  /// journeys say what each image became, this says which stages ran, which
+  /// failed, and with what measured cause. Kept under its own bound so a long
+  /// run of imports cannot push the journeys out, and vice versa.
+  ///
+  /// Implementations must be safe to call with nothing recorded: an empty
+  /// report writes nothing.
+  Future<void> appendStageReport(IntakeStageReport report);
+
+  /// Newest first, capped by the store's own bound.
+  Future<List<IntakeStageReport>> readStageReports();
 }

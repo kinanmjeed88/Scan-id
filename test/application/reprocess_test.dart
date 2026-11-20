@@ -9,6 +9,7 @@ import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
@@ -102,6 +103,44 @@ Future<SegmentationResult> _threeResolved(Uint8List bytes) async =>
         ),
       ],
     );
+
+/// The same two regions as [_bothResolved], measured in the OPPOSITE order.
+///
+/// A real segmenter orders regions top-to-bottom, so a re-run normally repeats
+/// the order. This fixture deliberately changes it: it is the case where the
+/// positional detection id would name the other card, and the pass must still
+/// recognise the two cards it already holds.
+Future<SegmentationResult> _bothResolvedReversed(Uint8List bytes) async =>
+    SegmentationResult(
+      multi: true,
+      candidates: [
+        SegmentCandidate(
+          region: const [.2, .62, .8, 1],
+          corners: _bottomQuad(),
+          detectionConfidence: .75,
+          reason: 'component-support',
+        ),
+        SegmentCandidate(
+          region: const [.1, .1, .9, .6],
+          corners: _topQuad(),
+          detectionConfidence: .8,
+          reason: 'component-support',
+        ),
+      ],
+    );
+
+/// The measured region a document record was created from, read from the
+/// detection trace the record persists.
+List<double>? _regionOf(DocumentRecord record) {
+  for (final entry in record.sides.single.detection!.detectionTrace) {
+    if (!entry.startsWith('region=')) continue;
+    return [
+      for (final part in entry.substring('region='.length).split(','))
+        double.parse(part),
+    ];
+  }
+  return null;
+}
 
 Uint8List _photo() {
   final source = img.Image(width: 1000, height: 1000);
@@ -492,4 +531,53 @@ void main() {
     expect(report!.project.revision, project.revision);
     expect(report.project.documents, isEmpty);
   });
+  test(
+    'a pass that measures the same cards in another order does not duplicate '
+    'them',
+    () async {
+      final bytes = _photo();
+      final s = service(segmenter: _bothResolved);
+      var project = await s.create('ترتيب مختلف');
+      project = (await s.importImages(project, [
+        ImportSource('صورة.png', () => Stream<List<int>>.value(bytes)),
+      ])).project;
+      final sourceId = project.assets.single.id;
+      final first = (await s.arrangeImportedImages(project, [
+        sourceId,
+      ])).project;
+      expect(first.documents, hasLength(2));
+      final recordIds = first.documents.map((d) => d.id).toSet();
+      // Which card each record is, BEFORE the reordered pass.
+      final topRecordId = first.documents
+          .firstWhere((d) => _regionOf(d)![1] < .5)
+          .id;
+      final bottomRecordId = first.documents
+          .firstWhere((d) => _regionOf(d)![1] >= .5)
+          .id;
+
+      final report = await service(
+        segmenter: _bothResolvedReversed,
+      ).reprocessImages(first, [sourceId]);
+      final result = report!.project;
+
+      // Two cards stay two documents. Without measured-geometry matching the
+      // reversed order renumbers the regions and this becomes four.
+      expect(result.documents, hasLength(2));
+      expect(result.items, hasLength(2));
+      expect(result.assets, hasLength(3));
+      expect(result.documents.map((d) => d.id).toSet(), recordIds);
+      // And each record still describes the SAME card: the top record was not
+      // refreshed with the bottom card's crop.
+      for (final record in result.documents) {
+        final region = _regionOf(record)!;
+        if (record.id == topRecordId) {
+          expect(region[1], lessThan(.5), reason: 'top record kept its card');
+        }
+        if (record.id == bottomRecordId) {
+          expect(region[1], greaterThanOrEqualTo(.5));
+        }
+      }
+      expect((await projects.get(result.id)).toJson(), result.toJson());
+    },
+  );
 }

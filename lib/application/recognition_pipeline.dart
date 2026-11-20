@@ -14,8 +14,10 @@ import 'dart:typed_data';
 import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/intake_options.dart';
 import '../domain/ocr_evidence.dart';
 import '../domain/quad_assessment.dart';
+import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
 import '../imaging/document_segmenter.dart';
@@ -238,7 +240,15 @@ class RecognitionPipeline {
     this.catalog = const DocumentSizeCatalog(),
     this.thresholds = defaultThresholds,
     this.ocrBudget = defaultPipelineOcrBudget,
+    this.options,
   });
+
+  /// The batch options the person chose, or null when they were not offered.
+  ///
+  /// Read here because both of the options it decides are verdicts formed
+  /// inside this pipeline: whether a usable proposal is approved despite its
+  /// aspect, and whether a category the person named replaces the classifier's.
+  final IntakeOptions? options;
 
   /// The existing precise single-document detector seam
   /// (`ImageEditor.suggest`); used when segmentation reports no multi-
@@ -714,7 +724,7 @@ class RecognitionPipeline {
       }
     }
 
-    final classification = classifyDocument(
+    var classification = classifyDocument(
       ClassificationInput(
         detectionConfidence: detectionConfidence,
         geometryConfidence: assessment?.geometryConfidence,
@@ -723,6 +733,45 @@ class RecognitionPipeline {
         thresholds: thresholds,
       ),
     );
+    // Option 2: the person named the category. That is an ASSERTION we were
+    // given, not something we measured, so it is recorded as such and it never
+    // borrows the classifier's confidence.
+    //
+    // Carrying the measured score across would be the dangerous shortcut: a
+    // 0.9 score earned by "ration card" evidence would then sit on "passport"
+    // and satisfy `qualifiesForAutomaticPlacement`, letting a typed category
+    // authorize an automatic placement nobody measured. So the classification
+    // confidence is DROPPED (absent, per ConfidenceSet) and the outcome is
+    // `uncertain` with no single candidate, which is exactly how this codebase
+    // already says «a human must confirm the size». What the assertion buys is
+    // the KIND — downstream presets and review open on the right category —
+    // not an authorization. The classifier's own verdict stays in `evidence`.
+    final assertedKind = options?.kind ?? DocumentKind.unknown;
+    if (assertedKind != DocumentKind.unknown &&
+        assertedKind != classification.kind) {
+      classification = ClassificationOutcome(
+        kind: assertedKind,
+        status: RecognitionStatus.uncertain,
+        confidences: ConfidenceSet(
+          detection: classification.confidences.detection,
+          geometry: classification.confidences.geometry,
+          ocr: classification.confidences.ocr,
+          // Deliberately absent: nobody measured agreement with this kind.
+          classification: null,
+        ),
+        evidence: [
+          ...classification.evidence,
+          RecognitionEvidence(
+            source: EvidenceSource.structure,
+            kind: 'user-asserted',
+            score: 1,
+            reason: 'المستخدم حدّد النوع',
+          ),
+        ],
+        routing: classification.routing,
+        candidates: const [],
+      );
+    }
     // Evidence read from the wider area describes the document in the frame,
     // not the content of the proposal, so it never corroborates that proposal
     // into an automatic crop: the catalog gate only ever sees text read from
@@ -744,6 +793,20 @@ class RecognitionPipeline {
         quadExcludesText(corners, widerLineCentres)) {
       resolvedDecision = refuseProposalExcludingText(decision);
       reviewSuggestedCorners = null;
+    }
+    // Option 3: the person approved the proposed boundary. Applied AFTER the
+    // geometry gate and only to geometry it measured as usable, so it cannot
+    // turn an unusable quad, a missing quad or a frame artifact into a crop. It
+    // is recorded as a user approval rather than an automatic acceptance.
+    if (options?.acceptSuggestedBoundary ?? false) {
+      final approved = resolvedDecision.approvedByUser();
+      if (approved.kind == BoundaryDecisionKind.accepted &&
+          resolvedDecision.kind != BoundaryDecisionKind.accepted) {
+        resolvedDecision = approved;
+        issues.removeWhere(
+          (issue) => issue.category == RecognitionErrorCategory.geometryFailure,
+        );
+      }
     }
     if (resolvedDecision.kind == BoundaryDecisionKind.accepted &&
         decision.kind != BoundaryDecisionKind.accepted) {

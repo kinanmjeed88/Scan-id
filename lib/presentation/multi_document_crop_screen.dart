@@ -332,7 +332,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           project,
           widget.asset,
           recipe,
-          documentKind: selection.kind,
+          documentKind: selection.kindForExtraction,
           customSizeMm: selection.customSizeMm,
           sourceWidth: source.width,
           sourceHeight: source.height,
@@ -687,6 +687,19 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
               ),
             ],
           ),
+          if (active.kind == DocumentKind.unknown)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                // Said before the person commits, not after: an unstated
+                // category is added as a free document that stays off the sheet
+                // until review settles its category and size.
+                'بلا نوع محدد: يُضاف كمستمسك آخر يبقى خارج ورقة A4 '
+                'حتى تحدّد نوعه ومقاسه في المراجعة.',
+                key: const Key('multi-selection-kind-default'),
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
     );

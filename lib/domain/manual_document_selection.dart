@@ -38,6 +38,19 @@ class ManualDocumentSelection {
   bool get isComplete =>
       corners.length == ManualDocumentSelection.requiredCorners;
 
+  /// The category to hand the extraction path.
+  ///
+  /// «تعرّف تلقائي» means the person did not state one. The extraction path
+  /// refuses an unknown category outright (a document with no category cannot be
+  /// sized or placed), so an unstated one becomes [DocumentKind.other] — the
+  /// free document, which keeps a provisional footprint OFF the A4 sheet and
+  /// goes to review, where the existing classification flow settles it.
+  ///
+  /// This is a documented default, not a guess: nothing is classified here, and
+  /// the person can state the category themselves before adding.
+  DocumentKind get kindForExtraction =>
+      kind == DocumentKind.unknown ? DocumentKind.other : kind;
+
   static const int requiredCorners = 4;
 
   /// The safe, canonically ordered ring, or null while incomplete or invalid.

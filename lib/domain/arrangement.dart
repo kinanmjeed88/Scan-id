@@ -141,6 +141,7 @@ ArrangementResult arrangeDocuments(
   bool keepPlaced = false,
   ArrangementStrategy? strategy,
   bool? allowRotation,
+  void Function(Iterable<String> itemIds)? onCenteringPass,
 }) {
   final rotate = allowRotation ?? project.layout.allowRotation;
   // The same rule as Project.fromJson and PageLayout.checked: a size that is
@@ -282,6 +283,7 @@ ArrangementResult arrangeDocuments(
         obstacles.putIfAbsent(pageIndex, () => []).add(item.bounds);
       }
     }
+    onCenteringPass?.call(placed.keys);
     _centerPageItems(
       placed,
       source.paper.printable,
@@ -698,8 +700,7 @@ bool _gapOverlap(RectMm a, RectMm b, double gx, double gy) =>
 
 /// Row flow in category order, right to left, top to bottom, page after page.
 /// A new row starts when the category changes so each category reads as one
-/// group; each finished row is centred horizontally when nothing fixed is in
-/// the way.
+/// group. Optional centring runs once on the final placements, after packing.
 Map<String, DocumentItem> _ordered(
   Project project,
   List<DocumentItem> fixed,
@@ -716,7 +717,6 @@ Map<String, DocumentItem> _ordered(
   var page = 0;
   var rowTop = area.y, rowBottom = area.y;
   DocumentKind? rowKind;
-  final row = <String>[];
 
   List<RectMm> occupied(int p) => [
     ...?obstacles[p],
@@ -725,26 +725,8 @@ Map<String, DocumentItem> _ordered(
   ];
 
   void closeRow() {
-    if (row.isEmpty) return;
-    final rects = [for (final id in row) placed[id]!.bounds];
-    final left = rects.map((r) => r.x).reduce(math.min);
-    final right = rects.map((r) => r.right).reduce(math.max);
-    final shift = ((area.right - right) - (left - area.x)) / 2;
-    final others = obstacles[page] ?? const <RectMm>[];
-    final shifted = [
-      for (final r in rects) RectMm(r.x + shift, r.y, r.width, r.height),
-    ];
-    final clear = shifted.every(
-      (r) => others.every((o) => !_gapOverlap(r, o, gx, gy)),
-    );
-    if (clear && shift.abs() > _eps) {
-      for (final id in row) {
-        final item = placed[id]!;
-        placed[id] = item.copyWith(x: item.x + shift);
-      }
-    }
+    if (rowKind == null) return;
     rowTop = rowBottom + gy;
-    row.clear();
     rowKind = null;
   }
 
@@ -782,12 +764,11 @@ Map<String, DocumentItem> _ordered(
       final spot = findInRow(b.width, b.height);
       if (spot != null) {
         placed[item.id] = _at(item, spot.x, spot.y, page);
-        row.add(item.id);
         rowKind = item.documentKind;
         rowBottom = math.max(rowBottom, spot.bottom);
         break;
       }
-      if (row.isNotEmpty) {
+      if (rowKind != null) {
         closeRow();
         continue;
       }
@@ -804,10 +785,6 @@ Map<String, DocumentItem> _ordered(
     }
   }
   closeRow();
-  // Center each page horizontally while preserving packed Y positions.
-  if (project.layout.centerCaptures && placed.isNotEmpty) {
-    _centerPageItems(placed, area, gx, gy, obstacles);
-  }
   return placed;
 }
 
@@ -985,24 +962,6 @@ Map<String, DocumentItem> _compactPass(
     current = proposal.result;
     if (!progress && pageWasEmpty) break;
     page++;
-  }
-  // Center each page horizontally, preserving relative positions and never
-  // colliding with items that stayed put (locked or keep-placed).
-  if (project.layout.centerCaptures && placed.isNotEmpty) {
-    final obstacles = <int, List<RectMm>>{};
-    for (final item in project.items) {
-      final pageIndex = item.pageIndex;
-      if (pageIndex != null && !placed.containsKey(item.id)) {
-        obstacles.putIfAbsent(pageIndex, () => []).add(item.bounds);
-      }
-    }
-    _centerPageItems(
-      placed,
-      area,
-      project.layout.horizontalGap,
-      project.layout.verticalGap,
-      obstacles,
-    );
   }
   return placed;
 }

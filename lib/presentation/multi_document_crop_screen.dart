@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../application/contracts.dart';
+import '../application/intake_stage_log.dart';
+import '../domain/image_journey.dart';
+import '../domain/intake_options.dart';
 import '../application/project_service.dart';
 import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
@@ -51,9 +54,13 @@ class MultiDocumentCropScreen extends StatefulWidget {
     required this.project,
     required this.asset,
     required this.service,
+    this.options,
+    this.stageLog,
     super.key,
   });
 
+  final IntakeOptions? options;
+  final IntakeBatchLog? stageLog;
   final Project project;
   final ImageAsset asset;
   final ProjectService service;
@@ -64,6 +71,7 @@ class MultiDocumentCropScreen extends StatefulWidget {
 }
 
 class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
+  Project? _saved;
   EditorSource? _source;
   ManualSelectionSet _set = ManualSelectionSet.empty();
   String? _activeId;
@@ -100,17 +108,32 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   }
 
   Future<void> _load() async {
+    final clock = Stopwatch()..start();
     try {
       final editor = widget.service.imageEditor;
       require(editor != null, 'خدمة معالجة الصور غير متاحة.');
       final source = await editor!.open(widget.asset);
       if (!mounted) return;
+      widget.stageLog
+          ?.forAsset(widget.asset.id)
+          .pass(
+            JourneyStage.selection,
+            'فُتحت الصورة الأصلية لمساحة التحديد اليدوي.',
+            durationMs: clock.elapsedMilliseconds,
+          );
       setState(() {
         _source = source;
         _loading = false;
       });
     } catch (error) {
       if (!mounted) return;
+      widget.stageLog
+          ?.forAsset(widget.asset.id)
+          .block(
+            JourneyStage.selection,
+            'تعذر فتح الصورة للتحديد.',
+            fields: {'errorType': error.runtimeType.toString()},
+          );
       setState(() {
         _loading = false;
         _error = userError(error);
@@ -143,13 +166,16 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   }
 
   void _addSelection() {
-    if (_set.length >= ManualSelectionSet.maxSelections) {
-      setState(() => _error = ManualSelectionSet.atCapacityMessage);
-      return;
-    }
     final id = 'sel-${_nextId++}';
     setState(() {
-      _set = _set.add(ManualDocumentSelection(id: id, corners: const []));
+      _set = _set.add(
+        ManualDocumentSelection(
+          id: id,
+          corners: const [],
+          kind: widget.options?.kind ?? DocumentKind.unknown,
+          side: widget.options?.side ?? SideKind.unknown,
+        ),
+      );
       _activeId = id;
       _error = null;
       _notice = null;
@@ -304,7 +330,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     final source = _source;
     if (source == null) return;
     final invalid = _set.invalid;
-    if (invalid.isNotEmpty) {
+    if (_set.isEmpty || invalid.isNotEmpty) {
       setState(() {
         _error = invalid.isEmpty
             ? 'أضف مستمسكاً واحداً على الأقل.'
@@ -318,10 +344,17 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
       _error = null;
       _notice = null;
     });
-    var project = widget.project;
-    var added = 0;
-    try {
-      for (final selection in _set.selections) {
+    var project = _saved ?? widget.project;
+    if (widget.options case final chosen?) {
+      project = project.copyWith(
+        layout: project.layout.copyWith(centerCaptures: chosen.centerDocuments),
+      );
+    }
+    final failures = <String>[];
+    for (final selection in _set.selections) {
+      final key = '${widget.asset.id}-${selection.id}';
+      final log = widget.stageLog?.forAsset(key, name: selection.id);
+      try {
         final ring = selection.validatedCorners;
         require(ring != null, 'التحديد «${_labelFor(selection.id)}» غير صالح.');
         final recipe = CropDraft(
@@ -333,22 +366,32 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           widget.asset,
           recipe,
           documentKind: selection.kindForExtraction,
+          side: selection.side,
+          stages: log,
+          keepPlaced: true,
           customSizeMm: selection.customSizeMm,
           sourceWidth: source.width,
           sourceHeight: source.height,
         );
-        added++;
+        _saved = project;
+        _set = _set.remove(selection.id);
+      } catch (error) {
+        failures.add('${_labelFor(selection.id)}: ${userError(error)}');
+        log?.block(
+          JourneyStage.save,
+          'تعذر إكمال استخراج المستمسك.',
+          fields: {'errorType': error.runtimeType.toString()},
+        );
       }
       if (!mounted) return;
+    }
+    if (failures.isEmpty) {
       Navigator.of(context).pop(project);
-    } catch (error) {
-      if (!mounted) return;
+    } else {
       setState(() {
         _busy = false;
-        _error = added == 0
-            ? userError(error)
-            : 'أُضيف $added من ${_set.length}، ثم تعذّر إكمال الباقي: '
-                  '${userError(error)}';
+        _activeId = _set.selections.first.id;
+        _error = failures.join('\n');
       });
     }
   }
@@ -363,17 +406,17 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_busy && _set.isEmpty,
+      canPop: !_busy && _set.isEmpty && _saved == null,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop || _busy) return;
         final discard = await confirm(
           context,
           'إلغاء تحديد المستمسكات؟',
-          'لم تُضف أي مستمسك بعد. ستبقى الصورة الأصلية كما هي دون تغيير.',
+          'ستُترك التحديدات غير المحفوظة. تبقى الصورة الأصلية والمستمسكات المحفوظة.',
           confirmLabel: 'إلغاء التحديد',
           destructive: true,
         );
-        if (discard && context.mounted) Navigator.of(context).pop();
+        if (discard && context.mounted) Navigator.of(context).pop(_saved);
       },
       child: Scaffold(
         appBar: AppBar(
@@ -381,12 +424,14 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           actions: [
             TextButton(
               key: const Key('multi-selection-add'),
-              onPressed: _busy || _loading ? null : _addSelection,
+              onPressed: _busy || _source == null ? null : _addSelection,
               child: const Text('مستمسك جديد'),
             ),
           ],
         ),
-        body: SafeArea(child: _body(context)),
+        body: SafeArea(
+          child: AbsorbPointer(absorbing: _busy, child: _body(context)),
+        ),
       ),
     );
   }
@@ -657,11 +702,10 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
                 items: [
                   const DropdownMenuItem(
                     value: DocumentKind.unknown,
-                    child: Text('تعرّف تلقائي'),
+                    child: Text('بلا نوع محدد'),
                   ),
                   for (final kind in DocumentKind.values)
-                    if (kind != DocumentKind.unknown &&
-                        kind != DocumentKind.other)
+                    if (kind != DocumentKind.unknown)
                       DropdownMenuItem(value: kind, child: Text(kind.label)),
                 ],
               ),

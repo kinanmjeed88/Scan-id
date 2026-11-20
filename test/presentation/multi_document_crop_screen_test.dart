@@ -266,6 +266,48 @@ void main() {
     expect(setup.assets.names, hasLength(2));
   });
 
+  testWidgets(
+    'failure of one selection does not discard or repeat its sibling on retry',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final setup = await _setup();
+      await tester.pumpWidget(_app(setup.project, setup.service));
+      await tester.pumpAndSettle();
+      for (final left in [.1, .55]) {
+        await tester.tap(find.byKey(const Key('multi-selection-add')));
+        await tester.pumpAndSettle();
+        await _drawCard(tester, left: left, right: left + .3);
+      }
+      setup.repository.failNextSave = true;
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+      expect(setup.editor.recipes, hasLength(2));
+      expect(
+        find.byKey(const Key('multi-selection-row-sel-0')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('multi-selection-row-sel-1')), findsNothing);
+      expect(
+        setup.repository.values[setup.project.id]!.assets.where(
+          (a) => a.derivedFrom != null,
+        ),
+        hasLength(1),
+      );
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+      expect(setup.editor.recipes, hasLength(3));
+      expect(
+        setup.repository.values[setup.project.id]!.assets.where(
+          (a) => a.derivedFrom != null,
+        ),
+        hasLength(2),
+      );
+    },
+  );
+
   testWidgets('deleting one document leaves the other untouched', (
     tester,
   ) async {

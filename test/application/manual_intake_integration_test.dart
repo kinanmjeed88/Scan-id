@@ -11,6 +11,7 @@ import 'package:scan_id/application/smart_recognition.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/intake_options.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
@@ -164,6 +165,72 @@ Future<void> tapFourCorners(WidgetTester tester) async {
 }
 
 void main() {
+  for (final smart in [false, true]) {
+    test(
+      'smart=$smart saves the selected kind and side with a measured, approved warp',
+      () async {
+        final root = await Directory.systemTemp.createTemp('scan-options-');
+        addTearDown(() => root.delete(recursive: true));
+        final projects = await LocalProjectRepository.open(root);
+        addTearDown(projects.close);
+        final assets = LocalAssetRepository(projects.files);
+        final editor = _UncertainBoundaryEditor(
+          LocalImageEditor(projects.files),
+          BoundaryProposal(
+            producer: BoundaryProducer.learnedModel,
+            modelConfidence: .2,
+            minAutoAcceptConfidence: .8,
+            corners: [
+              Point2(.12, .18),
+              Point2(.88, .18),
+              Point2(.88, .82),
+              Point2(.12, .82),
+            ],
+          ),
+        );
+        final service = ProjectService(
+          projects,
+          assets,
+          imageEditor: editor,
+          smartRecognitionEnabled: smart,
+          segmenter: editor.segment,
+        );
+        final original = await service.create('اختبار المسار');
+        final imported = await service.importImages(original, [
+          ImportSource(
+            'card.png',
+            () => File('test/fixtures/synthetic_card.png').openRead(),
+          ),
+        ]);
+        final report = await service.arrangeImportedImages(
+          imported.project,
+          [imported.project.assets.single.id],
+          options: const IntakeOptions(
+            kind: DocumentKind.unifiedNationalId,
+            side: SideKind.back,
+            acceptSuggestedBoundary: true,
+          ),
+        );
+        final saved = await projects.get(original.id);
+        expect(report.cropped, 1);
+        expect(saved.documents.single.sides.single.side, SideKind.back);
+        final item = saved.items.single;
+        expect(item.documentKind, DocumentKind.unifiedNationalId);
+        expect(item.userSelectedKind, isTrue);
+        expect(item.sizeConfirmed, isTrue);
+        expect(item.pageIndex, 0);
+        expect(item.width, closeTo(85.6, .001));
+        expect(
+          item.x + item.width / 2,
+          closeTo(
+            saved.paper.printable.x + saved.paper.printable.width / 2,
+            .01,
+          ),
+        );
+      },
+    );
+  }
+
   test(
     'production import leaves a multi-region image intact for manual review',
     () async {

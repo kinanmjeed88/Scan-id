@@ -27,6 +27,7 @@ import '../domain/image_adjustments.dart';
 import '../domain/image_journey.dart';
 import '../domain/image_limits.dart';
 import '../domain/intake_options.dart';
+import '../domain/manual_classification.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
@@ -110,15 +111,20 @@ void _recordApplyStage(
   required int cropped,
   required int notDetected,
   required int multi,
+  required int applyDurationMs,
 }) {
   final log = stageLog?.forAsset(analyzed.asset.id, name: analyzed.asset.name);
   if (log == null) return;
   final analysis = analyzed.analysis;
-  final regions = analysis.allRegions.length;
+  final regions = analysis.allRegions
+      .where(
+        (r) => r.region != null || r.boundaryDecision?.proposal.corners != null,
+      )
+      .length;
   // Detection PASSED when the segmenter measured at least one region, or when
   // the whole-frame detector produced a usable one. Anything else is a review:
   // the image is still usable, it simply has no measured boundary.
-  final measured = regions > 0 || analysis.detections.isNotEmpty;
+  final measured = regions > 0;
   final rejected = analysis.rejectedRegions.length;
   final measuredDetail = regions > 1
       ? 'قِيست $regions مناطق (متعددة)'
@@ -151,7 +157,14 @@ void _recordApplyStage(
       detail: cropped > 0
           ? 'قُصّت $cropped منطقة وأُنشئت نسخة مشتقة.'
           : 'بقيت الصورة كاملة بلا قص؛ يمكن قصّها يدوياً.',
-      fields: {'cropped': cropped, 'notDetected': notDetected},
+      fields: {
+        'applyDurationMs': applyDurationMs,
+        'cropped': cropped,
+        'notDetected': notDetected,
+        'userApproved': analysis.detections.any(
+          (d) => d.boundaryDecision?.verification.userApproved == true,
+        ),
+      },
     ),
   );
 }
@@ -347,6 +360,7 @@ class SmartIntake {
       cancellation?.addListener(cancelImage);
       // Rejections belong to completed analysis, independently of application.
       refusedRegions.addAll(analyzed.analysis.rejectedRegions);
+      final applyClock = Stopwatch()..start();
       try {
         current = await ImportTrace.stage(
           'apply',
@@ -385,6 +399,7 @@ class SmartIntake {
           cropped: imageCropped,
           notDetected: imageNotDetected,
           multi: imageMulti,
+          applyDurationMs: applyClock.elapsedMilliseconds,
         );
       } on RevisionConflict {
         rethrow;
@@ -436,20 +451,22 @@ class SmartIntake {
     // Pairing uses each record's source-image position, not its position among
     // emitted document records (a source can yield several regions, no record,
     // or a failed apply). Keep that input provenance through analysis.
-    final sourceImportIndices = {
-      for (final outcome in outcomes)
-        if (outcome.succeeded)
-          outcome.value!.asset.id: outcome.value!.importIndex,
-    };
-    ImportTrace.syncStage('pairing', () {
-      _applyPairing(
-        newDocuments,
-        newItems,
-        newGroups,
-        sourceImportIndices: sourceImportIndices,
-      );
-      return true;
-    });
+    if (options == null) {
+      final sourceImportIndices = {
+        for (final outcome in outcomes)
+          if (outcome.succeeded)
+            outcome.value!.asset.id: outcome.value!.importIndex,
+      };
+      ImportTrace.syncStage('pairing', () {
+        _applyPairing(
+          newDocuments,
+          newItems,
+          newGroups,
+          sourceImportIndices: sourceImportIndices,
+        );
+        return true;
+      });
+    }
 
     for (final record in newDocuments) {
       if (recordNeedsReview(record, thresholds)) needsReview++;
@@ -488,6 +505,9 @@ class SmartIntake {
       documents: [...current.documents, ...newDocuments],
       layoutGroups: [...current.layoutGroups, ...newGroups],
     );
+    if (options case final chosen?) {
+      current = attachIntakeChoices(current, newItems, chosen, newId);
+    }
     if (deferArrangement) {
       // Multi-only dispatch may stage several sources independently, then
       // arrange every newly produced item together around the pre-existing sheet.
@@ -604,6 +624,48 @@ class SmartIntake {
                   ),
                   token: imageToken,
                 );
+                final stage = stageLog?.forAsset(asset.id, name: asset.name);
+                if (stage != null) {
+                  final regions = analysis.allRegions;
+                  final timed = regions
+                      .map((r) => r.recognitionDurationMs)
+                      .nonNulls;
+                  if (timed.isNotEmpty) {
+                    final known = regions
+                        .where(
+                          (r) =>
+                              r.classification.status ==
+                              RecognitionStatus.recognized,
+                        )
+                        .length;
+                    stage.record(
+                      IntakeStageRecord(
+                        stage: JourneyStage.recognition,
+                        outcome: known == regions.length
+                            ? JourneyOutcome.passed
+                            : JourneyOutcome.review,
+                        detail:
+                            'صُنفت $known من ${regions.length} مناطق تلقائياً.',
+                        durationMs: timed.fold<int>(0, (sum, ms) => sum + ms),
+                        fields: {
+                          'known': known,
+                          if (options case final chosen?)
+                            'side': chosen.side.name,
+                        },
+                      ),
+                    );
+                  } else if (options case final chosen?
+                      when chosen.assertsKind && regions.isNotEmpty) {
+                    stage.skip(
+                      JourneyStage.recognition,
+                      'استُخدم النوع والوجه المحددان دون قراءة النص أو التصنيف.',
+                      fields: {
+                        'kind': chosen.kind.name,
+                        'side': chosen.side.name,
+                      },
+                    );
+                  }
+                }
                 return _Analyzed(
                   asset,
                   analysis,
@@ -1101,7 +1163,15 @@ class SmartIntake {
         cancellation?.throwIfCancelled();
         position++;
         final existing = _claimRecord(claimable, detection);
-        if (existing != null && existing.overrides.isNotEmpty) {
+        // A face supplied at intake is not a veto on a later explicit
+        // recognition refresh. _rebuildRecord preserves sides and overrides.
+        if (existing != null &&
+            existing.overrides.any(
+              (o) =>
+                  !(o.fields.length == 1 &&
+                      o.fields.single == IntakeOptions.intakeSideField &&
+                      o.side != null),
+            )) {
           // Preserve the distinct decision: dismissal is not confirmation, and
           // neither may be silently overwritten or reintroduced as a new item.
           final decisionMessage = isDismissed(existing)
@@ -1351,6 +1421,7 @@ class SmartIntake {
         pageIndex: null,
         zIndex: _nextZ(current, newItems),
         documentKind: kind,
+        userSelectedKind: options?.assertsKind ?? false,
         recognitionConfidence:
             detection.classification.confidences.classification?.value ?? 0,
         sizeConfirmed: catalogSize != null,
@@ -1801,6 +1872,7 @@ class SmartIntake {
         pageIndex: null,
         zIndex: _nextZ(current, newItems),
         documentKind: kind,
+        userSelectedKind: options?.assertsKind ?? false,
         recognitionConfidence:
             detection.classification.confidences.classification?.value ?? 0,
         sizeConfirmed: catalogSize != null,
@@ -1930,6 +2002,7 @@ class SmartIntake {
             pageIndex: null,
             zIndex: _nextZ(current, newItems),
             documentKind: kind,
+            userSelectedKind: options?.assertsKind ?? false,
             recognitionConfidence:
                 detection.classification.confidences.classification?.value ?? 0,
             sizeConfirmed: catalogSize != null,
@@ -2241,19 +2314,17 @@ class SmartIntake {
     required bool landscape,
   }) {
     final classification = detection.classification;
-    final sizeStatus = presetStatusFor(classification.kind);
-    if (!qualifiesForAutomaticPlacement(
-          classification,
-          thresholds: thresholds,
-        ) ||
-        classification.kind == DocumentKind.unknown ||
-        (sizeStatus != PresetStatus.standard &&
-            sizeStatus != PresetStatus.measured) ||
-        !warped ||
-        !_catalogShapeMatches(current, detection)) {
+    final knownKind =
+        options?.assertsKind == true ||
+        qualifiesForAutomaticPlacement(classification, thresholds: thresholds);
+    if (!knownKind || !warped || detection.cropAuthorization == null) {
       return null;
     }
-    return current.catalog.sizeFor(classification.kind, landscape: landscape);
+    return current.catalog.sizeForWarp(
+      classification.kind,
+      measuredAspect: detection.boundaryDecision?.verification.measuredAspect,
+      landscape: landscape,
+    );
   }
 
   bool _catalogShapeMatches(Project current, DetectionAnalysis detection) {
@@ -2289,10 +2360,11 @@ class SmartIntake {
           'راجعه وأكّده يدوياً قبل وضعه على A4.';
     }
     final classification = detection.classification;
-    if (!qualifiesForAutomaticPlacement(
-      classification,
-      thresholds: thresholds,
-    )) {
+    if (options?.assertsKind != true &&
+        !qualifiesForAutomaticPlacement(
+          classification,
+          thresholds: thresholds,
+        )) {
       final typeScore = classification.confidences.classification?.value;
       return '${kind.label}: لا يكفي دليل التصنيف للإضافة التلقائية '
           '(حد التصنيف ${(thresholds.classificationAcceptance * 100).round()}٪؛ '
@@ -2331,8 +2403,10 @@ class SmartIntake {
         ? (editor as BoundaryProposalImageEditor).boundaryModelId
         : null;
     return {
-      'classifier': classifierVersion,
-      'ocr': ocr.version,
+      if (options?.assertsKind != true) ...{
+        'classifier': classifierVersion,
+        'ocr': ocr.version,
+      },
       if (boundaryId != null) 'boundary': boundaryId,
     };
   }
@@ -2403,6 +2477,7 @@ class SmartIntake {
           ),
         ),
       ],
+      overrides: [if (options case final chosen?) chosen.recordOverride],
       recognition: _recognitionFor(current, classification),
       pairing: PairingState.single,
       provenance: Provenance(
@@ -2528,6 +2603,7 @@ class SmartIntake {
         if (detection.region != null && detection.region!.length == 4)
           'region=${detection.region!.map(_fixed).join(',')}',
         if (disagreement != null) 'disagreement=${_fixed(disagreement)}',
+        if (decision?.verification.userApproved == true) 'userApproved=true',
         if (aspect != null) 'aspect=${_fixed(aspect)}',
         if (catalogAspect != null) 'catalogAspect=${_fixed(catalogAspect)}',
         if (aspect != null && catalogAspect != null)

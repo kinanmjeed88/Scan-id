@@ -5,6 +5,7 @@ library;
 
 import 'arrangement.dart';
 import 'document_kind.dart';
+import 'intake_options.dart';
 import 'page_layout.dart';
 import 'project.dart';
 import 'recognition.dart';
@@ -26,38 +27,8 @@ Project classifyItemManually(
     // The fallback/legacy path may have no recognition record at all. Create
     // an honest manual record, not a fake detection, so the side persists even
     // when the user postpones the crop or closes and reopens the project.
-    final asset = project.assets.firstWhere((a) => a.id == item.assetId);
-    final recordId = nextId();
-    final sideId = nextId();
-    final sourceId = asset.derivedFrom ?? asset.id;
-    final record = DocumentRecord(
-      id: recordId,
-      sourceImageId: sourceId,
-      sides: [
-        DocumentSide(
-          id: sideId,
-          side: SideKind.unknown,
-          processedAsset: ProcessedAssetRef(
-            workingPath: asset.workingPath,
-            thumbnailPath: asset.thumbnailPath,
-            width: asset.width,
-            height: asset.height,
-            orientation: asset.adjustments.quarterTurns,
-            processingVersion: 'manual-classification-1',
-            corners: asset.hasApprovedCrop ? asset.crop?.corners : null,
-          ),
-        ),
-      ],
-      pairing: PairingState.single,
-      provenance: Provenance(
-        sourceImageId: sourceId,
-        detectionIds: const [],
-        processedAssetVersion: 'manual-classification-1',
-        pipelineVersion: 'manual-classification-1',
-        layoutItemIds: [item.id],
-      ),
-    );
-    item = item.copyWith(documentId: recordId, sideId: sideId);
+    final record = _manualRecord(project, item, nextId);
+    item = item.copyWith(documentId: record.id, sideId: record.sides.single.id);
     next = next.copyWith(
       documents: [...next.documents, record],
       items: [
@@ -212,4 +183,71 @@ Project pairManualSides(Project project, String itemId, String partnerItemId) {
     ],
   );
   return arrangeDocuments(next, keepPlaced: true).result;
+}
+
+DocumentRecord _manualRecord(
+  Project project,
+  DocumentItem item,
+  String Function() nextId, [
+  IntakeOptions? options,
+]) {
+  final asset = project.assets.firstWhere((a) => a.id == item.assetId);
+  final recordId = nextId();
+  final sideId = nextId();
+  final sourceId = asset.derivedFrom ?? asset.id;
+  return DocumentRecord(
+    id: recordId,
+    sourceImageId: sourceId,
+    sides: [
+      DocumentSide(
+        id: sideId,
+        side: options?.side ?? SideKind.unknown,
+        processedAsset: ProcessedAssetRef(
+          workingPath: asset.workingPath,
+          thumbnailPath: asset.thumbnailPath,
+          width: asset.width,
+          height: asset.height,
+          orientation: asset.adjustments.quarterTurns,
+          processingVersion: 'manual-classification-1',
+          corners: asset.hasApprovedCrop ? asset.crop?.corners : null,
+        ),
+      ),
+    ],
+    overrides: [if (options != null) options.recordOverride],
+    pairing: PairingState.single,
+    provenance: Provenance(
+      sourceImageId: sourceId,
+      detectionIds: const [],
+      processedAssetVersion: 'manual-classification-1',
+      pipelineVersion: 'manual-classification-1',
+      layoutItemIds: [item.id],
+    ),
+  );
+}
+
+/// Carry decisions through legacy, failed-analysis and interrupted imports,
+/// where no detector record exists. Never authorize a crop or print size here.
+Project attachIntakeChoices(
+  Project project,
+  Iterable<DocumentItem> pending,
+  IntakeOptions options,
+  String Function() nextId,
+) {
+  final records = <DocumentRecord>[];
+  final items = <String, DocumentItem>{};
+  for (final item in pending.where((item) => item.documentId == null)) {
+    final record = _manualRecord(project, item, nextId, options);
+    records.add(record);
+    items[item.id] = item.copyWith(
+      documentId: record.id,
+      sideId: record.sides.single.id,
+      documentKind: options.kind,
+      userSelectedKind: options.assertsKind,
+    );
+  }
+  if (items.isEmpty) return project;
+  return project.copyWith(
+    documents: [...project.documents, ...records],
+    items: [for (final item in project.items) items[item.id] ?? item],
+  );
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/intake_options.dart';
+import 'package:scan_id/presentation/crop_screen.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/manual_classification.dart';
 import 'package:scan_id/domain/project.dart';
@@ -13,6 +15,84 @@ import 'crop_tap_helpers.dart';
 import 'editor_harness.dart';
 
 void main() {
+  for (final side in SideKind.values) {
+    testWidgets(
+      'ambiguous automatic kind never asks again for intake side ${side.name}',
+      (tester) async {
+        final project = editorProject(
+          items: [
+            DocumentItem(
+              id: 'pending',
+              assetId: 'asset1',
+              x: 0,
+              y: 0,
+              width: 60,
+              height: 40,
+              pageIndex: null,
+            ),
+          ],
+        );
+        var n = 0;
+        final chosen = attachIntakeChoices(
+          project,
+          project.items,
+          IntakeOptions(side: side),
+          () => 'choice-${++n}',
+        );
+        await EditorHarness.pump(
+          tester,
+          project: chosen,
+          imageEditor: FakeImageEditor(),
+          autoClassifyItemIds: ['pending'],
+        );
+        expect(
+          find.byKey(const Key('manual-classification-side')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('manual-classification-kind')),
+          findsOneWidget,
+        );
+        expect(chosen.documents.single.sides.single.side, side);
+      },
+    );
+  }
+  testWidgets('manual type routes only to the remaining boundary/size review', (
+    tester,
+  ) async {
+    final project = editorProject(
+      items: [
+        DocumentItem(
+          id: 'pending',
+          assetId: 'asset1',
+          x: 0,
+          y: 0,
+          width: 60,
+          height: 40,
+          pageIndex: null,
+        ),
+      ],
+    );
+    var n = 0;
+    final chosen = attachIntakeChoices(
+      project,
+      project.items,
+      const IntakeOptions(kind: DocumentKind.passport, side: SideKind.back),
+      () => 'choice-${++n}',
+    );
+    await EditorHarness.pump(
+      tester,
+      project: chosen,
+      imageEditor: FakeImageEditor(),
+      autoClassifyItemIds: ['pending'],
+    );
+    expect(find.byKey(const Key('manual-classification-dialog')), findsNothing);
+    expect(
+      tester.widget<CropScreen>(find.byType(CropScreen)).documentKind,
+      DocumentKind.passport,
+    );
+  });
+
   for (final accepted in [true, false]) {
     testWidgets(
       'content type accepted=$accepted routes independently from crop and preserves deferred data',
@@ -52,7 +132,10 @@ void main() {
             preset: const PresetSelection.awaiting(),
           ),
         );
-        final project = manual.copyWith(documents: [record]);
+        final project = manual.copyWith(
+          documents: [record],
+          items: [manual.items.single.copyWith(userSelectedKind: false)],
+        );
         final harness = await EditorHarness.pump(
           tester,
           project: project,

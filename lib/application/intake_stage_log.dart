@@ -106,6 +106,19 @@ class IntakeStageLog {
     ),
   );
 
+  void skip(
+    JourneyStage stage,
+    String reason, {
+    Map<String, Object?> fields = const {},
+  }) => record(
+    IntakeStageRecord(
+      stage: stage,
+      outcome: JourneyOutcome.skipped,
+      detail: reason,
+      fields: fields,
+    ),
+  );
+
   /// Records a stage that ran but routed the image to a human.
   void review(
     JourneyStage stage,
@@ -168,8 +181,8 @@ class IntakeStageLog {
         else
           notReached(
             stage,
-            firstBlocked == null
-                ? 'لم تصل الصورة إلى هذه المرحلة.'
+            firstBlocked == null || stage.index < firstBlocked.stage.index
+                ? 'لا يوجد قياس مسجّل لهذه المرحلة.'
                 : 'لم تُنفَّذ لأن مرحلة «${firstBlocked.stage.label}» تعذّرت.',
           ).toStep(),
     ];
@@ -272,6 +285,7 @@ class IntakeStageReport {
     required this.summary,
     required List<IntakeStageLog> logs,
     this.options,
+    this.legacyOptionCodes = const [],
   }) : logs = List.unmodifiable(logs);
 
   final String batchId;
@@ -283,6 +297,7 @@ class IntakeStageReport {
   final String summary;
 
   final List<IntakeStageLog> logs;
+  final List<String> legacyOptionCodes;
   final IntakeOptions? options;
 
   /// Images with at least one stage that failed.
@@ -307,14 +322,17 @@ class IntakeStageReport {
     'projectName': projectName,
     'startedAt': startedAt.toIso8601String(),
     'summary': summary,
-    if (options != null) 'options': options!.traceCodes.toList(),
+    if (options != null)
+      'options': options!.traceCodes.toList()
+    else if (legacyOptionCodes.isNotEmpty)
+      'options': legacyOptionCodes,
     'images': [
       for (final log in logs)
         {
           'assetId': log.assetId,
           'assetName': log.assetName,
           if (log.failureSummary != null) 'failure': log.failureSummary,
-          'steps': [for (final step in log.toSteps()) step.toJson()],
+          'steps': [for (final record in log.records) record.toStep().toJson()],
         },
     ],
   };
@@ -362,6 +380,8 @@ class IntakeStageReport {
       }
       logs.add(log);
     }
+    final rawOptions = json['options'];
+    final options = IntakeOptions.fromTraceCodes(rawOptions);
     return IntakeStageReport(
       batchId: batchId,
       projectId: projectId,
@@ -369,6 +389,10 @@ class IntakeStageReport {
           ? json['projectName'] as String
           : '',
       startedAt: parsed,
+      options: options,
+      legacyOptionCodes: options == null && rawOptions is List
+          ? List.unmodifiable(rawOptions.whereType<String>())
+          : const [],
       summary: summary,
       logs: logs,
     );

@@ -12,6 +12,7 @@ import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/manual_document_selection.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/imaging/perspective.dart';
 import 'package:scan_id/presentation/image_viewport.dart';
@@ -83,6 +84,7 @@ void main() {
           .add(
             ManualDocumentSelection(
               id: 'card-1',
+              side: SideKind.front,
               corners: _card(20, 179),
               kind: DocumentKind.unifiedNationalId,
             ),
@@ -90,6 +92,7 @@ void main() {
           .add(
             ManualDocumentSelection(
               id: 'card-2',
+              side: SideKind.back,
               corners: _card(220, 379),
               kind: DocumentKind.rationCard,
             ),
@@ -117,6 +120,7 @@ void main() {
           source,
           recipe,
           documentKind: selection.kind,
+          side: selection.side,
           sourceWidth: 400,
           sourceHeight: 300,
         );
@@ -128,6 +132,13 @@ void main() {
       }
 
       expect(renders, 2);
+      final persisted = await repository.get(project.id);
+      expect(
+        persisted.documents
+            .skip(project.documents.length)
+            .map((r) => r.sides.single.side),
+        [SideKind.front, SideKind.back],
+      );
       final derived = saved.assets.where((a) => a.derivedFrom == source.id);
       expect(derived, hasLength(2));
       // Each document kept its own category: classification is per selection,

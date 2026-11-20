@@ -72,6 +72,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
           ..onImportReport = (report) async {
             if (mounted) await _showImportReport(report);
           }
+          ..openManualWorkspace = manualWorkspace(context, widget.service)
           ..onManualClassificationNeeded = _classifyPending
           ..onPickIntakeOptions = (count) async {
             if (!mounted) return null;
@@ -224,8 +225,8 @@ class _LayoutScreenState extends State<LayoutScreen> {
             .where((entry) => entry.id == item.documentId)
             .firstOrNull;
         if (!editingExisting &&
-            record != null &&
-            hasAcceptedContentClassification(record)) {
+            (item.userSelectedKind ||
+                (record != null && hasAcceptedContentClassification(record)))) {
           // The type is already known from content. Review the independent
           // crop/size decision instead of asking for the same type again.
           _c.select(id);

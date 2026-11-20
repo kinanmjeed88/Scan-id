@@ -8,7 +8,7 @@ import '../domain/recognition.dart';
 /// BEFORE they are processed.
 ///
 /// The sheet is a decision surface, not a form: each option carries a visible
-/// check when the person confirmed it, and closing it accepts the current
+/// check when the person confirmed it, and only the continue button accepts the current
 /// choices. Nothing here is inferred — an unchecked option keeps its documented
 /// default, and [IntakeOptions.confirmed] records only what was actually ticked,
 /// so the journey log can tell «chosen» from «defaulted».
@@ -77,36 +77,22 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
                 title: 'الوجه',
                 subtitle: _options.assertsSide
                     ? 'المحدَّد: ${_sideLabel(_options.side)}'
-                    : 'بدون تحديد يُعتبر وجه واحد',
-                child: Wrap(
-                  spacing: 8,
-                  children: [
+                    : 'الافتراضي: وجه واحد',
+                child: _choiceRow([
+                  for (final side in [
+                    SideKind.unknown,
+                    SideKind.front,
+                    SideKind.back,
+                  ])
                     _ChoiceChip(
-                      label: 'وجه واحد (افتراضي)',
-                      selected: _options.side == SideKind.unknown,
+                      label: _sideLabel(side),
+                      selected: _options.side == side,
                       onSelected: () => _confirm(
                         IntakeOptionKey.side,
-                        _options.withSide(SideKind.unknown),
+                        _options.withSide(side),
                       ),
                     ),
-                    _ChoiceChip(
-                      label: 'وجه أول',
-                      selected: _options.side == SideKind.front,
-                      onSelected: () => _confirm(
-                        IntakeOptionKey.side,
-                        _options.withSide(SideKind.front),
-                      ),
-                    ),
-                    _ChoiceChip(
-                      label: 'وجه ثانٍ',
-                      selected: _options.side == SideKind.back,
-                      onSelected: () => _confirm(
-                        IntakeOptionKey.side,
-                        _options.withSide(SideKind.back),
-                      ),
-                    ),
-                  ],
-                ),
+                ]),
               ),
 
               // 2) kind
@@ -114,31 +100,41 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
                 optionKey: IntakeOptionKey.kind,
                 confirmed: _options.confirmed.contains(IntakeOptionKey.kind),
                 title: 'نوع المستمسك',
-                subtitle: _options.assertsKind
+                subtitle: _options.multiDocument
+                    ? 'قيمة أولية يمكن تغييرها لكل مستمسك'
+                    : _options.assertsKind
                     ? 'المحدَّد: ${_options.kind.label}'
                     : 'بدون تحديد يعمل التعرّف التلقائي',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    _ChoiceChip(
-                      label: 'تعرّف تلقائي (افتراضي)',
-                      selected: _options.kind == DocumentKind.unknown,
-                      onSelected: () => _confirm(
-                        IntakeOptionKey.kind,
-                        _options.withKind(DocumentKind.unknown),
-                      ),
-                    ),
-                    for (final kind in _selectableKinds)
-                      _ChoiceChip(
-                        label: kind.label,
-                        selected: _options.kind == kind,
-                        onSelected: () => _confirm(
-                          IntakeOptionKey.kind,
-                          _options.withKind(kind),
-                        ),
-                      ),
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final kinds = [DocumentKind.unknown, ..._selectableKinds];
+                    // Fall back to fewer columns for large accessibility fonts.
+                    final columns =
+                        (constraints.maxWidth /
+                                MediaQuery.textScalerOf(context).scale(66))
+                            .floor()
+                            .clamp(1, 4);
+                    return Column(
+                      children: [
+                        for (var i = 0; i < kinds.length; i += columns)
+                          _choiceRow([
+                            for (final kind in kinds.skip(i).take(columns))
+                              _ChoiceChip(
+                                label: kind == DocumentKind.unknown
+                                    ? (_options.multiDocument
+                                          ? 'بلا نوع محدد'
+                                          : 'تعرّف تلقائي')
+                                    : kind.label,
+                                selected: _options.kind == kind,
+                                onSelected: () => _confirm(
+                                  IntakeOptionKey.kind,
+                                  _options.withKind(kind),
+                                ),
+                              ),
+                          ]),
+                      ],
+                    );
+                  },
                 ),
               ),
 
@@ -149,15 +145,21 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
                   IntakeOptionKey.acceptSuggestedBoundary,
                 ),
                 title: 'موافقة على القص المقترح',
-                subtitle: _options.acceptSuggestedBoundary
-                    ? 'تُقبل الحدود المقترحة مباشرةً مهما كانت نسبتها'
-                    : 'تُعرض الحدود للمراجعة قبل القص',
+                subtitle: _options.multiDocument
+                    ? 'غير منطبق على الزوايا المحددة يدوياً'
+                    : _options.acceptSuggestedBoundary
+                    ? 'تُقبل الحدود الصالحة رغم انخفاض الثقة'
+                    : 'تُراجع الحدود عند الحاجة',
                 trailing: Switch(
-                  value: _options.acceptSuggestedBoundary,
-                  onChanged: (value) => _confirm(
-                    IntakeOptionKey.acceptSuggestedBoundary,
-                    _options.copyWith(acceptSuggestedBoundary: value),
-                  ),
+                  value:
+                      !_options.multiDocument &&
+                      _options.acceptSuggestedBoundary,
+                  onChanged: _options.multiDocument
+                      ? null
+                      : (value) => _confirm(
+                          IntakeOptionKey.acceptSuggestedBoundary,
+                          _options.copyWith(acceptSuggestedBoundary: value),
+                        ),
                 ),
               ),
 
@@ -198,14 +200,17 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
               ),
 
               const SizedBox(height: 8),
-              Row(
+              OverflowBar(
                 children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('إلغاء'),
+                  ),
                   TextButton(
                     onPressed: () =>
                         setState(() => _options = IntakeOptions.defaults),
                     child: const Text('إعادة الافتراضي'),
                   ),
-                  const Spacer(),
                   FilledButton.icon(
                     key: const Key('intake-options-confirm'),
                     onPressed: () => Navigator.of(context).pop(_options),
@@ -225,12 +230,8 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
     if (!_options.multiDocument) {
       return 'غير مطلوب؛ تُعالج كل صورة كمستند واحد';
     }
-    // Automatic segmentation stays unavailable, and saying otherwise would be a
-    // lie. What IS available is the manual workspace: the person outlines each
-    // document themselves. The two are stated together so nobody expects the
-    // detector to find documents for them.
-    return 'مطلوب: تحدد أنت كل مستند يدوياً في مساحة العمل؛ '
-        'الكشف التلقائي للمناطق غير مفعّل في هذه النسخة';
+    // The manual workspace never detects or classifies regions.
+    return 'حدّد الزوايا والنوع والوجه لكل مستمسك في الصورة.';
   }
 }
 
@@ -316,15 +317,24 @@ class _OptionTile extends StatelessWidget {
             ],
           ),
           if (child != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 36, top: 6),
-              child: child,
-            ),
+            Padding(padding: const EdgeInsets.only(top: 4), child: child),
         ],
       ),
     );
   }
 }
+
+Widget _choiceRow(List<Widget> choices) => Row(
+  children: [
+    for (final choice in choices)
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          child: choice,
+        ),
+      ),
+  ],
+);
 
 class _ChoiceChip extends StatelessWidget {
   const _ChoiceChip({
@@ -339,7 +349,14 @@ class _ChoiceChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ChoiceChip(
-    label: Text(label),
+    label: Text(
+      label,
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.labelSmall,
+    ),
+    labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+    padding: EdgeInsets.zero,
+    showCheckmark: false,
     selected: selected,
     onSelected: (_) => onSelected(),
   );

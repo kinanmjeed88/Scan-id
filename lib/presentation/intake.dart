@@ -29,12 +29,14 @@ import '../application/cancellation.dart';
 import '../application/contracts.dart' show StorageException;
 import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
+import '../application/ids.dart';
 import '../application/intake_stage_log.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
 import '../domain/image_journey.dart';
 import '../domain/intake_options.dart';
 import '../domain/project.dart';
+import 'multi_document_crop_screen.dart';
 
 /// The outcome of one intake run.
 class IntakeRun {
@@ -83,6 +85,30 @@ class IntakeRun {
   int get importedCount => import.imported;
 }
 
+typedef ManualWorkspace =
+    Future<Project?> Function(
+      Project project,
+      ImageAsset asset,
+      IntakeOptions options,
+      IntakeBatchLog? log,
+    );
+
+ManualWorkspace manualWorkspace(BuildContext context, ProjectService service) =>
+    (project, asset, options, log) async {
+      if (!context.mounted) return null;
+      return Navigator.of(context).push<Project>(
+        MaterialPageRoute(
+          builder: (_) => MultiDocumentCropScreen(
+            project: project,
+            asset: asset,
+            service: service,
+            options: options,
+            stageLog: log,
+          ),
+        ),
+      );
+    };
+
 /// Runs one intake with real progress and cooperative cancellation.
 class IntakeRunner {
   IntakeRunner({
@@ -92,6 +118,7 @@ class IntakeRunner {
     this.onTrace,
     this.options,
     this.stageLog,
+    this.openManualWorkspace,
   });
 
   final ProjectService service;
@@ -100,6 +127,7 @@ class IntakeRunner {
 
   /// The options the person chose for this batch, or null when not offered.
   final IntakeOptions? options;
+  final ManualWorkspace? openManualWorkspace;
 
   /// The stage-by-stage record filled in as the batch runs.
   final IntakeBatchLog? stageLog;
@@ -326,6 +354,43 @@ class IntakeRunner {
       }
       await saveProgress(project, finished: false, committed: false);
       final existingIds = project.assets.map((a) => a.id).toSet();
+      Object? failure;
+      final chosen = options;
+      final manual = chosen?.route == IntakeRoute.manualSelections;
+      Future<Project> selectManually(
+        Project latest,
+        ImageAsset asset,
+        IntakeOptions chosen,
+      ) async {
+        final log = stageLog?.forAsset(asset.id, name: asset.name);
+        log?.skip(
+          JourneyStage.detection,
+          'تحديد يدوي متعدد؛ لا كشف آلي ولا مراجعة لثقة الكاشف.',
+        );
+        log?.skip(
+          JourneyStage.recognition,
+          'يُحدد النوع والوجه لكل تحديد في مساحة العمل.',
+        );
+        try {
+          final open = openManualWorkspace;
+          if (open == null) throw StateError('Manual workspace unavailable');
+          final saved = await open(latest, asset, chosen, stageLog);
+          if (saved != null) return saved;
+          log?.skip(
+            JourneyStage.crop,
+            'أُغلقت مساحة التحديد دون إضافة مستمسك.',
+          );
+        } catch (error) {
+          failure ??= error;
+          log?.block(
+            JourneyStage.crop,
+            'تعذر التحديد اليدوي: ${_causeOf(error)}',
+          );
+          return service.projects.get(latest.id);
+        }
+        return latest;
+      }
+
       late final ImportReport import;
       try {
         import = await service.importImages(
@@ -333,19 +398,42 @@ class IntakeRunner {
           sources,
           cancellation: token,
           onProgress: reportProgress,
-          onSourceResult: (result) => picked.add(
-            ImportedImageFact(
+          afterSourceCommit: chosen != null && manual
+              ? (saved, asset) => selectManually(saved, asset, chosen)
+              : null,
+          onSourceResult: (result) {
+            final asset = result.asset;
+            final log = stageLog?.forAsset(
+              asset?.id ?? 'source-${picked.length}',
               name: result.name,
-              assetId: result.asset?.id,
-              failureMessage: result.failure,
-              copyDurationMs: result.durationMs,
-              // Captured now, while `asset` still describes the copy. A later
-              // revision keeps this id, so its width/height can become the
-              // crop's; the journey must not report the crop as the copy.
-              copiedWidth: result.asset?.width,
-              copiedHeight: result.asset?.height,
-            ),
-          ),
+            );
+            if (asset == null) {
+              log?.block(
+                JourneyStage.copy,
+                'تعذر استيراد الصورة؛ راجع تفاصيل النسخ في سجل الصورة.',
+              );
+            } else {
+              log?.pass(
+                JourneyStage.copy,
+                'نُسخت الصورة إلى المشروع.',
+                durationMs: result.durationMs,
+                fields: {'width': asset.width, 'height': asset.height},
+              );
+            }
+            picked.add(
+              ImportedImageFact(
+                name: result.name,
+                assetId: result.asset?.id,
+                failureMessage: result.failure,
+                copyDurationMs: result.durationMs,
+                // Captured now, while `asset` still describes the copy. A later
+                // revision keeps this id, so its width/height can become the
+                // crop's; the journey must not report the crop as the copy.
+                copiedWidth: result.asset?.width,
+                copiedHeight: result.asset?.height,
+              ),
+            );
+          },
           onSourceCheckpoint: (result, current) =>
               saveProgress(current, finished: false),
         );
@@ -369,13 +457,17 @@ class IntakeRunner {
         }
         final importedIds = [
           for (final asset in latest.assets)
-            if (!existingIds.contains(asset.id)) asset.id,
+            if (!existingIds.contains(asset.id) && asset.derivedFrom == null)
+              asset.id,
         ];
         try {
-          latest = await service.retainUnrepresentedImports(
-            latest,
-            importedIds,
-          );
+          if (options?.route != IntakeRoute.manualSelections) {
+            latest = await service.retainUnrepresentedImports(
+              latest,
+              importedIds,
+              options: options,
+            );
+          }
         } on Object catch (recoveryError) {
           trace('manual-recovery', 'failed', recoveryError);
         }
@@ -398,11 +490,11 @@ class IntakeRunner {
       var latest = import.project;
       final importedIds = [
         for (final asset in latest.assets)
-          if (!existingIds.contains(asset.id)) asset.id,
+          if (!existingIds.contains(asset.id) && asset.derivedFrom == null)
+            asset.id,
       ];
       AutomaticLayoutReport? layout;
-      Object? failure;
-      if (importedIds.isNotEmpty && !token.isCancelled) {
+      if (!manual && importedIds.isNotEmpty && !token.isCancelled) {
         trace('arrangement', 'started');
         var savingReported = false;
         try {
@@ -467,7 +559,13 @@ class IntakeRunner {
         }
       }
       try {
-        latest = await service.retainUnrepresentedImports(latest, importedIds);
+        if (!manual) {
+          latest = await service.retainUnrepresentedImports(
+            latest,
+            importedIds,
+            options: options,
+          );
+        }
       } on Object catch (recoveryError) {
         trace('manual-recovery', 'failed', recoveryError);
         failure ??= recoveryError;
@@ -577,11 +675,17 @@ Future<IntakeRun?> runIntakeWithProgress(
   required Project project,
   required List<ImportSource> sources,
   bool keepPlaced = true,
+  IntakeOptions? options,
 }) async {
   final runner = IntakeRunner(
     service: service,
     project: project,
     keepPlaced: keepPlaced,
+    options: options,
+    stageLog: options == null
+        ? null
+        : IntakeBatchLog(batchId: newId(), options: options),
+    openManualWorkspace: manualWorkspace(context, service),
   );
   final result = await showDialog<_IntakeDialogResult>(
     context: context,

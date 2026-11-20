@@ -10,6 +10,9 @@ library;
 import 'package:flutter/material.dart';
 
 import '../application/journey_log.dart';
+import '../application/intake_stage_log.dart';
+import '../domain/intake_options.dart';
+import '../domain/document_kind.dart';
 import '../domain/image_journey.dart';
 import 'shared.dart';
 
@@ -24,6 +27,7 @@ class JourneyLogScreen extends StatefulWidget {
 
 class _JourneyLogScreenState extends State<JourneyLogScreen> {
   List<ImageJourney>? _journeys;
+  Map<String, IntakeStageReport> _reports = const {};
   JourneyLogStats _stats = JourneyLogStats.empty;
   bool _busy = false;
   bool _failed = false;
@@ -39,10 +43,12 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
     try {
       final journeys = await widget.log.read();
       final stats = await widget.log.stats();
+      final reports = await widget.log.readStageReports();
       if (!mounted) return;
       setState(() {
         _journeys = journeys;
         _stats = stats;
+        _reports = {for (final r in reports) r.batchId: r};
         _failed = false;
       });
     } on Object {
@@ -206,10 +212,49 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
       if (journey.batchId != currentBatch) {
         currentBatch = journey.batchId;
         widgets.add(_batchHeader(journey));
+        final report = _reports[journey.batchId];
+        if (report != null) widgets.add(_executionReport(report));
       }
       widgets.add(_journeyCard(journey));
     }
     return widgets;
+  }
+
+  Widget _executionReport(IntakeStageReport report) {
+    final options = report.options;
+    return ExpansionTile(
+      title: const Text('خيارات الدفعة وسجل التنفيذ'),
+      children: [
+        if (options != null)
+          ListTile(
+            title: Text(switch (options.route) {
+              IntakeRoute.manualSelections => 'تحديد يدوي متعدد',
+              IntakeRoute.singleManualKind =>
+                'مستمسك واحد · ${options.kind.label}',
+              IntakeRoute.singleAutomaticKind => 'مستمسك واحد · تعرّف تلقائي',
+            }),
+            subtitle: Text(options.traceCodes.join(' · ')),
+          ),
+        for (final log in report.logs)
+          ExpansionTile(
+            title: Text(log.assetName.isEmpty ? log.assetId : log.assetName),
+            children: [
+              for (final entry in log.records)
+                ListTile(
+                  title: Text('${entry.stage.label}: ${entry.outcome.label}'),
+                  subtitle: Text(
+                    [
+                      entry.detail,
+                      if (entry.durationMs case final ms?) _duration(ms),
+                      for (final fact in entry.fields.entries)
+                        '${fact.key}: ${fact.value}',
+                    ].join(' · '),
+                  ),
+                ),
+            ],
+          ),
+      ],
+    );
   }
 
   Widget _batchHeader(ImageJourney first) => Padding(

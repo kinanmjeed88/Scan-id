@@ -79,6 +79,7 @@ class DetectionAnalysis {
     this.region,
     this.boundary = DetectionBoundary.undetected,
     this.regionIndex = 0,
+    this.recognitionDurationMs,
     this.boundaryDecision,
   });
   final String detectionId;
@@ -105,6 +106,9 @@ class DetectionAnalysis {
   /// Position of this region in the deterministic region order
   /// (top-to-bottom, left-to-right), used to keep results stable.
   final int regionIndex;
+
+  /// OCR/evidence and type classification. Null when bypassed by user choice.
+  final int? recognitionDurationMs;
 
   /// The shared Proposal → Verification → Decision result for this region.
   /// Automatic crops may proceed only when it grants [cropAuthorization].
@@ -240,15 +244,16 @@ class RecognitionPipeline {
     this.catalog = const DocumentSizeCatalog(),
     this.thresholds = defaultThresholds,
     this.ocrBudget = defaultPipelineOcrBudget,
+    this.classifier = classifyDocument,
     this.options,
   });
 
   /// The batch options the person chose, or null when they were not offered.
   ///
-  /// Read here because both of the options it decides are verdicts formed
-  /// inside this pipeline: whether a usable proposal is approved despite its
-  /// aspect, and whether a category the person named replaces the classifier's.
+  /// Geometry remains independent. A manual kind replaces the entire evidence
+  /// collection/classification stage, not just its result.
   final IntakeOptions? options;
+  final ClassificationOutcome Function(ClassificationInput) classifier;
 
   /// The existing precise single-document detector seam
   /// (`ImageEditor.suggest`); used when segmentation reports no multi-
@@ -273,15 +278,20 @@ class RecognitionPipeline {
     CancellationToken? token,
   }) async {
     token?.throwIfCancelled();
+    if (options?.route == IntakeRoute.manualSelections) {
+      throw StateError('Manual selections do not enter recognition');
+    }
     final issues = <BatchItemFailure>[];
 
     SegmentationResult segmentation;
     try {
-      segmentation = await ImportTrace.stage(
-        'detection',
-        () => segment(input.previewBytes),
-        phase: 'segmentation',
-      );
+      segmentation = options != null
+          ? const SegmentationResult(candidates: [], multi: false)
+          : await ImportTrace.stage(
+              'detection',
+              () => segment(input.previewBytes),
+              phase: 'segmentation',
+            );
     } on OperationCancelled {
       rethrow;
     } catch (_) {
@@ -656,7 +666,9 @@ class RecognitionPipeline {
     // than from inside the proposal itself.
     var evidenceFromWiderRead = false;
     var widerLineCentres = const <Point2>[];
-    if (ocr.isEnabled) {
+    final manualKind = options?.route == IntakeRoute.singleManualKind;
+    final recognitionClock = manualKind ? null : (Stopwatch()..start());
+    if (!manualKind && ocr.isEnabled) {
       final authorizedCorners = decision.cropAuthorization?.corners;
       final List<Point2>? ocrCorners;
       if (authorizedCorners != null) {
@@ -724,59 +736,49 @@ class RecognitionPipeline {
       }
     }
 
-    var classification = classifyDocument(
-      ClassificationInput(
-        detectionConfidence: detectionConfidence,
-        geometryConfidence: assessment?.geometryConfidence,
-        ocrKeywords: ocrKeywordEvidence(ocrResult),
-        ocrConfidence: ocrResult.confidence,
-        thresholds: thresholds,
-      ),
-    );
-    // Option 2: the person named the category. That is an ASSERTION we were
-    // given, not something we measured, so it is recorded as such and it never
-    // borrows the classifier's confidence.
-    //
-    // Carrying the measured score across would be the dangerous shortcut: a
-    // 0.9 score earned by "ration card" evidence would then sit on "passport"
-    // and satisfy `qualifiesForAutomaticPlacement`, letting a typed category
-    // authorize an automatic placement nobody measured. So the classification
-    // confidence is DROPPED (absent, per ConfidenceSet) and the outcome is
-    // `uncertain` with no single candidate, which is exactly how this codebase
-    // already says «a human must confirm the size». What the assertion buys is
-    // the KIND — downstream presets and review open on the right category —
-    // not an authorization. The classifier's own verdict stays in `evidence`.
-    final assertedKind = options?.kind ?? DocumentKind.unknown;
-    if (assertedKind != DocumentKind.unknown &&
-        assertedKind != classification.kind) {
-      classification = ClassificationOutcome(
-        kind: assertedKind,
-        status: RecognitionStatus.uncertain,
-        confidences: ConfidenceSet(
-          detection: classification.confidences.detection,
-          geometry: classification.confidences.geometry,
-          ocr: classification.confidences.ocr,
-          // Deliberately absent: nobody measured agreement with this kind.
-          classification: null,
-        ),
-        evidence: [
-          ...classification.evidence,
-          RecognitionEvidence(
-            source: EvidenceSource.structure,
-            kind: 'user-asserted',
-            score: 1,
-            reason: 'المستخدم حدّد النوع',
-          ),
-        ],
-        routing: classification.routing,
-        candidates: const [],
-      );
-    }
+    final classification = manualKind
+        ? ClassificationOutcome(
+            kind: options!.kind,
+            status: RecognitionStatus.uncertain,
+            confidences: ConfidenceSet(
+              detection: detectionConfidence == null
+                  ? null
+                  : Confidence(
+                      value: detectionConfidence,
+                      reason: 'detector support',
+                      producer: effectiveProducer.name,
+                      version: recognitionPipelineVersion,
+                    ),
+              geometry: assessment == null
+                  ? null
+                  : Confidence(
+                      value: assessment.geometryConfidence!,
+                      reason: 'quad assessment',
+                      producer: 'quad-assessment',
+                      version: recognitionPipelineVersion,
+                    ),
+            ),
+            evidence: const [],
+            routing: const RoutingDecision(
+              band: RecognitionBand.unresolved,
+              reasons: ['user-selected-kind'],
+            ),
+          )
+        : classifier(
+            ClassificationInput(
+              detectionConfidence: detectionConfidence,
+              geometryConfidence: assessment?.geometryConfidence,
+              ocrKeywords: ocrKeywordEvidence(ocrResult),
+              ocrConfidence: ocrResult.confidence,
+              thresholds: thresholds,
+            ),
+          );
+    recognitionClock?.stop();
     // Evidence read from the wider area describes the document in the frame,
     // not the content of the proposal, so it never corroborates that proposal
     // into an automatic crop: the catalog gate only ever sees text read from
     // inside the quadrilateral it is asked to accept.
-    var resolvedDecision = evidenceFromWiderRead
+    var resolvedDecision = manualKind || evidenceFromWiderRead
         ? decision
         : corroborateClassicalBoundaryWithCatalog(
             decision: decision,
@@ -803,9 +805,6 @@ class RecognitionPipeline {
       if (approved.kind == BoundaryDecisionKind.accepted &&
           resolvedDecision.kind != BoundaryDecisionKind.accepted) {
         resolvedDecision = approved;
-        issues.removeWhere(
-          (issue) => issue.category == RecognitionErrorCategory.geometryFailure,
-        );
       }
     }
     if (resolvedDecision.kind == BoundaryDecisionKind.accepted &&
@@ -849,6 +848,7 @@ class RecognitionPipeline {
       region: region,
       boundary: boundary,
       regionIndex: regionIndex,
+      recognitionDurationMs: recognitionClock?.elapsedMilliseconds,
       boundaryDecision: resolvedDecision,
     );
   }

@@ -31,9 +31,6 @@ void main() {
       BoundaryProposal(
         producer: BoundaryProducer.learnedModel,
         corners: goodQuad(),
-        // A square-ish imposed aspect the measured quad cannot claim, so the
-        // gate refuses automatic cropping and queues it for review.
-        imposedAspect: 1.0,
         minAutoAcceptConfidence: .55,
         modelConfidence: .30,
       ),
@@ -94,6 +91,25 @@ void main() {
     expect(approved.cropAuthorization, isNull);
     expect(approved.verification.userApproved, isFalse);
   });
+
+  test(
+    'low confidence and a frame-edge warning is not a confidence-only refusal',
+    () {
+      final decision = verifyBoundary(
+        BoundaryProposal(
+          producer: BoundaryProducer.learnedModel,
+          corners: goodQuad(),
+          minAutoAcceptConfidence: .8,
+          modelConfidence: .2,
+          touchesFrameEdge: true,
+        ),
+        sourceWidth: width,
+        sourceHeight: height,
+      );
+      expect(decision.verification.hasUsableGeometry, isTrue);
+      expect(decision.approvedByUser().cropAuthorization, isNull);
+    },
+  );
 
   test('approval cannot invent a boundary that was never proposed', () {
     final decision = verifyBoundary(

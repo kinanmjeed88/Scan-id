@@ -21,6 +21,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../application/intake_stage_log.dart';
 import '../application/journey_log.dart';
 import '../domain/image_journey.dart';
 

@@ -401,13 +401,17 @@ class _FailingJourneyLog implements JourneyLog {
   @override
   Future<void> clear() async => saved.clear();
 
-  @override
-  Future<void> appendStageReport(IntakeStageReport report) async =>
-      saved.appendStageReport(report);
+  // Stage reports are held here rather than forwarded: `saved` is this fake's
+  // own list of journeys, so forwarding to it was a type error.
+  final stageReports = <IntakeStageReport>[];
 
   @override
-  Future<List<IntakeStageReport>> readStageReports() =>
-      saved.readStageReports();
+  Future<void> appendStageReport(IntakeStageReport report) async =>
+      stageReports.add(report);
+
+  @override
+  Future<List<IntakeStageReport>> readStageReports() async =>
+      List.unmodifiable(stageReports);
   @override
   Future<List<ImageJourney>> read() async => saved;
   @override

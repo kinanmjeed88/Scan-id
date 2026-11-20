@@ -47,7 +47,7 @@ void main() {
     final images = read.single.logs;
     expect(images, hasLength(1));
     final detection = images.single.records.firstWhere(
-      (record) => record.stage == JourneyStage.detection,
+      (IntakeStageRecord record) => record.stage == JourneyStage.detection,
     );
     expect(detection.outcome, JourneyOutcome.blocked);
     expect(detection.detail, contains('تعذّر فحص التقسيم'));

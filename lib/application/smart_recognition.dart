@@ -16,14 +16,15 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import '../domain/classification_gap.dart';
+import '../domain/acceptance_policy.dart';
 import '../domain/arrangement.dart';
 import '../domain/boundary_decision.dart';
-import '../domain/acceptance_policy.dart';
+import '../domain/classification_gap.dart';
 import '../domain/crop_draft.dart';
-import '../domain/image_adjustments.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/image_adjustments.dart';
+import '../domain/image_journey.dart';
 import '../domain/image_limits.dart';
 import '../domain/intake_options.dart';
 import '../domain/project.dart';

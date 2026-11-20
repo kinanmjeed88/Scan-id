@@ -722,10 +722,11 @@ class _IntakeProgressDialogState extends State<_IntakeProgressDialog> {
 /// is short, single-line and free of path separators.
 String _causeOf(Object error) {
   final type = error.runtimeType.toString();
-  final raw = error is StateError || error is FormatException
-      ? error.message
-      : null;
-  final message = raw is String ? raw.trim() : '';
+  // `StateError.message` is a String; a FormatException carries `source` and
+  // `offset` instead, and `toString()` of it can quote the offending input, so
+  // only a StateError's message is ever reused.
+  final String? raw = error is StateError ? error.message : null;
+  final message = raw?.trim() ?? '';
   final safe =
       message.isNotEmpty &&
       message.length <= 120 &&

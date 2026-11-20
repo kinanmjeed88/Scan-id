@@ -149,7 +149,7 @@ void _recordApplyStage(
       stage: JourneyStage.crop,
       outcome: cropped > 0 ? JourneyOutcome.passed : JourneyOutcome.review,
       detail: cropped > 0
-          ? 'قُصّت ${cropped} منطقة وأُنشئت نسخة مشتقة.'
+          ? 'قُصّت $cropped منطقة وأُنشئت نسخة مشتقة.'
           : 'بقيت الصورة كاملة بلا قص؛ يمكن قصّها يدوياً.',
       fields: {'cropped': cropped, 'notDetected': notDetected},
     ),

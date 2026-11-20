@@ -195,8 +195,7 @@ class ManualSelectionSet {
   /// The one place the missing-id message lives, with a non-null result so
   /// callers do not have to re-assert what this method already checked.
   ManualDocumentSelection _requireById(String id) =>
-      byId(id) ??
-      (throw const ValidationException('التحديد غير موجود.'));
+      byId(id) ?? (throw const ValidationException('التحديد غير موجود.'));
 
   /// Replaces one selection in place, keeping the order the person sees.
   ManualSelectionSet replace(ManualDocumentSelection selection) {

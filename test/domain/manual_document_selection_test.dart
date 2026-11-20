@@ -96,20 +96,22 @@ void main() {
     );
 
     test('a collapsed sliver is rejected instead of cropped to nothing', () {
+      // 0.8 wide by 0.00005 tall: under the shared normalized-area floor
+      // (twiceArea <= 1e-4), so the geometry contract refuses it. The choice of
+      // height is deliberate — 0.8 x 0.0001 is still above the floor and IS
+      // accepted, which is the existing convention and not this test's subject.
       final sliver = ManualDocumentSelection(
         id: 'a',
         corners: [
           Point2(.1, .1),
           Point2(.9, .1),
-          Point2(.9, .1001),
-          Point2(.1, .1001),
+          Point2(.9, .10005),
+          Point2(.1, .10005),
         ],
       );
-      // 800 px wide by 1 px tall at this test's scale is a line, not a card: the
-      // convexity rule rejects it before any area gate can.
       expect(sliver.isValid, isFalse);
       expect(sliver.validatedCorners, isNull);
-      expect(sliver.issue, isNotNull);
+      expect(sliver.issue, contains('صفرية'));
     });
 
     test('output aspect follows the outlined shape, not a fixed ratio', () {

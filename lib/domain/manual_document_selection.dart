@@ -192,6 +192,12 @@ class ManualSelectionSet {
     return ManualSelectionSet._([...selections, selection]);
   }
 
+  /// The one place the missing-id message lives, with a non-null result so
+  /// callers do not have to re-assert what this method already checked.
+  ManualDocumentSelection _requireById(String id) =>
+      byId(id) ??
+      (throw const ValidationException('التحديد غير موجود.'));
+
   /// Replaces one selection in place, keeping the order the person sees.
   ManualSelectionSet replace(ManualDocumentSelection selection) {
     require(byId(selection.id) != null, 'التحديد المراد تعديله غير موجود.');
@@ -221,9 +227,11 @@ class ManualSelectionSet {
     Point2 point, {
     required double minSeparation,
   }) {
-    final target = byId(id);
-    require(target != null, 'التحديد غير موجود.');
-    require(!target!.isComplete, 'اكتمل تحديد الزوايا الأربع لهذا المستمسك.');
+    // A throwing lookup, not require(): `require` is a plain function and cannot
+    // promote the type, and a nullable target would have to be force-unwrapped
+    // at every use below.
+    final target = _requireById(id);
+    require(!target.isComplete, 'اكتمل تحديد الزوايا الأربع لهذا المستمسك.');
     require(
       point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1,
       'النقطة خارج حدود الصورة.',
@@ -243,10 +251,9 @@ class ManualSelectionSet {
   /// Moves one corner of one selection, leaving every other point and every
   /// other selection untouched.
   ManualSelectionSet moveCorner(String id, int index, Point2 point) {
-    final target = byId(id);
-    require(target != null, 'التحديد غير موجود.');
+    final target = _requireById(id);
     require(
-      index >= 0 && index < target!.corners.length,
+      index >= 0 && index < target.corners.length,
       'زاوية غير موجودة في هذا التحديد.',
     );
     require(
@@ -260,9 +267,8 @@ class ManualSelectionSet {
 
   /// Removes the most recent corner of one selection.
   ManualSelectionSet undoCorner(String id) {
-    final target = byId(id);
-    require(target != null, 'التحديد غير موجود.');
-    if (target!.corners.isEmpty) return this;
+    final target = _requireById(id);
+    if (target.corners.isEmpty) return this;
     return replace(
       target.copyWith(
         corners: target.corners.sublist(0, target.corners.length - 1),

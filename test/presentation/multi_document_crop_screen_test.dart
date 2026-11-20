@@ -12,7 +12,6 @@ import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/multi_document_crop_screen.dart';
 
-import '../fixtures.dart';
 import 'editor_harness.dart';
 
 /// Records every derived crop the screen asks the service to render, so the test

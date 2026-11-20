@@ -81,6 +81,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   /// has moved far enough to be a pan rather than a tap.
   int? _dragCorner;
   Offset? _gestureOrigin;
+  Offset? _lastPointer;
   bool _gestureMoved = false;
   int _gesturePointers = 0;
 
@@ -424,12 +425,14 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           behavior: HitTestBehavior.opaque,
           onScaleStart: (details) {
             _gestureOrigin = details.localFocalPoint;
+            _lastPointer = details.localFocalPoint;
             _gestureMoved = false;
             _gesturePointers = details.pointerCount;
             _dragCorner = _cornerAt(viewport, details.localFocalPoint);
           },
           onScaleUpdate: (details) {
             _gesturePointers = details.pointerCount;
+            _lastPointer = details.localFocalPoint;
             if (details.pointerCount > 1) {
               // A pinch zooms and must never also move a corner.
               _dragCorner = null;
@@ -469,13 +472,18 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
             });
           },
           onScaleEnd: (details) {
+            // ScaleEndDetails carries no position, so the last place the pointer
+            // was seen is what a tap is placed at. A gesture that moved is a pan
+            // or a drag, never a placement.
+            final at = _lastPointer;
             final wasTap = !_gestureMoved && _gesturePointers <= 1;
             final grabbed = _dragCorner;
             _dragCorner = null;
             _gestureOrigin = null;
+            _lastPointer = null;
             _gesturePointers = 0;
-            if (wasTap && grabbed == null) {
-              _placePoint(viewport, details.localFocalPoint);
+            if (wasTap && grabbed == null && at != null) {
+              _placePoint(viewport, at);
             }
           },
           child: ClipRect(

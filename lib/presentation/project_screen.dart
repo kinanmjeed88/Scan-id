@@ -16,6 +16,7 @@ import 'shared.dart';
 import 'crop_screen.dart';
 import 'export_screen.dart';
 import 'intake.dart';
+import 'intake_options_sheet.dart';
 import 'layout_screen.dart';
 import 'multi_document_crop_screen.dart';
 import 'settings_screen.dart';
@@ -178,8 +179,16 @@ class _ProjectScreenState extends State<ProjectScreen>
   Future<void> _import() async {
     setState(() => _busy = true);
     try {
+      final service = widget.service;
       final sources = await widget.pickImages();
-      if (sources.isEmpty || !mounted) return;
+      if (sources.isEmpty) return;
+      final options = mounted
+          ? await showIntakeOptionsSheet(context, imageCount: sources.length)
+          : null;
+      if (options == null || !mounted) {
+        await service.discardSources(sources);
+        return;
+      }
       // The shared runner gives the project screen the same real progress,
       // cooperative cancellation and committed final state as the editor.
       final existingItemIds = _project.items.map((item) => item.id).toSet();
@@ -188,6 +197,7 @@ class _ProjectScreenState extends State<ProjectScreen>
         service: widget.service,
         project: _project,
         sources: sources,
+        options: options,
       );
       if (!mounted || run == null) return;
       final result = run.import;
@@ -230,7 +240,9 @@ class _ProjectScreenState extends State<ProjectScreen>
         );
       }
       if (result.imported > 0 && mounted) {
-        final summary = automatic == null
+        final summary = options.multiDocument
+            ? 'اكتمل استيراد الصور للتحديد اليدوي.'
+            : automatic == null
             ? 'استورد التطبيق الصور، لكن تعذر الترتيب التلقائي.'
             : intakeSummaryText(automatic);
         await _layout(
@@ -238,7 +250,8 @@ class _ProjectScreenState extends State<ProjectScreen>
           intakeWarnings: automatic?.warnings ?? const [],
           autoClassifyItemIds: [
             for (final item in latest.items)
-              if (!existingItemIds.contains(item.id) &&
+              if (!options.multiDocument &&
+                  !existingItemIds.contains(item.id) &&
                   item.pageIndex == null &&
                   !item.sizeConfirmed &&
                   !item.locked)

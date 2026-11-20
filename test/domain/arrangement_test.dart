@@ -187,11 +187,43 @@ void main() {
     expect(PageLayout.item(r, 'b').height, 88);
   });
 
+  for (final strategy in ArrangementStrategy.values) {
+    for (final center in [false, true]) {
+      test('one final centering pass only when enabled: $strategy/$center', () {
+        final calls = <List<String>>[];
+        final source = _project([_doc('card', DocumentKind.unifiedNationalId)])
+            .copyWith(
+              layout: LayoutSettings(
+                strategy: strategy,
+                centerCaptures: center,
+              ),
+            );
+        arrangeDocuments(
+          source,
+          onCenteringPass: (ids) => calls.add(ids.toList()),
+        );
+        expect(
+          calls,
+          center
+              ? [
+                  ['card'],
+                ]
+              : isEmpty,
+        );
+      });
+    }
+  }
   test('same-category cards share a row, right to left, centred', () {
-    final project = _project([
-      _doc('one', DocumentKind.unifiedNationalId),
-      _doc('two', DocumentKind.unifiedNationalId),
-    ]);
+    final project =
+        _project([
+          _doc('one', DocumentKind.unifiedNationalId),
+          _doc('two', DocumentKind.unifiedNationalId),
+        ]).copyWith(
+          layout: LayoutSettings(
+            strategy: ArrangementStrategy.ordered,
+            centerCaptures: true,
+          ),
+        );
     final r = arrangeDocuments(project).result;
     final one = PageLayout.item(r, 'one'), two = PageLayout.item(r, 'two');
     expect(one.y, two.y);

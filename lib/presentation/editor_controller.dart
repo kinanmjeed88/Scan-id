@@ -71,6 +71,8 @@ class LayoutEditorController extends ChangeNotifier {
   /// when it is null the documented defaults apply and nothing changes.
   Future<IntakeOptions?> Function(int imageCount)? onPickIntakeOptions;
 
+  ManualWorkspace? openManualWorkspace;
+
   /// The stage record of the most recent import, for the processing log.
   IntakeBatchLog? lastIntakeLog;
 
@@ -155,6 +157,7 @@ class LayoutEditorController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _intake?.cancel();
     _nudgeTimer?.cancel();
     _adjustTimer?.cancel();
     super.dispose();
@@ -765,7 +768,19 @@ class LayoutEditorController extends ChangeNotifier {
   // ---------------------------------------------------------------------
   // Importing and cropping
 
+  bool _pickingForImport = false;
+
   Future<void> importImages() async {
+    if (_pickingForImport || busy || _disposed) return;
+    _pickingForImport = true;
+    try {
+      await _pickAndImport();
+    } finally {
+      _pickingForImport = false;
+    }
+  }
+
+  Future<void> _pickAndImport() async {
     final picker = pickImages;
     if (picker == null || busy) return;
     final List<ImportSource> sources;
@@ -783,8 +798,22 @@ class LayoutEditorController extends ChangeNotifier {
     final optionsHook = onPickIntakeOptions;
     IntakeOptions? options;
     if (optionsHook != null) {
-      options = await optionsHook(sources.length);
-      if (options == null) return;
+      try {
+        options = await optionsHook(sources.length);
+      } catch (e) {
+        await service.discardSources(sources);
+        error = userError(e);
+        _notify();
+        return;
+      }
+      if (options == null || _disposed) {
+        await service.discardSources(sources);
+        return;
+      }
+    }
+    if (_disposed || busy) {
+      await service.discardSources(sources);
+      return;
     }
     final stageLog = IntakeBatchLog(batchId: newId(), options: options);
     lastIntakeLog = stageLog;
@@ -800,6 +829,7 @@ class LayoutEditorController extends ChangeNotifier {
       keepPlaced: true,
       options: options,
       stageLog: stageLog,
+      openManualWorkspace: openManualWorkspace,
     );
     _intake = runner;
     IntakeRun? outcome;
@@ -825,7 +855,12 @@ class LayoutEditorController extends ChangeNotifier {
       recognitionProgress = null;
       _notify();
     }
-    if (!ok) return;
+    if (!ok) {
+      if (runner.lastTrace == null) {
+        await service.discardSources(sources);
+      }
+      return;
+    }
     final failures = outcome?.failures.length ?? 0;
     final failure = outcome?.error;
     if (failure != null) _say(userError(failure));
@@ -876,6 +911,7 @@ class LayoutEditorController extends ChangeNotifier {
     if (outcome?.stageReportWriteFailed == true) {
       _say(stageReportWriteWarning);
     }
+    if (options?.multiDocument == true) return;
     final pendingIds = [
       for (final item in session.current.items)
         if (!existingItemIds.contains(item.id) &&

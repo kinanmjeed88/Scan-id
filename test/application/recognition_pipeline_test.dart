@@ -9,6 +9,8 @@ import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
+import 'package:scan_id/domain/intake_options.dart';
+import 'package:scan_id/domain/recognition_classifier.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
 import 'package:scan_id/imaging/document_segmenter.dart';
 
@@ -147,6 +149,8 @@ class _QualifiedIdOcr implements OcrEngine {
 }
 
 class _RecordingOcr implements OcrEngine {
+  _RecordingOcr([this.calls]);
+  final List<String>? calls;
   final crops = <img.Image>[];
 
   @override
@@ -162,6 +166,7 @@ class _RecordingOcr implements OcrEngine {
   }) async {
     token?.throwIfCancelled();
     final image = img.decodeImage(imageBytes)!;
+    calls?.add('ocr');
     crops.add(image);
     final center = image.getPixel(image.width ~/ 2, image.height ~/ 2);
     // Synthetic image-dependent fixture only: color selects prewritten OCR
@@ -180,6 +185,46 @@ class _RecordingOcr implements OcrEngine {
 }
 
 void main() {
+  for (final manual in [true, false]) {
+    test(
+      'manual kind=$manual chooses stages before reading type evidence',
+      () async {
+        final calls = <String>[];
+        final ocr = _RecordingOcr(calls);
+        final pipeline = RecognitionPipeline(
+          options: manual
+              ? const IntakeOptions(kind: DocumentKind.passport)
+              : IntakeOptions.defaults,
+          classifier: (input) {
+            calls.add('classify');
+            return classifyDocument(input);
+          },
+          ocr: ocr,
+          segment: (bytes) async {
+            calls.add('segment');
+            return _noMulti(bytes);
+          },
+          suggestSingle: (_) async {
+            calls.add('boundary');
+            return _quad();
+          },
+        );
+        final analysis = await pipeline.analyze(
+          _input(previewBytes: _twoColoredDocumentRegions()),
+        );
+        expect(calls, [
+          'boundary',
+          if (!manual) ...['ocr', 'classify'],
+        ]);
+        final result = analysis.detections.single;
+        expect(result.geometry?.acceptable, isTrue);
+        if (!manual) return;
+        expect(result.classification.kind, DocumentKind.passport);
+        expect(result.classification.confidences.classification, isNull);
+        expect(result.classification.evidence, isEmpty);
+      },
+    );
+  }
   test(
     'a qualified kind and matching catalog shape resolve only a classical score review',
     () async {

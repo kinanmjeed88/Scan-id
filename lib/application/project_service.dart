@@ -13,6 +13,8 @@ import '../domain/image_limits.dart';
 import '../domain/intake_options.dart';
 import '../domain/geometry.dart';
 import '../domain/manual_boundary.dart';
+import '../domain/manual_classification.dart';
+import '../domain/recognition.dart' show SideKind;
 import '../domain/project.dart';
 import '../domain/validation.dart';
 import 'cancellation.dart';
@@ -358,6 +360,8 @@ class ProjectService {
     void Function(ImportedSourceResult result)? onSourceResult,
     Future<void> Function(ImportedSourceResult result, Project project)?
     onSourceCheckpoint,
+    Future<Project> Function(Project saved, ImageAsset asset)?
+    afterSourceCommit,
   }) async {
     var current = project;
     var imported = 0;
@@ -410,6 +414,7 @@ class ProjectService {
         }
         break;
       }
+      ImageAsset? committedAsset;
       try {
         require(
           current.assets.length < maxProjectAssets,
@@ -431,6 +436,7 @@ class ProjectService {
           ),
           phase: 'source',
         );
+        committedAsset = asset;
         imported++;
         await reportSource(
           ImportedSourceResult.success(
@@ -498,6 +504,18 @@ class ProjectService {
         await _cleanupSource(source);
         report(index + 1);
       }
+      // The picker cache and source bytes are no longer needed while a
+      // person draws corners. Adopt each new revision before the next copy.
+      if (committedAsset != null &&
+          afterSourceCommit != null &&
+          cancellation?.isCancelled != true) {
+        try {
+          current = await afterSourceCommit(current, committedAsset);
+        } catch (_) {
+          await discardSources(sources.skip(index + 1));
+          rethrow;
+        }
+      }
     }
     return ImportReport(
       current,
@@ -543,20 +561,12 @@ class ProjectService {
         ),
       );
     }
-    // Two DIFFERENT questions, and conflating them was a defect:
-    //
-    // * May the service run multi-document segmentation at all? That is
-    //   `multiDocumentSegmentationEnabled` — a property of this ProjectService,
-    //   set by whoever constructed it (the app, or a test that needs the path).
-    // * Did the person ask for it for this batch? That is the option.
-    //
-    // The option must never be able to turn OFF a capability the service was
-    // built with. Substituting "did the user ask?" for the service flag silently
-    // changed the behaviour of every existing caller and every test that relied
-    // on that capability, which is exactly what happened here.
-    final multiRequested = options?.multiDocument ?? false;
-    // What actually decides whether segmentation may run.
-    final multiEnabled = multiDocumentSegmentationEnabled;
+    if (options?.route == IntakeRoute.manualSelections) {
+      throw StateError(
+        'Manual selections must not enter automatic arrangement',
+      );
+    }
+    final multiEnabled = options == null && multiDocumentSegmentationEnabled;
     if (smartRecognitionEnabled && smartEditor != null) {
       final report =
           await SmartIntake(
@@ -578,19 +588,9 @@ class ProjectService {
             // measured regions is reported as multi-document. Without the
             // options (no sheet) the old behaviour stands, so nothing changes
             // for callers that never asked. With them, it follows the request.
-            allowMultiDocument: options?.multiDocument ?? true,
+            allowMultiDocument: options == null,
           );
       return report;
-    }
-
-    // The person asked for multi-document detection and this build cannot run
-    // it: say so plainly instead of doing nothing.
-    if (multiRequested && !multiEnabled) {
-      stageLog?.failBatch(
-        JourneyStage.detection,
-        'طُلب اكتشاف المستندات المتعددة لكنه غير مفعّل في هذه النسخة؛ '
-        'استُخدم مسار المستند الواحد.',
-      );
     }
 
     if (multiEnabled && smartEditor != null) {
@@ -601,7 +601,6 @@ class ProjectService {
         keepPlaced: keepPlaced,
         cancellation: cancellation,
         onProgress: onProgress,
-        options: options,
         stageLog: stageLog,
       );
     }
@@ -646,8 +645,9 @@ class ProjectService {
   /// types or approved boundaries; the original asset remains untouched.
   Future<Project> retainUnrepresentedImports(
     Project project,
-    Iterable<String> importedAssetIds,
-  ) async {
+    Iterable<String> importedAssetIds, {
+    IntakeOptions? options,
+  }) async {
     final ids = importedAssetIds.toSet();
     if (ids.isEmpty) return project;
     final represented = <String>{
@@ -674,31 +674,39 @@ class ProjectService {
       0,
       (top, item) => math.max(top, item.zIndex),
     );
+    final next = project.copyWith(
+      items: [
+        ...project.items,
+        for (final asset in missing)
+          DocumentItem(
+            id: newId(),
+            assetId: asset.id,
+            x: project.paper.margins.left,
+            y: project.paper.margins.top,
+            width: provisionalSize(
+              width: asset.width,
+              height: asset.height,
+            ).width,
+            height: provisionalSize(
+              width: asset.width,
+              height: asset.height,
+            ).height,
+            pageIndex: null,
+            zIndex: ++nextZ,
+            documentKind: DocumentKind.unknown,
+            sizeConfirmed: false,
+          ),
+      ],
+    );
     return projects.save(
-      project.copyWith(
-        items: [
-          ...project.items,
-          for (final asset in missing)
-            DocumentItem(
-              id: newId(),
-              assetId: asset.id,
-              x: project.paper.margins.left,
-              y: project.paper.margins.top,
-              width: provisionalSize(
-                width: asset.width,
-                height: asset.height,
-              ).width,
-              height: provisionalSize(
-                width: asset.width,
-                height: asset.height,
-              ).height,
-              pageIndex: null,
-              zIndex: ++nextZ,
-              documentKind: DocumentKind.unknown,
-              sizeConfirmed: false,
+      options == null
+          ? next
+          : attachIntakeChoices(
+              next,
+              next.items.skip(project.items.length),
+              options,
+              newId,
             ),
-        ],
-      ),
     );
   }
 
@@ -709,14 +717,9 @@ class ProjectService {
     required bool keepPlaced,
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
-    IntakeOptions? options,
     IntakeBatchLog? stageLog,
   }) async {
     final ids = assetIds.toSet().toList();
-    // Same rule as the caller's: an unrequested batch keeps the old behaviour,
-    // a request is honoured. This is the reporting flag, not the capability —
-    // reaching this method at all already proves the capability.
-    final multiAllowed = options?.multiDocument ?? true;
     final pendingIds = <String>[];
     for (final id in ids) {
       final assetIndex = project.assets.indexWhere((entry) => entry.id == id);
@@ -843,11 +846,6 @@ class ProjectService {
               segment: (_) async => segmentation,
               ocr: ocr,
               fullResolutionJpegCropper: fullResolutionJpegCropper,
-              // The same options as the single-document path. Dropping them
-              // here would make the side and kind choices silently stop
-              // applying to exactly the photos that hold several documents,
-              // which is where a side/kind mistake is most likely.
-              options: options,
               stageLog: stageLog,
             ).run(
               current,
@@ -857,10 +855,6 @@ class ProjectService {
               cancellation: cancellation,
               onProgress: (value) =>
                   progress(index + value.completed, value.stage),
-              // Reporting only: this source HAS several measured regions, so it
-              // is reported as multi-document unless the person turned the
-              // option off. It never affects whether data is preserved.
-              allowMultiDocument: multiAllowed,
             );
         merge(report);
         hasNewItems = hasNewItems || report.project.items.length > beforeItems;
@@ -888,11 +882,6 @@ class ProjectService {
         cancellation: cancellation,
         onProgress: (value) =>
             progress(firstIndex + value.completed, value.stage),
-        // The fallback must honour the same options as the primary path: an
-        // option that silently stops working when segmentation finds nothing
-        // would be worse than not offering it, because the person cannot tell
-        // which path their batch took.
-        options: options,
         stageLog: stageLog,
       );
       merge(report);
@@ -1002,6 +991,7 @@ class ProjectService {
         continue;
       }
       var asset = current.assets[assetIndex];
+      double? warpedAspect;
 
       final editor = imageEditor;
       final stages = stageLog?.forAsset(id, name: asset.name);
@@ -1133,6 +1123,7 @@ class ProjectService {
               // output dimensions. Use that aspect for the provisional size;
               // the pre-crop camera frame is a different image region.
               asset = current.assets.firstWhere((entry) => entry.id == id);
+              warpedAspect = effective.verification.measuredAspect;
               cropped++;
             }
           }
@@ -1149,16 +1140,10 @@ class ProjectService {
       // The legacy import path has no independent OCR/visual type model. Keep
       // the measured image editable with a provisional size; never infer a
       // catalog kind from its name or aspect ratio.
-      //
-      // Option 2 is different in kind from inference: the PERSON typed the
-      // category, so it is an assertion we were given, not a guess we made. It
-      // still does not confirm a size — the item keeps `sizeConfirmed: false`
-      // and the usual size-confirmation step applies — so a wrong category
-      // cannot silently dictate a print size.
       final kind = options?.kind ?? DocumentKind.unknown;
       const recognitionConfidence = 0.0;
       if (options != null && options.assertsKind) {
-        stages?.pass(
+        stages?.skip(
           JourneyStage.recognition,
           'حدّد المستخدم النوع «${kind.label}»؛ لم يُستخدم مصنّف آلي.',
           fields: {'kind': kind.name, 'assertedByUser': true},
@@ -1169,10 +1154,20 @@ class ProjectService {
           'لم يحدّد المستخدم نوعاً ولم يتوفر مصنّف مستقل؛ النوع غير معروف.',
         );
       }
-      final size = provisionalSize(width: asset.width, height: asset.height);
-      warnings.add(
-        '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
+      final catalogSize = current.catalog.sizeForWarp(
+        kind,
+        measuredAspect: warpedAspect,
+        landscape: asset.width >= asset.height,
       );
+      final size =
+          catalogSize ??
+          provisionalSize(width: asset.width, height: asset.height);
+      if (catalogSize != null) recognized++;
+      if (kind == DocumentKind.unknown) {
+        warnings.add(
+          '${asset.name}: لم يُتعرّف على نوع المستمسك؛ اختر النوع من تبويب «المستمسك» ليُطبَّق مقاسه ويوضع على الورقة.',
+        );
+      }
       final nextZ = current.items.fold<int>(
         0,
         (value, item) => math.max(value, item.zIndex),
@@ -1190,7 +1185,7 @@ class ProjectService {
           zIndex: nextZ + newItems.length + 1,
           documentKind: kind,
           recognitionConfidence: recognitionConfidence,
-          sizeConfirmed: false,
+          sizeConfirmed: catalogSize != null,
         ),
       );
       if (IntakeDiagnostics.isActive) {
@@ -1201,9 +1196,9 @@ class ProjectService {
             itemId: createdItemId,
             sourceWidth: asset.width,
             sourceHeight: asset.height,
-            verdict: 'awaiting_size',
+            verdict: catalogSize == null ? 'awaiting_size' : 'sized',
             documentKind: kind,
-            sizeConfirmed: false,
+            sizeConfirmed: catalogSize != null,
             widthMm: size.width,
             heightMm: size.height,
           ),
@@ -1228,6 +1223,9 @@ class ProjectService {
       );
     }
     current = current.copyWith(items: [...current.items, ...newItems]);
+    if (options != null) {
+      current = attachIntakeChoices(current, newItems, options, newId);
+    }
     if (deferArrangement) {
       current = await projects.save(current);
     } else {
@@ -1605,6 +1603,9 @@ class ProjectService {
     ImageAsset asset,
     ImageEditRecipe recipe, {
     required DocumentKind documentKind,
+    SideKind side = SideKind.unknown,
+    IntakeStageLog? stages,
+    bool keepPlaced = false,
     PhysicalSizeMm? customSizeMm,
     int? sourceWidth,
     int? sourceHeight,
@@ -1658,9 +1659,20 @@ class ProjectService {
       allowUnconfirmedSize: resolvedSize == null,
     );
 
+    stages?.skip(
+      JourneyStage.recognition,
+      'تعريف يدوي؛ لا قراءة نص ولا استنتاج للوجه.',
+      fields: {'side': side.name, 'kind': documentKind.name},
+    );
+    final clock = Stopwatch()..start();
     final cropBytes = editor is CropBytesImageEditor
         ? await editor.renderCropBytes(rootSource, recipe)
         : await editor!.preview(rootSource, recipe);
+    stages?.pass(
+      JourneyStage.crop,
+      'صُحح المنظور من الزوايا الأربع.',
+      durationMs: clock.elapsedMilliseconds,
+    );
     final siblingCount = project.assets
         .where((a) => a.derivedFrom == rootSource.id)
         .length;
@@ -1673,6 +1685,8 @@ class ProjectService {
       derivedName,
       cropBytes,
     );
+    Iterable<String> centeringItems = const [];
+    final placementClock = Stopwatch()..start();
     final next = appendManualDerivedDocumentToProject(
       project,
       sourceAsset: rootSource,
@@ -1680,10 +1694,40 @@ class ProjectService {
       recipe: recipe,
       documentKind: documentKind,
       sizeMm: resolvedSize,
+      documentSide: side,
+      onCenteringPass: (ids) => centeringItems = ids,
+      keepPlaced: keepPlaced,
       nextId: newId,
       replaceUnconfirmedSourcePlaceholder: replaceUnconfirmedSourcePlaceholder,
     );
+    final item = next.items.firstWhere((i) => i.assetId == derived.id);
+    final placed = item.pageIndex != null;
+    stages?.record(
+      IntakeStageRecord(
+        stage: JourneyStage.placement,
+        durationMs: placementClock.elapsedMilliseconds,
+        outcome: placed ? JourneyOutcome.passed : JourneyOutcome.review,
+        detail: placed ? 'وُضع على الورقة.' : 'بقي المستمسك خارج الورقة.',
+        fields: {
+          'centerEnabled': next.layout.centerCaptures,
+          'sizeConfirmed': item.sizeConfirmed,
+          'centeringPass': centeringItems.contains(item.id),
+          'page': item.pageIndex,
+        },
+      ),
+    );
+    clock.reset();
     final saved = await projects.save(next);
+    stages?.pass(
+      JourneyStage.save,
+      'أُضيف المستمسك وحُفظ المشروع.',
+      durationMs: clock.elapsedMilliseconds,
+      fields: {
+        'assetId': derived.id,
+        'itemId': item.id,
+        'revision': saved.revision,
+      },
+    );
     if (IntakeDiagnostics.isActive) {
       final createdItem = saved.items
           .where((i) => i.assetId == derived.id)

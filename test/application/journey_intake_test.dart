@@ -61,6 +61,50 @@ void main() {
   ];
 
   test(
+    'manual route opens only committed valid sources and never calls automatic arrangement',
+    () async {
+      final service = _FailingAnalysisService(projects, assets, log);
+      final project = await service.create('تحديد يدوي');
+      const chosen = IntakeOptions(multiDocument: true);
+      final opened = <String>[];
+      final runner = IntakeRunner(
+        service: service,
+        project: project,
+        options: chosen,
+        stageLog: IntakeBatchLog(batchId: 'test', options: chosen),
+        openManualWorkspace: (saved, asset, options, stages) async {
+          final persisted = await projects.get(saved.id);
+          expect(persisted.assets.length, opened.length + 1);
+          expect(persisted.assets.any((a) => a.id == asset.id), isTrue);
+          expect(options, same(chosen));
+          opened.add(asset.name);
+          return null;
+        },
+      );
+      final result = await runner.run(sources(3, broken: [1]));
+      expect(result.error, isNull);
+      expect(service.arrangements, 0);
+      expect(opened, ['صورة0.png', 'صورة2.png']);
+      expect(result.importedCount, 2);
+      expect(result.failures, hasLength(1));
+      expect(result.project.items, isEmpty);
+      final report = (await log.readStageReports()).single;
+      expect(report.options?.route, IntakeRoute.manualSelections);
+      for (final asset in result.project.assets) {
+        expect(
+          report.logs
+              .firstWhere((l) => l.assetId == asset.id)
+              .records
+              .where((r) => r.stage == JourneyStage.detection)
+              .single
+              .outcome,
+          JourneyOutcome.skipped,
+        );
+      }
+    },
+  );
+
+  test(
     'an intake files one report per image, from the picker to the save',
     () async {
       final project = await service.create('سجل');
@@ -475,6 +519,7 @@ class _FailAfterFirstLog implements JourneyLog {
 }
 
 class _FailingAnalysisService extends ProjectService {
+  int arrangements = 0;
   _FailingAnalysisService(super.projects, super.assets, JourneyLog log)
     : super(journeyLog: log);
 
@@ -496,6 +541,7 @@ class _FailingAnalysisService extends ProjectService {
     IntakeOptions? options,
     IntakeBatchLog? stageLog,
   }) async {
+    arrangements++;
     throw StateError('analysis failed');
   }
 }

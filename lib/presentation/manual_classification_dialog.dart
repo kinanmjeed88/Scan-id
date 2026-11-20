@@ -239,30 +239,32 @@ class _ManualClassificationDialogState
                 }),
               ),
               const SizedBox(height: 8),
-              DropdownButtonFormField<SideKind>(
-                key: const Key('manual-classification-side'),
-                initialValue: _side,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'وجه المستمسك'),
-                items: const [
-                  DropdownMenuItem(
-                    value: SideKind.front,
-                    child: Text('الوجه الأول (أمامي)'),
-                  ),
-                  DropdownMenuItem(
-                    value: SideKind.back,
-                    child: Text('الوجه الثاني (خلفي)'),
-                  ),
-                  DropdownMenuItem(
-                    value: SideKind.unknown,
-                    child: Text('وجه واحد / غير محدد'),
-                  ),
-                ],
-                onChanged: (value) => setState(() {
-                  _side = value;
-                  _partnerId = null;
-                }),
-              ),
+              if (widget.editingExisting ||
+                  record?.overrides.any((o) => o.side != null) != true)
+                DropdownButtonFormField<SideKind>(
+                  key: const Key('manual-classification-side'),
+                  initialValue: _side,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'وجه المستمسك'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: SideKind.front,
+                      child: Text('الوجه الأول (أمامي)'),
+                    ),
+                    DropdownMenuItem(
+                      value: SideKind.back,
+                      child: Text('الوجه الثاني (خلفي)'),
+                    ),
+                    DropdownMenuItem(
+                      value: SideKind.unknown,
+                      child: Text('وجه واحد / غير محدد'),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() {
+                    _side = value;
+                    _partnerId = null;
+                  }),
+                ),
               if (partners.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(

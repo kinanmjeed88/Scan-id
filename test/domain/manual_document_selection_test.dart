@@ -216,27 +216,13 @@ void main() {
       );
     });
 
-    test(
-      'the tenth document is allowed; the eleventh is refused with the number',
-      () {
-        var set = ManualSelectionSet.empty();
-        for (var i = 0; i < ManualSelectionSet.maxSelections; i++) {
-          set = set.add(ManualDocumentSelection(id: 's$i', corners: const []));
-        }
-        expect(set.length, ManualSelectionSet.maxSelections);
-        expect(
-          () =>
-              set.add(ManualDocumentSelection(id: 'extra', corners: const [])),
-          throwsA(
-            isA<ValidationException>().having(
-              (e) => e.message,
-              'message',
-              ManualSelectionSet.atCapacityMessage,
-            ),
-          ),
-        );
-      },
-    );
+    test('a photograph can carry more than ten independent selections', () {
+      var set = ManualSelectionSet.empty();
+      for (var i = 0; i < 12; i++) {
+        set = set.add(ManualDocumentSelection(id: 's$i', corners: const []));
+      }
+      expect(set.length, 12);
+    });
 
     test('deleting one document leaves the rest intact and in order', () {
       var set = ManualSelectionSet.empty()

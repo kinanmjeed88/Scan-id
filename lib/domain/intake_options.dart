@@ -24,10 +24,10 @@ class IntakeOptions {
 
   /// The default a user who ticks nothing gets.
   ///
-  /// Deliberately the conservative one on every axis: the recogniser decides the
-  /// side and the kind, the suggested boundary is NOT auto-accepted, centring is
-  /// on (it is the behaviour the app already had), and multi-document detection
-  /// stays off because it is not enabled for release.
+  /// Deliberately the conservative one on every axis: there is one unspecified face
+  /// and automatic kind recognition, the suggested boundary is NOT auto-accepted, centring is
+  /// on (it is the behaviour the app already had), and manual multi-selection
+  /// stays off unless requested.
   static const IntakeOptions defaults = IntakeOptions();
 
   /// Front/back for the whole batch. [SideKind.unknown] means «وجه واحد» — the
@@ -40,18 +40,14 @@ class IntakeOptions {
   /// the automatic recogniser to decide, per document.
   final DocumentKind kind;
 
-  /// The person ticked «اقبل الحدود المقترحة»: whatever boundary the detector
-  /// proposes is accepted without a review stop, however its aspect compares to
-  /// the catalog. This is an approval of the DETECTOR's geometry, not a change
-  /// to any threshold — the detector still refuses what it refuses.
+  /// Approve score-only refusals of an otherwise safe boundary. Unused when
+  /// corners are drawn by hand; never grants a physical size.
   final bool acceptSuggestedBoundary;
 
   /// Centre the documents, using the same placement the app already performs.
   final bool centerDocuments;
 
-  /// Run multi-document detection for this batch.
-  ///
-  /// Honoured only where the build permits it: see [multiDocumentAvailable].
+  /// Open the manual four-corner workspace. Never enables segmentation.
   final bool multiDocument;
 
   /// Which options the person explicitly ticked.
@@ -60,33 +56,25 @@ class IntakeOptions {
   /// confused with «this was the default». Empty means nothing was confirmed.
   final Set<IntakeOptionKey> confirmed;
 
-  /// Whether multi-document detection may run at all in this build.
-  ///
-  /// The release policy is `multiDocumentSegmentationEnabled = false`: there is
-  /// no qualified region detector. This model therefore reports the request
-  /// honestly and lets the caller say «requested but unavailable» instead of
-  /// silently doing nothing, which is what a bare disabled flag does.
-  /// Mirrors `multiDocumentDetectionAvailable`, which is derived from the
-  /// shipped flag in `multi_document_segmentation_flag.dart`.
-  ///
-  /// Kept as a constant here because the domain must not import the application
-  /// layer; `intake_options_test.dart` asserts the two agree, so the duplication
-  /// is checked rather than trusted.
-  static const bool multiDocumentAvailable = false;
-
-  /// Whether the person asked for multi-document detection AND the build can
-  /// deliver it.
-  bool get multiDocumentRuns => multiDocument && multiDocumentAvailable;
-
-  /// True when the person explicitly asked for something this build refuses.
-  bool get multiDocumentRequestedButUnavailable =>
-      multiDocument && !multiDocumentAvailable;
+  IntakeRoute get route => multiDocument
+      ? IntakeRoute.manualSelections
+      : assertsKind
+      ? IntakeRoute.singleManualKind
+      : IntakeRoute.singleAutomaticKind;
 
   /// Whether this batch carries an explicit side assertion.
   bool get assertsSide => side != SideKind.unknown;
 
   /// Whether this batch carries an explicit category.
   bool get assertsKind => kind != DocumentKind.unknown;
+
+  static const intakeSideField = 'intakeSide';
+
+  UserOverride get recordOverride => UserOverride(
+    side: side,
+    documentKind: assertsKind ? kind : null,
+    fields: [intakeSideField, if (assertsKind) 'documentKind'],
+  );
 
   /// Whether anything at all was confirmed, for the report's summary line.
   bool get hasConfirmations => confirmed.isNotEmpty;
@@ -155,17 +143,50 @@ class IntakeOptions {
     'acceptBoundary=$acceptSuggestedBoundary',
     'center=$centerDocuments',
     'multiRequested=$multiDocument',
-    'multiApplied=$multiDocumentRuns',
+    'route=${route.name}',
     for (final key in IntakeOptionKey.values)
       'confirmed.${key.name}=${confirmed.contains(key)}',
   ];
+
+  /// Read the option codes already used on disk (including older reports).
+  static IntakeOptions? fromTraceCodes(Object? raw) {
+    if (raw is! List) return null;
+    final codes = raw.whereType<String>().toSet();
+    final side = SideKind.values
+        .where((s) => codes.contains('side=${s.name}'))
+        .firstOrNull;
+    final kind = DocumentKind.values
+        .where((k) => codes.contains('kind=${k.name}'))
+        .firstOrNull;
+    if (side == null ||
+        kind == null ||
+        !IntakeRoute.values.any(
+          (route) => codes.contains('route=${route.name}'),
+        )) {
+      return null;
+    }
+    return IntakeOptions(
+      side: side,
+      kind: kind,
+      acceptSuggestedBoundary: codes.contains('acceptBoundary=true'),
+      centerDocuments: !codes.contains('center=false'),
+      multiDocument: codes.contains('multiRequested=true'),
+      confirmed: Set.unmodifiable(
+        IntakeOptionKey.values.where(
+          (k) => codes.contains('confirmed.${k.name}=true'),
+        ),
+      ),
+    );
+  }
 
   @override
   String toString() =>
       'IntakeOptions(side: ${side.name}, kind: ${kind.name}, '
       'accept: $acceptSuggestedBoundary, center: $centerDocuments, '
-      'multi: $multiDocument/$multiDocumentRuns)';
+      'multi: $multiDocument)';
 }
+
+enum IntakeRoute { singleAutomaticKind, singleManualKind, manualSelections }
 
 /// The options a person can tick, as stable keys.
 ///

@@ -398,6 +398,24 @@ class DocumentSizeCatalog {
     ];
   }
 
+  /// A selected/recognized kind cannot impose its aspect on image pixels.
+  /// Only an actual warp of matching shape can use documented millimetres.
+  PhysicalSizeMm? sizeForWarp(
+    DocumentKind kind, {
+    required double? measuredAspect,
+    required bool landscape,
+  }) {
+    final preset = natural(kind);
+    if (preset == null ||
+        !documentSizeRecordFor(kind).mayBeConfirmedAutomatically ||
+        measuredAspect == null ||
+        !measuredAspect.isFinite ||
+        (measuredAspect / preset.aspect - 1).abs() > shapeTolerance) {
+      return null;
+    }
+    return preset.oriented(landscape: landscape);
+  }
+
   DocumentSizeCatalog copyWith({
     PhysicalSizeMm? residenceCard,
     PhysicalSizeMm? rationCard,

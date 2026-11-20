@@ -40,7 +40,7 @@ class ManualDocumentSelection {
 
   /// The category to hand the extraction path.
   ///
-  /// «تعرّف تلقائي» means the person did not state one. The extraction path
+  /// «بلا نوع محدد» means the person did not state one. The extraction path
   /// refuses an unknown category outright (a document with no category cannot be
   /// sized or placed), so an unstated one becomes [DocumentKind.other] — the
   /// free document, which keeps a provisional footprint OFF the A4 sheet and
@@ -148,7 +148,6 @@ class ManualDocumentSelection {
 /// rebuild without risking a half-applied change. Invariants enforced here —
 /// not in the widget — because they are properties of the data:
 ///
-/// * a photograph yields at most [maxSelections] documents;
 /// * no two completed selections may share screen area, because cropping the
 ///   same pixels twice would create two documents from one region silently;
 /// * adding or removing one selection never mutates another.
@@ -158,15 +157,6 @@ class ManualSelectionSet {
   factory ManualSelectionSet.empty() => ManualSelectionSet._(const []);
 
   final List<ManualDocumentSelection> selections;
-
-  /// Ten documents in one photograph is already an extreme sheet; beyond that
-  /// the person is almost certainly working on the wrong photo.
-  static const int maxSelections = 10;
-
-  /// The one message both the set and the screen show at the limit, so the two
-  /// can never state different numbers.
-  static const String atCapacityMessage =
-      'يمكن تحديد $maxSelections مستمسكات كحد أقصى في الصورة الواحدة.';
 
   bool get isEmpty => selections.isEmpty;
   bool get isNotEmpty => selections.isNotEmpty;
@@ -200,7 +190,6 @@ class ManualSelectionSet {
   /// [id] must be unique; the caller supplies it so the widget layer owns id
   /// generation and this type stays free of side effects.
   ManualSelectionSet add(ManualDocumentSelection selection) {
-    require(selections.length < maxSelections, atCapacityMessage);
     require(byId(selection.id) == null, 'معرّف التحديد مستخدم بالفعل.');
     final next = [...selections, selection];
     _requireNoOverlap(next);

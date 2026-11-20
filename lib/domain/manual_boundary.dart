@@ -808,6 +808,9 @@ Project appendManualDerivedDocumentToProject(
   required ImageAsset derivedAsset,
   required ImageEditRecipe recipe,
   required DocumentKind documentKind,
+  SideKind documentSide = SideKind.unknown,
+  bool keepPlaced = false,
+  void Function(Iterable<String> itemIds)? onCenteringPass,
   PhysicalSizeMm? sizeMm,
   required String Function() nextId,
   bool replaceUnconfirmedSourcePlaceholder = true,
@@ -882,12 +885,13 @@ Project appendManualDerivedDocumentToProject(
     manualBoundaryConfirmedField,
     manualBoundaryConfirmedSideField(sideId),
     'documentKind',
+    'side',
     reviewConfirmedField,
   ];
 
   final side = DocumentSide(
     id: sideId,
-    side: SideKind.unknown,
+    side: documentSide,
     processedAsset: ProcessedAssetRef(
       workingPath: taggedDerived.workingPath,
       thumbnailPath: taggedDerived.thumbnailPath,
@@ -914,6 +918,7 @@ Project appendManualDerivedDocumentToProject(
     overrides: [
       UserOverride(
         documentKind: documentKind,
+        side: documentSide,
         presetVariantId: variantId,
         corners: recipe.geometry.corners,
         fields: overrideFields,
@@ -954,7 +959,11 @@ Project appendManualDerivedDocumentToProject(
     documents: [...next.documents, record],
     items: [...next.items, item],
   );
-  return _relayoutProject(next);
+  return arrangeDocuments(
+    next,
+    keepPlaced: keepPlaced || !next.layout.autoFlow,
+    onCenteringPass: onCenteringPass,
+  ).result;
 }
 
 PresetSnapshot? _manualSnapshot(

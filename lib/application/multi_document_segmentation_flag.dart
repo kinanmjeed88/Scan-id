@@ -21,15 +21,9 @@
 ///
 /// It is NOT dead policy: the capability is a property of the `ProjectService`,
 /// this constant is only the shipped default, and tests (and any host that
-/// decides otherwise) construct the service with an explicit `true`. The
-/// person's «المستندات المتعددة» option is a separate, weaker switch: it can
-/// only ask for the stage on top of what the build already allows, and it can
-/// never turn this capability on by itself — a user choice must not be able to
-/// activate a stage the build judged unqualified.
+/// decides otherwise) construct the service with an explicit `true`.
+/// Manual multi-selection never enables or invokes segmentation.
 const bool multiDocumentSegmentationEnabled = false;
 
-/// Whether this build can honour a «المستندات المتعددة» request at all.
-///
-/// Derived, never restated: the sheet asks this so it can tell the person the
-/// truth instead of showing a switch that silently does nothing.
+/// Availability of automatic (not manual) region detection.
 const bool multiDocumentDetectionAvailable = multiDocumentSegmentationEnabled;

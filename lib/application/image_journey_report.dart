@@ -1125,13 +1125,8 @@ List<JourneyStep> _overlayStageLog(
   final recorded = <JourneyStage, JourneyStep>{};
   for (final log in stageLog.logs) {
     if (log.assetId != assetId) continue;
-    for (final step in log.toSteps()) {
-      // `skipped` here means «this log kept no record for that stage», not «the
-      // stage did not run» — `toSteps` fills the gaps so a reader never sees an
-      // omission. Treating that placeholder as evidence would let it overwrite
-      // a stage the project demonstrably got through, so it is ignored and the
-      // derived step stands.
-      if (step.outcome == JourneyOutcome.skipped) continue;
+    for (final record in log.records) {
+      final step = record.toStep();
       recorded[step.stage] = step;
     }
   }
@@ -1161,9 +1156,17 @@ List<JourneyStep> overlayStageLogForTest(
 /// The precedence rule stated in [_overlayStageLog].
 JourneyStep _reconcile(JourneyStep derived, JourneyStep? recorded) {
   if (recorded == null) return derived;
+  if (recorded.outcome == JourneyOutcome.skipped) return recorded;
   final derivedBlocked = derived.outcome == JourneyOutcome.blocked;
   final recordedBlocked = recorded.outcome == JourneyOutcome.blocked;
   if (recordedBlocked && !derivedBlocked) return recorded;
   if (derivedBlocked && !recordedBlocked) return derived;
-  return recorded;
+  if (derived.outcome != recorded.outcome) return recorded;
+  return JourneyStep(
+    stage: recorded.stage,
+    outcome: recorded.outcome,
+    detail: recorded.detail,
+    durationMs: recorded.durationMs ?? derived.durationMs,
+    fields: {...derived.fields, ...recorded.fields},
+  );
 }

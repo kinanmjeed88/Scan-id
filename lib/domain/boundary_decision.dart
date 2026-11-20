@@ -423,7 +423,14 @@ class BoundaryDecision {
   /// Returns this decision unchanged when the geometry is not usable.
   BoundaryDecision approvedByUser() {
     if (kind == BoundaryDecisionKind.accepted) return this;
-    if (!verification.hasUsableGeometry) return this;
+    if (!verification.hasUsableGeometry ||
+        verification.reasons.any(
+          (reason) =>
+              reason != BoundaryReviewReason.lowModelConfidence &&
+              reason != BoundaryReviewReason.uncalibratedClassicalScore,
+        )) {
+      return this;
+    }
     return BoundaryDecision(
       kind: BoundaryDecisionKind.accepted,
       proposal: proposal,

@@ -146,6 +146,18 @@ void main() {
     },
   );
 
+  test('an unstated category becomes a free document, not a failure', () {
+    // «تعرّف تلقائي» is not a claim about the document. The extraction path does
+    // refuse an unknown category, so the default is stated here and shown to the
+    // person: a free document that stays off the sheet until review settles it.
+    final unstated = ManualDocumentSelection(id: 'a', corners: const []);
+    expect(unstated.kind, DocumentKind.unknown);
+    expect(unstated.kindForExtraction, DocumentKind.other);
+    // A stated category is passed through untouched.
+    final stated = unstated.copyWith(kind: DocumentKind.passport);
+    expect(stated.kindForExtraction, DocumentKind.passport);
+  });
+
   test(
     'a crop of the dark gap is NOT a document: the geometry gate refuses it',
     () {

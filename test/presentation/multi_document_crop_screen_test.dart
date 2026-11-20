@@ -181,6 +181,12 @@ void main() {
     // A completed outline states that it is complete rather than asking for a
     // fourth corner it already has.
     expect(find.textContaining('زوايا'), findsOneWidget);
+    // With no category chosen the person is told what will happen, before
+    // adding: a free document that stays off the sheet until review.
+    expect(
+      find.byKey(const Key('multi-selection-kind-default')),
+      findsOneWidget,
+    );
 
     // Give it a category.
     await tester.tap(find.byKey(const Key('multi-selection-kind')));

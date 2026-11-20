@@ -26,6 +26,16 @@ ManualDocumentSelection _selection(
   side: side,
 );
 
+/// Point2 has no value equality, so corners are compared coordinate by
+/// coordinate rather than by identity.
+void _expectSameCorners(List<Point2> actual, List<Point2> expected) {
+  expect(actual, hasLength(expected.length));
+  for (var i = 0; i < expected.length; i++) {
+    expect(actual[i].x, expected[i].x, reason: 'corner $i x');
+    expect(actual[i].y, expected[i].y, reason: 'corner $i y');
+  }
+}
+
 void main() {
   group('one selection', () {
     test(
@@ -95,15 +105,21 @@ void main() {
           Point2(.1, .1001),
         ],
       );
+      // 800 px wide by 1 px tall at this test's scale is a line, not a card: the
+      // convexity rule rejects it before any area gate can.
       expect(sliver.isValid, isFalse);
-      expect(sliver.issue, contains('صفرية'));
+      expect(sliver.validatedCorners, isNull);
+      expect(sliver.issue, isNotNull);
     });
 
     test('output aspect follows the outlined shape, not a fixed ratio', () {
-      final landscape = _selection('a', corners: _box(100, 100, 400, 300));
-      final portrait = _selection('b', corners: _box(100, 100, 300, 400));
-      expect(landscape.outputAspect, closeTo(1.5, 1e-9));
-      expect(portrait.outputAspect, closeTo(.5, 1e-9));
+      // The aspect is measured on the NORMALIZED ring, so it describes the shape
+      // of the outline inside the frame, not its size in source pixels.
+      final wide = _selection('a', corners: _box(100, 100, 400, 300));
+      final tall = _selection('b', corners: _box(100, 100, 300, 400));
+      expect(wide.outputAspect, closeTo(1.5, 1e-9));
+      expect(tall.outputAspect, closeTo(2 / 3, 1e-9));
+      expect(wide.outputAspect, greaterThan(tall.outputAspect));
     });
 
     test('a per-document kind and side are kept independently', () {
@@ -163,7 +179,7 @@ void main() {
       final untouched = set.byId('b')!;
       set = set.moveCorner('a', 2, Point2(.44, .34));
       expect(set.byId('a')!.corners[2].x, .44);
-      expect(set.byId('b')!.corners, untouched.corners);
+      _expectSameCorners(set.byId('b')!.corners, untouched.corners);
     });
 
     test('adding a corner honours the cap, the point count and the spacing', () {
@@ -223,7 +239,7 @@ void main() {
           .add(_selection('c', corners: _box(650, 50, 900, 300)));
       set = set.remove('b');
       expect(set.selections.map((s) => s.id), ['a', 'c']);
-      expect(set.byId('a')!.corners, _box(50, 50, 300, 300));
+      _expectSameCorners(set.byId('a')!.corners, _box(50, 50, 300, 300));
     });
 
     test('two completed documents may not cover the same pixels', () {

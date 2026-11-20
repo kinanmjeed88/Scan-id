@@ -200,7 +200,8 @@ class _ProjectScreenState extends State<ProjectScreen>
       }
       if (result.failures.isNotEmpty ||
           result.notices.isNotEmpty ||
-          run.journeyWriteFailed) {
+          run.journeyWriteFailed ||
+          run.stageReportWriteFailed) {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
@@ -212,6 +213,7 @@ class _ProjectScreenState extends State<ProjectScreen>
                     run.journeyStartBlocked
                         ? journeyStartFailure
                         : journeyWriteWarning,
+                  if (run.stageReportWriteFailed) stageReportWriteWarning,
                   if (result.failures.isNotEmpty || result.notices.isNotEmpty)
                     importReportDetails(result),
                 ].join('\n\n'),

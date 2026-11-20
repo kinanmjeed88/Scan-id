@@ -255,3 +255,118 @@ class IntakeBatchLog {
     return 'اكتملت معالجة ${_byAsset.length} صورة بلا فشل.';
   }
 }
+
+/// One filed batch report: the stage log of every image in a batch, plus the
+/// verdict and the options the person chose.
+///
+/// This is the artefact requirement 2 asks for — a full account of every stage
+/// each image passed through, with the technical cause wherever a stage failed.
+/// It is a RECORD, not a re-derivation: every sentence and number was written by
+/// the stage that ran, so filing it cannot invent a cause.
+class IntakeStageReport {
+  IntakeStageReport({
+    required this.batchId,
+    required this.projectId,
+    required this.projectName,
+    required this.startedAt,
+    required this.summary,
+    required List<IntakeStageLog> logs,
+    this.options,
+  }) : logs = List.unmodifiable(logs);
+
+  final String batchId;
+  final String projectId;
+  final String projectName;
+  final DateTime startedAt;
+
+  /// The batch verdict, as [IntakeBatchLog.summary] computed it.
+  final String summary;
+
+  final List<IntakeStageLog> logs;
+  final IntakeOptions? options;
+
+  /// Images with at least one stage that failed.
+  List<IntakeStageLog> get failed =>
+      [for (final log in logs) if (log.hasFailure) log];
+
+  /// One bounded line stating whether anything failed and, if so, where.
+  String get headline {
+    if (logs.isEmpty) return 'لم تُسجَّل أي مرحلة.';
+    final broken = failed;
+    if (broken.isEmpty) return 'اكتملت ${logs.length} صورة بلا فشل.';
+    final first = broken.first.firstFailure;
+    return 'تعذّرت ${broken.length} من ${logs.length} صورة؛ '
+        'أول خلل في «${first?.stage.label ?? "مرحلة غير معروفة"}».';
+  }
+
+  Map<String, Object?> toJson() => {
+    'batchId': batchId,
+    'projectId': projectId,
+    'projectName': projectName,
+    'startedAt': startedAt.toIso8601String(),
+    'summary': summary,
+    if (options != null) 'options': options!.traceCodes.toList(),
+    'images': [
+      for (final log in logs)
+        {
+          'assetId': log.assetId,
+          'assetName': log.assetName,
+          if (log.failureSummary != null) 'failure': log.failureSummary,
+          'steps': [for (final step in log.toSteps()) step.toJson()],
+        },
+    ],
+  };
+
+  /// Reads a filed report. Unknown or malformed content yields null so a report
+  /// written by another build is dropped rather than trusted or crashing.
+  static IntakeStageReport? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final batchId = json['batchId'];
+    final projectId = json['projectId'];
+    final startedAt = json['startedAt'];
+    final summary = json['summary'];
+    final images = json['images'];
+    if (batchId is! String || projectId is! String) return null;
+    if (startedAt is! String || summary is! String || images is! List) {
+      return null;
+    }
+    final parsed = DateTime.tryParse(startedAt);
+    if (parsed == null) return null;
+    final logs = <IntakeStageLog>[];
+    for (final entry in images) {
+      if (entry is! Map) continue;
+      final assetId = entry['assetId'];
+      if (assetId is! String || assetId.isEmpty) continue;
+      final log = IntakeStageLog(
+        assetId: assetId,
+        assetName: entry['assetName'] is String ? entry['assetName'] as String : '',
+      );
+      final steps = entry['steps'];
+      if (steps is List) {
+        for (final raw in steps) {
+          final step = JourneyStep.fromJson(raw);
+          log.record(
+            IntakeStageRecord(
+              stage: step.stage,
+              outcome: step.outcome,
+              detail: step.detail,
+              durationMs: step.durationMs,
+              fields: step.fields,
+            ),
+          );
+        }
+      }
+      logs.add(log);
+    }
+    return IntakeStageReport(
+      batchId: batchId,
+      projectId: projectId,
+      projectName: json['projectName'] is String
+          ? json['projectName'] as String
+          : '',
+      startedAt: parsed,
+      summary: summary,
+      logs: logs,
+    );
+  }
+}

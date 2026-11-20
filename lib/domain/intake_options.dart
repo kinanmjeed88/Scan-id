@@ -66,6 +66,12 @@ class IntakeOptions {
   /// no qualified region detector. This model therefore reports the request
   /// honestly and lets the caller say «requested but unavailable» instead of
   /// silently doing nothing, which is what a bare disabled flag does.
+  /// Mirrors `multiDocumentDetectionAvailable`, which is derived from the
+  /// shipped flag in `multi_document_segmentation_flag.dart`.
+  ///
+  /// Kept as a constant here because the domain must not import the application
+  /// layer; `intake_options_test.dart` asserts the two agree, so the duplication
+  /// is checked rather than trusted.
   static const bool multiDocumentAvailable = false;
 
   /// Whether the person asked for multi-document detection AND the build can

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/intake_stage_log.dart';
+import 'package:scan_id/application/multi_document_segmentation_flag.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/image_journey.dart';
 import 'package:scan_id/domain/intake_options.dart';
@@ -22,6 +23,13 @@ void main() {
       expect(options.centerDocuments, isTrue);
       // Multi-document detection is off and unavailable in this build.
       expect(options.multiDocument, isFalse);
+      // The two constants must agree: the domain cannot import the application
+      // layer, so the duplication is asserted rather than trusted.
+      expect(
+        IntakeOptions.multiDocumentAvailable,
+        multiDocumentDetectionAvailable,
+      );
+      expect(multiDocumentDetectionAvailable, multiDocumentSegmentationEnabled);
       expect(IntakeOptions.multiDocumentAvailable, isFalse);
       expect(options.hasConfirmations, isFalse);
     });

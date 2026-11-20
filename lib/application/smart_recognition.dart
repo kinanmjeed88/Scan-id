@@ -94,6 +94,67 @@ class _Analyzed {
 }
 
 /// The bounded analysis of a batch of source images, in input order.
+/// Records what analysis MEASURED and what applying it PRODUCED.
+///
+/// Two separate stages, because they fail for different reasons and a reader
+/// needs to tell them apart: a photo can be analysed perfectly and still yield
+/// no document, and that is not an error. Detection reports the region counts
+/// the segmenter actually returned, including the ones it rejected and why it
+/// routed to the multi-region path; apply reports the outcome of the crop.
+///
+/// Only measured numbers are recorded — never a path, a name or recognized text.
+void _recordApplyStage(
+  IntakeBatchLog? stageLog,
+  _Analyzed analyzed, {
+  required int cropped,
+  required int notDetected,
+  required int multi,
+}) {
+  final log = stageLog?.forAsset(analyzed.asset.id, name: analyzed.asset.name);
+  if (log == null) return;
+  final analysis = analyzed.analysis;
+  final regions = analysis.allRegions.length;
+  // Detection PASSED when the segmenter measured at least one region, or when
+  // the whole-frame detector produced a usable one. Anything else is a review:
+  // the image is still usable, it simply has no measured boundary.
+  final measured = regions > 0 || analysis.detections.isNotEmpty;
+  final rejected = analysis.rejectedRegions.length;
+  final measuredDetail = regions > 1
+      ? 'قِيست $regions مناطق (متعددة)'
+      : 'قِيست $regions منطقة';
+  log.record(
+    IntakeStageRecord(
+      stage: JourneyStage.detection,
+      outcome: measured ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: measured
+          ? (rejected == 0
+                ? measuredDetail
+                : '$measuredDetail، ورُفضت $rejected.')
+          : 'لم تُقَس أي منطقة مستند في هذه الصورة.',
+      fields: {
+        'regions': regions,
+        'detections': analysis.detections.length,
+        'unresolved': analysis.unresolvedRegions.length,
+        'rejected': rejected,
+        'multi': multi > 0,
+      },
+    ),
+  );
+  // Apply: a crop happened, or the image stayed whole. A whole image is not a
+  // failure — it is the documented outcome when no boundary is trusted — so it
+  // is reported as needing review, not as blocked.
+  log.record(
+    IntakeStageRecord(
+      stage: JourneyStage.crop,
+      outcome: cropped > 0 ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: cropped > 0
+          ? 'قُصّت ${cropped} منطقة وأُنشئت نسخة مشتقة.'
+          : 'بقيت الصورة كاملة بلا قص؛ يمكن قصّها يدوياً.',
+      fields: {'cropped': cropped, 'notDetected': notDetected},
+    ),
+  );
+}
+
 class _Analysis {
   const _Analysis(this.pending, this.outcomes);
   final List<ImageAsset> pending;
@@ -243,6 +304,18 @@ class SmartIntake {
       if (!outcome.succeeded) {
         notDetected++;
         warnings.add('${sourceAsset.name}: ${outcome.failure!.message}');
+        // The failed analysis is where the stage record earns its keep: this is
+        // the only place the technical category survives. The warning carries a
+        // sentence for the person; the record carries the category code, so a
+        // reader can tell a decode failure from a detection failure instead of
+        // meeting the same «فشل التحليل» for both.
+        stageLog
+            ?.forAsset(sourceAsset.id, name: sourceAsset.name)
+            .block(
+              JourneyStage.detection,
+              'فشل تحليل الصورة: ${outcome.failure!.message}',
+              fields: {'errorType': outcome.failure!.category.name},
+            );
         if (outcome.failure!.category != RecognitionErrorCategory.cancelled) {
           // Fallback: the image still becomes a manual item, exactly like
           // the legacy intake when analysis is impossible.
@@ -305,6 +378,13 @@ class SmartIntake {
         cropped += imageCropped;
         notDetected += imageNotDetected;
         multiImages += imageMulti;
+        _recordApplyStage(
+          stageLog,
+          analyzed,
+          cropped: imageCropped,
+          notDetected: imageNotDetected,
+          multi: imageMulti,
+        );
       } on RevisionConflict {
         rethrow;
       } on OperationCancelled {
@@ -315,6 +395,13 @@ class SmartIntake {
         // already saved; keep it as a manual item so nothing is lost and the
         // batch continues with the next image.
         notDetected++;
+        stageLog
+            ?.forAsset(analyzed.asset.id, name: analyzed.asset.name)
+            .block(
+              JourneyStage.crop,
+              'تجاوزت المعالجة المهلة الزمنية؛ بقيت الصورة الأصلية.',
+              fields: {'errorType': 'StageTimeout'},
+            );
         newItems.add(_fallbackItem(current, sourceAsset, newItems));
         warnings.add(
           '${analyzed.asset.name}: تجاوزت المعالجة المهلة الزمنية على هذا '
@@ -322,6 +409,13 @@ class SmartIntake {
         );
       } catch (error) {
         notDetected++;
+        stageLog
+            ?.forAsset(analyzed.asset.id, name: analyzed.asset.name)
+            .block(
+              JourneyStage.crop,
+              'تعذرت المعالجة الذكية: ${userError(error)}',
+              fields: {'errorType': error.runtimeType.toString()},
+            );
         // Do not commit partially staged results or create an item that
         // would cause a subsequent import arrangement retry to skip this asset.
         // The intake UI separately retains the committed source for a manual

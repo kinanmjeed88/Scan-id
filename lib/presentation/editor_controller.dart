@@ -873,6 +873,9 @@ class LayoutEditorController extends ChangeNotifier {
             : journeyWriteWarning,
       );
     }
+    if (outcome?.stageReportWriteFailed == true) {
+      _say(stageReportWriteWarning);
+    }
     final pendingIds = [
       for (final item in session.current.items)
         if (!existingItemIds.contains(item.id) &&

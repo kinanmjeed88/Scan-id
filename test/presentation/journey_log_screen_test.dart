@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scan_id/application/intake_stage_log.dart';
 import 'package:scan_id/application/journey_export.dart';
 import 'package:scan_id/application/journey_log.dart';
 import 'package:scan_id/application/project_service.dart';
@@ -42,6 +43,20 @@ class _FakeJourneyLog implements JourneyLog {
     cleared++;
     _entries = const [];
   }
+
+  // Stage reports are not what the journey screen reads; these satisfy the
+  // contract so this fake stays a valid implementation, and record the calls so
+  // a test can prove nothing was written behind its back.
+  final stageReports = <IntakeStageReport>[];
+
+  @override
+  Future<void> appendStageReport(IntakeStageReport report) async {
+    stageReports.add(report);
+  }
+
+  @override
+  Future<List<IntakeStageReport>> readStageReports() async =>
+      List.unmodifiable(stageReports);
 }
 
 class _UnreadableJourneyLog extends _FakeJourneyLog {

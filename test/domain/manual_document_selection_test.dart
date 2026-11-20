@@ -119,7 +119,11 @@ void main() {
       final tall = _selection('b', corners: _box(100, 100, 300, 400));
       expect(wide.outputAspect, closeTo(1.5, 1e-9));
       expect(tall.outputAspect, closeTo(2 / 3, 1e-9));
-      expect(wide.outputAspect, greaterThan(tall.outputAspect));
+      // outputAspect is nullable because an invalid selection has no shape; both
+      // of these are valid, so the values are asserted non-null first.
+      expect(wide.outputAspect, isNotNull);
+      expect(tall.outputAspect, isNotNull);
+      expect(wide.outputAspect!, greaterThan(tall.outputAspect!));
     });
 
     test('a per-document kind and side are kept independently', () {

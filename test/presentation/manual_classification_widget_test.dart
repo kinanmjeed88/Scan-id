@@ -310,6 +310,50 @@ void main() {
     },
   );
 
+  testWidgets(
+    'a confirmed intake partner is linked without repeating classification or the picker',
+    (tester) async {
+      const kind = DocumentKind.unifiedNationalId;
+      final base = editorProject(
+        items: [
+          placedDocument('first', 'asset1', kind),
+          placedDocument('second', 'asset2', kind),
+        ],
+      );
+      var seq = 0;
+      final front = attachIntakeChoices(
+        base,
+        [base.items.first],
+        const IntakeOptions(kind: kind, side: SideKind.front),
+        () => 'front-${seq++}',
+      );
+      final project = attachIntakeChoices(
+        front,
+        [front.items.last],
+        const IntakeOptions(
+          kind: kind,
+          side: SideKind.back,
+          partnerChoice: IntakePartnerChoice('first'),
+        ),
+        () => 'back-${seq++}',
+      );
+      final harness = await EditorHarness.pump(
+        tester,
+        project: project,
+        autoClassifyItemIds: ['second'],
+      );
+      expect(find.text('ربط وجهي المستمسك'), findsNothing);
+      expect(
+        find.byKey(const Key('manual-classification-dialog')),
+        findsNothing,
+      );
+      expect(
+        harness.saved.layoutGroups.single.arrangement,
+        GroupArrangement.sideBySide,
+      );
+    },
+  );
+
   testWidgets('explicitly chosen matching faces are paired side by side', (
     tester,
   ) async {

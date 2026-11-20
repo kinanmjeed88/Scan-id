@@ -6,6 +6,7 @@ library;
 import 'arrangement.dart';
 import 'document_kind.dart';
 import 'intake_options.dart';
+import 'geometry.dart';
 import 'page_layout.dart';
 import 'project.dart';
 import 'recognition.dart';
@@ -91,25 +92,43 @@ Project classifyItemManually(
 /// paired by filename, order, or type alone; the user selects one explicitly.
 List<DocumentItem> matchingManualSidePartners(
   Project project, {
-  required String itemId,
-  required DocumentKind kind,
+  String? itemId,
+  String? draftSourceId,
+  List<Point2>? draftCorners,
+  required DocumentKind? kind,
   required SideKind side,
 }) {
-  if (kind == DocumentKind.unknown || side == SideKind.unknown) return const [];
-  final target = project.items.where((item) => item.id == itemId).firstOrNull;
-  if (target == null || target.locked || target.groupId != null) {
+  // Only an incoming, not-yet-classified photo can browse across kinds.
+  // The committed side must pass the strict same-kind check when linking.
+  if (kind == DocumentKind.unknown ||
+      (kind == null && itemId != null) ||
+      side == SideKind.unknown) {
     return const [];
   }
+
+  final target = project.items.where((item) => item.id == itemId).firstOrNull;
+  if (itemId != null &&
+      (target == null || target.locked || target.groupId != null)) {
+    return const [];
+  }
+  final record = project.documents
+      .where((d) => d.id == target?.documentId)
+      .firstOrNull;
+  final sourceId = record?.sourceImageId ?? draftSourceId;
+  final ring = record == null
+      ? draftCorners
+      : rec.manualExtractionRing(project, record);
   return [
     for (final item in project.items)
       if (item.id != itemId &&
           item.documentId != null &&
-          item.documentId != target.documentId &&
-          item.documentKind == kind &&
+          item.documentId != target?.documentId &&
+          item.documentKind != DocumentKind.unknown &&
+          (kind == null || item.documentKind == kind) &&
           item.sizeConfirmed &&
           !item.locked &&
           item.groupId == null &&
-          _isUnpairedOppositeSide(project, item, side))
+          _isUnpairedOppositeSide(project, item, side, sourceId, ring))
         item,
   ];
 }
@@ -118,6 +137,8 @@ bool _isUnpairedOppositeSide(
   Project project,
   DocumentItem item,
   SideKind side,
+  String? sourceId,
+  List<Point2>? ring,
 ) {
   final record = project.documents
       .where((entry) => entry.id == item.documentId)
@@ -127,15 +148,27 @@ bool _isUnpairedOppositeSide(
       record.pairing == PairingState.paired) {
     return false;
   }
+  if (sourceId != null &&
+      !rec.manualRegionsCanPair(project, record, sourceId, ring)) {
+    return false;
+  }
   final other = rec.effectiveSide(record, record.sides.single);
-  return (side == SideKind.front && other == SideKind.back) ||
-      (side == SideKind.back && other == SideKind.front);
+  return oppositeManualSides(side, other);
 }
+
+bool oppositeManualSides(SideKind side, SideKind other) =>
+    (side == SideKind.front && other == SideKind.back) ||
+    (side == SideKind.back && other == SideKind.front);
 
 /// Link two explicitly selected, confirmed opposite sides and place their group
 /// side by side. Unrelated hand-placed/locked items remain fixed. If the pair
 /// does not fit, the existing arranger keeps it together and explains why.
-Project pairManualSides(Project project, String itemId, String partnerItemId) {
+Project pairManualSides(
+  Project project,
+  String itemId,
+  String partnerItemId, {
+  void Function(Iterable<String> itemIds)? onCenteringPass,
+}) {
   final item = PageLayout.item(project, itemId);
   final partner = PageLayout.item(project, partnerItemId);
   require(item.sizeConfirmed, 'أكّد القص والمقاس قبل ربط الوجهين.');
@@ -170,6 +203,7 @@ Project pairManualSides(Project project, String itemId, String partnerItemId) {
     item.documentId!,
     partner.documentId!,
     arrangement: GroupArrangement.sideBySide,
+    explicitlySelectedRegions: true,
   );
   // Make BOTH members movable even if the first has already been placed. All
   // other documents keep their current positions, including with autoFlow off.
@@ -182,7 +216,11 @@ Project pairManualSides(Project project, String itemId, String partnerItemId) {
           entry,
     ],
   );
-  return arrangeDocuments(next, keepPlaced: true).result;
+  return arrangeDocuments(
+    next,
+    keepPlaced: true,
+    onCenteringPass: onCenteringPass,
+  ).result;
 }
 
 DocumentRecord _manualRecord(

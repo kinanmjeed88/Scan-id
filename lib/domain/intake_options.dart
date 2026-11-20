@@ -20,6 +20,7 @@ class IntakeOptions {
     this.centerDocuments = true,
     this.multiDocument = false,
     this.confirmed = const {},
+    this.partnerChoice,
   });
 
   /// The default a user who ticks nothing gets.
@@ -56,6 +57,8 @@ class IntakeOptions {
   /// confused with «this was the default». Empty means nothing was confirmed.
   final Set<IntakeOptionKey> confirmed;
 
+  final IntakePartnerChoice? partnerChoice;
+
   IntakeRoute get route => multiDocument
       ? IntakeRoute.manualSelections
       : assertsKind
@@ -73,7 +76,11 @@ class IntakeOptions {
   UserOverride get recordOverride => UserOverride(
     side: side,
     documentKind: assertsKind ? kind : null,
-    fields: [intakeSideField, if (assertsKind) 'documentKind'],
+    fields: [
+      intakeSideField,
+      if (assertsKind) 'documentKind',
+      if (partnerChoice case final choice?) choice.code,
+    ],
   );
 
   /// Whether anything at all was confirmed, for the report's summary line.
@@ -94,6 +101,7 @@ class IntakeOptions {
       centerDocuments: centerDocuments,
       multiDocument: multiDocument,
       confirmed: Set.unmodifiable(next),
+      partnerChoice: partnerChoice,
     );
   }
 
@@ -119,6 +127,7 @@ class IntakeOptions {
 
   /// The same options with one boolean flipped.
   IntakeOptions copyWith({
+    IntakePartnerChoice? partnerChoice,
     bool? acceptSuggestedBoundary,
     bool? centerDocuments,
     bool? multiDocument,
@@ -129,6 +138,9 @@ class IntakeOptions {
         acceptSuggestedBoundary ?? this.acceptSuggestedBoundary,
     centerDocuments: centerDocuments ?? this.centerDocuments,
     multiDocument: multiDocument ?? this.multiDocument,
+    partnerChoice: (multiDocument ?? this.multiDocument)
+        ? null
+        : partnerChoice ?? this.partnerChoice,
     confirmed: confirmed,
   );
 
@@ -144,6 +156,7 @@ class IntakeOptions {
     'center=$centerDocuments',
     'multiRequested=$multiDocument',
     'route=${route.name}',
+    if (partnerChoice case final choice?) choice.code,
     for (final key in IntakeOptionKey.values)
       'confirmed.${key.name}=${confirmed.contains(key)}',
   ];
@@ -168,6 +181,7 @@ class IntakeOptions {
     return IntakeOptions(
       side: side,
       kind: kind,
+      partnerChoice: IntakePartnerChoice.fromCodes(codes),
       acceptSuggestedBoundary: codes.contains('acceptBoundary=true'),
       centerDocuments: !codes.contains('center=false'),
       multiDocument: codes.contains('multiRequested=true'),
@@ -184,6 +198,21 @@ class IntakeOptions {
       'IntakeOptions(side: ${side.name}, kind: ${kind.name}, '
       'accept: $acceptSuggestedBoundary, center: $centerDocuments, '
       'multi: $multiDocument)';
+}
+
+/// Null choice = not offered, null itemId = explicitly continue unpaired.
+/// This records intent only. Eligibility must be rechecked on the saved item.
+class IntakePartnerChoice {
+  const IntakePartnerChoice(this.itemId);
+  final String? itemId;
+  static const _prefix = 'intakePartner=';
+  String get code => '$_prefix${itemId ?? ''}';
+  static IntakePartnerChoice? fromCodes(Iterable<String> codes) {
+    final code = codes.where((c) => c.startsWith(_prefix)).firstOrNull;
+    if (code == null) return null;
+    final id = code.substring(_prefix.length);
+    return IntakePartnerChoice(id.isEmpty ? null : id);
+  }
 }
 
 enum IntakeRoute { singleAutomaticKind, singleManualKind, manualSelections }

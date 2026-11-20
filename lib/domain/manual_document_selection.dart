@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'document_kind.dart';
 import 'geometry.dart';
+import 'manual_quad_selection.dart';
 import 'recognition.dart';
 import 'validation.dart';
 
@@ -230,25 +231,14 @@ class ManualSelectionSet {
     Point2 point, {
     required double minSeparation,
   }) {
-    // A throwing lookup, not require(): `require` is a plain function and cannot
-    // promote the type, and a nullable target would have to be force-unwrapped
-    // at every use below.
     final target = _requireById(id);
-    require(!target.isComplete, 'اكتمل تحديد الزوايا الأربع لهذا المستمسك.');
-    require(
-      point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1,
-      'النقطة خارج حدود الصورة.',
-    );
-    for (final existing in target.corners) {
-      final distance = math.sqrt(
-        math.pow(point.x - existing.x, 2) + math.pow(point.y - existing.y, 2),
-      );
-      require(
-        distance >= minSeparation,
-        'النقطة قريبة جداً من زاوية محددة مسبقاً.',
-      );
+    var quad = ManualQuadSelection.empty();
+    for (final previous in target.corners) {
+      quad = quad.addTap(previous, minSeparation: 0);
     }
-    return replace(target.copyWith(corners: [...target.corners, point]));
+    quad = quad.addTap(point, minSeparation: minSeparation);
+    if (quad.isComplete) quad.completedCorners();
+    return replace(target.copyWith(corners: quad.points));
   }
 
   /// Moves one corner of one selection, leaving every other point and every

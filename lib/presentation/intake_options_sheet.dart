@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../domain/document_kind.dart';
 import '../domain/intake_options.dart';
+import '../domain/manual_classification.dart';
+import '../domain/project.dart';
+import 'side_partner_field.dart';
 import '../domain/recognition.dart';
 
 /// Opens the floating options sheet the person sees AFTER picking images and
@@ -16,15 +19,25 @@ Future<IntakeOptions?> showIntakeOptionsSheet(
   BuildContext context, {
   IntakeOptions initial = IntakeOptions.defaults,
   int imageCount = 1,
+  Project? project,
 }) => showModalBottomSheet<IntakeOptions>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => _IntakeOptionsSheet(initial: initial, imageCount: imageCount),
+  builder: (_) => _IntakeOptionsSheet(
+    initial: initial,
+    imageCount: imageCount,
+    project: project,
+  ),
 );
 
 class _IntakeOptionsSheet extends StatefulWidget {
-  const _IntakeOptionsSheet({required this.initial, required this.imageCount});
+  const _IntakeOptionsSheet({
+    required this.initial,
+    required this.imageCount,
+    this.project,
+  });
+  final Project? project;
 
   final IntakeOptions initial;
   final int imageCount;
@@ -36,15 +49,37 @@ class _IntakeOptionsSheet extends StatefulWidget {
 class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
   late IntakeOptions _options = widget.initial;
 
+  late String? _partnerId = widget.initial.partnerChoice?.itemId;
+
   /// Ticks an option and records that the person confirmed it.
   void _confirm(IntakeOptionKey key, IntakeOptions next) {
-    setState(() => _options = next.withConfirmed(key));
+    setState(() {
+      if (next.kind != _options.kind ||
+          next.side != _options.side ||
+          next.multiDocument != _options.multiDocument) {
+        _partnerId = null;
+      }
+      _options = next.withConfirmed(key);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final count = widget.imageCount;
+    final project = widget.project;
+    final candidates = project != null && count == 1 && !_options.multiDocument
+        ? {
+            for (final item in matchingManualSidePartners(
+              project,
+              kind: _options.assertsKind ? _options.kind : null,
+              side: _options.side,
+            ))
+              item.id: _options.assertsKind
+                  ? manualPartnerLabel(project, item)
+                  : '${manualPartnerLabel(project, item)} · ${item.documentKind.label}',
+          }
+        : const <String, String>{};
     return SafeArea(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 620),
@@ -138,6 +173,17 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
                 ),
               ),
 
+              if (candidates.isNotEmpty)
+                SidePartnerField(
+                  key: const Key('intake-side-partner'),
+                  choices: candidates,
+                  value: _partnerId,
+                  onChanged: (id) => setState(() => _partnerId = id),
+                )
+              else if (_options.assertsSide && !_options.multiDocument)
+                const Text(
+                  'عند توفر وجه مقابل من النوع نفسه يمكنك اختياره لكل مستمسك بعد تأكيد النوع والمقاس.',
+                ),
               // 3) accept suggested boundary
               _OptionTile(
                 optionKey: IntakeOptionKey.acceptSuggestedBoundary,
@@ -207,13 +253,21 @@ class _IntakeOptionsSheetState extends State<_IntakeOptionsSheet> {
                     child: const Text('إلغاء'),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        setState(() => _options = IntakeOptions.defaults),
+                    onPressed: () => setState(() {
+                      _options = IntakeOptions.defaults;
+                      _partnerId = null;
+                    }),
                     child: const Text('إعادة الافتراضي'),
                   ),
                   FilledButton.icon(
                     key: const Key('intake-options-confirm'),
-                    onPressed: () => Navigator.of(context).pop(_options),
+                    onPressed: () => Navigator.of(context).pop(
+                      candidates.isEmpty
+                          ? _options
+                          : _options.copyWith(
+                              partnerChoice: IntakePartnerChoice(_partnerId),
+                            ),
+                    ),
                     icon: const Icon(Icons.check),
                     label: const Text('متابعة المعالجة'),
                   ),

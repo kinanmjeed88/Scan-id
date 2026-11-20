@@ -2,10 +2,82 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/intake_options.dart';
+import 'package:scan_id/domain/manual_classification.dart';
+import 'package:scan_id/presentation/side_partner_field.dart';
+import 'editor_harness.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/presentation/intake_options_sheet.dart';
 
 void main() {
+  testWidgets(
+    'one back can choose a saved front but a batch cannot share one partner',
+    (tester) async {
+      const kind = DocumentKind.unifiedNationalId;
+      final base = editorProject(
+        items: [placedDocument('front', 'asset1', kind)],
+      );
+      var ids = 0;
+      final project = attachIntakeChoices(
+        base,
+        base.items,
+        const IntakeOptions(kind: kind, side: SideKind.front),
+        () => 'id${ids++}',
+      );
+      IntakeOptions? answer;
+      for (final (count, selectedKind) in [
+        (1, DocumentKind.unknown),
+        (1, kind),
+        (2, kind),
+      ]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () async {
+                    answer = await showIntakeOptionsSheet(
+                      context,
+                      project: project,
+                      imageCount: count,
+                      initial: IntakeOptions(
+                        kind: selectedKind,
+                        side: SideKind.back,
+                      ),
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        final field = find.byKey(const Key('intake-side-partner'));
+        if (count == 1) {
+          await tester.ensureVisible(field);
+          await tester.tap(field);
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find
+                .textContaining(
+                  manualPartnerLabel(project, project.items.first),
+                )
+                .last,
+          );
+          await tester.pumpAndSettle();
+        } else {
+          expect(field, findsNothing);
+        }
+        final confirm = find.byKey(const Key('intake-options-confirm'));
+        await tester.ensureVisible(confirm);
+        await tester.pumpAndSettle();
+        await tester.tap(confirm);
+        await tester.pumpAndSettle();
+        expect(answer?.partnerChoice?.itemId, count == 1 ? 'front' : null);
+      }
+    },
+  );
   testWidgets(
     'small phone: one side row, two kind rows, one copy of each switch',
     (tester) async {

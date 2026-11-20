@@ -6,6 +6,8 @@ library;
 
 import 'document_edits.dart';
 import 'document_kind.dart';
+import 'geometry.dart';
+import 'manual_document_selection.dart' show quadRingsOverlap;
 import 'page_layout.dart';
 import 'project.dart';
 import 'recognition.dart';
@@ -200,6 +202,38 @@ String pairGroupId(String documentIdA, String documentIdB) {
   return 'pair-$first';
 }
 
+List<Point2>? manualExtractionRing(Project project, DocumentRecord record) {
+  final assetId = project.items
+      .where((i) => i.documentId == record.id)
+      .firstOrNull
+      ?.assetId;
+  final asset = project.assets.where((a) => a.id == assetId).firstOrNull;
+  if (asset == null || asset.derivedFrom != record.sourceImageId) return null;
+  final corners = record.overrides
+      .where((o) => o.fields.contains(manualExtractionRootCornersField))
+      .firstOrNull
+      ?.corners;
+  return corners == null || normalizedQuadIssue(corners) != null
+      ? null
+      : corners;
+}
+
+/// Automatic proposals may not pair two regions of the same photograph. An
+/// explicit manual choice additionally requires disjoint verified root rings.
+bool manualRegionsCanPair(
+  Project project,
+  DocumentRecord candidate,
+  String sourceId,
+  List<Point2>? corners,
+) {
+  if (candidate.sourceImageId != sourceId) return true;
+  final other = manualExtractionRing(project, candidate);
+  return corners != null &&
+      normalizedQuadIssue(corners) == null &&
+      other != null &&
+      !quadRingsOverlap(corners, other);
+}
+
 /// Confirms that [documentIdA] and [documentIdB] are the two sides of one
 /// physical document: links the records reciprocally, records the explicit
 /// user decision, and keeps their layout items together in a [LayoutGroup].
@@ -208,6 +242,7 @@ Project acceptPair(
   String documentIdA,
   String documentIdB, {
   GroupArrangement arrangement = GroupArrangement.stacked,
+  bool explicitlySelectedRegions = false,
 }) {
   require(documentIdA != documentIdB, 'لا يمكن اقتران المستند بنفسه.');
   final a = _record(project, documentIdA);
@@ -224,7 +259,14 @@ Project acceptPair(
     'لا يمكن اقتران مستندين من نوعين مختلفين أو غير محددين.',
   );
   require(
-    a.sourceImageId != b.sourceImageId,
+    a.sourceImageId != b.sourceImageId ||
+        (explicitlySelectedRegions &&
+            manualRegionsCanPair(
+              project,
+              b,
+              a.sourceImageId,
+              manualExtractionRing(project, a),
+            )),
     'لا يمكن اعتبار منطقتين من الصورة نفسها وجهي مستند واحد.',
   );
   final sideA = effectiveSide(a, a.sides.single);

@@ -8,6 +8,7 @@ import 'document_kind.dart';
 import 'geometry.dart';
 import 'image_adjustments.dart';
 import 'image_limits.dart';
+import 'manual_classification.dart' show pairManualSides;
 import 'project.dart';
 import 'recognition.dart';
 import 'recognition_overrides.dart';
@@ -809,6 +810,8 @@ Project appendManualDerivedDocumentToProject(
   required ImageEditRecipe recipe,
   required DocumentKind documentKind,
   SideKind documentSide = SideKind.unknown,
+  String? reservedItemId,
+  String? partnerItemId,
   bool keepPlaced = false,
   void Function(Iterable<String> itemIds)? onCenteringPass,
   PhysicalSizeMm? sizeMm,
@@ -876,13 +879,14 @@ Project appendManualDerivedDocumentToProject(
   final detectionId = nextId();
   final sideId = nextId();
   final recordId = nextId();
-  final itemId = nextId();
+  final itemId = reservedItemId ?? nextId();
   final variantId = next.catalog.natural(documentKind) != null
       ? builtinVariantId(documentKind)
       : null;
   final overrideFields = <String>[
     'corners',
     manualBoundaryConfirmedField,
+    manualExtractionRootCornersField,
     manualBoundaryConfirmedSideField(sideId),
     'documentKind',
     'side',
@@ -959,6 +963,14 @@ Project appendManualDerivedDocumentToProject(
     documents: [...next.documents, record],
     items: [...next.items, item],
   );
+  if (partnerItemId != null) {
+    return pairManualSides(
+      next,
+      item.id,
+      partnerItemId,
+      onCenteringPass: onCenteringPass,
+    );
+  }
   return arrangeDocuments(
     next,
     keepPlaced: keepPlaced || !next.layout.autoFlow,

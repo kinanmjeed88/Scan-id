@@ -1604,6 +1604,8 @@ class ProjectService {
     ImageEditRecipe recipe, {
     required DocumentKind documentKind,
     SideKind side = SideKind.unknown,
+    String? reservedItemId,
+    String? partnerItemId,
     IntakeStageLog? stages,
     bool keepPlaced = false,
     PhysicalSizeMm? customSizeMm,
@@ -1627,6 +1629,13 @@ class ProjectService {
               ),
             ),
           );
+    if (reservedItemId != null) {
+      validId(reservedItemId);
+      require(
+        !project.items.any((item) => item.id == reservedItemId),
+        'معرّف المستمسك مستخدم بالفعل.',
+      );
+    }
     _guardLargeFrameCrop(rootSource, recipe);
     final editor = imageEditor;
     require(editor != null, 'خدمة معالجة الصور غير متاحة.');
@@ -1659,6 +1668,19 @@ class ProjectService {
       allowUnconfirmedSize: resolvedSize == null,
     );
 
+    if (partnerItemId != null) {
+      require(
+        resolvedSize != null &&
+            matchingManualSidePartners(
+              project,
+              kind: documentKind,
+              side: side,
+              draftSourceId: rootSource.id,
+              draftCorners: recipe.geometry.corners,
+            ).any((item) => item.id == partnerItemId),
+        'الوجه المقابل غير متاح لهذا التحديد؛ تحقق من النوع والمقاس والحدود.',
+      );
+    }
     stages?.skip(
       JourneyStage.recognition,
       'تعريف يدوي؛ لا قراءة نص ولا استنتاج للوجه.',
@@ -1695,6 +1717,8 @@ class ProjectService {
       documentKind: documentKind,
       sizeMm: resolvedSize,
       documentSide: side,
+      partnerItemId: partnerItemId,
+      reservedItemId: reservedItemId,
       onCenteringPass: (ids) => centeringItems = ids,
       keepPlaced: keepPlaced,
       nextId: newId,
@@ -1725,6 +1749,7 @@ class ProjectService {
       fields: {
         'assetId': derived.id,
         'itemId': item.id,
+        if (partnerItemId != null) 'partnerItemId': partnerItemId,
         'revision': saved.revision,
       },
     );

@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../domain/boundary_suggestion.dart';
 import '../domain/acceptance_policy.dart';
 import '../domain/document_kind.dart';
+import '../domain/intake_options.dart';
 import '../domain/recognition_explanation.dart';
 import '../domain/manual_classification.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_overrides.dart' as rec;
 import 'editor_controller.dart';
+import 'side_partner_field.dart';
 import 'review_screen.dart' show reviewKindChoices;
 import 'project_screen.dart' show LocalImage;
 
@@ -68,6 +70,7 @@ class _ManualClassificationDialogState
   // dropdown here made the low-confidence recovery path look blocked again.
   SideKind? _side = SideKind.unknown;
   String? _partnerId;
+  bool _partnerEdited = false;
   bool _applySuggestedBoundary = true;
 
   @override
@@ -119,6 +122,13 @@ class _ManualClassificationDialogState
             side: side,
           );
 
+    final intakeChoice = widget.editingExisting || record == null
+        ? null
+        : IntakePartnerChoice.fromCodes(
+            record.overrides.reversed.expand((o) => o.fields),
+          );
+    final requested = _partnerEdited ? _partnerId : intakeChoice?.itemId;
+    final partnerId = partners.any((p) => p.id == requested) ? requested : null;
     return AlertDialog(
       key: const Key('manual-classification-dialog'),
       title: Text(
@@ -262,36 +272,24 @@ class _ManualClassificationDialogState
                   ],
                   onChanged: (value) => setState(() {
                     _side = value;
+                    _partnerEdited = true;
                     _partnerId = null;
                   }),
                 ),
               if (partners.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
+                SidePartnerField(
                   key: const Key('manual-classification-partner'),
-                  initialValue: _partnerId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'اربط بالوجه الآخر (اختياري)',
-                  ),
-                  hint: const Text('دون ربط حالياً'),
-                  items: [
-                    for (final partner in partners)
-                      DropdownMenuItem(
-                        value: partner.id,
-                        child: Text(
-                          '${project.assets.firstWhere((a) => a.id == partner.assetId).name} — صورة ${project.items.indexOf(partner) + 1} ',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: (value) => setState(() => _partnerId = value),
+                  value: partnerId,
+                  choices: {
+                    for (final item in partners)
+                      item.id: manualPartnerLabel(project, item),
+                  },
+                  onChanged: (value) => setState(() {
+                    _partnerEdited = true;
+                    _partnerId = value;
+                  }),
                 ),
-                if (_partnerId != null)
-                  TextButton(
-                    onPressed: () => setState(() => _partnerId = null),
-                    child: const Text('إلغاء اختيار الوجه الآخر'),
-                  ),
                 const Text(
                   'الربط يضع الوجهين متجاورين؛ اختر صورة الوجه المطابق فقط.',
                 ),
@@ -317,7 +315,7 @@ class _ManualClassificationDialogState
                     side: side,
                     applySuggestedBoundary:
                         hasUsableSuggestion && _applySuggestedBoundary,
-                    partnerItemId: _partnerId,
+                    partnerItemId: partnerId,
                   ),
                 ),
           child: const Text('متابعة'),

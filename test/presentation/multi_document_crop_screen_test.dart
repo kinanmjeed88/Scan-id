@@ -9,6 +9,8 @@ import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/intake_options.dart';
 import 'package:scan_id/presentation/app.dart';
 import 'package:scan_id/presentation/multi_document_crop_screen.dart';
 
@@ -141,26 +143,31 @@ ImageEditRecipe _expectedRecipe() => CropDraft(
 ).toRecipe(64, 40);
 
 void main() {
-  testWidgets('the whole photograph opens with an empty workspace', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1000, 1600);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final setup = await _setup();
-    await tester.pumpWidget(_app(setup.project, setup.service));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'opening the photograph starts the first document in manual tap mode',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final setup = await _setup();
+      await tester.pumpWidget(_app(setup.project, setup.service));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('multi-selection-source')), findsOneWidget);
-    expect(find.byKey(const Key('multi-selection-empty')), findsOneWidget);
-    expect(find.byKey(const Key('multi-selection-list')), findsNothing);
-    // Nothing can be added before anything is drawn.
-    final apply = tester.widget<FilledButton>(
-      find.byKey(const Key('multi-selection-apply')),
-    );
-    expect(apply.onPressed, isNull);
-  });
+      expect(find.byKey(const Key('multi-selection-source')), findsOneWidget);
+      expect(
+        find.byKey(const Key('multi-selection-row-sel-0')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('crop-tap-surface')), findsOneWidget);
+      expect(find.byKey(const Key('multi-selection-list')), findsOneWidget);
+      // Nothing can be added before anything is drawn.
+      final apply = tester.widget<FilledButton>(
+        find.byKey(const Key('multi-selection-apply')),
+      );
+      expect(apply.onPressed, isNull);
+    },
+  );
 
   testWidgets('two documents are drawn, listed and each keeps its own kind', (
     tester,
@@ -174,8 +181,6 @@ void main() {
     await tester.pumpAndSettle();
 
     // First document.
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     await _drawCard(tester);
     expect(find.byKey(const Key('multi-selection-row-sel-0')), findsOneWidget);
     // A completed outline states that it is complete rather than asking for a
@@ -209,6 +214,74 @@ void main() {
     expect(find.textContaining('2 جاهز'), findsOneWidget);
   });
 
+  testWidgets(
+    'shared edge drag and optional draft partner survive a failed save and reopen',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final setup = await _setup();
+      await tester.pumpWidget(
+        AppShell(
+          home: MultiDocumentCropScreen(
+            project: setup.project,
+            asset: setup.project.assets.first,
+            service: setup.service,
+            options: const IntakeOptions(
+              kind: DocumentKind.unifiedNationalId,
+              side: SideKind.front,
+              multiDocument: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _drawCard(tester);
+      final first = tester.getCenter(find.byKey(const Key('crop-corner-0')));
+      final second = tester.getCenter(find.byKey(const Key('crop-corner-1')));
+      final gesture = await tester.startGesture((first + second) / 2);
+      await gesture.moveBy(const Offset(0, 6));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 8));
+      await tester.pump();
+      expect(find.byKey(const Key('crop-precision-loupe')), findsOneWidget);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('multi-selection-add')));
+      await tester.pumpAndSettle();
+      await _drawCard(tester, left: .55, right: .9);
+      expect(find.byKey(const Key('multi-selection-partner')), findsNothing);
+      await tester.tap(find.byKey(const Key('multi-selection-side')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('وجه ثانٍ').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('multi-selection-partner')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('المستمسك 1').last);
+      await tester.pumpAndSettle();
+      setup.repository.failNextSave = true;
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+      expect(setup.editor.recipes, hasLength(1));
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+      final saved = Project.fromJson(
+        (await setup.repository.get(setup.project.id)).toJson(),
+      );
+      final paired = saved.documents
+          .where((d) => d.pairing == PairingState.paired)
+          .toList();
+      expect(paired, hasLength(2));
+      expect(paired.first.pairedDocumentId, paired.last.id);
+      expect(paired.last.pairedDocumentId, paired.first.id);
+      expect(
+        saved.layoutGroups.single.arrangement,
+        GroupArrangement.sideBySide,
+      );
+    },
+  );
+
   testWidgets('adding crops each selection independently through the service', (
     tester,
   ) async {
@@ -220,8 +293,6 @@ void main() {
     await tester.pumpWidget(_app(setup.project, setup.service));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     await _drawCard(tester);
     await tester.tap(find.byKey(const Key('multi-selection-add')));
     await tester.pumpAndSettle();
@@ -277,8 +348,10 @@ void main() {
       await tester.pumpWidget(_app(setup.project, setup.service));
       await tester.pumpAndSettle();
       for (final left in [.1, .55]) {
-        await tester.tap(find.byKey(const Key('multi-selection-add')));
-        await tester.pumpAndSettle();
+        if (left != .1) {
+          await tester.tap(find.byKey(const Key('multi-selection-add')));
+          await tester.pumpAndSettle();
+        }
         await _drawCard(tester, left: left, right: left + .3);
       }
       setup.repository.failNextSave = true;
@@ -319,8 +392,6 @@ void main() {
     await tester.pumpWidget(_app(setup.project, setup.service));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     await _drawCard(tester);
     await tester.tap(find.byKey(const Key('multi-selection-add')));
     await tester.pumpAndSettle();
@@ -344,8 +415,6 @@ void main() {
     await tester.pumpWidget(_app(setup.project, setup.service));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     await _tapNormalized(tester, .1, .2);
     await _tapNormalized(tester, .4, .2);
 
@@ -372,8 +441,6 @@ void main() {
     await tester.pumpWidget(_app(setup.project, setup.service));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     // Zoom in and only then tap. At 1.5x the photograph is larger than the box,
     // so two of the four points below are deliberately OUTSIDE the visible area:
     // they must still resolve to the right place on the photograph, which is what
@@ -400,8 +467,6 @@ void main() {
     await tester.pumpWidget(_app(setup.project, setup.service));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('multi-selection-add')));
-    await tester.pumpAndSettle();
     await _drawCard(tester);
     await tester.tap(find.byKey(const Key('multi-selection-cancel-selection')));
     await tester.pumpAndSettle();

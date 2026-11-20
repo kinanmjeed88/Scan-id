@@ -12,6 +12,10 @@ import '../domain/page_layout.dart';
 import '../domain/project.dart';
 import '../domain/recognition_routing.dart';
 import 'crop_screen.dart';
+import 'side_partner_field.dart';
+import '../domain/manual_classification.dart';
+import '../domain/intake_options.dart';
+import '../domain/recognition_overrides.dart' as rec;
 import 'editor_controller.dart';
 import 'export_screen.dart';
 import 'intake.dart';
@@ -76,7 +80,11 @@ class _LayoutScreenState extends State<LayoutScreen> {
           ..onManualClassificationNeeded = _classifyPending
           ..onPickIntakeOptions = (count) async {
             if (!mounted) return null;
-            return showIntakeOptionsSheet(context, imageCount: count);
+            return showIntakeOptionsSheet(
+              context,
+              imageCount: count,
+              project: _c.project,
+            );
           };
     _c.addListener(_changed);
     if (widget.autoClassifyItemIds.isNotEmpty) {
@@ -204,6 +212,72 @@ class _LayoutScreenState extends State<LayoutScreen> {
     await _classifyItems([item.id], editingExisting: true);
   }
 
+  Future<void> _offerIntakePair(String id) async {
+    if (!mounted) return;
+    final project = _c.project;
+    final item = project.items.where((i) => i.id == id).firstOrNull;
+    if (item == null || !item.sizeConfirmed || item.groupId != null) return;
+    final record = project.documents
+        .where((d) => d.id == item.documentId)
+        .firstOrNull;
+    if (record == null ||
+        record.sides.length != 1 ||
+        !record.overrides.any(
+          (o) => o.fields.contains(IntakeOptions.intakeSideField),
+        )) {
+      return;
+    }
+    final candidates = matchingManualSidePartners(
+      project,
+      itemId: id,
+      kind: item.documentKind,
+      side: rec.effectiveSide(record, record.sides.single),
+    );
+    final chosen = IntakePartnerChoice.fromCodes(
+      record.overrides.reversed.expand((o) => o.fields),
+    );
+    if (chosen != null) {
+      final target = chosen.itemId;
+      if (target == null) return;
+      if (candidates.any((i) => i.id == target)) {
+        await _c.pairSelectedSides(id, target);
+        return;
+      }
+      showMessage(context, 'لم يعد الوجه المختار متاحاً للربط.');
+    }
+    if (candidates.isEmpty) return;
+    String? choice;
+    final partner = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, refresh) => AlertDialog(
+          title: const Text('ربط وجهي المستمسك'),
+          content: SidePartnerField(
+            choices: {
+              for (final other in candidates)
+                other.id: manualPartnerLabel(project, other),
+            },
+            value: choice,
+            onChanged: (v) => refresh(() => choice = v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('تخطي'),
+            ),
+            FilledButton(
+              onPressed: choice == null
+                  ? null
+                  : () => Navigator.pop(ctx, choice),
+              child: const Text('ربط الوجهين'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mounted && partner != null) await _c.pairSelectedSides(id, partner);
+  }
+
   Future<void> _classifyItems(
     List<String> ids, {
     bool editingExisting = false,
@@ -216,9 +290,11 @@ class _LayoutScreenState extends State<LayoutScreen> {
         final item = _c.project.items
             .where((entry) => entry.id == id)
             .firstOrNull;
-        if (item == null ||
-            item.locked ||
-            (!editingExisting && item.sizeConfirmed)) {
+        if (item == null || item.locked) {
+          continue;
+        }
+        if (!editingExisting && item.sizeConfirmed) {
+          await _offerIntakePair(id);
           continue;
         }
         final record = _c.project.documents
@@ -231,6 +307,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
           // crop/size decision instead of asking for the same type again.
           _c.select(id);
           await _editCrop(item);
+          await _offerIntakePair(id);
           continue;
         }
         final choice = await showManualClassificationDialog(

@@ -17,7 +17,6 @@ import 'package:scan_id/imaging/perspective.dart';
 import 'package:scan_id/presentation/image_viewport.dart';
 
 import '../presentation/editor_harness.dart';
-import '../fixtures.dart';
 
 /// A photograph with two bright rectangles on a dark field, so a crop can be
 /// told apart from the whole frame by measuring the rendered pixels.

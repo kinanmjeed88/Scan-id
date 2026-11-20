@@ -56,23 +56,22 @@ void main() {
 
     test('screen to image is the exact inverse at 1x', () {
       final viewport = _wide();
-      for (final point in [
-        Point2(.25, .4),
-        Point2(.75, .6),
-        Point2(.5, .5),
-      ]) {
+      for (final point in [Point2(.25, .4), Point2(.75, .6), Point2(.5, .5)]) {
         final back = viewport.toImage(viewport.toScreen(point));
         expect(back.x, closeTo(point.x, 1e-9));
         expect(back.y, closeTo(point.y, 1e-9));
       }
     });
 
-    test('a tap just outside the photograph clamps to its edge, not beyond it', () {
-      final viewport = _wide();
-      final outside = viewport.toImage(const Offset(-40, 900));
-      expect(outside.x, 0);
-      expect(outside.y, 1);
-    });
+    test(
+      'a tap just outside the photograph clamps to its edge, not beyond it',
+      () {
+        final viewport = _wide();
+        final outside = viewport.toImage(const Offset(-40, 900));
+        expect(outside.x, 0);
+        expect(outside.y, 1);
+      },
+    );
   });
 
   group('zoom', () {
@@ -93,7 +92,10 @@ void main() {
       final screenAtOne = viewport.toScreen(corner);
       final zoomed = viewport.scaledBy(3, focus: screenAtOne);
       // The corner is still under the same screen point after zooming onto it.
-      expect((zoomed.toScreen(corner) - screenAtOne).distance, closeTo(0, 1e-9));
+      expect(
+        (zoomed.toScreen(corner) - screenAtOne).distance,
+        closeTo(0, 1e-9),
+      );
       // And converting that screen point back yields the original image point.
       final back = zoomed.toImage(screenAtOne);
       expect(back.x, closeTo(corner.x, 1e-9));
@@ -134,16 +136,19 @@ void main() {
       expect(other.displayedRect.top, closeTo(0, 1e-6));
     });
 
-    test('a pan does not change what a screen point means relative to the photo', () {
-      final zoomed = _wide().scaledBy(2);
-      final panned = zoomed.translatedBy(const Offset(-100, -50));
-      // The same image point must still convert back to itself from its own
-      // screen position: panning moves the picture, not the coordinate system.
-      final point = Point2(.4, .6);
-      final back = panned.toImage(panned.toScreen(point));
-      expect(back.x, closeTo(point.x, 1e-9));
-      expect(back.y, closeTo(point.y, 1e-9));
-    });
+    test(
+      'a pan does not change what a screen point means relative to the photo',
+      () {
+        final zoomed = _wide().scaledBy(2);
+        final panned = zoomed.translatedBy(const Offset(-100, -50));
+        // The same image point must still convert back to itself from its own
+        // screen position: panning moves the picture, not the coordinate system.
+        final point = Point2(.4, .6);
+        final back = panned.toImage(panned.toScreen(point));
+        expect(back.x, closeTo(point.x, 1e-9));
+        expect(back.y, closeTo(point.y, 1e-9));
+      },
+    );
   });
 
   group('screen-space distances', () {
@@ -170,22 +175,25 @@ void main() {
     });
   });
 
-  test('an invalid zoom or a zero-sized box is refused, not silently accepted', () {
-    expect(
-      () => ImageViewport(
-        viewport: const Size(0, 600),
-        imageWidth: 4000,
-        imageHeight: 3000,
-      ),
-      throwsA(isA<ValidationException>()),
-    );
-    expect(
-      () => ImageViewport(
-        viewport: const Size(800, 600),
-        imageWidth: 0,
-        imageHeight: 3000,
-      ),
-      throwsA(isA<ValidationException>()),
-    );
-  });
+  test(
+    'an invalid zoom or a zero-sized box is refused, not silently accepted',
+    () {
+      expect(
+        () => ImageViewport(
+          viewport: const Size(0, 600),
+          imageWidth: 4000,
+          imageHeight: 3000,
+        ),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(
+        () => ImageViewport(
+          viewport: const Size(800, 600),
+          imageWidth: 0,
+          imageHeight: 3000,
+        ),
+        throwsA(isA<ValidationException>()),
+      );
+    },
+  );
 }

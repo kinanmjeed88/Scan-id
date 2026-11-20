@@ -146,19 +146,22 @@ void main() {
     },
   );
 
-  test('a crop of the dark gap is NOT a document: the geometry gate refuses it', () {
-    // Two corners only: the selection is not closed, so nothing is cropped.
-    final inch = ManualDocumentSelection(
-      id: 'half',
-      corners: [Point2(.1, .1), Point2(.9, .1)],
-    );
-    expect(inch.isValid, isFalse);
-    expect(inch.validatedCorners, isNull);
-    expect(
-      () => CropDraft(corners: inch.corners),
-      throwsA(isA<ValidationException>()),
-    );
-  });
+  test(
+    'a crop of the dark gap is NOT a document: the geometry gate refuses it',
+    () {
+      // Two corners only: the selection is not closed, so nothing is cropped.
+      final inch = ManualDocumentSelection(
+        id: 'half',
+        corners: [Point2(.1, .1), Point2(.9, .1)],
+      );
+      expect(inch.isValid, isFalse);
+      expect(inch.validatedCorners, isNull);
+      expect(
+        () => CropDraft(corners: inch.corners),
+        throwsA(isA<ValidationException>()),
+      );
+    },
+  );
 
   test('perspective correction straightens a skewed card', () async {
     // A trapezoid: the right edge is taller than the left, as a card photographed

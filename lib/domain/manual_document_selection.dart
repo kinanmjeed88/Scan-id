@@ -78,16 +78,24 @@ class ManualDocumentSelection {
     final ring = validatedCorners;
     if (ring == null) return null;
     final width =
-        (math.sqrt(math.pow(ring[1].x - ring[0].x, 2) +
-            math.pow(ring[1].y - ring[0].y, 2)) +
-        math.sqrt(math.pow(ring[2].x - ring[3].x, 2) +
-            math.pow(ring[2].y - ring[3].y, 2))) /
+        (math.sqrt(
+              math.pow(ring[1].x - ring[0].x, 2) +
+                  math.pow(ring[1].y - ring[0].y, 2),
+            ) +
+            math.sqrt(
+              math.pow(ring[2].x - ring[3].x, 2) +
+                  math.pow(ring[2].y - ring[3].y, 2),
+            )) /
         2;
     final height =
-        (math.sqrt(math.pow(ring[3].x - ring[0].x, 2) +
-            math.pow(ring[3].y - ring[0].y, 2)) +
-        math.sqrt(math.pow(ring[2].x - ring[1].x, 2) +
-            math.pow(ring[2].y - ring[1].y, 2))) /
+        (math.sqrt(
+              math.pow(ring[3].x - ring[0].x, 2) +
+                  math.pow(ring[3].y - ring[0].y, 2),
+            ) +
+            math.sqrt(
+              math.pow(ring[2].x - ring[1].x, 2) +
+                  math.pow(ring[2].y - ring[1].y, 2),
+            )) /
         2;
     if (width <= 0 || height <= 0) return null;
     return width / height;
@@ -152,12 +160,16 @@ class ManualSelectionSet {
   int get length => selections.length;
 
   /// Every selection that could be cropped right now.
-  List<ManualDocumentSelection> get valid =>
-      [for (final selection in selections) if (selection.isValid) selection];
+  List<ManualDocumentSelection> get valid => [
+    for (final selection in selections)
+      if (selection.isValid) selection,
+  ];
 
   /// Selections still missing corners or geometrically unsafe.
-  List<ManualDocumentSelection> get invalid =>
-      [for (final selection in selections) if (!selection.isValid) selection];
+  List<ManualDocumentSelection> get invalid => [
+    for (final selection in selections)
+      if (!selection.isValid) selection,
+  ];
 
   /// True when the batch may be applied: at least one selection, and every
   /// selection is valid.
@@ -176,10 +188,7 @@ class ManualSelectionSet {
   /// generation and this type stays free of side effects.
   ManualSelectionSet add(ManualDocumentSelection selection) {
     require(selections.length < maxSelections, atCapacityMessage);
-    require(
-      byId(selection.id) == null,
-      'معرّف التحديد مستخدم بالفعل.',
-    );
+    require(byId(selection.id) == null, 'معرّف التحديد مستخدم بالفعل.');
     return ManualSelectionSet._([...selections, selection]);
   }
 
@@ -214,10 +223,7 @@ class ManualSelectionSet {
   }) {
     final target = byId(id);
     require(target != null, 'التحديد غير موجود.');
-    require(
-      !target!.isComplete,
-      'اكتمل تحديد الزوايا الأربع لهذا المستمسك.',
-    );
+    require(!target!.isComplete, 'اكتمل تحديد الزوايا الأربع لهذا المستمسك.');
     require(
       point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1,
       'النقطة خارج حدود الصورة.',

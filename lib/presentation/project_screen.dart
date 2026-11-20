@@ -633,7 +633,9 @@ class _ProjectScreenState extends State<ProjectScreen>
   Future<void> _multiSelect(ImageAsset asset) async {
     final targetAsset = asset.derivedFrom == null
         ? asset
-        : (_project.assets.where((a) => a.id == asset.derivedFrom).firstOrNull ??
+        : (_project.assets
+                  .where((a) => a.id == asset.derivedFrom)
+                  .firstOrNull ??
               asset);
     final saved = await Navigator.of(context).push<Project>(
       MaterialPageRoute(

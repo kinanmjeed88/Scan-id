@@ -57,7 +57,8 @@ class MultiDocumentCropScreen extends StatefulWidget {
   final ProjectService service;
 
   @override
-  State<MultiDocumentCropScreen> createState() => _MultiDocumentCropScreenState();
+  State<MultiDocumentCropScreen> createState() =>
+      _MultiDocumentCropScreenState();
 }
 
 class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
@@ -173,7 +174,10 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
       setState(() => _error = 'اختر مستمسكاً من القائمة أو أضف واحداً أولاً.');
       return;
     }
-    if (!viewport.containsScreen(local, tolerance: multiSelectionGrabRadiusPx)) {
+    if (!viewport.containsScreen(
+      local,
+      tolerance: multiSelectionGrabRadiusPx,
+    )) {
       setState(() => _error = 'النقطة خارج الصورة؛ اضغط داخل حدود الصورة.');
       return;
     }
@@ -199,8 +203,8 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
         _set = _set.addCorner(
           active.id,
           point,
-          minSeparation: multiSelectionMinSeparationPx /
-              viewport.displayedRect.width,
+          minSeparation:
+              multiSelectionMinSeparationPx / viewport.displayedRect.width,
         );
         _error = null;
         _notice = null;
@@ -253,9 +257,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     if (active == null) return;
     setState(() {
       // A category change must not keep a manual size measured for the old one.
-      _set = _set.replace(
-        active.copyWith(kind: kind, clearCustomSize: true),
-      );
+      _set = _set.replace(active.copyWith(kind: kind, clearCustomSize: true));
       _error = null;
     });
   }
@@ -431,12 +433,14 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
             if (details.pointerCount > 1) {
               // A pinch zooms and must never also move a corner.
               _dragCorner = null;
-              setState(() => _applyView(
-                viewport.scaledBy(
-                  details.scale,
-                  focus: details.localFocalPoint,
+              setState(
+                () => _applyView(
+                  viewport.scaledBy(
+                    details.scale,
+                    focus: details.localFocalPoint,
+                  ),
                 ),
-              ));
+              );
               return;
             }
             final origin = _gestureOrigin;
@@ -524,8 +528,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
             color: Colors.white,
             icon: const Icon(Icons.zoom_in),
             tooltip: 'تكبير',
-            onPressed: () =>
-                setState(() => _applyView(viewport.scaledBy(1.5))),
+            onPressed: () => setState(() => _applyView(viewport.scaledBy(1.5))),
           ),
           IconButton(
             key: const Key('multi-selection-zoom-out'),
@@ -572,9 +575,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
               ),
               TextButton(
                 key: const Key('multi-selection-undo-corner'),
-                onPressed: active.corners.isEmpty || _busy
-                    ? null
-                    : _undoCorner,
+                onPressed: active.corners.isEmpty || _busy ? null : _undoCorner,
                 child: const Text('تراجع'),
               ),
               TextButton(
@@ -614,10 +615,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
                   for (final kind in DocumentKind.values)
                     if (kind != DocumentKind.unknown &&
                         kind != DocumentKind.other)
-                      DropdownMenuItem(
-                        value: kind,
-                        child: Text(kind.label),
-                      ),
+                      DropdownMenuItem(value: kind, child: Text(kind.label)),
                 ],
               ),
               DropdownButton<SideKind>(

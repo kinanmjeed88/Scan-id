@@ -103,14 +103,8 @@ Widget _app(Project project, ProjectService service) => AppShell(
 /// photograph is actually drawn in. Using the canvas box instead would be wrong
 /// wherever the photograph is letterboxed inside it, and would make the test
 /// pass or fail for reasons the product does not have.
-Future<void> _tapNormalized(
-  WidgetTester tester,
-  double x,
-  double y,
-) async {
-  final rect = tester.getRect(
-    find.byKey(const Key('multi-selection-source')),
-  );
+Future<void> _tapNormalized(WidgetTester tester, double x, double y) async {
+  final rect = tester.getRect(find.byKey(const Key('multi-selection-source')));
   await tester.tapAt(
     Offset(rect.left + rect.width * x, rect.top + rect.height * y),
   );
@@ -295,7 +289,10 @@ void main() {
     );
     expect(apply.onPressed, isNull);
     // The active document states how many corners are still missing.
-    expect(find.byKey(const Key('multi-selection-selection-issue')), findsOneWidget);
+    expect(
+      find.byKey(const Key('multi-selection-selection-issue')),
+      findsOneWidget,
+    );
     expect(setup.editor.recipes, isEmpty);
   });
 

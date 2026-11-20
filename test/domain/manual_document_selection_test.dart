@@ -28,12 +28,15 @@ ManualDocumentSelection _selection(
 
 void main() {
   group('one selection', () {
-    test('an empty selection is incomplete and says how many corners it needs', () {
-      final empty = ManualDocumentSelection(id: 'a', corners: const []);
-      expect(empty.isComplete, isFalse);
-      expect(empty.issue, 'التحديد يحتاج 4 زاوية أخرى.');
-      expect(empty.validatedCorners, isNull);
-    });
+    test(
+      'an empty selection is incomplete and says how many corners it needs',
+      () {
+        final empty = ManualDocumentSelection(id: 'a', corners: const []);
+        expect(empty.isComplete, isFalse);
+        expect(empty.issue, 'التحديد يحتاج 4 زاوية أخرى.');
+        expect(empty.validatedCorners, isNull);
+      },
+    );
 
     test('tap order does not matter: corners are canonically ordered', () {
       // The same card tapped in a scrambled order must give the same ring.
@@ -64,20 +67,23 @@ void main() {
       expect(outside.issue, contains('خارج أبعاد الصورة'));
     });
 
-    test('a point inside the triangle of the other three is not a rectangle', () {
-      final folded = ManualDocumentSelection(
-        id: 'a',
-        corners: [
-          Point2(.1, .1),
-          Point2(.5, .1),
-          Point2(.5, .5),
-          Point2(.15, .15), // lies inside the triangle, so no convex ring
-        ],
-      );
-      expect(folded.isValid, isFalse);
-      expect(folded.validatedCorners, isNull);
-      expect(folded.issue, isNotNull);
-    });
+    test(
+      'a point inside the triangle of the other three is not a rectangle',
+      () {
+        final folded = ManualDocumentSelection(
+          id: 'a',
+          corners: [
+            Point2(.1, .1),
+            Point2(.5, .1),
+            Point2(.5, .5),
+            Point2(.15, .15), // lies inside the triangle, so no convex ring
+          ],
+        );
+        expect(folded.isValid, isFalse);
+        expect(folded.validatedCorners, isNull);
+        expect(folded.issue, isNotNull);
+      },
+    );
 
     test('a collapsed sliver is rejected instead of cropped to nothing', () {
       final sliver = ManualDocumentSelection(
@@ -114,9 +120,10 @@ void main() {
     });
 
     test('clearing the kind also drops a manual size measured for it', () {
-      final withSize = _selection('a', kind: DocumentKind.other).copyWith(
-        customSizeMm: const PhysicalSizeMm(105, 72),
-      );
+      final withSize = _selection(
+        'a',
+        kind: DocumentKind.other,
+      ).copyWith(customSizeMm: const PhysicalSizeMm(105, 72));
       expect(withSize.customSizeMm, isNotNull);
       final cleared = withSize.copyWith(
         kind: DocumentKind.unifiedNationalId,
@@ -143,9 +150,7 @@ void main() {
 
       // Changing one document's kind leaves the others exactly as they were.
       final before = set.byId('b')!;
-      set = set.replace(
-        set.byId('a')!.copyWith(kind: DocumentKind.passport),
-      );
+      set = set.replace(set.byId('a')!.copyWith(kind: DocumentKind.passport));
       expect(set.byId('a')!.kind, DocumentKind.passport);
       expect(set.byId('b')!.kind, before.kind);
       expect(set.byId('b')!.corners, before.corners);
@@ -189,25 +194,27 @@ void main() {
       );
     });
 
-    test('the tenth document is allowed; the eleventh is refused with the number', () {
-      var set = ManualSelectionSet.empty();
-      for (var i = 0; i < ManualSelectionSet.maxSelections; i++) {
-        set = set.add(
-          ManualDocumentSelection(id: 's$i', corners: const []),
-        );
-      }
-      expect(set.length, ManualSelectionSet.maxSelections);
-      expect(
-        () => set.add(ManualDocumentSelection(id: 'extra', corners: const [])),
-        throwsA(
-          isA<ValidationException>().having(
-            (e) => e.message,
-            'message',
-            ManualSelectionSet.atCapacityMessage,
+    test(
+      'the tenth document is allowed; the eleventh is refused with the number',
+      () {
+        var set = ManualSelectionSet.empty();
+        for (var i = 0; i < ManualSelectionSet.maxSelections; i++) {
+          set = set.add(ManualDocumentSelection(id: 's$i', corners: const []));
+        }
+        expect(set.length, ManualSelectionSet.maxSelections);
+        expect(
+          () =>
+              set.add(ManualDocumentSelection(id: 'extra', corners: const [])),
+          throwsA(
+            isA<ValidationException>().having(
+              (e) => e.message,
+              'message',
+              ManualSelectionSet.atCapacityMessage,
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('deleting one document leaves the rest intact and in order', () {
       var set = ManualSelectionSet.empty()
@@ -252,7 +259,10 @@ void main() {
 
     test('a duplicate id and an unknown id are refused', () {
       final set = ManualSelectionSet.empty().add(_selection('a'));
-      expect(() => set.add(_selection('a')), throwsA(isA<ValidationException>()));
+      expect(
+        () => set.add(_selection('a')),
+        throwsA(isA<ValidationException>()),
+      );
       expect(() => set.remove('missing'), throwsA(isA<ValidationException>()));
       expect(
         () => set.moveCorner('a', 9, Point2(.5, .5)),

@@ -127,8 +127,7 @@ class ImageViewport {
     if (!factor.isFinite || factor <= 0) return this;
     final next = (scale * factor).clamp(minScale, maxScale).toDouble();
     if (next == scale) return this;
-    final anchor =
-        focus ?? Offset(viewport.width / 2, viewport.height / 2);
+    final anchor = focus ?? Offset(viewport.width / 2, viewport.height / 2);
     final rect = displayedRect;
     if (rect.width <= 0 || rect.height <= 0) return _withScale(next);
     final u = (anchor.dx - rect.left) / rect.width;
@@ -173,9 +172,7 @@ class ImageViewport {
   /// was at the old centre near the new one. Used when the window is resized.
   ImageViewport resized(Size next) {
     if (next.width <= 0 || next.height <= 0) return this;
-    final centre = toImage(
-      Offset(viewport.width / 2, viewport.height / 2),
-    );
+    final centre = toImage(Offset(viewport.width / 2, viewport.height / 2));
     final fresh = ImageViewport(
       viewport: next,
       imageWidth: imageWidth,

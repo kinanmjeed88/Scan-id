@@ -406,7 +406,8 @@ class _FailingJourneyLog implements JourneyLog {
       saved.appendStageReport(report);
 
   @override
-  Future<List<IntakeStageReport>> readStageReports() => saved.readStageReports();
+  Future<List<IntakeStageReport>> readStageReports() =>
+      saved.readStageReports();
   @override
   Future<List<ImageJourney>> read() async => saved;
   @override
@@ -436,7 +437,8 @@ class _RecordingJourneyLog implements JourneyLog {
   Future<void> appendStageReport(IntakeStageReport report) =>
       inner.appendStageReport(report);
   @override
-  Future<List<IntakeStageReport>> readStageReports() => inner.readStageReports();
+  Future<List<IntakeStageReport>> readStageReports() =>
+      inner.readStageReports();
   @override
   Future<List<ImageJourney>> read() => inner.read();
   @override
@@ -460,7 +462,8 @@ class _FailAfterFirstLog implements JourneyLog {
   Future<void> appendStageReport(IntakeStageReport report) =>
       inner.appendStageReport(report);
   @override
-  Future<List<IntakeStageReport>> readStageReports() => inner.readStageReports();
+  Future<List<IntakeStageReport>> readStageReports() =>
+      inner.readStageReports();
   @override
   Future<List<ImageJourney>> read() => inner.read();
   @override

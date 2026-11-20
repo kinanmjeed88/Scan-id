@@ -286,8 +286,10 @@ class IntakeStageReport {
   final IntakeOptions? options;
 
   /// Images with at least one stage that failed.
-  List<IntakeStageLog> get failed =>
-      [for (final log in logs) if (log.hasFailure) log];
+  List<IntakeStageLog> get failed => [
+    for (final log in logs)
+      if (log.hasFailure) log,
+  ];
 
   /// One bounded line stating whether anything failed and, if so, where.
   String get headline {
@@ -339,7 +341,9 @@ class IntakeStageReport {
       if (assetId is! String || assetId.isEmpty) continue;
       final log = IntakeStageLog(
         assetId: assetId,
-        assetName: entry['assetName'] is String ? entry['assetName'] as String : '',
+        assetName: entry['assetName'] is String
+            ? entry['assetName'] as String
+            : '',
       );
       final steps = entry['steps'];
       if (steps is List) {

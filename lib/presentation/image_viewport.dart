@@ -28,7 +28,10 @@ class ImageViewport {
   }) {
     // require(), not assert(): an unusable box is a real error in release too,
     // and a bare assertion would vanish and let a bogus transform through.
-    require(viewport.width > 0 && viewport.height > 0, 'أبعاد العرض غير صالحة.');
+    require(
+      viewport.width > 0 && viewport.height > 0,
+      'أبعاد العرض غير صالحة.',
+    );
     require(imageWidth > 0 && imageHeight > 0, 'أبعاد الصورة غير صالحة.');
     require(
       scale.isFinite && scale >= minScale && scale <= maxScale,

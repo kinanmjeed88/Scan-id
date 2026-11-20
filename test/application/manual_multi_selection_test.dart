@@ -200,7 +200,10 @@ void main() {
     expect(_brightFraction(img.encodePng(rectified)), greaterThan(.9));
     // The card's own corners survive: the extreme corners of the output are
     // blended edge, its middle is solid card.
-    final middle = rectified.getPixel(rectified.width ~/ 2, rectified.height ~/ 2);
+    final middle = rectified.getPixel(
+      rectified.width ~/ 2,
+      rectified.height ~/ 2,
+    );
     expect(middle.r, greaterThan(200));
   });
 

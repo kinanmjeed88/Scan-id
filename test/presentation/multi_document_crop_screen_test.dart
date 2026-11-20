@@ -90,6 +90,13 @@ Future<_Setup> _setup() async {
   );
 }
 
+/// Whatever the screen is telling the person, for use as a failure reason.
+String _bannerText(WidgetTester tester) {
+  final banner = find.byKey(const Key('multi-selection-error'));
+  if (banner.evaluate().isEmpty) return 'no error banner';
+  return 'banner: ${tester.widget<Text>(banner).data}';
+}
+
 Widget _app(Project project, ProjectService service) => AppShell(
   home: MultiDocumentCropScreen(
     project: project,
@@ -190,7 +197,9 @@ void main() {
     expect(find.byKey(const Key('multi-selection-row-sel-0')), findsOneWidget);
 
     // The second keeps its own default category; the first kept the chosen one.
-    expect(find.text(DocumentKind.passport.label), findsOneWidget);
+    // The row subtitle is one combined string, so the category is matched as a
+    // substring of it rather than as a standalone label.
+    expect(find.textContaining(DocumentKind.passport.label), findsOneWidget);
     expect(find.textContaining('2 جاهز'), findsOneWidget);
   });
 
@@ -216,8 +225,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // Two rectangles were rendered, and two assets were imported through the
-    // normal repository.
-    expect(setup.editor.recipes, hasLength(2));
+    // normal repository. The banner text is part of the failure message: without
+    // it a short count says nothing about which step refused the crop.
+    expect(
+      setup.editor.recipes,
+      hasLength(2),
+      reason: _bannerText(tester),
+    );
     expect(setup.assets.names, hasLength(2));
     // The first crop is the first card's own corners, within a tap of them.
     final first = setup.editor.recipes[0].geometry.corners;

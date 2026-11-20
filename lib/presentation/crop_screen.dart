@@ -20,23 +20,15 @@ import '../domain/project.dart';
 import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
 import '../imaging/prepare_image.dart';
-import 'boundary_handle.dart';
-import 'boundary_hit_layer.dart';
-import 'crop_loupe.dart';
+import 'crop_boundary_canvas.dart';
 import 'shared.dart';
 import 'shortcuts.dart';
 
-/// Shown when a drag would make two opposite edges cross. The move is refused.
-const _cornerCrossingMessage =
-    'زوايا القص تتقاطع؛ أبقيت آخر موضع صالح للزاوية.';
+export 'crop_boundary_canvas.dart' show manualTapMinSeparationPx;
 
 /// New manual crop drafts start at the midpoint of the existing 0–1 sharpness
 /// control. It is preview-only: the original stays unchanged until acceptance.
 const initialManualCropSharpness = .5;
-
-/// Taps closer than this many screen pixels to an already placed tap are
-/// ignored. It only removes accidental double taps; it is not a detection rule.
-const manualTapMinSeparationPx = 20.0;
 
 class CropScreen extends StatefulWidget {
   const CropScreen({
@@ -208,7 +200,6 @@ Future<bool> _hasDecodablePreview(
 );
 
 class _CropScreenState extends State<CropScreen> {
-  final _canvasKey = GlobalKey();
   final _view = TransformationController();
   final _customWidthController = TextEditingController();
   final _customHeightController = TextEditingController();
@@ -236,11 +227,6 @@ class _CropScreenState extends State<CropScreen> {
   /// Whether the fallback gate is set on the current state.
   bool get _manualRequired => _state?.manualRequired ?? false;
   bool _cornerDragMoved = false;
-  // Non-null only while a corner or an edge is being dragged. The loupe reads
-  // these directly; they carry no persistence or undo semantics.
-  BoundaryHandle? _activeDragHandle;
-  Offset? _dragLastLocal;
-  Point2? _loupeFocus;
   // Non-null only while the user places corners by tapping. Partial taps are
   // not undo entries; the completed quadrilateral is one history entry.
   ManualQuadSelection? _tapSelection;
@@ -412,7 +398,6 @@ class _CropScreenState extends State<CropScreen> {
     _error = null;
     _sizeError = null;
     _proposalNotice = null;
-    _clearDragState();
     _busy = true;
     _busyCancelable = true;
     _dirty = false;
@@ -529,7 +514,6 @@ class _CropScreenState extends State<CropScreen> {
         _history = history;
         _state = activeState;
         _sizeError = null;
-        _clearDragState();
         _reviewDrafts.clear();
         if (proposed != null) _rememberReviewDraft(activeState.draft);
         _tapSelection = null;
@@ -679,7 +663,6 @@ class _CropScreenState extends State<CropScreen> {
 
   void _commitState(_CropEditorState next) {
     _coalescedCustomField = null;
-    _clearDragState();
     _sizeError = null;
     _history!.record(next);
     _syncControllerText(_customWidthController, next.customWidthText);
@@ -1426,115 +1409,35 @@ class _CropScreenState extends State<CropScreen> {
                   ),
                 ),
               )
-            : ClipRect(
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: LayoutBuilder(
-                    builder: (context, box) {
-                      final ratio = _source!.width / _source!.height;
-                      final availableWidth = math.max(
-                        1.0,
-                        box.maxWidth - boundaryCanvasInsetPx * 2,
-                      );
-                      final availableHeight = math.max(
-                        1.0,
-                        box.maxHeight - boundaryCanvasInsetPx * 2,
-                      );
-                      final width = math.min(
-                        availableWidth,
-                        availableHeight * ratio,
-                      );
-                      final height = width / ratio;
-                      return Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned.fill(
-                            child: Center(
-                              child: InteractiveViewer(
-                                transformationController: _view,
-                                minScale: 1,
-                                maxScale: 5,
-                                clipBehavior: Clip.none,
-                                child: SizedBox(
-                                  // The hit-test box includes the entire corner handles,
-                                  // not just the image. Clip.none alone only expands paint.
-                                  width: width + boundaryCanvasInsetPx * 2,
-                                  height: height + boundaryCanvasInsetPx * 2,
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      Positioned(
-                                        left: boundaryCanvasInsetPx,
-                                        top: boundaryCanvasInsetPx,
-                                        width: width,
-                                        height: height,
-                                        child: SizedBox(
-                                          key: _canvasKey,
-                                          child: Stack(
-                                            children: [
-                                              Positioned.fill(
-                                                child: Image.memory(
-                                                  _source!.preview,
-                                                  key: const Key(
-                                                    'crop-source-image',
-                                                  ),
-                                                  fit: BoxFit.fill,
-                                                ),
-                                              ),
-                                              Positioned.fill(
-                                                child: IgnorePointer(
-                                                  child: CustomPaint(
-                                                    painter: _CropPainter(
-                                                      _draft!.corners,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      ..._tapLayer(width, height),
-                                      ..._cornerHandles(width, height),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_activeDragHandle != null &&
-                              _loupeFocus != null &&
-                              _source != null)
-                            Positioned.fill(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Align(
-                                  key: const Key('crop-loupe-alignment'),
-                                  alignment: cropLoupeAlignment(_loupeFocus!),
-                                  child: IgnorePointer(
-                                    child: ValueListenableBuilder<Matrix4>(
-                                      valueListenable: _view,
-                                      builder: (context, matrix, _) =>
-                                          CropPrecisionLoupe(
-                                            key: const Key(
-                                              'crop-precision-loupe',
-                                            ),
-                                            preview: _source!.preview,
-                                            corners: _draft!.corners,
-                                            focus: _loupeFocus!,
-                                            canvasSize: Size(width, height),
-                                            zoom: matrix.getMaxScaleOnAxis(),
-                                          ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+            : CropBoundaryCanvas(
+                source: _source!,
+                view: _view,
+                corners: _draft!.corners,
+                taps: _tapSelection?.points,
+                busy: _busy,
+                onTap: (p, separation) =>
+                    _addManualTap(p, minSeparation: separation),
+                onMove: (points) {
+                  final current = _draft!;
+                  _cornerDragMoved = true;
+                  setState(() {
+                    _coalescedCustomField = null;
+                    _state = _state!.copyWith(
+                      draft: CropDraft(
+                        corners: points,
+                        adjustments: current.adjustments,
+                        aspectRatio: current.aspectRatio,
+                      ),
+                    );
+                    _clearPreview();
+                    _dirty = true;
+                    _error = null;
+                  });
+                },
+                onRefused: () => setState(() => _error = cornerCrossingMessage),
+                onDragStart: () => _cornerDragMoved = false,
+                onDragEnd: _endHandleDrag,
+                onDragCancel: _cancelHandleDrag,
               ),
       ),
     ],
@@ -1547,18 +1450,6 @@ class _CropScreenState extends State<CropScreen> {
           ? ManualQuadSelection.empty()
           : null;
     });
-  }
-
-  void _tapCanvas(Offset global, double width, double height) {
-    final render = _canvasKey.currentContext!.findRenderObject()! as RenderBox;
-    final local = render.globalToLocal(global);
-    _addManualTap(
-      Point2(
-        (local.dx / width).clamp(0, 1).toDouble(),
-        (local.dy / height).clamp(0, 1).toDouble(),
-      ),
-      minSeparation: manualTapMinSeparationPx / width,
-    );
   }
 
   /// Adds one tap. Completing four valid taps commits one history entry.
@@ -1601,226 +1492,21 @@ class _CropScreenState extends State<CropScreen> {
     );
   }
 
-  void _moveHandle(
-    BoundaryHandle handle,
-    Offset global,
-    double width,
-    double height,
-  ) {
-    final render = _canvasKey.currentContext!.findRenderObject()! as RenderBox;
-    final local = render.globalToLocal(global);
-    final focus = Point2(
-      (local.dx / width).clamp(0.0, 1.0),
-      (local.dy / height).clamp(0.0, 1.0),
-    );
-    final current = _draft!;
-    final List<Point2> nextCorners;
-    if (handle is CornerHandle) {
-      final next = current.withCorner(handle.index, focus);
-      nextCorners = [...next.corners];
-    } else {
-      // An EDGE drag moves both of its endpoints by the same incremental
-      // delta, preserving the edge's direction and length. The first update
-      // only records the anchor, which also makes a stationary press on the
-      // line harmless.
-      final last = _dragLastLocal;
-      if (last == null) {
-        _dragLastLocal = local;
-        return;
-      }
-      final dx = (local.dx - last.dx) / width;
-      final dy = (local.dy - last.dy) / height;
-      // Advance the anchor even when the resulting quad is refused, so a
-      // blocked step never accumulates into a jump on the next update.
-      _dragLastLocal = local;
-      if (dx == 0 && dy == 0) return;
-      final ends = edgeCorners(handle.index);
-      final corners = [...current.corners];
-      for (final index in [ends.first, ends.second]) {
-        final point = corners[index];
-        corners[index] = Point2(
-          (point.x + dx).clamp(0.0, 1.0),
-          (point.y + dy).clamp(0.0, 1.0),
-        );
-      }
-      nextCorners = corners;
-    }
-    final next = CropDraft(
-      corners: nextCorners,
-      adjustments: current.adjustments,
-      aspectRatio: current.aspectRatio,
-    );
-    if (quadEdgesCross(next.corners)) {
-      // Drag-time gate (UI only): the boundary stays at its last valid shape.
-      if (_error != _cornerCrossingMessage) {
-        setState(() => _error = _cornerCrossingMessage);
-      }
-      return;
-    }
-    _cornerDragMoved = true;
-    // The fallback gate and the status line stay as they are during the
-    // gesture; the drag end lifts the gate (see _endHandleDrag).
-    setState(() {
-      _coalescedCustomField = null;
-      _state = _state!.copyWith(draft: next);
-      _loupeFocus = focus;
-      _clearPreview();
-      _dirty = true;
-      _error = null;
-    });
-  }
-
-  void _clearDragState() {
-    _activeDragHandle = null;
-    _dragLastLocal = null;
-    _loupeFocus = null;
-  }
-
   void _endHandleDrag() {
     final moved = _cornerDragMoved;
-    _clearDragState();
     if (!moved) return;
     // Commit only when the boundary really moved: a fully refused drag must
     // not add an undo step.
-    final keepNotice = _error == _cornerCrossingMessage;
+    final keepNotice = _error == cornerCrossingMessage;
     _change(_draft!, clearManualRequired: true);
-    if (keepNotice) setState(() => _error = _cornerCrossingMessage);
+    if (keepNotice) setState(() => _error = cornerCrossingMessage);
   }
 
   void _cancelHandleDrag() {
-    _clearDragState();
     setState(() {
       _coalescedCustomField = null;
       _state = _history!.current;
     });
-  }
-
-  /// Tap-mode layer: a surface that receives taps, plus markers for the taps
-  /// placed so far. Outside tap mode it contributes nothing.
-  List<Widget> _tapLayer(double width, double height) {
-    final selection = _tapSelection;
-    if (selection == null) return const [];
-    return [
-      Positioned(
-        left: boundaryCanvasInsetPx,
-        top: boundaryCanvasInsetPx,
-        width: width,
-        height: height,
-        child: GestureDetector(
-          key: const Key('crop-tap-surface'),
-          behavior: HitTestBehavior.opaque,
-          onTapUp: _busy
-              ? null
-              : (details) {
-                  _tapCanvas(details.globalPosition, width, height);
-                },
-          child: const SizedBox.expand(),
-        ),
-      ),
-      for (var i = 0; i < selection.points.length; i++)
-        Positioned(
-          left: boundaryCanvasInsetPx + selection.points[i].x * width - 12.0,
-          top: boundaryCanvasInsetPx + selection.points[i].y * height - 12.0,
-          child: _ScreenFixedSize(controller: _view, child: _tapMarker(i)),
-        ),
-    ];
-  }
-
-  /// The four draggable corners. Hidden in tap mode, where no corner exists
-  /// until the fourth tap completes the quadrilateral.
-  ///
-  /// P6: the corners are visual only (IgnorePointer). Hits come from ONE
-  /// geometric layer placed last, which selects the nearest corner inside a
-  /// 32 px screen radius, otherwise the nearest edge inside an 18 px band,
-  /// and lets the viewer pan everywhere else.
-  List<Widget> _cornerHandles(double width, double height) {
-    if (_tapSelection != null) return const [];
-    final corners = _draft!.corners;
-    return [
-      for (var i = 0; i < 4; i++)
-        Positioned(
-          left: boundaryCanvasInsetPx + corners[i].x * width - 20,
-          top: boundaryCanvasInsetPx + corners[i].y * height - 20,
-          child: _ScreenFixedSize(
-            controller: _view,
-            child: IgnorePointer(child: _cornerVisual(i)),
-          ),
-        ),
-      Positioned.fill(
-        child: BoundaryHitLayer(
-          corners: corners,
-          canvasSize: Size(width, height),
-          inset: boundaryCanvasInsetPx,
-          zoom: () => _view.value.getMaxScaleOnAxis(),
-          onDragStart: (handle) {
-            _cornerDragMoved = false;
-            _activeDragHandle = handle;
-            _dragLastLocal = null;
-            _loupeFocus = null;
-          },
-          onDragUpdate: (handle, global) {
-            if (_busy) return;
-            _moveHandle(handle, global, width, height);
-          },
-          onDragEnd: (_) {
-            if (_busy) return;
-            _endHandleDrag();
-          },
-          onDragCancel: (_) {
-            if (_busy) return;
-            _cornerDragMoved = false;
-            _cancelHandleDrag();
-          },
-        ),
-      ),
-    ];
-  }
-
-  /// Visual of one corner. Its centre sits on the corner; the wrapper keeps the
-  /// visible size constant under zoom. Input is handled by the hit layer.
-  Widget _cornerVisual(int i) {
-    return Semantics(
-      label: 'زاوية القص ${i + 1}',
-      child: Container(
-        key: Key('crop-corner-$i'),
-        width: 40,
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xff12685e),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2),
-        ),
-        child: Text(
-          '${i + 1}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _tapMarker(int i) {
-    return Container(
-      key: Key('crop-tap-$i'),
-      width: 24,
-      height: 24,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xff12685e),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 2),
-      ),
-      child: Text(
-        '${i + 1}',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
   }
 
   Widget _tools() {
@@ -2139,74 +1825,6 @@ class _CropScreenState extends State<CropScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CropPainter extends CustomPainter {
-  const _CropPainter(this.points);
-  final List<Point2> points;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(points[0].x * size.width, points[0].y * size.height);
-    for (final p in points.skip(1)) {
-      path.lineTo(p.x * size.width, p.y * size.height);
-    }
-    path.close();
-    canvas.drawPath(
-      path,
-      Paint()..color = const Color(0xff12685e).withValues(alpha: .15),
-    );
-    // A wide translucent band makes it clear that the WHOLE edge is draggable,
-    // not just the four numbered circles.
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = const Color(0xff12685e).withValues(alpha: .18)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 12,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = const Color(0xff12685e)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CropPainter oldDelegate) =>
-      !identical(oldDelegate.points, points);
-}
-
-/// Keeps its child at a constant on-screen size inside an [InteractiveViewer]
-/// by cancelling the viewer's current scale around the child's centre.
-class _ScreenFixedSize extends StatelessWidget {
-  const _ScreenFixedSize({required this.controller, required this.child});
-
-  final TransformationController controller;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: controller,
-      builder: (context, matrix, child) {
-        return Transform.scale(
-          scale: 1 / math.max(1, matrix.getMaxScaleOnAxis()),
-          child: child,
-        );
-      },
-      child: child,
     );
   }
 }

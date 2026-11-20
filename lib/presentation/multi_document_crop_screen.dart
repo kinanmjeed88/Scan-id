@@ -15,25 +15,12 @@ import '../domain/manual_document_selection.dart';
 import '../domain/project.dart';
 import '../domain/recognition.dart';
 import '../domain/validation.dart';
-import 'image_viewport.dart';
+import 'crop_boundary_canvas.dart';
+import 'crop_screen.dart' show initialManualCropSharpness;
+import 'side_partner_field.dart';
+import '../domain/manual_classification.dart';
+import '../application/ids.dart';
 import 'shared.dart';
-
-/// The fallback sharpness the single-document manual path also starts from, so a
-/// document cropped here and one cropped there come out alike.
-const double multiSelectionSharpness = .5;
-
-/// The minimum gap, in screen pixels, between two corners. It removes accidental
-/// double taps only; it is not a detection rule, and it is measured through
-/// [ImageViewport.screenDistance] so it scales with the zoom the person sees.
-const double multiSelectionMinSeparationPx = 20.0;
-
-/// The radius, in screen pixels, for grabbing an existing corner.
-const double multiSelectionGrabRadiusPx = 28.0;
-
-/// How far a single pointer may travel and still count as a tap. Beyond this it
-/// is a pan or a corner drag: 10 px is comfortably larger than a steady finger
-/// wobble and far smaller than any deliberate move.
-const double _tapSlopPx = 10;
 
 /// Outlines several documents in ONE photograph and adds each as its own
 /// document.
@@ -81,25 +68,17 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   String? _error;
   String? _notice;
 
-  /// Zoom. The pan is stored as the image point pinned to the centre of the
-  /// workspace instead of as a pixel offset, so a rotation, a resize or the
-  /// options panel changing height cannot move the person's place.
-  double _scale = ImageViewport.minScale;
-  Point2? _centre;
-
-  /// Gesture bookkeeping: which corner a drag grabbed, and whether the pointer
-  /// has moved far enough to be a pan rather than a tap.
-  int? _dragCorner;
-  Offset? _pressAt;
-  bool _gestureMoved = false;
-
-  /// Where every finger currently is, by pointer id. Two fingers are a pinch;
-  /// one finger is a pan, a corner drag, or a tap.
-  final Map<int, Offset> _pointers = {};
-
-  /// The previous two-finger distance, so a pinch zooms by the RATIO between
-  /// moves rather than from a recogniser's internal baseline.
-  double? _pinchSpan;
+  final _view = TransformationController();
+  ManualDocumentSelection? _beforeDrag;
+  // UI row IDs survive edits; reserve actual layout IDs so that pairing a
+  // pending face needs neither positional lookup nor a placeholder record.
+  final _itemIds = <String, String>{};
+  final _partners = <String, String>{};
+  @override
+  void dispose() {
+    _view.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -122,6 +101,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
             durationMs: clock.elapsedMilliseconds,
           );
       setState(() {
+        _appendSelection();
         _source = source;
         _loading = false;
       });
@@ -141,45 +121,21 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     }
   }
 
-  /// The viewport for this box, derived purely from the zoom and the pinned
-  /// centre. Nothing here depends on the previous box size.
-  ImageViewport _viewport(Size box) {
-    final source = _source!;
-    final base = ImageViewport(
-      viewport: box,
-      imageWidth: source.width.toDouble(),
-      imageHeight: source.height.toDouble(),
-      scale: _scale,
-    );
-    final centre = _centre;
-    if (centre == null) return base;
-    final target = Offset(box.width / 2, box.height / 2);
-    final current = base.toScreen(centre);
-    return base.translatedBy(target - current);
-  }
-
-  void _applyView(ImageViewport next) {
-    _scale = next.scale;
-    _centre = next.toImage(
-      Offset(next.viewport.width / 2, next.viewport.height / 2),
-    );
-  }
-
-  void _addSelection() {
+  void _addSelection() => setState(_appendSelection);
+  void _appendSelection() {
     final id = 'sel-${_nextId++}';
-    setState(() {
-      _set = _set.add(
-        ManualDocumentSelection(
-          id: id,
-          corners: const [],
-          kind: widget.options?.kind ?? DocumentKind.unknown,
-          side: widget.options?.side ?? SideKind.unknown,
-        ),
-      );
-      _activeId = id;
-      _error = null;
-      _notice = null;
-    });
+    _itemIds[id] = newId();
+    _set = _set.add(
+      ManualDocumentSelection(
+        id: id,
+        corners: const [],
+        kind: widget.options?.kind ?? DocumentKind.unknown,
+        side: widget.options?.side ?? SideKind.unknown,
+      ),
+    );
+    _activeId = id;
+    _error = null;
+    _notice = null;
   }
 
   void _select(String id) => setState(() {
@@ -189,6 +145,8 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
 
   void _delete(String id) {
     setState(() {
+      _forgetPartner(id);
+      _itemIds.remove(id);
       _set = _set.remove(id);
       if (_activeId == id) {
         _activeId = _set.isEmpty ? null : _set.selections.last.id;
@@ -200,47 +158,11 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   ManualDocumentSelection? get _active =>
       _activeId == null ? null : _set.byId(_activeId!);
 
-  /// Places a new corner, or moves the grabbed one. Every rejection becomes a
-  /// message rather than a silent no-op: a corner that «just did not appear» is
-  /// the worst possible outcome for someone outlining a document by hand.
-  void _placePoint(ImageViewport viewport, Offset local) {
-    final active = _active;
-    if (active == null) {
-      setState(() => _error = 'اختر مستمسكاً من القائمة أو أضف واحداً أولاً.');
-      return;
-    }
-    if (!viewport.containsScreen(
-      local,
-      tolerance: multiSelectionGrabRadiusPx,
-    )) {
-      setState(() => _error = 'النقطة خارج الصورة؛ اضغط داخل حدود الصورة.');
-      return;
-    }
-    final point = viewport.toImage(local);
-    final grabbed = _dragCorner;
+  void _changeBoundary(ManualSelectionSet Function() change) {
     try {
-      if (grabbed != null) {
-        setState(() {
-          _set = _set.moveCorner(active.id, grabbed, point);
-          _error = null;
-        });
-        return;
-      }
-      if (active.isComplete) {
-        setState(() {
-          _error =
-              'المستمسك «${_labelFor(active.id)}» مكتمل. '
-              'اسحب إحدى زواياه لتعديلها، أو أضف مستمسكاً جديداً.';
-        });
-        return;
-      }
+      final next = change();
       setState(() {
-        _set = _set.addCorner(
-          active.id,
-          point,
-          minSeparation:
-              multiSelectionMinSeparationPx / viewport.displayedRect.width,
-        );
+        _set = next;
         _error = null;
         _notice = null;
       });
@@ -249,38 +171,43 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     }
   }
 
-  /// Distance between the two fingers, or null when there are not exactly two.
-  double? get _twoFingerSpan {
-    if (_pointers.length != 2) return null;
-    final positions = _pointers.values.toList();
-    return (positions[0] - positions[1]).distance;
-  }
-
-  /// The midpoint between the two fingers, which is the point a pinch zooms
-  /// about.
-  Offset get _twoFingerFocus {
-    final positions = _pointers.values.toList();
-    return Offset(
-      (positions[0].dx + positions[1].dx) / 2,
-      (positions[0].dy + positions[1].dy) / 2,
-    );
-  }
-
-  /// The nearest corner of the active selection to [local], within the grab
-  /// radius. Returns its index so a drag moves exactly one point.
-  int? _cornerAt(ImageViewport viewport, Offset local) {
-    final active = _active;
-    if (active == null) return null;
-    int? best;
-    var bestDistance = double.infinity;
-    for (var i = 0; i < active.corners.length; i++) {
-      final distance = (viewport.toScreen(active.corners[i]) - local).distance;
-      if (distance <= multiSelectionGrabRadiusPx && distance < bestDistance) {
-        bestDistance = distance;
-        best = i;
-      }
+  void _forgetPartner(String id) => _partners.removeWhere(
+    (owner, target) => owner == id || target == _itemIds[id],
+  );
+  bool _canConfirm(ManualDocumentSelection selection) =>
+      selection.customSizeMm != null ||
+      (widget.project.catalog.natural(selection.kind) != null &&
+          documentSizeRecordFor(selection.kind).mayBeConfirmedAutomatically);
+  Map<String, String> _candidates(ManualDocumentSelection active) {
+    final project = _saved ?? widget.project;
+    if (!_canConfirm(active) ||
+        active.side == SideKind.unknown ||
+        _partners.containsValue(_itemIds[active.id])) {
+      return {};
     }
-    return best;
+    final reserved = {
+      for (final entry in _partners.entries)
+        if (entry.key != active.id) entry.value,
+    };
+    return {
+      for (final item in matchingManualSidePartners(
+        project,
+        kind: active.kind,
+        side: active.side,
+        draftSourceId: widget.asset.id,
+        draftCorners: active.validatedCorners,
+      ))
+        if (!reserved.contains(item.id))
+          item.id: manualPartnerLabel(project, item),
+      for (final other in _set.selections)
+        if (other.isValid &&
+            _canConfirm(other) &&
+            other.kind == active.kind &&
+            oppositeManualSides(other.side, active.side) &&
+            !_partners.containsKey(other.id) &&
+            !reserved.contains(_itemIds[other.id]))
+          _itemIds[other.id]!: _labelFor(other.id),
+    };
   }
 
   void _undoCorner() {
@@ -306,9 +233,10 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
 
   void _setKind(DocumentKind kind) {
     final active = _active;
-    if (active == null) return;
+    if (active == null || active.kind == kind) return;
     setState(() {
       // A category change must not keep a manual size measured for the old one.
+      _forgetPartner(active.id);
       _set = _set.replace(active.copyWith(kind: kind, clearCustomSize: true));
       _error = null;
     });
@@ -316,8 +244,11 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
 
   void _setSide(SideKind side) {
     final active = _active;
-    if (active == null) return;
-    setState(() => _set = _set.replace(active.copyWith(side: side)));
+    if (active == null || active.side == side) return;
+    setState(() {
+      _forgetPartner(active.id);
+      _set = _set.replace(active.copyWith(side: side));
+    });
   }
 
   /// Crops every selection through the existing derived-document path.
@@ -351,7 +282,15 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
       );
     }
     final failures = <String>[];
-    for (final selection in _set.selections) {
+    // Link only to a committed target. A failed target leaves its dependent
+    // retryable; unrelated successful documents stay committed.
+    final ordered = [
+      for (final s in _set.selections)
+        if (!_partners.containsKey(s.id)) s,
+      for (final s in _set.selections)
+        if (_partners.containsKey(s.id)) s,
+    ];
+    for (final selection in ordered) {
       final key = '${widget.asset.id}-${selection.id}';
       final log = widget.stageLog?.forAsset(key, name: selection.id);
       try {
@@ -359,7 +298,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
         require(ring != null, 'التحديد «${_labelFor(selection.id)}» غير صالح.');
         final recipe = CropDraft(
           corners: ring!,
-          adjustments: ImageAdjustments(sharpness: multiSelectionSharpness),
+          adjustments: ImageAdjustments(sharpness: initialManualCropSharpness),
         ).toRecipe(source.width, source.height);
         project = await widget.service.extractManualDerivedDocument(
           project,
@@ -367,6 +306,8 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           recipe,
           documentKind: selection.kindForExtraction,
           side: selection.side,
+          reservedItemId: _itemIds[selection.id],
+          partnerItemId: _partners[selection.id],
           stages: log,
           keepPlaced: true,
           customSizeMm: selection.customSizeMm,
@@ -374,6 +315,8 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           sourceHeight: source.height,
         );
         _saved = project;
+        _partners.remove(selection.id);
+        _itemIds.remove(selection.id);
         _set = _set.remove(selection.id);
       } catch (error) {
         failures.add('${_labelFor(selection.id)}: ${userError(error)}');
@@ -403,10 +346,20 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     return index < 0 ? id : 'المستمسك ${index + 1}';
   }
 
+  bool get _untouched =>
+      _set.isEmpty ||
+      (_set.length == 1 &&
+          _set.selections.single.corners.isEmpty &&
+          _partners.isEmpty &&
+          _set.selections.single.kind ==
+              (widget.options?.kind ?? DocumentKind.unknown) &&
+          _set.selections.single.side ==
+              (widget.options?.side ?? SideKind.unknown));
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_busy && _set.isEmpty && _saved == null,
+      canPop: !_busy && _untouched && _saved == null,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop || _busy) return;
         final discard = await confirm(
@@ -487,161 +440,83 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
   }
 
   Widget _canvasArea() {
-    return LayoutBuilder(
-      builder: (context, box) {
-        final viewport = _viewport(Size(box.maxWidth, box.maxHeight));
-        // Raw pointer tracking, not competing gesture recognisers.
-        //
-        // A tap must place a corner and a drag must pan or move one, with no
-        // arena deciding between them after the fact — that ambiguity is exactly
-        // how a tap silently became a two-pixel pan. Here the intent is decided
-        // once: a second finger is always a pinch, and a move of more than
-        // [_tapSlopPx] is always a pan or a corner drag.
-        return Listener(
-          key: const Key('multi-selection-canvas'),
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (event) {
-            _pointers[event.pointer] = event.localPosition;
-            _pressAt = event.localPosition;
-            _gestureMoved = false;
-            _pinchSpan = _twoFingerSpan;
-            // A second finger means the person is zooming, so no corner is held.
-            _dragCorner = _pointers.length == 1
-                ? _cornerAt(viewport, event.localPosition)
-                : null;
-          },
-          onPointerMove: (event) {
-            final known = _pointers.containsKey(event.pointer);
-            _pointers[event.pointer] = event.localPosition;
-            final origin = _pressAt;
-            if (origin != null &&
-                (event.localPosition - origin).distance > _tapSlopPx) {
-              _gestureMoved = true;
-            }
-            if (_pointers.length >= 2) {
-              final previous = _pinchSpan;
-              final span = _pinchSpan = _twoFingerSpan;
-              if (known && previous != null && span != null && previous > 0) {
-                setState(
-                  () => _applyView(
-                    viewport.scaledBy(span / previous, focus: _twoFingerFocus),
+    final active = _active;
+    final ring = active?.validatedCorners;
+    return Stack(
+      key: const Key('multi-selection-canvas'),
+      children: [
+        Positioned.fill(
+          child: CropBoundaryCanvas(
+            key: ValueKey(_activeId),
+            source: _source!,
+            view: _view,
+            imageKey: const Key('multi-selection-source'),
+            corners: ring ?? const [],
+            taps: active != null && ring == null ? active.corners : null,
+            backgrounds: {
+              for (final (i, s) in _set.selections.indexed)
+                if (s.id != _activeId) i + 1: s.validatedCorners ?? s.corners,
+            },
+            onTap: (point, separation) {
+              if (active != null) {
+                _changeBoundary(
+                  () => _set.addCorner(
+                    active.id,
+                    point,
+                    minSeparation: separation,
                   ),
                 );
               }
-              return;
-            }
-            setState(() {
-              final grabbed = _dragCorner;
-              if (grabbed != null) {
-                final active = _active;
-                if (active == null) return;
-                try {
-                  _set = _set.moveCorner(
-                    active.id,
-                    grabbed,
-                    viewport.toImage(event.localPosition),
+            },
+            onMove: (points) {
+              if (active != null) {
+                _changeBoundary(() {
+                  require(
+                    normalizedQuadIssue(points) == null,
+                    'حدود غير صالحة؛ أبقيت آخر موضع صالح.',
                   );
-                  _error = null;
-                } on ValidationException catch (error) {
-                  // Refused at the last good position, with the reason stated.
-                  _error = error.message;
-                }
-              } else {
-                _applyView(viewport.translatedBy(event.localDelta));
+                  return _set.replace(active.copyWith(corners: points));
+                });
               }
-            });
-          },
-          onPointerUp: (event) {
-            final wasTap = !_gestureMoved && _pointers.length == 1;
-            final grabbed = _dragCorner;
-            _pointers.remove(event.pointer);
-            _pressAt = null;
-            _pinchSpan = null;
-            _dragCorner = null;
-            _gestureMoved = false;
-            if (wasTap && grabbed == null) {
-              _placePoint(viewport, event.localPosition);
-            }
-          },
-          onPointerCancel: (event) {
-            _pointers.remove(event.pointer);
-            _pressAt = null;
-            _pinchSpan = null;
-            _dragCorner = null;
-            _gestureMoved = false;
-          },
-          child: ClipRect(
-            child: Stack(
-              children: [
-                // The photograph is drawn exactly where the viewport says it is,
-                // NOT stretched to the box: a stretched image would put the
-                // pixels somewhere other than the coordinates taps are converted
-                // into, and every corner would land slightly wrong.
-                Positioned.fromRect(
-                  rect: viewport.displayedRect,
-                  child: Image.memory(
-                    _source!.preview,
-                    key: const Key('multi-selection-source'),
-                    fit: BoxFit.fill,
-                    filterQuality: FilterQuality.medium,
-                  ),
+            },
+            onDragStart: () => _beforeDrag = active,
+            onDragCancel: () {
+              if (_beforeDrag case final before?) {
+                _changeBoundary(() => _set.replace(before));
+              }
+            },
+            onRefused: () => setState(() => _error = cornerCrossingMessage),
+          ),
+        ),
+        Positioned(
+          left: 4,
+          top: 4,
+          child: Row(
+            children: [
+              for (final (key, icon, label, factor) in [
+                ('in', Icons.zoom_in, 'تكبير', 1.5),
+                ('out', Icons.zoom_out, 'تصغير', 1 / 1.5),
+                ('reset', Icons.fit_screen, 'عرض الصورة كاملة', 0.0),
+              ])
+                IconButton(
+                  key: Key('multi-selection-zoom-$key'),
+                  tooltip: label,
+                  icon: Icon(icon),
+                  onPressed: () {
+                    final scale = _view.value.getMaxScaleOnAxis();
+                    if (factor == 0) {
+                      _view.value = Matrix4.identity();
+                    } else {
+                      final zoom = (scale * factor).clamp(1.0, 5.0) / scale;
+                      _view.value = _view.value.clone()
+                        ..scaleByDouble(zoom, zoom, 1, 1);
+                    }
+                  },
                 ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: CustomPaint(
-                      painter: _SelectionPainter(
-                        selections: _set.selections,
-                        activeId: _activeId,
-                        viewport: viewport,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(left: 8, top: 8, child: _zoomControls(viewport)),
-              ],
-            ),
+            ],
           ),
-        );
-      },
-    );
-  }
-
-  Widget _zoomControls(ImageViewport viewport) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            key: const Key('multi-selection-zoom-in'),
-            color: Colors.white,
-            icon: const Icon(Icons.zoom_in),
-            tooltip: 'تكبير',
-            onPressed: () => setState(() => _applyView(viewport.scaledBy(1.5))),
-          ),
-          IconButton(
-            key: const Key('multi-selection-zoom-out'),
-            color: Colors.white,
-            icon: const Icon(Icons.zoom_out),
-            tooltip: 'تصغير',
-            onPressed: () =>
-                setState(() => _applyView(viewport.scaledBy(1 / 1.5))),
-          ),
-          IconButton(
-            key: const Key('multi-selection-zoom-reset'),
-            color: Colors.white,
-            icon: const Icon(Icons.fit_screen),
-            tooltip: 'عرض الصورة كاملة',
-            onPressed: () => setState(() {
-              _scale = ImageViewport.minScale;
-              _centre = null;
-            }),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -731,6 +606,22 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
               ),
             ],
           ),
+          if (_candidates(active) case final candidates
+              when candidates.isNotEmpty || _partners[active.id] != null)
+            SidePartnerField(
+              key: const Key('multi-selection-partner'),
+              choices: candidates,
+              value: _partners[active.id],
+              onChanged: (id) => setState(() {
+                if (id == null) {
+                  _partners.remove(active.id);
+                } else {
+                  _partners[active.id] = id;
+                }
+              }),
+            )
+          else if (active.side != SideKind.unknown && !_canConfirm(active))
+            const Text('يتاح ربط الوجه الآخر بعد تحديد النوع وتأكيد المقاس.'),
           if (active.kind == DocumentKind.unknown)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -823,96 +714,5 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
         ],
       ),
     );
-  }
-}
-
-/// Draws every selection, numbering them the way the list does, so a person can
-/// tell at a glance which outline is which row.
-class _SelectionPainter extends CustomPainter {
-  _SelectionPainter({
-    required this.selections,
-    required this.activeId,
-    required this.viewport,
-  });
-
-  final List<ManualDocumentSelection> selections;
-  final String? activeId;
-  final ImageViewport viewport;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (var index = 0; index < selections.length; index++) {
-      final selection = selections[index];
-      final active = selection.id == activeId;
-      final ordered = selection.validatedCorners;
-      final points = ordered != null
-          ? [for (final corner in ordered) viewport.toScreen(corner)]
-          : [for (final corner in selection.corners) viewport.toScreen(corner)];
-      if (points.isEmpty) continue;
-      final stroke = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = active ? 2.5 : 1.5
-        ..color = active ? Colors.lightGreenAccent : Colors.white70;
-      if (points.length >= 3) {
-        final path = Path()..moveTo(points.first.dx, points.first.dy);
-        for (final point in points.skip(1)) {
-          path.lineTo(point.dx, point.dy);
-        }
-        path.close();
-        canvas.drawPath(path, stroke);
-      } else if (points.length == 2) {
-        canvas.drawLine(points[0], points[1], stroke);
-      }
-      final handle = Paint()
-        ..style = PaintingStyle.fill
-        ..color = active ? Colors.lightGreenAccent : Colors.white70;
-      for (final point in points) {
-        canvas.drawCircle(point, active ? 6 : 4, handle);
-      }
-      // The number sits above the first corner, matching the list row.
-      final anchor = points.first;
-      final label = TextPainter(
-        text: TextSpan(
-          text: '${index + 1}',
-          style: TextStyle(
-            color: active ? Colors.black : Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final badge = Rect.fromLTWH(anchor.dx - 10, anchor.dy - 24, 20, 16);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(badge, const Radius.circular(3)),
-        Paint()..color = active ? Colors.lightGreenAccent : Colors.black54,
-      );
-      label.paint(canvas, Offset(badge.left + 7, badge.top + 2));
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _SelectionPainter old) =>
-      old.activeId != activeId ||
-      old.viewport != viewport ||
-      !_sameSelections(old.selections, selections);
-
-  static bool _sameSelections(
-    List<ManualDocumentSelection> a,
-    List<ManualDocumentSelection> b,
-  ) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i].id != b[i].id || a[i].corners.length != b[i].corners.length) {
-        return false;
-      }
-      for (var c = 0; c < a[i].corners.length; c++) {
-        if (a[i].corners[c].x != b[i].corners[c].x ||
-            a[i].corners[c].y != b[i].corners[c].y) {
-          return false;
-        }
-      }
-    }
-    return true;
   }
 }

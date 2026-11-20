@@ -170,6 +170,9 @@ const reviewConfirmedField = 'review-confirmed';
 /// fabricates or mutates automatic detector evidence (ADR-004).
 const manualBoundaryConfirmedField = 'manual-boundary-confirmed';
 
+/// The initial extraction's corners in the ROOT image, not a later revision.
+const manualExtractionRootCornersField = 'manual-extraction-root-corners';
+
 /// Side-scoped marker recorded in [UserOverride.fields] when manual 4-corner
 /// geometry is confirmed for a specific [DocumentSide.id].
 String manualBoundaryConfirmedSideField(String sideId) =>

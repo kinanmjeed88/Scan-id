@@ -13,6 +13,7 @@ import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/manual_document_selection.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
+import 'package:scan_id/domain/recognition_overrides.dart' as rec;
 import 'package:scan_id/domain/validation.dart';
 import 'package:scan_id/imaging/perspective.dart';
 import 'package:scan_id/presentation/image_viewport.dart';
@@ -157,6 +158,54 @@ void main() {
     },
   );
 
+  test(
+    'overlapping extractions cannot be paired, and independent extractions do not pair by default',
+    () async {
+      final repository = MemoryProjects();
+      final project = await repository.create(editorProject());
+      final assets = _RecordingAssets();
+      final service = ProjectService(
+        repository,
+        assets,
+        imageEditor: _RealWarpEditor(),
+      );
+      final source = project.assets.first;
+      Future<Project> extract(
+        Project p,
+        List<Point2> ring,
+        SideKind side, {
+        String? partner,
+      }) => service.extractManualDerivedDocument(
+        p,
+        source,
+        CropDraft(corners: ring).toRecipe(400, 300),
+        documentKind: DocumentKind.unifiedNationalId,
+        side: side,
+        partnerItemId: partner,
+        sourceWidth: 400,
+        sourceHeight: 300,
+      );
+      final front = await extract(project, _card(20, 179), SideKind.front);
+      final item = front.items.firstWhere(
+        (i) => i.documentId == front.documents.last.id,
+      );
+      await expectLater(
+        extract(front, _card(30, 175), SideKind.back, partner: item.id),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(assets.imported, hasLength(1));
+      final separate = await extract(front, _card(220, 379), SideKind.back);
+      expect(separate.layoutGroups, isEmpty);
+      expect(
+        () => rec.acceptPair(
+          separate,
+          item.documentId!,
+          separate.documents.last.id,
+        ),
+        throwsA(isA<ValidationException>()),
+      );
+    },
+  );
   test('an unstated category becomes a free document, not a failure', () {
     // «تعرّف تلقائي» is not a claim about the document. The extraction path does
     // refuse an unknown category, so the default is stated here and shown to the

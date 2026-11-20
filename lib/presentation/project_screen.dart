@@ -183,7 +183,11 @@ class _ProjectScreenState extends State<ProjectScreen>
       final sources = await widget.pickImages();
       if (sources.isEmpty) return;
       final options = mounted
-          ? await showIntakeOptionsSheet(context, imageCount: sources.length)
+          ? await showIntakeOptionsSheet(
+              context,
+              imageCount: sources.length,
+              project: _project,
+            )
           : null;
       if (options == null || !mounted) {
         await service.discardSources(sources);
@@ -252,8 +256,8 @@ class _ProjectScreenState extends State<ProjectScreen>
             for (final item in latest.items)
               if (!options.multiDocument &&
                   !existingItemIds.contains(item.id) &&
-                  item.pageIndex == null &&
-                  !item.sizeConfirmed &&
+                  ((item.pageIndex == null && !item.sizeConfirmed) ||
+                      options.assertsSide) &&
                   !item.locked)
                 item.id,
           ],

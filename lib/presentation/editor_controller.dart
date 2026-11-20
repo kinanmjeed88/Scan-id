@@ -915,8 +915,8 @@ class LayoutEditorController extends ChangeNotifier {
     final pendingIds = [
       for (final item in session.current.items)
         if (!existingItemIds.contains(item.id) &&
-            item.pageIndex == null &&
-            !item.sizeConfirmed &&
+            ((item.pageIndex == null && !item.sizeConfirmed) ||
+                options?.assertsSide == true) &&
             !item.locked)
           item.id,
     ];

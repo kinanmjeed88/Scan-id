@@ -221,7 +221,8 @@ void main() {
     });
 
     test('an exception is recorded with its type and rethrown', () async {
-      final clock = _Clock(DateTime.utc(2026, 1, 1, 10));
+      final startedAt = DateTime.utc(2026, 1, 1, 10);
+      final clock = _Clock(startedAt);
       final ledger = _ledger(clock: clock);
       ledger.image('img');
 
@@ -244,7 +245,10 @@ void main() {
       final stage = image.stageOf(ProcessingStage.decode)!;
       expect(stage.status, StageStatus.failed);
       expect(stage.errorType, 'FormatException');
-      expect(stage.durationMs, 11);
+      expect(stage.startedAt, startedAt);
+      expect(stage.endedAt, startedAt.add(const Duration(milliseconds: 11)));
+      expect(stage.durationMs, isNotNull);
+      expect(stage.durationMs, greaterThanOrEqualTo(0));
       expect(stage.actionTaken, contains('أُوقفت'));
       expect(stage.diagnostics, isNotEmpty);
       expect(image.stageOf(ProcessingStage.crop), isNull);
@@ -279,19 +283,21 @@ void main() {
     test('runSync verifies the same way', () {
       final ledger = _ledger();
       ledger.image('img');
-      final accepted = ledger.runSync(
+      final width = ledger.runSync(
         'img',
-        ProcessingStage.geometryCheck,
+        ProcessingStage.dimensions,
         () => 4,
-        verify: (corners) => corners == 4,
-        successReason: 'أربع زوايا صالحة.',
-        items: (corners) => corners,
-        checks: (_) => [EvidenceCheck(name: 'four_corners', passed: true)],
+        verify: (value) => value > 0,
+        successReason: 'قيس عرض الصورة بنجاح.',
+        results: (value) => {'width': value},
+        checks: (value) => [
+          EvidenceCheck(name: 'width_positive', passed: value > 0),
+        ],
       );
-      expect(accepted, 4);
+      expect(width, 4);
       expect(
         ledger.report.images.single
-            .stageOf(ProcessingStage.geometryCheck)!
+            .stageOf(ProcessingStage.dimensions)!
             .status,
         StageStatus.succeeded,
       );
@@ -527,14 +533,11 @@ void main() {
         image.stageOf(ProcessingStage.completion)!.status,
         StageStatus.succeeded,
       );
-      expect(
-        image.stageOf(ProcessingStage.dimensions)!.status,
-        StageStatus.stopped,
+      final dimensions = image.filledStages().firstWhere(
+        (stage) => stage.stage == ProcessingStage.dimensions,
       );
-      expect(
-        image.stageOf(ProcessingStage.dimensions)!.reason,
-        contains('فك الترميز'),
-      );
+      expect(dimensions.status, StageStatus.stopped);
+      expect(dimensions.reason, contains(ProcessingStage.decode.label));
       expect(image.outcome, ImageOutcome.failed);
       expect(report.verdict, ProcessingVerdict.failed);
       expect(report.headline, isNotEmpty);

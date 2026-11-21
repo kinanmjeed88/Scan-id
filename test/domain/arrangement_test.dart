@@ -216,7 +216,12 @@ void main() {
     final source = _project([
       fixed,
       moving,
-    ]).copyWith(layout: LayoutSettings(centerCaptures: true));
+    ]).copyWith(
+      layout: LayoutSettings(
+        strategy: ArrangementStrategy.ordered,
+        centerCaptures: true,
+      ),
+    );
 
     final result = arrangeDocuments(
       source,

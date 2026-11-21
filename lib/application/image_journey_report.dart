@@ -241,6 +241,7 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
       detail: _clip(
         failure ?? 'لم تُحفظ نسخة من الصورة داخل المشروع، فلا يوجد ما يُعالج.',
       ),
+      durationMs: fact.copyDurationMs?.clamp(0, JourneyStep.maxDurationMs),
     );
   }
   final scaled = asset.hasScaledLargeSource

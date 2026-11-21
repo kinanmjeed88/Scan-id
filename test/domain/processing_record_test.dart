@@ -17,12 +17,18 @@ StageRecord _stage(
   String reason = 'سبب مقاس',
   StageEvidence? evidence,
   Map<String, Object?> results = const {},
+  String? errorType,
+  List<String> diagnostics = const [],
+  int? durationMs,
 }) => StageRecord(
   stage: stage,
   status: status,
   reason: reason,
   results: results,
   evidence: evidence ?? (status == StageStatus.succeeded ? _evidence() : null),
+  errorType: errorType,
+  diagnostics: diagnostics,
+  durationMs: durationMs,
 );
 
 DocumentProcessingLog _document({
@@ -45,6 +51,7 @@ DocumentProcessingLog _document({
       failedCrop ? StageStatus.failed : StageStatus.succeeded,
       reason: failedCrop ? 'تعذر إنتاج صورة.' : 'أُنتجت صورة.',
       evidence: failedCrop ? null : _evidence(),
+      errorType: failedCrop ? 'EmptyCrop' : null,
     ),
     if (failedCrop)
       StageRecord(
@@ -295,7 +302,7 @@ void main() {
       for (final stage in filled) {
         if (stage.stage.index <= ProcessingStage.decode.index) continue;
         expect(stage.status, StageStatus.stopped);
-        expect(stage.reason, contains('فك الترميز'));
+        expect(stage.reason, contains(ProcessingStage.decode.label));
         expect(stage.status, isNot(StageStatus.succeeded));
       }
       expect(image.outcome, ImageOutcome.failed);
@@ -453,7 +460,11 @@ void main() {
         startedAt: DateTime.utc(2026, 1, 1),
         endedAt: DateTime.utc(2026, 1, 1, 0, 0, 2),
         stages: [
-          _stage(ProcessingStage.selection, StageStatus.succeeded),
+          _stage(
+            ProcessingStage.selection,
+            StageStatus.succeeded,
+            durationMs: 1000,
+          ),
           _stage(ProcessingStage.completion, StageStatus.succeeded),
         ],
         documents: [_document(imageId: 'img', index: 1)],
@@ -472,7 +483,7 @@ void main() {
       expect(restored.images.single.documents.single.id, 'doc-1');
       expect(restored.verdict, report.verdict);
       expect(restored.totalDurationMs, 2000);
-      expect(restored.stageDurations[ProcessingStage.selection], isNotNull);
+      expect(restored.stageDurations[ProcessingStage.selection], 1000);
     });
 
     test('non-finite measurements cannot break journal JSON encoding', () {

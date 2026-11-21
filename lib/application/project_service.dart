@@ -1870,6 +1870,7 @@ class ProjectService {
                 );
               }
             } else {
+              final cropClock = Stopwatch()..start();
               try {
                 current = await applyAuthorizedCrop(
                   current,
@@ -1879,11 +1880,14 @@ class ProjectService {
                   sourceHeight: source.height,
                 );
               } on OperationCancelled {
+                cropClock.stop();
+                final cropDurationMs = cropClock.elapsedMilliseconds;
                 ledger?.documentCancelled(
                   id,
                   documentId,
                   ProcessingStage.perspective,
                   reason: 'أُلغيت معالجة المنظور عند نقطة آمنة.',
+                  durationMs: cropDurationMs,
                   actionTaken: 'بقي المصدر الأصلي محفوظاً.',
                 );
                 ledger?.documentCancelled(
@@ -1895,12 +1899,15 @@ class ProjectService {
                 );
                 rethrow;
               } catch (error) {
+                cropClock.stop();
+                final cropDurationMs = cropClock.elapsedMilliseconds;
                 ledger?.documentFailed(
                   id,
                   documentId,
                   ProcessingStage.perspective,
                   error: error,
                   reason: 'تعذر تصحيح منظور الحدود المقبولة.',
+                  durationMs: cropDurationMs,
                   diagnostics: const ['automatic_perspective_crop_failed'],
                   actionTaken: 'بقي المصدر الأصلي دون قص.',
                 );
@@ -1913,6 +1920,8 @@ class ProjectService {
                 );
                 rethrow;
               }
+              cropClock.stop();
+              final cropDurationMs = cropClock.elapsedMilliseconds;
               // The accepted crop creates a new revision with its measured
               // output dimensions. Use that aspect for the provisional size;
               // the pre-crop camera frame is a different image region.
@@ -1939,6 +1948,8 @@ class ProjectService {
                     passed: asset.width > 0 && asset.height > 0,
                   ),
                 ];
+                // Perspective correction, rotation, enhancement, and crop share
+                // one renderer pass; record its measured time only once.
                 ledger
                   ?..documentSucceeded(
                     id,
@@ -1967,6 +1978,7 @@ class ProjectService {
                     ),
                     results: {'width': asset.width, 'height': asset.height},
                     itemCount: 1,
+                    durationMs: cropDurationMs,
                   )
                   ..documentSucceeded(
                     id,

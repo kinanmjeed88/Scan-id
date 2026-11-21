@@ -1337,10 +1337,10 @@ class ProcessingReport {
       case ProcessingVerdict.completedWithReview:
         return 'اكتملت ${images.length} صورة، وبقيت مراحل تحتاج مراجعة.';
       case ProcessingVerdict.partial:
-        return 'نجاح جزئي: ${documentsSaved} مستنداً حُفظ، '
-            'و${documentsFailed} فشل.';
+        return 'نجاح جزئي: $documentsSaved مستنداً حُفظ، '
+            'و$documentsFailed فشل.';
       case ProcessingVerdict.failed:
-        return 'تعذّرت المعالجة: ${stagesFailed} مرحلة فاشلة.';
+        return 'تعذّرت المعالجة: $stagesFailed مرحلة فاشلة.';
       case ProcessingVerdict.stopped:
         return 'توقفت المعالجة قبل إتمام العمل؛ بقيت المراحل المنجزة محفوظة.';
     }

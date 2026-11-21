@@ -2405,8 +2405,8 @@ class ProjectService {
           evidence: StageEvidence(
             verified: true,
             checks: [
-              EvidenceCheck(name: 'asset_saved', passed: savedAsset != null),
-              EvidenceCheck(name: 'item_saved', passed: savedItem != null),
+              EvidenceCheck(name: 'asset_saved', passed: true),
+              EvidenceCheck(name: 'item_saved', passed: true),
               EvidenceCheck(
                 name: 'record_saved',
                 passed: recordId == null || savedRecord != null,
@@ -2421,9 +2421,9 @@ class ProjectService {
           ProcessingStage.addToProject,
           reason: 'أُضيف عنصر المستند إلى قائمة المشروع.',
           evidence: StageEvidence(
-            verified: savedItem != null,
+            verified: true,
             checks: [
-              EvidenceCheck(name: 'item_in_project', passed: savedItem != null),
+              EvidenceCheck(name: 'item_in_project', passed: true),
             ],
             counts: {'items': saved.items.length},
           ),
@@ -2990,7 +2990,7 @@ class ProjectService {
       rethrow;
     }
     if (document != null) {
-      final geometryOk = assessment?.acceptable == true;
+      final geometryOk = assessment.acceptable;
       if (geometryOk) {
         ledger?.documentSucceeded(
           imageId,
@@ -3009,11 +3009,11 @@ class ProjectService {
             ],
           ),
           results: {
-            if (assessment?.geometryConfidence != null)
-              'geometry_confidence': assessment!.geometryConfidence,
-            if (assessment?.aspect != null) 'aspect': assessment!.aspect,
-            if (assessment?.areaFraction != null)
-              'area_fraction': assessment!.areaFraction,
+            if (assessment.geometryConfidence != null)
+              'geometry_confidence': assessment.geometryConfidence,
+            if (assessment.aspect != null) 'aspect': assessment.aspect,
+            if (assessment.areaFraction != null)
+              'area_fraction': assessment.areaFraction,
           },
           actionTaken: 'تابع إلى تصحيح المنظور والقص.',
         );
@@ -3024,7 +3024,7 @@ class ProjectService {
           ProcessingStage.geometryCheck,
           reason: 'لم يجتز الرباعي تقييم الهندسة رغم قبول التحقق الآخر.',
           errorType: 'GeometryRejected',
-          errorCode: assessment?.rejection?.name ?? 'manual_geometry_rejected',
+          errorCode: assessment.rejection?.name ?? 'manual_geometry_rejected',
           diagnostics: const ['quad_assessment_rejected'],
           actionTaken: 'لم يُسمح بالقص.',
         );
@@ -3161,7 +3161,7 @@ class ProjectService {
                 passed: cropBytes.isNotEmpty,
                 detail: '${cropBytes.length}',
               ),
-              EvidenceCheck(name: 'header_parsed', passed: cropHeader != null),
+              EvidenceCheck(name: 'header_parsed', passed: true),
             ],
             counts: {'bytes': cropBytes.length},
           ),
@@ -3180,7 +3180,7 @@ class ProjectService {
             checks: [
               EvidenceCheck(
                 name: 'rendered_output_parsed',
-                passed: cropHeader != null,
+                passed: true,
               ),
             ],
             note:
@@ -3396,9 +3396,9 @@ class ProjectService {
           evidence: StageEvidence(
             verified: true,
             checks: [
-              EvidenceCheck(name: 'asset_saved', passed: savedAsset != null),
+              EvidenceCheck(name: 'asset_saved', passed: true),
               EvidenceCheck(name: 'record_saved', passed: true),
-              EvidenceCheck(name: 'item_saved', passed: savedItem != null),
+              EvidenceCheck(name: 'item_saved', passed: true),
             ],
           ),
           results: {'revision': saved.revision},

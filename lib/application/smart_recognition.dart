@@ -1657,7 +1657,7 @@ class SmartIntake {
                   width: source.width,
                   height: source.height,
                 );
-                ledger?..succeeded(
+                ledger?.succeeded(
                   asset.id,
                   ProcessingStage.previewPreparation,
                   reason: 'أُنتجت نسخة معاينة صالحة للتحليل.',

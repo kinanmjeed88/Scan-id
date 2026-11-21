@@ -432,7 +432,7 @@ void main() {
         acceptSuggestedBoundary: true,
         centerDocuments: false,
         multiDocument: true,
-        confirmed: {IntakeOptionKey.kind, IntakeOptionKey.center},
+        confirmed: {IntakeOptionKey.kind, IntakeOptionKey.centerDocuments},
       );
       final report = _report(options: options);
       expect(report.route, IntakeRoute.manualSelections);

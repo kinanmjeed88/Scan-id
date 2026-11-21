@@ -170,28 +170,33 @@ void main() {
     );
   });
 
-  test('unavailable journal storage cannot fail processing or its report', () async {
-    final journal = LocalProcessingJournal(
-      supportDirectory: () async => throw const FileSystemException(
-        'storage unavailable',
-      ),
-    );
-    final ledger = ledgerFor('batch-store-unavailable', journal);
+  test(
+    'unavailable journal storage cannot fail processing or its report',
+    () async {
+      final journal = LocalProcessingJournal(
+        supportDirectory: () async =>
+            throw const FileSystemException('storage unavailable'),
+      );
+      final ledger = ledgerFor('batch-store-unavailable', journal);
 
-    ledger.image('img');
-    ledger.succeeded(
-      'img',
-      ProcessingStage.selection,
-      reason: 'استُلم المصدر.',
-      evidence: _ok(),
-    );
-    final report = ledger.finalize();
-    await journal.idle;
+      ledger.image('img');
+      ledger.succeeded(
+        'img',
+        ProcessingStage.selection,
+        reason: 'استُلم المصدر.',
+        evidence: _ok(),
+      );
+      final report = ledger.finalize();
+      await journal.idle;
 
-    expect(report.finalised, isTrue);
-    expect(report.images.single.statusOf(ProcessingStage.selection), StageStatus.succeeded);
-    expect(await journal.reports(), isEmpty);
-  });
+      expect(report.finalised, isTrue);
+      expect(
+        report.images.single.statusOf(ProcessingStage.selection),
+        StageStatus.succeeded,
+      );
+      expect(await journal.reports(), isEmpty);
+    },
+  );
 
   test('unknown and invalid operation ids are not invented', () async {
     final journal = store();

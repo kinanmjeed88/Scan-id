@@ -172,47 +172,53 @@ void main() {
       expect(undetermined.diagnostics, isNotEmpty);
     });
 
-    test('an explicit measurement wins, otherwise timestamps supply duration', () {
-      final start = DateTime.utc(2026, 1, 1, 10, 0, 0);
-      final measured = StageRecord(
-        stage: ProcessingStage.decode,
-        status: StageStatus.succeeded,
-        reason: 'فُك الترميز.',
-        startedAt: start,
-        endedAt: start.add(const Duration(milliseconds: 1250)),
-        durationMs: 980,
-        evidence: _evidence(),
-      );
-      final derived = StageRecord(
-        stage: ProcessingStage.decode,
-        status: StageStatus.succeeded,
-        reason: 'فُك الترميز.',
-        startedAt: start,
-        endedAt: start.add(const Duration(milliseconds: 1250)),
-        evidence: _evidence(),
-      );
-
-      expect(measured.durationMs, 980);
-      expect(derived.durationMs, 1250);
-    });
-
-    test('an end before the start is refused with or without a measurement', () {
-      final start = DateTime.utc(2026, 1, 1, 10);
-      for (final durationMs in <int?>[null, 500]) {
-        expect(
-          () => StageRecord(
-            stage: ProcessingStage.decode,
-            status: StageStatus.succeeded,
-            reason: 'فُك.',
-            startedAt: start,
-            endedAt: start.subtract(const Duration(seconds: 1)),
-            durationMs: durationMs,
-            evidence: _evidence(),
-          ),
-          throwsA(isA<ValidationException>()),
+    test(
+      'an explicit measurement wins, otherwise timestamps supply duration',
+      () {
+        final start = DateTime.utc(2026, 1, 1, 10, 0, 0);
+        final measured = StageRecord(
+          stage: ProcessingStage.decode,
+          status: StageStatus.succeeded,
+          reason: 'فُك الترميز.',
+          startedAt: start,
+          endedAt: start.add(const Duration(milliseconds: 1250)),
+          durationMs: 980,
+          evidence: _evidence(),
         );
-      }
-    });
+        final derived = StageRecord(
+          stage: ProcessingStage.decode,
+          status: StageStatus.succeeded,
+          reason: 'فُك الترميز.',
+          startedAt: start,
+          endedAt: start.add(const Duration(milliseconds: 1250)),
+          evidence: _evidence(),
+        );
+
+        expect(measured.durationMs, 980);
+        expect(derived.durationMs, 1250);
+      },
+    );
+
+    test(
+      'an end before the start is refused with or without a measurement',
+      () {
+        final start = DateTime.utc(2026, 1, 1, 10);
+        for (final durationMs in <int?>[null, 500]) {
+          expect(
+            () => StageRecord(
+              stage: ProcessingStage.decode,
+              status: StageStatus.succeeded,
+              reason: 'فُك.',
+              startedAt: start,
+              endedAt: start.subtract(const Duration(seconds: 1)),
+              durationMs: durationMs,
+              evidence: _evidence(),
+            ),
+            throwsA(isA<ValidationException>()),
+          );
+        }
+      },
+    );
 
     test('long text is clipped, never turned into a second failure', () {
       final record = StageRecord(

@@ -1466,10 +1466,7 @@ bool _uniqueStages(List<StageRecord> stages) =>
 
 int? _durationOf(DateTime? startedAt, DateTime? endedAt, int? durationMs) {
   if (startedAt != null && endedAt != null) {
-    require(
-      !endedAt.isBefore(startedAt),
-      'وقت انتهاء المرحلة قبل وقت بدئها.',
-    );
+    require(!endedAt.isBefore(startedAt), 'وقت انتهاء المرحلة قبل وقت بدئها.');
     if (durationMs == null) {
       return endedAt.difference(startedAt).inMilliseconds;
     }

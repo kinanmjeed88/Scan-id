@@ -1631,7 +1631,8 @@ class ProcessingLedger {
                 sourceHeight: event['height'] is int
                     ? event['height'] as int
                     : target.sourceHeight ?? parent.sourceHeight,
-                startedAt: eventStarted ??
+                startedAt:
+                    eventStarted ??
                     (target.startedAt.isBefore(parent.startedAt)
                         ? target.startedAt
                         : parent.startedAt),

@@ -131,10 +131,7 @@ void main() {
       expect(value, 240000);
       expect(stage.status, StageStatus.succeeded);
       expect(stage.durationMs, isNotNull);
-      expect(
-        stage.endedAt!.difference(stage.startedAt!).inMilliseconds,
-        37,
-      );
+      expect(stage.endedAt!.difference(stage.startedAt!).inMilliseconds, 37);
       expect(stage.evidence!.verified, isTrue);
       expect(stage.results['pixels'], 240000);
       expect(stage.itemCount, 1);
@@ -429,7 +426,10 @@ void main() {
 
     expect(stage.status, StageStatus.succeeded);
     expect(report.finalised, isTrue);
-    expect(report.images.single.statusOf(ProcessingStage.selection), StageStatus.succeeded);
+    expect(
+      report.images.single.statusOf(ProcessingStage.selection),
+      StageStatus.succeeded,
+    );
   });
 
   group('statuses stay distinct and keep their real reason', () {
@@ -806,7 +806,10 @@ void main() {
         expect(recovered.images.single.imageName, 'one.jpg');
         expect(recovered.images.single.sourceWidth, 320);
         expect(recovered.images.single.sourceHeight, 480);
-        expect(recovered.images.single.startedAt, report.images.single.startedAt);
+        expect(
+          recovered.images.single.startedAt,
+          report.images.single.startedAt,
+        );
         expect(
           recovered.images.single
               .stageOf(ProcessingStage.fileValidation)!
@@ -905,10 +908,7 @@ void main() {
       );
       expect(ledger.existingImage('source-1'), isNotNull);
       expect(ledger.existingImage('asset-1'), isNull);
-      expect(
-        ledger.report.images.single.documents.single,
-        same(document),
-      );
+      expect(ledger.report.images.single.documents.single, same(document));
     });
 
     test('late image-name enrichment survives event replay', () {
@@ -1059,70 +1059,67 @@ void main() {
       expect(recovered.images.single.imageName, 'one.jpg');
     });
 
-    test(
-      'a repeated document id refreshes metadata and keeps its history',
-      () {
-        final sink = _Sink();
-        final ledger = _ledger(batch: 'batch-document-metadata', sink: sink);
-        ledger.image('img');
-        final initial = ledger.document(
-          'img',
-          documentId: 'doc-1',
-          index: 3,
-          label: 'المستمسك 3',
-        );
-        ledger.documentSucceeded(
-          'img',
-          initial.id,
-          ProcessingStage.boundaryCorners,
-          reason: 'رُسمت الزوايا الأربع.',
-          evidence: _ok(),
-        );
-        final startedAt = initial.startedAt;
+    test('a repeated document id refreshes metadata and keeps its history', () {
+      final sink = _Sink();
+      final ledger = _ledger(batch: 'batch-document-metadata', sink: sink);
+      ledger.image('img');
+      final initial = ledger.document(
+        'img',
+        documentId: 'doc-1',
+        index: 3,
+        label: 'المستمسك 3',
+      );
+      ledger.documentSucceeded(
+        'img',
+        initial.id,
+        ProcessingStage.boundaryCorners,
+        reason: 'رُسمت الزوايا الأربع.',
+        evidence: _ok(),
+      );
+      final startedAt = initial.startedAt;
 
-        // This mirrors the manual crop screen followed by the service: the
-        // service supplies type/side again but has no selection label or index.
-        final updated = ledger.document(
-          'img',
-          documentId: 'doc-1',
-          kind: DocumentKind.passport,
-          side: SideKind.front,
-          kindSource: RecordSource.user,
-          sideSource: RecordSource.user,
-        );
+      // This mirrors the manual crop screen followed by the service: the
+      // service supplies type/side again but has no selection label or index.
+      final updated = ledger.document(
+        'img',
+        documentId: 'doc-1',
+        kind: DocumentKind.passport,
+        side: SideKind.front,
+        kindSource: RecordSource.user,
+        sideSource: RecordSource.user,
+      );
 
-        expect(updated, isNot(same(initial)));
-        expect(updated.selectionIndex, 3);
-        expect(updated.label, 'المستمسك 3');
-        expect(updated.kind, DocumentKind.passport);
-        expect(updated.side, SideKind.front);
-        expect(updated.kindSource, RecordSource.user);
-        expect(updated.sideSource, RecordSource.user);
-        expect(updated.startedAt, startedAt);
-        expect(
-          updated.statusOf(ProcessingStage.boundaryCorners),
-          StageStatus.succeeded,
-        );
-        expect(ledger.report.images.single.documents, hasLength(1));
+      expect(updated, isNot(same(initial)));
+      expect(updated.selectionIndex, 3);
+      expect(updated.label, 'المستمسك 3');
+      expect(updated.kind, DocumentKind.passport);
+      expect(updated.side, SideKind.front);
+      expect(updated.kindSource, RecordSource.user);
+      expect(updated.sideSource, RecordSource.user);
+      expect(updated.startedAt, startedAt);
+      expect(
+        updated.statusOf(ProcessingStage.boundaryCorners),
+        StageStatus.succeeded,
+      );
+      expect(ledger.report.images.single.documents, hasLength(1));
 
-        final recovered = ProcessingLedger.tryRecover(
-          'batch-document-metadata',
-          sink.events,
-        );
-        expect(recovered, isNotNull);
-        final restored = recovered!.images.single.documents.single;
-        expect(restored.selectionIndex, 3);
-        expect(restored.label, 'المستمسك 3');
-        expect(restored.kind, DocumentKind.passport);
-        expect(restored.side, SideKind.front);
-        expect(restored.kindSource, RecordSource.user);
-        expect(restored.sideSource, RecordSource.user);
-        expect(
-          restored.statusOf(ProcessingStage.boundaryCorners),
-          StageStatus.succeeded,
-        );
-      },
-    );
+      final recovered = ProcessingLedger.tryRecover(
+        'batch-document-metadata',
+        sink.events,
+      );
+      expect(recovered, isNotNull);
+      final restored = recovered!.images.single.documents.single;
+      expect(restored.selectionIndex, 3);
+      expect(restored.label, 'المستمسك 3');
+      expect(restored.kind, DocumentKind.passport);
+      expect(restored.side, SideKind.front);
+      expect(restored.kindSource, RecordSource.user);
+      expect(restored.sideSource, RecordSource.user);
+      expect(
+        restored.statusOf(ProcessingStage.boundaryCorners),
+        StageStatus.succeeded,
+      );
+    });
 
     test('a document is linked to its source image and its created ids', () {
       final ledger = _ledger();

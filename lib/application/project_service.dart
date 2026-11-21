@@ -2422,9 +2422,7 @@ class ProjectService {
           reason: 'أُضيف عنصر المستند إلى قائمة المشروع.',
           evidence: StageEvidence(
             verified: true,
-            checks: [
-              EvidenceCheck(name: 'item_in_project', passed: true),
-            ],
+            checks: [EvidenceCheck(name: 'item_in_project', passed: true)],
             counts: {'items': saved.items.length},
           ),
         );
@@ -3178,10 +3176,7 @@ class ProjectService {
           evidence: StageEvidence(
             verified: true,
             checks: [
-              EvidenceCheck(
-                name: 'rendered_output_parsed',
-                passed: true,
-              ),
+              EvidenceCheck(name: 'rendered_output_parsed', passed: true),
             ],
             note:
                 'التحقق من قابلية قراءة المخرج وأبعاده؛ '

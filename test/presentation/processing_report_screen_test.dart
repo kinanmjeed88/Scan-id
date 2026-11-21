@@ -42,7 +42,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: ProcessingReportScreen(journal: _FixtureJournal(report))),
+      MaterialApp(
+        home: ProcessingReportScreen(journal: _FixtureJournal(report)),
+      ),
     );
     await tester.pumpAndSettle();
 

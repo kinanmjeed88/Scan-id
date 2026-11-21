@@ -475,39 +475,45 @@ void main() {
       );
     });
 
-    test('legacy completed outcome is downgraded by saved off-sheet evidence', () {
-      final document = DocumentProcessingLog(
-        id: 'legacy-off-sheet',
-        imageId: 'img',
-        selectionIndex: 1,
-        stages: [
-          _stage(ProcessingStage.crop, StageStatus.succeeded),
-          _stage(ProcessingStage.typeSideSize, StageStatus.succeeded),
-          _stage(ProcessingStage.saveDocument, StageStatus.succeeded),
-          _stage(
-            ProcessingStage.addToProject,
-            StageStatus.succeeded,
-            results: const {'page': -1},
-          ),
-          _stage(ProcessingStage.verifyAddition, StageStatus.succeeded),
-        ],
-      );
-      final image = ImageProcessingLog(
-        operationId: 'legacy',
-        imageId: 'img',
-        startedAt: DateTime.utc(2026, 1, 1),
-        endedAt: DateTime.utc(2026, 1, 1, 0, 1),
-        documents: [document],
-        outcomeOverride: ImageOutcome.completed,
-      );
+    test(
+      'legacy completed outcome is downgraded by saved off-sheet evidence',
+      () {
+        final document = DocumentProcessingLog(
+          id: 'legacy-off-sheet',
+          imageId: 'img',
+          selectionIndex: 1,
+          stages: [
+            _stage(ProcessingStage.crop, StageStatus.succeeded),
+            _stage(ProcessingStage.typeSideSize, StageStatus.succeeded),
+            _stage(ProcessingStage.saveDocument, StageStatus.succeeded),
+            _stage(
+              ProcessingStage.addToProject,
+              StageStatus.succeeded,
+              results: const {'page': -1},
+            ),
+            _stage(ProcessingStage.verifyAddition, StageStatus.succeeded),
+          ],
+        );
+        final image = ImageProcessingLog(
+          operationId: 'legacy',
+          imageId: 'img',
+          startedAt: DateTime.utc(2026, 1, 1),
+          endedAt: DateTime.utc(2026, 1, 1, 0, 1),
+          documents: [document],
+          outcomeOverride: ImageOutcome.completed,
+        );
 
-      expect(image.outcome, ImageOutcome.completedWithReview);
-      expect(image.toJson()['outcome'], ImageOutcome.completedWithReview.name);
-      expect(
-        image.toJson()['outcome_forced'],
-        ImageOutcome.completedWithReview.name,
-      );
-    });
+        expect(image.outcome, ImageOutcome.completedWithReview);
+        expect(
+          image.toJson()['outcome'],
+          ImageOutcome.completedWithReview.name,
+        );
+        expect(
+          image.toJson()['outcome_forced'],
+          ImageOutcome.completedWithReview.name,
+        );
+      },
+    );
 
     test('each document is independent and partial success is reported', () {
       final image = ImageProcessingLog(

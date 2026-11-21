@@ -148,14 +148,14 @@ void main() {
       expect(processing.images, hasLength(1));
       final documentLogs = processing.images.single.documents;
       expect(documentLogs, hasLength(2));
-      expect(
-        documentLogs.map((document) => document.id),
-        ['reserved-item-card-1', 'reserved-item-card-2'],
-      );
-      expect(
-        documentLogs.map((document) => document.layoutItemId),
-        ['reserved-item-card-1', 'reserved-item-card-2'],
-      );
+      expect(documentLogs.map((document) => document.id), [
+        'reserved-item-card-1',
+        'reserved-item-card-2',
+      ]);
+      expect(documentLogs.map((document) => document.layoutItemId), [
+        'reserved-item-card-1',
+        'reserved-item-card-2',
+      ]);
       expect(documentLogs.first.succeeded, isTrue);
       expect(documentLogs.first.placed, isTrue);
       final unconfirmedSize = documentLogs.last.stageOf(
@@ -164,10 +164,7 @@ void main() {
       expect(unconfirmedSize.status, StageStatus.reviewRequired);
       expect(unconfirmedSize.reason, contains('لا يتوفر مقاس موثق'));
       expect(unconfirmedSize.results['sizeConfirmed'], isFalse);
-      expect(
-        unconfirmedSize.diagnostics,
-        contains('size_definition_missing'),
-      );
+      expect(unconfirmedSize.diagnostics, contains('size_definition_missing'));
       final unplaced = documentLogs.last.stageOf(ProcessingStage.placement)!;
       expect(unplaced.status, StageStatus.reviewRequired);
       expect(unplaced.reason, contains('لم يُحاول وضعه'));

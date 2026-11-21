@@ -1134,13 +1134,10 @@ class ProcessingLedger {
               parent.imageId,
               document.id,
               ProcessingStage.placement,
-              reason: unplacedReason?.call(itemId) ??
+              reason:
+                  unplacedReason?.call(itemId) ??
                   'بقي المستند محفوظاً خارج ورقة A4؛ لم يثبت وضعه.',
-              results: {
-                'itemId': itemId,
-                'placed': false,
-                'page': -1,
-              },
+              results: {'itemId': itemId, 'placed': false, 'page': -1},
               diagnostics: const ['item_not_placed'],
               actionTaken: 'راجع سبب عدم الوضع ثم أكد المقاس أو أعد الترتيب.',
             );
@@ -1412,12 +1409,12 @@ class ProcessingLedger {
         image.outcomeOverride ??= outcome;
         final completionStatus = switch (outcome) {
           ImageOutcome.completed => StageStatus.succeeded,
-          ImageOutcome.completedWithReview || ImageOutcome.partial =>
-            StageStatus.reviewRequired,
+          ImageOutcome.completedWithReview ||
+          ImageOutcome.partial => StageStatus.reviewRequired,
           ImageOutcome.failed => StageStatus.failed,
           ImageOutcome.cancelled => StageStatus.cancelled,
-          ImageOutcome.stopped || ImageOutcome.interrupted =>
-            StageStatus.stopped,
+          ImageOutcome.stopped ||
+          ImageOutcome.interrupted => StageStatus.stopped,
           ImageOutcome.running => StageStatus.running,
         };
         image.record(
@@ -1433,8 +1430,7 @@ class ProcessingLedger {
               ImageOutcome.failed =>
                 'انتهت المعالجة بفشل؛ لم تتحقق متطلبات الاكتمال.',
               ImageOutcome.cancelled => cancellationReason,
-              ImageOutcome.stopped =>
-                'توقفت العملية قبل إتمام العمل.',
+              ImageOutcome.stopped => 'توقفت العملية قبل إتمام العمل.',
               ImageOutcome.interrupted => 'انقطعت العملية قبل إتمام العمل.',
               ImageOutcome.running => 'بقيت المعالجة قيد التنفيذ.',
             },

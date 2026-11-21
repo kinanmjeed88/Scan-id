@@ -686,8 +686,7 @@ class DocumentProcessingLog {
   /// A placement is confirmed only when the project save and read-back also
   /// contain the item. The stage can record a calculated placement before that
   /// persistence check completes.
-  bool get placed =>
-      placementStatus == StageStatus.succeeded && saved && added;
+  bool get placed => placementStatus == StageStatus.succeeded && saved && added;
 
   bool get placementUnverified =>
       placementStatus == StageStatus.succeeded && !placed;
@@ -1144,7 +1143,7 @@ class ImageProcessingLog {
     // cautious, never erase an earlier review decision.
     if (forced == ImageOutcome.completedWithReview &&
         derived == ImageOutcome.completed) {
-      return forced;
+      return forced!;
     }
     return derived;
   }

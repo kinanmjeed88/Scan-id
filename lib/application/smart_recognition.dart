@@ -436,6 +436,7 @@ class SmartIntake {
           applyDurationMs: applyClock.elapsedMilliseconds,
         );
         _recordAppliedDocuments(
+          current,
           analyzed.asset,
           imageDocuments,
           imageItems,
@@ -1139,6 +1140,7 @@ class SmartIntake {
   /// reason, not as a successful crop: the whole frame was kept deliberately,
   /// which is a decision, not a produced crop.
   void _recordAppliedDocuments(
+    Project project,
     ImageAsset asset,
     List<DocumentRecord> documents,
     List<DocumentItem> items, {
@@ -1345,9 +1347,8 @@ class SmartIntake {
             .map((entry) => entry.detection)
             .whereType<DetectionRef>()
             .firstOrNull;
-        final shapeMismatch = detection?.detectionTrace.contains(
-              'catalogShape=mismatch',
-            ) ??
+        final shapeMismatch =
+            detection?.detectionTrace.contains('catalogShape=mismatch') ??
             false;
         final recognition = record.recognition;
         final classificationConfidence =
@@ -1367,7 +1368,7 @@ class SmartIntake {
                 'لم يُحسم نوع المستند؛ اختر النوع أو أدخل قياساً يدوياً.',
                 'document_kind_unconfirmed',
               )
-            : current.catalog.natural(kind) == null
+            : project.catalog.natural(kind) == null
             ? (
                 'لا يوجد مقاس موثق لهذا النوع؛ أدخل قياس النسخة يدوياً قبل وضعها على A4.',
                 'size_definition_missing',

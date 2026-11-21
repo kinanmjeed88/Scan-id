@@ -437,7 +437,11 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
         subtitle: Text(
           '${document.kind.label} · ${_sideLabel(document.side)} · '
           '${document.statusOf(ProcessingStage.crop) == StageStatus.succeeded ? 'القص ناجح' : 'القص غير مكتمل'} · '
-          '${document.placed ? 'موضوع على الورقة' : document.placementStatus == StageStatus.reviewRequired ? 'بقي خارج الورقة' : 'الوضع غير مؤكد'} · '
+          '${document.placed
+              ? 'موضوع على الورقة'
+              : document.placementStatus == StageStatus.reviewRequired
+              ? 'بقي خارج الورقة'
+              : 'الوضع غير مؤكد'} · '
           '${document.saved ? 'محفوظ' : 'الحفظ غير مؤكد'} · '
           '${document.added ? 'مضاف ومتحقق' : 'الإضافة غير مؤكدة'}',
           style: theme.textTheme.bodySmall,

@@ -638,14 +638,18 @@ void main() {
         'img',
         document.id,
         ProcessingStage.typeSideSize,
-        reason: 'لا يوجد مقاس موثق لهذا النوع ولم يُدخل المستخدم قياساً يدوياً.',
+        reason:
+            'لا يوجد مقاس موثق لهذا النوع ولم يُدخل المستخدم قياساً يدوياً.',
         inputs: const {'kind': 'other', 'sizeProvidedByUser': false},
         results: const {
           'kind': 'other',
           'sizeConfirmed': false,
           'sizeSource': 'provisional_image_dimensions',
         },
-        diagnostics: const ['size_definition_missing', 'user_measurement_missing'],
+        diagnostics: const [
+          'size_definition_missing',
+          'user_measurement_missing',
+        ],
         actionTaken: 'أدخل المقاس الفعلي ثم ثبّته.',
       );
       ledger.documentNeedsReview(
@@ -1269,33 +1273,36 @@ void main() {
       expect(disabledCentering.reason, contains('عطّل المستخدم'));
     });
 
-    test('an unplaced document records its reason; centering is inapplicable', () {
-      final ledger = _ledger();
-      ledger.image('img');
-      final unplaced = ledger.document('img', documentId: 'doc-unplaced');
-      ledger.documentStopped(
-        'img',
-        unplaced.id,
-        ProcessingStage.centering,
-        reason: 'ينتظر الترتيب.',
-      );
-      ledger.linkDocument('img', unplaced.id, itemId: 'item-2');
-      ledger.settleCentering(
-        centerEnabled: true,
-        placed: (_) => false,
-        unplacedReason: (_) => 'لا يوجد مقاس موثق ولم يثبت القياس اليدوي.',
-        centeredItemIds: const {},
-      );
-      final saved = ledger.report.images.single.documents.single;
-      final placement = saved.stageOf(ProcessingStage.placement)!;
-      expect(placement.status, StageStatus.reviewRequired);
-      expect(placement.reason, contains('لا يوجد مقاس موثق'));
-      expect(placement.diagnostics, ['item_not_placed']);
-      expect(
-        saved.stageOf(ProcessingStage.centering)!.status,
-        StageStatus.notApplicable,
-      );
-    });
+    test(
+      'an unplaced document records its reason; centering is inapplicable',
+      () {
+        final ledger = _ledger();
+        ledger.image('img');
+        final unplaced = ledger.document('img', documentId: 'doc-unplaced');
+        ledger.documentStopped(
+          'img',
+          unplaced.id,
+          ProcessingStage.centering,
+          reason: 'ينتظر الترتيب.',
+        );
+        ledger.linkDocument('img', unplaced.id, itemId: 'item-2');
+        ledger.settleCentering(
+          centerEnabled: true,
+          placed: (_) => false,
+          unplacedReason: (_) => 'لا يوجد مقاس موثق ولم يثبت القياس اليدوي.',
+          centeredItemIds: const {},
+        );
+        final saved = ledger.report.images.single.documents.single;
+        final placement = saved.stageOf(ProcessingStage.placement)!;
+        expect(placement.status, StageStatus.reviewRequired);
+        expect(placement.reason, contains('لا يوجد مقاس موثق'));
+        expect(placement.diagnostics, ['item_not_placed']);
+        expect(
+          saved.stageOf(ProcessingStage.centering)!.status,
+          StageStatus.notApplicable,
+        );
+      },
+    );
   });
 
   group('privacy and boundedness', () {

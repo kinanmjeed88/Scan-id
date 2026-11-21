@@ -695,7 +695,7 @@ void main() {
         document.stageOf(ProcessingStage.placement)!.diagnostics,
         contains('placement_size_unconfirmed'),
       );
-      expect(report.stagesReviewRequired, 2);
+      expect(report.stagesReviewRequired, 3);
       expect(report.documentsSaved, 1);
       expect(report.documentsAdded, 1);
       expect(report.images.single.outcome, ImageOutcome.completedWithReview);

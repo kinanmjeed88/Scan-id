@@ -213,10 +213,7 @@ void main() {
       locked: true,
     ).copyWith(x: 70, y: 5);
     final moving = _sizedDoc('moving', 40, 30, page: null);
-    final source = _project([
-      fixed,
-      moving,
-    ]).copyWith(
+    final source = _project([fixed, moving]).copyWith(
       layout: LayoutSettings(
         strategy: ArrangementStrategy.ordered,
         centerCaptures: true,

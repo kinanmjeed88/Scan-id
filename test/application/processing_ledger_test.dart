@@ -296,9 +296,7 @@ void main() {
       );
       expect(width, 4);
       expect(
-        ledger.report.images.single
-            .stageOf(ProcessingStage.dimensions)!
-            .status,
+        ledger.report.images.single.stageOf(ProcessingStage.dimensions)!.status,
         StageStatus.succeeded,
       );
     });

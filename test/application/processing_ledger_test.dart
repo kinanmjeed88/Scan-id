@@ -250,7 +250,7 @@ void main() {
       expect(stage.durationMs, isNotNull);
       expect(stage.durationMs, greaterThanOrEqualTo(0));
       expect(stage.actionTaken, contains('أُوقفت'));
-      expect(stage.diagnostics, isNotEmpty);
+      expect(stage.errorCode, FailureCode.unknown);
       expect(image.stageOf(ProcessingStage.crop), isNull);
     });
 

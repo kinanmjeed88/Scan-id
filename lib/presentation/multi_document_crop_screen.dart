@@ -2,14 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../application/cancellation.dart';
 import '../application/contracts.dart';
 import '../application/intake_stage_log.dart';
+import '../application/processing_ledger.dart';
 import '../domain/image_journey.dart';
 import '../domain/intake_options.dart';
 import '../application/project_service.dart';
 import '../domain/crop_draft.dart';
 import '../domain/document_kind.dart';
 import '../domain/geometry.dart';
+import '../domain/processing_record.dart';
 import '../domain/image_adjustments.dart';
 import '../domain/manual_document_selection.dart';
 import '../domain/project.dart';
@@ -43,11 +46,13 @@ class MultiDocumentCropScreen extends StatefulWidget {
     required this.service,
     this.options,
     this.stageLog,
+    this.ledger,
     super.key,
   });
 
   final IntakeOptions? options;
   final IntakeBatchLog? stageLog;
+  final ProcessingLedger? ledger;
   final Project project;
   final ImageAsset asset;
   final ProjectService service;
@@ -92,7 +97,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
       final editor = widget.service.imageEditor;
       require(editor != null, 'خدمة معالجة الصور غير متاحة.');
       final source = await editor!.open(widget.asset);
-      if (!mounted) return;
+      clock.stop();
       widget.stageLog
           ?.forAsset(widget.asset.id)
           .pass(
@@ -100,12 +105,50 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
             'فُتحت الصورة الأصلية لمساحة التحديد اليدوي.',
             durationMs: clock.elapsedMilliseconds,
           );
+      widget.ledger?.image(
+        widget.asset.id,
+        name: widget.asset.name,
+        width: source.width,
+        height: source.height,
+      );
+      widget.ledger?.succeeded(
+        widget.asset.id,
+        ProcessingStage.previewPreparation,
+        reason: 'فُتحت الصورة الأصلية وأُنتجت نسخة العرض للتحديد.',
+        evidence: StageEvidence(
+          verified: true,
+          checks: [
+            EvidenceCheck(
+              name: 'preview_not_empty',
+              passed: source.preview.isNotEmpty,
+            ),
+            EvidenceCheck(
+              name: 'dimensions_positive',
+              passed: source.width > 0 && source.height > 0,
+            ),
+          ],
+          counts: {'preview_bytes': source.preview.length},
+        ),
+        results: {'width': source.width, 'height': source.height},
+        durationMs: clock.elapsedMilliseconds,
+      );
+      if (!mounted) return;
       setState(() {
         _appendSelection();
         _source = source;
         _loading = false;
       });
     } catch (error) {
+      clock.stop();
+      widget.ledger?.failed(
+        widget.asset.id,
+        ProcessingStage.previewPreparation,
+        error: error,
+        durationMs: clock.elapsedMilliseconds,
+        reason: 'تعذر تجهيز الصورة لمساحة التحديد اليدوي.',
+        diagnostics: const ['manual_workspace_preview_failed'],
+        actionTaken: 'بقي المصدر محفوظاً دون مستند مشتق.',
+      );
       if (!mounted) return;
       widget.stageLog
           ?.forAsset(widget.asset.id)
@@ -293,9 +336,57 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     for (final selection in ordered) {
       final key = '${widget.asset.id}-${selection.id}';
       final log = widget.stageLog?.forAsset(key, name: selection.id);
+      // The reserved item id is generated once when the selection is created;
+      // it survives edits and retries and is also the saved item's identity.
+      // Keep it as this subdocument's ledger id instead of using the transient
+      // display slot (`sel-1`, `sel-2`, ...).
+      final processingDocumentId = _itemIds[selection.id] ?? selection.id;
+      final document = widget.ledger?.document(
+        widget.asset.id,
+        documentId: processingDocumentId,
+        index: _set.selections.indexWhere((s) => s.id == selection.id) + 1,
+        label: _labelFor(selection.id),
+        kind: selection.kindForExtraction,
+        side: selection.side,
+        kindSource: RecordSource.user,
+        sideSource: selection.side == SideKind.unknown
+            ? RecordSource.unknown
+            : RecordSource.user,
+      );
       try {
         final ring = selection.validatedCorners;
         require(ring != null, 'التحديد «${_labelFor(selection.id)}» غير صالح.');
+        if (document != null) {
+          widget.ledger?.documentSucceeded(
+            widget.asset.id,
+            processingDocumentId,
+            ProcessingStage.boundaryCorners,
+            reason: 'رُسمت أربع زوايا يدوياً لهذا المستند.',
+            evidence: StageEvidence(
+              verified: ring!.length == 4,
+              checks: [
+                EvidenceCheck(
+                  name: 'corner_count',
+                  passed: ring.length == 4,
+                  detail: '${ring.length}',
+                ),
+                EvidenceCheck(
+                  name: 'corners_normalized',
+                  passed: ring.every(
+                    (point) =>
+                        point.x >= 0 &&
+                        point.x <= 1 &&
+                        point.y >= 0 &&
+                        point.y <= 1,
+                  ),
+                ),
+              ],
+              counts: {'corners': ring.length},
+            ),
+            results: {'origin': 'user_drawn'},
+            itemCount: ring.length,
+          );
+        }
         final recipe = CropDraft(
           corners: ring!,
           adjustments: ImageAdjustments(sharpness: initialManualCropSharpness),
@@ -313,6 +404,8 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           customSizeMm: selection.customSizeMm,
           sourceWidth: source.width,
           sourceHeight: source.height,
+          ledger: widget.ledger,
+          processingDocumentId: processingDocumentId,
         );
         _saved = project;
         _partners.remove(selection.id);
@@ -325,6 +418,49 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           'تعذر إكمال استخراج المستمسك.',
           fields: {'errorType': error.runtimeType.toString()},
         );
+        if (document != null) {
+          final earlierProblem = document.stages.any(
+            (stage) => stage.status.isProblem,
+          );
+          if (!earlierProblem) {
+            final pendingStage = ProcessingStage.values
+                .where((stage) => stage.documentScoped)
+                .where((stage) {
+                  final status = document.statusOf(stage);
+                  return status == null || status == StageStatus.running;
+                })
+                .firstOrNull;
+            if (pendingStage != null) {
+              if (error is OperationCancelled) {
+                widget.ledger?.documentCancelled(
+                  widget.asset.id,
+                  processingDocumentId,
+                  pendingStage,
+                  reason: 'أُلغيت المعالجة اليدوية قبل اكتمال المستند.',
+                  actionTaken: 'لم يُضف هذا المستند.',
+                );
+              } else {
+                widget.ledger?.documentFailed(
+                  widget.asset.id,
+                  processingDocumentId,
+                  pendingStage,
+                  error: error,
+                  reason:
+                      'تعذر إكمال استخراج المستمسك: ${describeFailure(error)}',
+                  actionTaken:
+                      'لم يُضف هذا المستند؛ بقيت بقية التحديدات الناجحة محفوظة.',
+                );
+              }
+            }
+          }
+          widget.ledger?.linkDocument(
+            widget.asset.id,
+            processingDocumentId,
+            outcome: error is OperationCancelled
+                ? 'أُلغيت العملية قبل اكتمال هذا المستند.'
+                : 'فشل: ${describeFailure(error)}',
+          );
+        }
       }
       if (!mounted) return;
     }

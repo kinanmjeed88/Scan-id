@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "batch": "fixture-manual-multi-selection",
+  "project": {
+    "id": "project-redacted",
+    "name": "مشروع اختبار منقح"
+  },
+  "started_utc": "2026-11-21T12:00:00.000Z",
+  "ended_utc": "2026-11-21T12:00:04.000Z",
+  "option_codes": ["route=manualSelections", "multiDocument=true"],
+  "recovered": false,
+  "finalised": true,
+  "images": [
+    {
+      "operation": "fixture-manual-multi-selection",
+      "image": "image-redacted",
+      "name": "synthetic-multiple.png",
+      "source_width": 400,
+      "source_height": 300,
+      "started_utc": "2026-11-21T12:00:00.000Z",
+      "ended_utc": "2026-11-21T12:00:04.000Z",
+      "outcome": "completedWithReview",
+      "outcome_forced": "completedWithReview",
+      "stages": [
+        {
+          "stage": "selection",
+          "status": "succeeded",
+          "reason": "اختيرت صورة تركيبية للاختبار.",
+          "evidence": {
+            "verified": true,
+            "checks": [{"name": "source_selected", "passed": true}]
+          }
+        },
+        {
+          "stage": "previewPreparation",
+          "status": "succeeded",
+          "reason": "جُهزت الصورة لمساحة التحديد.",
+          "evidence": {
+            "verified": true,
+            "checks": [{"name": "preview_ready", "passed": true}]
+          }
+        },
+        {
+          "stage": "completion",
+          "status": "reviewRequired",
+          "reason": "انتهى التنفيذ وبقي تحديد يحتاج تأكيد المقاس والوضع.",
+          "action": "راجع المستند ذي المعرّف item-test-02."
+        }
+      ],
+      "documents": [
+        {
+          "id": "item-test-01",
+          "image": "image-redacted",
+          "index": 1,
+          "label": "تحديد 1",
+          "kind": "unifiedNationalId",
+          "side": "front",
+          "kind_source": "user",
+          "side_source": "user",
+          "derived_asset": "derived-test-01",
+          "document_record": "record-test-01",
+          "layout_item": "item-test-01",
+          "outcome": "حُفظ المستند ووُضع على الورقة وتحققت الإضافة.",
+          "stages": [
+            {
+              "stage": "boundaryCorners",
+              "status": "succeeded",
+              "reason": "رُسمت أربع زوايا يدوياً لهذا التحديد.",
+              "results": {"origin": "user_drawn", "corners": 4},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "corner_count", "passed": true, "detail": "4"}]
+              }
+            },
+            {
+              "stage": "boundaryReview",
+              "status": "succeeded",
+              "reason": "اعتمد المستخدم الحدود بطلب إضافة المستند.",
+              "results": {"origin": "user_drawn", "userApproved": true, "cropAuthorized": true},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "user_approved", "passed": true}]
+              }
+            },
+            {
+              "stage": "geometryCheck",
+              "status": "succeeded",
+              "reason": "اجتاز الرباعي المرسوم التحقق الهندسي.",
+              "results": {"aspect": 1.58, "area_fraction": 0.16},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "quad_acceptable", "passed": true}]
+              }
+            },
+            {
+              "stage": "perspective",
+              "status": "succeeded",
+              "reason": "صُحح المنظور من الزوايا الأربع المقبولة.",
+              "results": {"width": 320, "height": 202},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "four_corners", "passed": true}]
+              }
+            },
+            {
+              "stage": "crop",
+              "status": "succeeded",
+              "reason": "أُنتجت صورة مقصوصة قابلة للقراءة.",
+              "results": {"width": 320, "height": 202},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "header_parsed", "passed": true}]
+              }
+            },
+            {
+              "stage": "centering",
+              "status": "notApplicable",
+              "reason": "لم يُطلب توسيط إضافي لهذا الاختبار."
+            },
+            {
+              "stage": "outputEnhancement",
+              "status": "succeeded",
+              "reason": "حُفظت إعدادات الصورة على المخرج.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "rendered_output_parsed", "passed": true}]
+              }
+            },
+            {
+              "stage": "documentModel",
+              "status": "succeeded",
+              "reason": "أُنشئ سجل المستند وربط بالمصدر والعنصر.",
+              "results": {"record": "record-test-01", "itemId": "item-test-01"},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "record_created", "passed": true}]
+              }
+            },
+            {
+              "stage": "typeSideSize",
+              "status": "succeeded",
+              "reason": "ثُبت النوع والوجه والمقاس الموثق.",
+              "inputs": {"kind": "unifiedNationalId", "side": "front"},
+              "results": {
+                "kind": "unifiedNationalId",
+                "side": "front",
+                "kindSource": "user",
+                "sideSource": "user",
+                "sizeConfirmed": true,
+                "sizeSource": "documented_catalog",
+                "width_mm": 85.6,
+                "height_mm": 53.98
+              },
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "size_confirmed", "passed": true}]
+              }
+            },
+            {
+              "stage": "placement",
+              "status": "succeeded",
+              "reason": "وُضع هذا التحديد على ورقة A4.",
+              "results": {"itemId": "item-test-01", "placed": true, "page": 1, "sizeConfirmed": true},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_on_page", "passed": true}]
+              }
+            },
+            {
+              "stage": "saveDocument",
+              "status": "succeeded",
+              "reason": "حُفظ المشروع وفيه أصل المستند وسجله.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_saved", "passed": true}]
+              }
+            },
+            {
+              "stage": "addToProject",
+              "status": "succeeded",
+              "reason": "أُضيف المستند إلى ورقة A4.",
+              "results": {"page": 1},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_in_project", "passed": true}]
+              }
+            },
+            {
+              "stage": "verifyAddition",
+              "status": "succeeded",
+              "reason": "أُكد وجود المستند وعنصره في المشروع المحفوظ.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_in_saved_project", "passed": true}]
+              }
+            }
+          ]
+        },
+        {
+          "id": "item-test-02",
+          "image": "image-redacted",
+          "index": 2,
+          "label": "تحديد 2",
+          "kind": "other",
+          "side": "unknown",
+          "kind_source": "user",
+          "side_source": "unknown",
+          "derived_asset": "derived-test-02",
+          "document_record": "record-test-02",
+          "layout_item": "item-test-02",
+          "outcome": "حُفظ المستند للمراجعة؛ لم يُحسم مقاسه ولم يوضع على الورقة.",
+          "stages": [
+            {
+              "stage": "boundaryCorners",
+              "status": "succeeded",
+              "reason": "رُسمت أربع زوايا يدوياً لهذا التحديد.",
+              "results": {"origin": "user_drawn", "corners": 4},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "corner_count", "passed": true, "detail": "4"}]
+              }
+            },
+            {
+              "stage": "boundaryReview",
+              "status": "succeeded",
+              "reason": "اعتمد المستخدم الحدود بطلب إضافة المستند.",
+              "results": {"origin": "user_drawn", "userApproved": true, "cropAuthorized": true},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "user_approved", "passed": true}]
+              }
+            },
+            {
+              "stage": "geometryCheck",
+              "status": "succeeded",
+              "reason": "اجتاز الرباعي المرسوم التحقق الهندسي.",
+              "results": {"aspect": 1.33, "area_fraction": 0.16},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "quad_acceptable", "passed": true}]
+              }
+            },
+            {
+              "stage": "perspective",
+              "status": "succeeded",
+              "reason": "صُحح المنظور من الزوايا الأربع المقبولة.",
+              "results": {"width": 320, "height": 240},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "four_corners", "passed": true}]
+              }
+            },
+            {
+              "stage": "crop",
+              "status": "succeeded",
+              "reason": "أُنتجت صورة مقصوصة قابلة للقراءة.",
+              "results": {"width": 320, "height": 240},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "header_parsed", "passed": true}]
+              }
+            },
+            {
+              "stage": "centering",
+              "status": "notApplicable",
+              "reason": "لا ينطبق التوسيط؛ لم يُوضع المستند على ورقة A4."
+            },
+            {
+              "stage": "outputEnhancement",
+              "status": "succeeded",
+              "reason": "حُفظت إعدادات الصورة على المخرج.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "rendered_output_parsed", "passed": true}]
+              }
+            },
+            {
+              "stage": "documentModel",
+              "status": "succeeded",
+              "reason": "أُنشئ سجل المستند وربط بالمصدر والعنصر.",
+              "results": {"record": "record-test-02", "itemId": "item-test-02"},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "record_created", "passed": true}]
+              }
+            },
+            {
+              "stage": "typeSideSize",
+              "status": "reviewRequired",
+              "reason": "لا يتوفر مقاس موثق لهذا النوع، ولم يُدخل المستخدم قياساً يدوياً.",
+              "inputs": {"kind": "other", "side": "unknown", "sizeProvidedByUser": false},
+              "results": {
+                "kind": "other",
+                "side": "unknown",
+                "kindSource": "user",
+                "sideSource": "unknown",
+                "sizeConfirmed": false,
+                "sizeSource": "provisional_image_dimensions",
+                "sizeProvenance": "missing",
+                "width_mm": 70.0,
+                "height_mm": 50.0
+              },
+              "diagnostics": ["size_definition_missing", "user_measurement_missing"],
+              "action": "احتُفظ بقياس مؤقت؛ أدخل القياس الفعلي أو اختر نوعاً ذا مقاس موثق."
+            },
+            {
+              "stage": "placement",
+              "status": "reviewRequired",
+              "reason": "المستند لم يُحاول وضعه على الورقة لأن القياس غير مؤكّد؛ حدّد النوع أو أدخل قياساً وثبّته.",
+              "results": {"itemId": "item-test-02", "placed": false, "page": -1, "sizeConfirmed": false},
+              "diagnostics": ["placement_size_unconfirmed"],
+              "action": "أُبقي المستند محفوظاً؛ ثبّت المقاس قبل محاولة الوضع."
+            },
+            {
+              "stage": "saveDocument",
+              "status": "succeeded",
+              "reason": "حُفظ المشروع وفيه أصل المستند وسجله.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_saved", "passed": true}]
+              }
+            },
+            {
+              "stage": "addToProject",
+              "status": "succeeded",
+              "reason": "أُضيف المستند إلى المشروع وبقي خارج ورقة A4.",
+              "results": {"page": -1},
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_in_project", "passed": true}]
+              }
+            },
+            {
+              "stage": "verifyAddition",
+              "status": "succeeded",
+              "reason": "أُكد وجود المستند وعنصره في المشروع المحفوظ.",
+              "evidence": {
+                "verified": true,
+                "checks": [{"name": "item_in_saved_project", "passed": true}]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

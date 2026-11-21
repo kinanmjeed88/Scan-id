@@ -49,8 +49,10 @@ class ImportedImageFact {
   /// sentence from the import layer, never an exception's own message.
   final String? failureMessage;
 
-  /// Time the copy phase measured for THIS source, or null when the caller did
-  /// not measure it. A missing duration is never filled in with an estimate.
+  /// Aggregate work time for THIS source's copy/import journey step: the sum of
+  /// the measured file-validation, decode, dimensions, and project-copy spans.
+  /// It is not a separate wall-clock stage; the detailed processing report keeps
+  /// the constituent durations independently. Null is never estimated.
   final int? copyDurationMs;
 }
 
@@ -239,6 +241,7 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
       detail: _clip(
         failure ?? 'لم تُحفظ نسخة من الصورة داخل المشروع، فلا يوجد ما يُعالج.',
       ),
+      durationMs: fact.copyDurationMs?.clamp(0, JourneyStep.maxDurationMs),
     );
   }
   final scaled = asset.hasScaledLargeSource

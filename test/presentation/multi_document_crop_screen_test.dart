@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/intake_options.dart';
 import 'package:scan_id/presentation/app.dart';
@@ -99,11 +101,18 @@ String _bannerText(WidgetTester tester) {
   return 'banner: ${tester.widget<Text>(banner).data}';
 }
 
-Widget _app(Project project, ProjectService service) => AppShell(
+Widget _app(
+  Project project,
+  ProjectService service, {
+  ProcessingLedger? ledger,
+  IntakeOptions? options,
+}) => AppShell(
   home: MultiDocumentCropScreen(
     project: project,
     asset: project.assets.first,
     service: service,
+    options: options,
+    ledger: ledger,
   ),
 );
 
@@ -143,6 +152,37 @@ ImageEditRecipe _expectedRecipe() => CropDraft(
 ).toRecipe(64, 40);
 
 void main() {
+  testWidgets('manual preview success records both verified checks', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final setup = await _setup();
+    final ledger = ProcessingLedger(
+      operationId: 'manual-preview-evidence',
+      projectId: setup.project.id,
+      projectName: setup.project.name,
+    );
+
+    await tester.pumpWidget(_app(setup.project, setup.service, ledger: ledger));
+    await tester.pumpAndSettle();
+
+    final preview = ledger.report.images.single.stageOf(
+      ProcessingStage.previewPreparation,
+    )!;
+    expect(preview.status, StageStatus.succeeded);
+    expect(preview.durationMs, isNotNull);
+    expect(preview.evidence!.verified, isTrue);
+    expect(
+      preview.evidence!.checks
+          .map((check) => (check.name, check.passed))
+          .toList(),
+      [('preview_not_empty', true), ('dimensions_positive', true)],
+    );
+  });
+
   testWidgets(
     'opening the photograph starts the first document in manual tap mode',
     (tester) async {
@@ -278,6 +318,66 @@ void main() {
       expect(
         saved.layoutGroups.single.arrangement,
         GroupArrangement.sideBySide,
+      );
+    },
+  );
+
+  testWidgets(
+    'manual addition records a successful centering pass and centered placement',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final setup = await _setup();
+      final emptyProject = await setup.repository.save(
+        setup.project.copyWith(items: const [], documents: const []),
+      );
+      final ledger = ProcessingLedger(
+        operationId: 'manual-add-centering',
+        projectId: emptyProject.id,
+        projectName: emptyProject.name,
+      );
+
+      await tester.pumpWidget(
+        _app(
+          emptyProject,
+          setup.service,
+          ledger: ledger,
+          options: const IntakeOptions(
+            kind: DocumentKind.passport,
+            multiDocument: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _drawCard(tester);
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+
+      final saved = setup.repository.values[emptyProject.id]!;
+      expect(saved.layout.centerCaptures, isTrue);
+      expect(saved.items, hasLength(1));
+      final item = saved.items.single;
+      expect(item.pageIndex, isNotNull);
+      final printable = saved.paper.printable;
+      expect(
+        item.x + item.width / 2,
+        closeTo(printable.x + printable.width / 2, 1e-6),
+      );
+      final document = ledger.report.images.single.documents.single;
+      expect(document.id, item.id);
+      expect(document.layoutItemId, item.id);
+      expect(document.placed, isTrue);
+      final centering = document.stageOf(ProcessingStage.centering)!;
+      expect(centering.status, StageStatus.succeeded);
+      expect(
+        centering.evidence!.checks.map((check) => check.name),
+        containsAll([
+          'center_option_enabled',
+          'item_placed',
+          'centering_pass_clear',
+        ]),
       );
     },
   );

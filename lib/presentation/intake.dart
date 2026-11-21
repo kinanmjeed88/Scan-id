@@ -31,10 +31,12 @@ import '../application/image_journey_report.dart';
 import '../application/import_trace.dart';
 import '../application/ids.dart';
 import '../application/intake_stage_log.dart';
+import '../application/processing_ledger.dart';
 import '../application/project_service.dart';
 import '../application/recognition_worker.dart';
 import '../domain/image_journey.dart';
 import '../domain/intake_options.dart';
+import '../domain/processing_record.dart';
 import '../domain/project.dart';
 import 'multi_document_crop_screen.dart';
 
@@ -49,6 +51,7 @@ class IntakeRun {
     this.journeyWriteFailed = false,
     this.stageReportWriteFailed = false,
     this.journeyStartBlocked = false,
+    this.processingReport,
   });
 
   /// The last committed project state — never a half-applied one.
@@ -78,6 +81,10 @@ class IntakeRun {
 
   /// The initial checkpoint failed and no source was opened.
   final bool journeyStartBlocked;
+
+  /// The detailed processing record filed for this run. Null only when the
+  /// runner never started a ledger (a host without a project).
+  final ProcessingReport? processingReport;
   void markUiStateApplied() => trace?.emit('ui_state_applied');
 
   List<ImportFailure> get failures => import.failures;
@@ -91,10 +98,11 @@ typedef ManualWorkspace =
       ImageAsset asset,
       IntakeOptions options,
       IntakeBatchLog? log,
+      ProcessingLedger? ledger,
     );
 
 ManualWorkspace manualWorkspace(BuildContext context, ProjectService service) =>
-    (project, asset, options, log) async {
+    (project, asset, options, log, ledger) async {
       if (!context.mounted) return null;
       return Navigator.of(context).push<Project>(
         MaterialPageRoute(
@@ -104,6 +112,7 @@ ManualWorkspace manualWorkspace(BuildContext context, ProjectService service) =>
             service: service,
             options: options,
             stageLog: log,
+            ledger: ledger,
           ),
         ),
       );
@@ -135,6 +144,11 @@ class IntakeRunner {
   CancellationToken _token = CancellationToken();
   bool _running = false;
   ImportTrace? _lastTrace;
+  ProcessingLedger? _ledger;
+
+  /// The detailed record of the run that just finished, once finalised.
+  ProcessingReport? get lastProcessingReport =>
+      _ledger?.finalised == true ? _ledger!.report : null;
 
   bool get isRunning => _running;
   ImportTrace? get lastTrace => _lastTrace;
@@ -175,11 +189,38 @@ class IntakeRunner {
     final token = _token = CancellationToken();
     final taskId = context.taskId;
     final startedAt = DateTime.now().toUtc();
+    final ledger = _ledger = ProcessingLedger(
+      operationId: taskId,
+      projectId: project.id,
+      projectName: project.name,
+      options: options,
+      sink: service.processingJournal,
+    );
     final picked = <ImportedImageFact>[];
     var journeyWriteFailed = false;
     var stageReportWriteFailed = false;
+    StageRecord? processingBatchStop;
     context.emit('import_started');
     final elapsed = Stopwatch()..start();
+
+    /// Closes the detailed record exactly once and returns it.
+    ///
+    /// A failure inside the journal must never change the intake's result, so
+    /// the fallback is the live snapshot rather than an exception.
+    ProcessingReport finaliseLedger({
+      bool cancelled = false,
+      StageRecord? batchStop,
+    }) {
+      try {
+        return ledger.finalize(
+          cancelled: cancelled || token.isCancelled,
+          batchStop: batchStop ?? processingBatchStop,
+        );
+      } on Object catch (error) {
+        context.emit('processing_report_failed', error: error);
+        return ledger.report;
+      }
+    }
 
     final pending = createPendingJourneys(
       batchId: taskId,
@@ -340,6 +381,16 @@ class IntakeRunner {
       // failure after success. Hosts without a journal retain their old policy.
       if (!await writeCheckpoint(pending)) {
         await service.discardSources(sources);
+        for (var index = 0; index < sources.length; index++) {
+          final imageId = 'source-${index + 1}';
+          ledger.image(imageId, name: sources[index].name);
+          ledger.stopped(
+            imageId,
+            ProcessingStage.selection,
+            reason: journeyStartFailure,
+            actionTaken: 'لم يُفتح الملف؛ لم يبدأ الاستيراد.',
+          );
+        }
         return IntakeRun(
           project: project,
           import: ImportReport(project, 0, [
@@ -350,6 +401,7 @@ class IntakeRunner {
           trace: context,
           journeyWriteFailed: true,
           journeyStartBlocked: true,
+          processingReport: finaliseLedger(),
         );
       }
       await saveProgress(project, finished: false, committed: false);
@@ -363,6 +415,42 @@ class IntakeRunner {
         IntakeOptions chosen,
       ) async {
         final log = stageLog?.forAsset(asset.id, name: asset.name);
+        ledger
+          ..overridden(
+            asset.id,
+            ProcessingStage.analysis,
+            reason: 'اختار المستخدم مسار التحديد اليدوي دون تحليل آلي.',
+          )
+          ..overridden(
+            asset.id,
+            ProcessingStage.detection,
+            reason: 'رُسمت حدود كل مستند يدوياً؛ لم يعمل كاشف آلي.',
+          )
+          ..overridden(
+            asset.id,
+            ProcessingStage.preprocessing,
+            reason: 'مسار التحديد اليدوي لا يهيئ مناطق OCR.',
+          )
+          ..notApplicable(
+            asset.id,
+            ProcessingStage.confidence,
+            reason: 'لم يعمل كاشف أو مصنف آلي لإنتاج درجة ثقة.',
+          )
+          ..overridden(
+            asset.id,
+            ProcessingStage.automaticClassification,
+            reason: 'يُدخل النوع يدوياً لكل مستند في مساحة التحديد.',
+          )
+          ..notApplicable(
+            asset.id,
+            ProcessingStage.userClassification,
+            reason: 'اختيار النوع مسجل لكل مستند على حدة، لا للصورة كلها.',
+          )
+          ..notApplicable(
+            asset.id,
+            ProcessingStage.faceVerification,
+            reason: 'اختيار الوجه والتحقق منه مسجلان لكل مستند على حدة.',
+          );
         log?.skip(
           JourneyStage.detection,
           'تحديد يدوي متعدد؛ لا كشف آلي ولا مراجعة لثقة الكاشف.',
@@ -374,7 +462,7 @@ class IntakeRunner {
         try {
           final open = openManualWorkspace;
           if (open == null) throw StateError('Manual workspace unavailable');
-          final saved = await open(latest, asset, chosen, stageLog);
+          final saved = await open(latest, asset, chosen, stageLog, _ledger);
           if (saved != null) return saved;
           log?.skip(
             JourneyStage.crop,
@@ -382,6 +470,7 @@ class IntakeRunner {
           );
         } catch (error) {
           failure ??= error;
+          ledger.warnBatch('تعذر التحديد اليدوي: ${describeFailure(error)}');
           log?.block(
             JourneyStage.crop,
             'تعذر التحديد اليدوي: ${_causeOf(error)}',
@@ -411,12 +500,13 @@ class IntakeRunner {
               log?.block(
                 JourneyStage.copy,
                 'تعذر استيراد الصورة؛ راجع تفاصيل النسخ في سجل الصورة.',
+                durationMs: result.copyDurationMs,
               );
             } else {
               log?.pass(
                 JourneyStage.copy,
                 'نُسخت الصورة إلى المشروع.',
-                durationMs: result.durationMs,
+                durationMs: result.copyDurationMs,
                 fields: {'width': asset.width, 'height': asset.height},
               );
             }
@@ -425,7 +515,7 @@ class IntakeRunner {
                 name: result.name,
                 assetId: result.asset?.id,
                 failureMessage: result.failure,
-                copyDurationMs: result.durationMs,
+                copyDurationMs: result.copyDurationMs,
                 // Captured now, while `asset` still describes the copy. A later
                 // revision keeps this id, so its width/height can become the
                 // crop's; the journey must not report the crop as the copy.
@@ -436,6 +526,7 @@ class IntakeRunner {
           },
           onSourceCheckpoint: (result, current) =>
               saveProgress(current, finished: false),
+          ledger: ledger,
         );
       } catch (error) {
         trace('import', 'failed', error);
@@ -447,6 +538,13 @@ class IntakeRunner {
           JourneyStage.copy,
           'توقف استيراد الدفعة: ${_causeOf(error)}',
         );
+        if (!token.isCancelled) {
+          processingBatchStop = ledger.failBatch(
+            ProcessingStage.importCopy,
+            'توقف استيراد الدفعة: ${describeFailure(error)}',
+            errorCode: FailureCode.of(error),
+          );
+        }
         // A batch-level failure can occur after one or more commits. Reload
         // before reporting it; never present an exception as a successful run.
         var latest = project;
@@ -484,9 +582,16 @@ class IntakeRunner {
           trace: context,
           journeyWriteFailed: journeyWriteFailed,
           stageReportWriteFailed: stageReportWriteFailed,
+          processingReport: finaliseLedger(batchStop: processingBatchStop),
         );
       }
       trace('import', 'completed');
+      for (final failure in import.failures) {
+        ledger.warnBatch('${failure.name}: ${failure.message}');
+      }
+      for (final notice in import.notices) {
+        ledger.warnBatch('${notice.name}: ${notice.message}');
+      }
       var latest = import.project;
       final importedIds = [
         for (final asset in latest.assets)
@@ -505,6 +610,7 @@ class IntakeRunner {
             cancellation: token,
             options: options,
             stageLog: stageLog,
+            ledger: ledger,
             onProgress: (progress) {
               if (progress.stage == 'تحليل الصور' && progress.completed == 0) {
                 trace('analysis', 'started');
@@ -528,6 +634,9 @@ class IntakeRunner {
             },
           );
           latest = layout.project;
+          for (final warning in layout.warnings) {
+            ledger.warnBatch(warning);
+          }
           if (savingReported) trace('apply-and-save', 'completed');
           if (!token.isCancelled) {
             reportProgress(
@@ -548,6 +657,13 @@ class IntakeRunner {
             JourneyStage.placement,
             'تعذّر ترتيب المستمسكات على الورقة: ${_causeOf(error)}',
           );
+          if (!token.isCancelled) {
+            processingBatchStop = ledger.failBatch(
+              ProcessingStage.addToProject,
+              'تعذّر ترتيب المستمسكات على الورقة: ${describeFailure(error)}',
+              errorCode: FailureCode.of(error),
+            );
+          }
           // The imports are already committed: reload so a successful crop
           // revision is never hidden by a later arrangement failure.
           failure = error;
@@ -606,8 +722,19 @@ class IntakeRunner {
         trace: context,
         journeyWriteFailed: journeyWriteFailed,
         stageReportWriteFailed: stageReportWriteFailed,
+        processingReport: finaliseLedger(batchStop: processingBatchStop),
       );
     } finally {
+      if (ledger.finalised == false) {
+        try {
+          ledger.finalize(
+            cancelled: token.isCancelled,
+            batchStop: processingBatchStop,
+          );
+        } on Object {
+          // The report is diagnostics; the run's own result is already known.
+        }
+      }
       trace('task', terminal);
       context.finish(
         terminal == 'completed'

@@ -2,10 +2,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/arrangement.dart';
 import 'package:scan_id/domain/document_edits.dart';
 import 'package:scan_id/domain/document_kind.dart';
+import 'package:scan_id/domain/intake_options.dart';
+import 'package:scan_id/domain/processing_record.dart';
+import 'package:scan_id/domain/recognition.dart' show SideKind;
 import 'package:scan_id/domain/page_layout.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/persistence/local_asset_repository.dart';
@@ -33,6 +37,66 @@ void main() {
     await projects.close();
     await root.delete(recursive: true);
   });
+
+  test('failed imports retain measured stage and copy durations', () async {
+    final project = await service.create('processing import timings');
+    final ledger = ProcessingLedger(
+      operationId: 'batch-import-timing',
+      projectId: project.id,
+      projectName: project.name,
+    );
+    final results = <ImportedSourceResult>[];
+
+    final report = await service.importImages(
+      project,
+      [ImportSource(' ', () => Stream.value(<int>[]))],
+      ledger: ledger,
+      onSourceResult: results.add,
+    );
+
+    expect(report.imported, 0);
+    expect(results.single.durationMs, isNotNull);
+    expect(results.single.copyDurationMs, isNotNull);
+    final image = ledger.report.images.single;
+    final validation = image.stageOf(ProcessingStage.fileValidation)!;
+    expect(validation.status, StageStatus.failed);
+    expect(validation.durationMs, isNotNull);
+    expect(results.single.copyDurationMs, validation.durationMs);
+    expect(image.stageOf(ProcessingStage.importCopy), isNull);
+  });
+
+  test(
+    'copy journey duration sums the separately measured import stages',
+    () async {
+      final project = await service.create('processing import timings');
+      final ledger = ProcessingLedger(
+        operationId: 'batch-import-stage-sum',
+        projectId: project.id,
+        projectName: project.name,
+      );
+      final results = <ImportedSourceResult>[];
+      final bytes = img.encodePng(img.Image(width: 128, height: 96));
+
+      await service.importImages(
+        project,
+        [ImportSource('timed.png', () => Stream.value(bytes))],
+        ledger: ledger,
+        onSourceResult: results.add,
+      );
+
+      final image = ledger.report.images.single;
+      const importStages = [
+        ProcessingStage.fileValidation,
+        ProcessingStage.decode,
+        ProcessingStage.dimensions,
+        ProcessingStage.importCopy,
+      ];
+      final durations = [
+        for (final stage in importStages) image.stageOf(stage)!.durationMs!,
+      ];
+      expect(results.single.copyDurationMs, durations.reduce((a, b) => a + b));
+    },
+  );
 
   test(
     'legacy imports stay unknown when names and aspects resemble catalog kinds',
@@ -91,6 +155,48 @@ void main() {
       expect(
         (await projects.get(created.id)).toJson(),
         result.project.toJson(),
+      );
+    },
+  );
+
+  test(
+    'an unmeasured legacy placeholder stops size and skips face verification',
+    () async {
+      final bytes = img.encodePng(img.Image(width: 860, height: 540));
+      final legacyService = ProjectService(
+        projects,
+        assets,
+        imageEditor: LocalImageEditor(projects.files),
+        smartRecognitionEnabled: false,
+        multiDocumentSegmentationEnabled: false,
+      );
+      final project = await legacyService.create('unmeasured placeholder');
+      final imported = await legacyService.importImages(project, [
+        ImportSource('plain.png', () => Stream.value(bytes)),
+      ]);
+      final ledger = ProcessingLedger(
+        operationId: 'batch-unmeasured-placeholder',
+        projectId: imported.project.id,
+        projectName: imported.project.name,
+      );
+
+      await legacyService.arrangeImportedImages(
+        imported.project,
+        [imported.project.assets.single.id],
+        options: const IntakeOptions(side: SideKind.front),
+        ledger: ledger,
+      );
+      final report = ledger.finalize();
+      final image = report.images.single;
+      final document = image.documents.single;
+
+      expect(
+        document.statusOf(ProcessingStage.typeSideSize),
+        StageStatus.stopped,
+      );
+      expect(
+        image.statusOf(ProcessingStage.faceVerification),
+        StageStatus.notApplicable,
       );
     },
   );

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -128,6 +129,31 @@ class _ThrowingOcr implements OcrEngine {
   }) async => throw StateError('engine crashed');
 }
 
+class _TimedOcr implements OcrEngine {
+  int calls = 0;
+
+  @override
+  String get version => 'timed-ocr-1';
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<OcrTextResult> recognize(
+    Uint8List imageBytes, {
+    CancellationToken? token,
+  }) async {
+    token?.throwIfCancelled();
+    calls++;
+    await Future<void>.delayed(const Duration(milliseconds: 8));
+    token?.throwIfCancelled();
+    return OcrTextResult.available(
+      lines: [OcrLine(text: 'البطاقة الوطنية', confidence: .95)],
+      engineVersion: version,
+    );
+  }
+}
+
 class _QualifiedIdOcr implements OcrEngine {
   @override
   String get version => 'synthetic-id-ocr';
@@ -218,13 +244,101 @@ void main() {
         ]);
         final result = analysis.detections.single;
         expect(result.geometry?.acceptable, isTrue);
-        if (!manual) return;
+        expect(analysis.detectionDurationMs, isNotNull);
+        if (!manual) {
+          expect(result.preprocessingAttempts, 1);
+          expect(result.preprocessingFailures, 0);
+          expect(result.preprocessingDurationMs, isNotNull);
+          expect(result.recognitionDurationMs, isNotNull);
+          return;
+        }
+        expect(result.preprocessingAttempts, 0);
+        expect(result.preprocessingDurationMs, isNull);
         expect(result.classification.kind, DocumentKind.passport);
         expect(result.classification.confidences.classification, isNull);
         expect(result.classification.evidence, isEmpty);
       },
     );
   }
+  test('recognition duration excludes OCR-region preprocessing', () async {
+    final pipeline = RecognitionPipeline(
+      suggestSingle: (_) async => _quad(),
+      segment: _noMulti,
+      ocr: _TimedOcr(),
+      ocrBudget: const Duration(seconds: 2),
+      prepareOcrRegion: (bytes, {corners, region, cancellation}) async {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        cancellation?.throwIfCancelled();
+        return bytes;
+      },
+    );
+    final analysis = await pipeline.analyze(
+      _input(previewBytes: _twoColoredDocumentRegions()),
+    );
+    final detection = analysis.detections.single;
+
+    expect(detection.preprocessingAttempts, 1);
+    expect(detection.preprocessingFailures, 0);
+    expect(detection.preprocessingDurationMs, greaterThanOrEqualTo(100));
+    expect(
+      detection.recognitionDurationMs,
+      lessThan(detection.preprocessingDurationMs!),
+    );
+  });
+
+  test('preprocessing failure is timed and does not call OCR', () async {
+    final ocr = _TimedOcr();
+    final pipeline = RecognitionPipeline(
+      suggestSingle: (_) async => _quad(),
+      segment: _noMulti,
+      ocr: ocr,
+      prepareOcrRegion: (bytes, {corners, region, cancellation}) async =>
+          throw StateError('synthetic preprocessing failure'),
+    );
+    final analysis = await pipeline.analyze(
+      _input(previewBytes: _twoColoredDocumentRegions()),
+    );
+    final detection = analysis.detections.single;
+
+    expect(detection.preprocessingAttempts, 1);
+    expect(detection.preprocessingFailures, 1);
+    expect(detection.preprocessingDurationMs, isNotNull);
+    expect(ocr.calls, 0);
+    expect(
+      analysis.issues.map((issue) => issue.category),
+      contains(RecognitionErrorCategory.ocrFailure),
+    );
+  });
+
+  test(
+    'cancellation during preprocessing escapes the OCR failure fallback',
+    () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final token = CancellationToken();
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (_) async => _quad(),
+        segment: _noMulti,
+        ocr: _TimedOcr(),
+        prepareOcrRegion: (bytes, {corners, region, cancellation}) async {
+          entered.complete();
+          await release.future;
+          cancellation?.throwIfCancelled();
+          return bytes;
+        },
+      );
+      final pending = pipeline.analyze(
+        _input(previewBytes: _twoColoredDocumentRegions()),
+        token: token,
+      );
+
+      await entered.future.timeout(const Duration(seconds: 2));
+      token.cancel();
+      release.complete();
+      await expectLater(pending, throwsA(isA<OperationCancelled>()));
+    },
+  );
+
   test(
     'a qualified kind and matching catalog shape resolve only a classical score review',
     () async {
@@ -1128,10 +1242,12 @@ void main() {
       analysis.issues.map((i) => i.category),
       contains(RecognitionErrorCategory.ocrFailure),
     );
-    expect(
-      analysis.detections.single.classification.kind,
-      DocumentKind.unknown,
-    );
+    final detection = analysis.detections.single;
+    expect(detection.classification.kind, DocumentKind.unknown);
+    expect(detection.preprocessingAttempts, 1);
+    expect(detection.preprocessingFailures, 0);
+    expect(detection.preprocessingDurationMs, isNotNull);
+    expect(detection.recognitionDurationMs, isNotNull);
   });
 
   test(

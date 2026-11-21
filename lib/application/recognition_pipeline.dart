@@ -20,6 +20,7 @@ import '../domain/quad_assessment.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
+import '../domain/validation.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
@@ -80,6 +81,9 @@ class DetectionAnalysis {
     this.boundary = DetectionBoundary.undetected,
     this.regionIndex = 0,
     this.recognitionDurationMs,
+    this.preprocessingDurationMs,
+    this.preprocessingAttempts = 0,
+    this.preprocessingFailures = 0,
     this.boundaryDecision,
   });
   final String detectionId;
@@ -107,8 +111,15 @@ class DetectionAnalysis {
   /// (top-to-bottom, left-to-right), used to keep results stable.
   final int regionIndex;
 
-  /// OCR/evidence and type classification. Null when bypassed by user choice.
+  /// OCR/evidence and type classification time, excluding the separately
+  /// measured preprocessing duration. Null when bypassed by user choice.
   final int? recognitionDurationMs;
+
+  /// Sum of the measured OCR-region preparation calls for this document.
+  /// Null means preprocessing was not attempted, not a zero-millisecond run.
+  final int? preprocessingDurationMs;
+  final int preprocessingAttempts;
+  final int preprocessingFailures;
 
   /// The shared Proposal → Verification → Decision result for this region.
   /// Automatic crops may proceed only when it grants [cropAuthorization].
@@ -153,6 +164,7 @@ class ImageAnalysis {
     required this.multi,
     this.unresolvedRegions = const [],
     this.rejectedRegions = const [],
+    this.detectionDurationMs,
   });
   final String assetId;
   final int importIndex;
@@ -176,6 +188,10 @@ class ImageAnalysis {
   /// photo stays in the library and any part of it can still be cropped by
   /// hand, which is the recovery route for a region refused by mistake.
   final List<RejectedRegion> rejectedRegions;
+
+  /// Measured time spent in segmentation and the single-frame boundary detector.
+  /// It excludes OCR, classification and geometry evaluation.
+  final int? detectionDurationMs;
 
   /// Document-like regions the segmenter MEASURED but could not resolve into
   /// a trustworthy quadrilateral.
@@ -235,6 +251,14 @@ String regionDetectionId(String assetId, int regionIndex) =>
 /// instead of stalling the batch.
 const Duration defaultPipelineOcrBudget = Duration(seconds: 40);
 
+typedef OcrRegionPreparer =
+    Future<Uint8List> Function(
+      Uint8List previewBytes, {
+      List<Point2>? corners,
+      List<double>? region,
+      CancellationToken? cancellation,
+    });
+
 class RecognitionPipeline {
   const RecognitionPipeline({
     required this.suggestSingle,
@@ -246,6 +270,7 @@ class RecognitionPipeline {
     this.ocrBudget = defaultPipelineOcrBudget,
     this.classifier = classifyDocument,
     this.options,
+    this.prepareOcrRegion = prepareOcrRegionIsolated,
   });
 
   /// The batch options the person chose, or null when they were not offered.
@@ -269,6 +294,11 @@ class RecognitionPipeline {
   final DocumentSizeCatalog catalog;
   final RecognitionThresholds thresholds;
 
+  /// Builds the bounded OCR input. Production uses the cancellable isolate
+  /// implementation; tests may supply a controlled preparer to verify timing
+  /// and cancellation without depending on image-decoder speed.
+  final OcrRegionPreparer prepareOcrRegion;
+
   /// Upper bound on the OCR stage of one document (see
   /// [defaultPipelineOcrBudget]).
   final Duration ocrBudget;
@@ -282,8 +312,11 @@ class RecognitionPipeline {
       throw StateError('Manual selections do not enter recognition');
     }
     final issues = <BatchItemFailure>[];
+    var detectionDurationMs = 0;
 
     SegmentationResult segmentation;
+    final segmentationClock = Stopwatch();
+    if (options == null) segmentationClock.start();
     try {
       segmentation = options != null
           ? const SegmentationResult(candidates: [], multi: false)
@@ -302,6 +335,11 @@ class RecognitionPipeline {
         ),
       );
       segmentation = const SegmentationResult(candidates: [], multi: false);
+    } finally {
+      if (segmentationClock.isRunning) {
+        segmentationClock.stop();
+        detectionDurationMs += segmentationClock.elapsedMilliseconds;
+      }
     }
     token?.throwIfCancelled();
 
@@ -384,6 +422,7 @@ class RecognitionPipeline {
       BoundaryReviewReason? forceReviewReason;
       var producer = BoundaryProducer.wholeFrameDetector;
       BoundaryProposal? prop;
+      final boundaryClock = Stopwatch()..start();
       try {
         if (suggestProposal != null) {
           prop = await ImportTrace.stage(
@@ -415,6 +454,9 @@ class RecognitionPipeline {
           ),
         );
         corners = null;
+      } finally {
+        boundaryClock.stop();
+        detectionDurationMs += boundaryClock.elapsedMilliseconds;
       }
       token?.throwIfCancelled();
       detections.add(
@@ -445,6 +487,7 @@ class RecognitionPipeline {
       multi: detections.length + unresolved.length > 1,
       unresolvedRegions: unresolved,
       rejectedRegions: segmentation.rejected,
+      detectionDurationMs: detectionDurationMs,
     );
   }
 
@@ -488,22 +531,39 @@ class RecognitionPipeline {
     required List<double>? region,
     required Duration budget,
     required List<BatchItemFailure>? issues,
+    void Function(int durationMs, bool succeeded)? onPreprocessing,
     required CancellationToken? token,
   }) async {
     final trace = ImportTrace.current;
     final ocrOperation = trace?.nextOperation();
     trace?.emit('ocr_started', operationId: ocrOperation);
     try {
-      final ocrBytes = await ImportTrace.stage(
-        'preprocessing',
-        () => prepareOcrRegionIsolated(
-          input.previewBytes,
-          corners: corners,
-          region: region,
-          cancellation: token,
-        ),
-        phase: 'ocr-region',
-      );
+      final preprocessingClock = Stopwatch()..start();
+      Uint8List ocrBytes;
+      var preprocessingSucceeded = false;
+      try {
+        ocrBytes = await ImportTrace.stage(
+          'preprocessing',
+          () => prepareOcrRegion(
+            input.previewBytes,
+            corners: corners,
+            region: region,
+            cancellation: token,
+          ),
+          phase: 'ocr-region',
+        );
+        preprocessingSucceeded = ocrBytes.isNotEmpty;
+        require(
+          ocrBytes.isNotEmpty,
+          'لم تُنتج المعالجة المسبقة صورة OCR صالحة.',
+        );
+      } finally {
+        preprocessingClock.stop();
+        onPreprocessing?.call(
+          preprocessingClock.elapsedMilliseconds,
+          preprocessingSucceeded,
+        );
+      }
       final ocrOutcome = await runStageWithin(
         () => ocr.recognize(ocrBytes, token: token),
         budget: budget,
@@ -666,6 +726,15 @@ class RecognitionPipeline {
     // than from inside the proposal itself.
     var evidenceFromWiderRead = false;
     var widerLineCentres = const <Point2>[];
+    var preprocessingDurationMs = 0;
+    var preprocessingAttempts = 0;
+    var preprocessingFailures = 0;
+    void recordPreprocessing(int durationMs, bool succeeded) {
+      preprocessingDurationMs += durationMs;
+      preprocessingAttempts++;
+      if (!succeeded) preprocessingFailures++;
+    }
+
     final manualKind = options?.route == IntakeRoute.singleManualKind;
     final recognitionClock = manualKind ? null : (Stopwatch()..start());
     if (!manualKind && ocr.isEnabled) {
@@ -695,6 +764,7 @@ class RecognitionPipeline {
               region: ocrCorners == null ? region : null,
               budget: ocrBudget,
               issues: issues,
+              onPreprocessing: recordPreprocessing,
               token: token,
             ) ??
             ocrResult;
@@ -722,6 +792,7 @@ class RecognitionPipeline {
               region: region,
               budget: remaining,
               issues: null,
+              onPreprocessing: recordPreprocessing,
               token: token,
             );
             if (wider != null &&
@@ -837,6 +908,13 @@ class RecognitionPipeline {
       expectedAspect: natural == null ? null : natural.width / natural.height,
     );
 
+    final recognitionElapsedMs = recognitionClock?.elapsedMilliseconds;
+    final recognitionDurationMs = recognitionElapsedMs == null
+        ? null
+        : recognitionElapsedMs > preprocessingDurationMs
+        ? recognitionElapsedMs - preprocessingDurationMs
+        : 0;
+
     return DetectionAnalysis(
       detectionId: detectionId,
       corners: resolvedDecision.cropAuthorization?.corners ?? usableCorners,
@@ -848,7 +926,12 @@ class RecognitionPipeline {
       region: region,
       boundary: boundary,
       regionIndex: regionIndex,
-      recognitionDurationMs: recognitionClock?.elapsedMilliseconds,
+      recognitionDurationMs: recognitionDurationMs,
+      preprocessingDurationMs: preprocessingAttempts == 0
+          ? null
+          : preprocessingDurationMs,
+      preprocessingAttempts: preprocessingAttempts,
+      preprocessingFailures: preprocessingFailures,
       boundaryDecision: resolvedDecision,
     );
   }

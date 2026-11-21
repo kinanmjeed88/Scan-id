@@ -11,11 +11,13 @@ import '../domain/image_journey.dart';
 import '../domain/image_deletion.dart';
 import '../domain/image_limits.dart';
 import '../domain/intake_options.dart';
+import '../domain/processing_record.dart';
 import '../domain/geometry.dart';
 import '../domain/manual_boundary.dart';
 import '../domain/manual_classification.dart';
 import '../domain/recognition.dart' show SideKind;
 import '../domain/project.dart';
+import '../domain/quad_assessment.dart';
 import '../domain/validation.dart';
 import 'cancellation.dart';
 import 'contracts.dart';
@@ -30,6 +32,7 @@ import 'image_reader.dart';
 import 'journey_log.dart';
 import 'full_resolution_jpeg_cropper.dart';
 import 'ocr_engine.dart';
+import 'processing_ledger.dart';
 import 'recognition_pipeline.dart';
 import 'recognition_worker.dart';
 import 'smart_recognition.dart';
@@ -40,6 +43,7 @@ import '../domain/crop_draft.dart';
 import '../imaging/auto_adjustments.dart' as imaging;
 import '../imaging/full_resolution_manual_crop.dart';
 import '../imaging/document_segmenter.dart';
+import '../imaging/image_header.dart';
 
 class ImportSource {
   const ImportSource(this.name, this.openRead, {this.cleanup});
@@ -78,20 +82,29 @@ class ImportedSourceResult {
     required this.name,
     required ImageAsset this.asset,
     required this.durationMs,
+    required this.copyDurationMs,
   }) : failure = null;
 
   const ImportedSourceResult.failure({
     required this.name,
     required String this.failure,
     required this.durationMs,
+    this.copyDurationMs,
   }) : asset = null;
 
   final String name;
   final ImageAsset? asset;
   final String? failure;
 
-  /// Time spent reading and committing this source, measured per source.
-  final int durationMs;
+  /// Total elapsed time for this attempted source; null when it was never opened.
+  final int? durationMs;
+
+  /// Aggregate work time for the journey's copy/import step: the sum of the
+  /// measured file-validation, decode, dimensions, and project-copy spans.
+  /// It is not a separate wall-clock interval; those constituent stages retain
+  /// their own durations in the processing ledger. Null if import work did not
+  /// start.
+  final int? copyDurationMs;
 }
 
 class ImportReport {
@@ -236,6 +249,7 @@ class ProjectService {
     this.ocr = const UnavailableOcrEngine(),
     this.fullResolutionJpegCropper = const PlatformFullResolutionJpegCropper(),
     this.journeyLog,
+    this.processingJournal,
     this.smartRecognitionEnabled =
         smart_recognition_flag.smartRecognitionEnabled,
     this.multiDocumentSegmentationEnabled =
@@ -266,6 +280,13 @@ class ProjectService {
   /// host that has no writable support directory — or a test that does not care
   /// about reports — must be able to run the pipeline unchanged.
   final JourneyLog? journeyLog;
+
+  /// The detailed, stage-by-stage processing journal. Separate from
+  /// [journeyLog] because it is a different record: the journeys say what each
+  /// image became, this says which stages ran, which were bypassed and why,
+  /// with the duration and the verified result of each. Optional so tests and
+  /// hosts without a writable directory run the pipeline unchanged.
+  final ProcessingJournal? processingJournal;
 
   /// Recognition gate for this host. An unspecified host defaults to false;
   /// the shipped application explicitly enables it at its composition root.
@@ -357,6 +378,7 @@ class ProjectService {
     List<ImportSource> sources, {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
+    ProcessingLedger? ledger,
     void Function(ImportedSourceResult result)? onSourceResult,
     Future<void> Function(ImportedSourceResult result, Project project)?
     onSourceCheckpoint,
@@ -388,47 +410,238 @@ class ProjectService {
     report(0);
     for (var index = 0; index < sources.length; index++) {
       final source = sources[index];
-      final sourceClock = Stopwatch()..start();
+      final pendingId = 'source-${index + 1}';
       if (cancellation?.isCancelled ?? false) {
         // Stop before opening another file: every committed image stays
         // committed and the rest are reported as not imported.
         await _cleanupSource(source);
+        ledger
+          ?..image(pendingId, name: source.name)
+          ..cancelled(
+            pendingId,
+            ProcessingStage.selection,
+            reason: importCancelledMessage,
+            inputs: {'index': index + 1},
+          );
         failures.add(ImportFailure(source.name, importCancelledMessage));
         await reportSource(
           ImportedSourceResult.failure(
             name: source.name,
             failure: importCancelledMessage,
-            durationMs: sourceClock.elapsedMilliseconds,
+            durationMs: null,
           ),
         );
+        var skippedIndex = index + 1;
         for (final skipped in sources.skip(index + 1)) {
+          skippedIndex++;
           await _cleanupSource(skipped);
+          ledger
+            ?..image('source-$skippedIndex', name: skipped.name)
+            ..cancelled(
+              'source-$skippedIndex',
+              ProcessingStage.selection,
+              reason: importCancelledMessage,
+              inputs: {'index': skippedIndex},
+            );
           failures.add(ImportFailure(skipped.name, importCancelledMessage));
           await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: importCancelledMessage,
-              durationMs: 0,
+              durationMs: null,
             ),
           );
         }
         break;
       }
+      final sourceClock = Stopwatch()..start();
       ImageAsset? committedAsset;
+      ImageAsset? importedAsset;
+      var stage = ProcessingStage.selection;
+      final selectionClock = Stopwatch()..start();
+      final validationClock = Stopwatch();
+      final decodeClock = Stopwatch();
+      final dimensionsClock = Stopwatch();
+      final copyClock = Stopwatch();
+      var copyWorkStarted = false;
+      // The journey has one copy/import step, while the processing ledger splits
+      // it into separately measured work. Sum those non-overlapping intervals;
+      // do not present the total source wall time or duplicate it per substage.
+      int? measuredCopyDurationMs() => copyWorkStarted
+          ? validationClock.elapsedMilliseconds +
+                decodeClock.elapsedMilliseconds +
+                dimensionsClock.elapsedMilliseconds +
+                copyClock.elapsedMilliseconds
+          : null;
+      int? finishStageClock() {
+        final Stopwatch? clock = switch (stage) {
+          ProcessingStage.selection => selectionClock,
+          ProcessingStage.fileValidation => validationClock,
+          ProcessingStage.decode => decodeClock,
+          ProcessingStage.dimensions => dimensionsClock,
+          ProcessingStage.importCopy => copyClock,
+          _ => null,
+        };
+        if (clock != null && clock.isRunning) clock.stop();
+        return clock?.elapsedMilliseconds;
+      }
+
       try {
+        // Create the source row before any check can fail so its filename and
+        // selection are preserved even when the project is already at capacity.
+        ledger?.image(pendingId, name: source.name);
         require(
           current.assets.length < maxProjectAssets,
           'وصل المشروع إلى حد 200 صورة.',
         );
+        selectionClock.stop();
+        // Record what already happened BEFORE the decode that might kill the
+        // process: the source is received. The row uses a provisional id until
+        // the repository returns the asset id.
+        ledger?.succeeded(
+          pendingId,
+          ProcessingStage.selection,
+          reason: 'استُلم المصدر المختار ووُضع في طابور الاستيراد.',
+          evidence: StageEvidence(
+            verified: true,
+            counts: {'sources': 1, 'batch_index': index + 1},
+          ),
+          inputs: {'index': index + 1},
+          durationMs: selectionClock.elapsedMilliseconds,
+        );
+        copyWorkStarted = true;
+        validationClock.start();
+        stage = ProcessingStage.fileValidation;
         validName(source.name);
         final bytes = await ImportTrace.stage(
           'source_read',
           () => readBoundedImage(source.openRead()),
         );
+        // Header inspection is diagnostic only: an unreadable header is
+        // reported as uninspected, never turned into a failed import, because
+        // the repository performs the authoritative validation.
+        ImageHeader? header;
+        try {
+          header = inspectImageHeader(bytes);
+        } on Object {
+          header = null;
+        }
+        validationClock.stop();
+        final validationVerified =
+            bytes.isNotEmpty && bytes.length <= maxImportBytes;
+        ledger?.succeeded(
+          pendingId,
+          ProcessingStage.fileValidation,
+          reason: header == null
+              ? 'اسم الملف وحجمه صالحان؛ تعذر فحص الترويسة فبقي التشخيص ناقصاً.'
+              : 'اسم الملف وحجمه صالحان، وطابقت الترويسة صيغة مدعومة.',
+          evidence: StageEvidence(
+            verified: validationVerified,
+            checks: [
+              EvidenceCheck(name: 'bytes_not_empty', passed: bytes.isNotEmpty),
+              EvidenceCheck(
+                name: 'size_within_limit',
+                passed: bytes.length <= maxImportBytes,
+                detail: '${bytes.length}',
+              ),
+            ],
+            counts: {
+              'bytes': bytes.length,
+              'header_inspected': header == null ? 0 : 1,
+            },
+          ),
+          results: {
+            if (header != null) 'format': header.encoding.name,
+            if (header != null) 'header_width': header.width,
+            if (header != null) 'header_height': header.height,
+            if (header != null) 'orientation': header.orientation,
+          },
+          durationMs: validationClock.elapsedMilliseconds,
+        );
+        decodeClock.start();
+        stage = ProcessingStage.decode;
         final asset = await ImportTrace.stage(
           'asset_import',
           () => assets.importImage(current.id, source.name, bytes),
         );
+        importedAsset = asset;
+        decodeClock.stop();
+        ledger?.rekeyImage(
+          pendingId,
+          asset.id,
+          width: asset.width,
+          height: asset.height,
+        );
+        ledger?.succeeded(
+          asset.id,
+          ProcessingStage.decode,
+          reason: 'فُك ترميز المصدر وأُنتجت نسخة العمل والمصغرة.',
+          evidence: StageEvidence(
+            verified:
+                asset.width > 0 &&
+                asset.height > 0 &&
+                asset.workingPath.isNotEmpty &&
+                asset.thumbnailPath.isNotEmpty,
+            checks: [
+              EvidenceCheck(
+                name: 'dimensions_positive',
+                passed: asset.width > 0 && asset.height > 0,
+              ),
+              EvidenceCheck(
+                name: 'files_named',
+                passed:
+                    asset.workingPath.isNotEmpty &&
+                    asset.thumbnailPath.isNotEmpty,
+              ),
+            ],
+            counts: {'working_files': 2},
+          ),
+          results: {
+            'width': asset.width,
+            'height': asset.height,
+            'scaled': asset.hasScaledLargeSource,
+          },
+          durationMs: decodeClock.elapsedMilliseconds,
+        );
+        stage = ProcessingStage.dimensions;
+        dimensionsClock.start();
+        final dimensionsVerified =
+            asset.width > 0 &&
+            asset.height > 0 &&
+            withinImageBudget(asset.width, asset.height);
+        dimensionsClock.stop();
+        ledger?.succeeded(
+          asset.id,
+          ProcessingStage.dimensions,
+          reason: 'أبعاد الصورة صالحة وضمن حد المعالجة.',
+          evidence: StageEvidence(
+            verified: dimensionsVerified,
+            checks: [
+              EvidenceCheck(
+                name: 'width_positive',
+                passed: asset.width > 0,
+                detail: '${asset.width}',
+              ),
+              EvidenceCheck(
+                name: 'height_positive',
+                passed: asset.height > 0,
+                detail: '${asset.height}',
+              ),
+              EvidenceCheck(
+                name: 'within_pixel_budget',
+                passed: withinImageBudget(asset.width, asset.height),
+              ),
+            ],
+          ),
+          results: {
+            'width': asset.width,
+            'height': asset.height,
+            if (header != null) 'orientation': header.orientation,
+          },
+          durationMs: dimensionsClock.elapsedMilliseconds,
+        );
+        copyClock.start();
+        stage = ProcessingStage.importCopy;
         current = await ImportTrace.stage(
           'persistence',
           () => projects.save(
@@ -436,13 +649,41 @@ class ProjectService {
           ),
           phase: 'source',
         );
+        copyClock.stop();
         committedAsset = asset;
+        ledger?.succeeded(
+          asset.id,
+          ProcessingStage.importCopy,
+          reason: 'حُفظت الصورة داخل المشروع.',
+          evidence: StageEvidence(
+            verified:
+                current.assets.any((entry) => entry.id == asset.id) &&
+                asset.originalPath.isNotEmpty &&
+                asset.workingPath.isNotEmpty,
+            checks: [
+              EvidenceCheck(
+                name: 'project_contains_asset',
+                passed: current.assets.any((entry) => entry.id == asset.id),
+              ),
+              EvidenceCheck(
+                name: 'paths_present',
+                passed:
+                    asset.originalPath.isNotEmpty &&
+                    asset.workingPath.isNotEmpty,
+              ),
+            ],
+            counts: {'assets': current.assets.length},
+          ),
+          results: {'revision': current.revision},
+          durationMs: copyClock.elapsedMilliseconds,
+        );
         imported++;
         await reportSource(
           ImportedSourceResult.success(
             name: source.name,
             asset: asset,
             durationMs: sourceClock.elapsedMilliseconds,
+            copyDurationMs: measuredCopyDurationMs()!,
           ),
         );
         if (asset.hasScaledLargeSource) {
@@ -456,10 +697,20 @@ class ProjectService {
           );
         }
       } on RevisionConflict catch (error) {
+        final stageDurationMs = finishStageClock();
         ImportTrace.current?.emit(
           'source_failed',
           phase: 'revision-conflict',
           error: error,
+        );
+        ledger?.failed(
+          importedAsset?.id ?? pendingId,
+          stage,
+          error: error,
+          durationMs: stageDurationMs,
+          reason: 'توقف الاستيراد عند «${stage.label}» بسبب تعارض حفظ المشروع.',
+          inputs: {'index': index + 1},
+          actionTaken: 'أُوقف الاستيراد لأن نسخة المشروع في الذاكرة قديمة.',
         );
         failures.add(ImportFailure(source.name, error.message));
         await reportSource(
@@ -467,29 +718,52 @@ class ProjectService {
             name: source.name,
             failure: error.message,
             durationMs: sourceClock.elapsedMilliseconds,
+            copyDurationMs: measuredCopyDurationMs(),
           ),
         );
         // The in-memory project is stale; continuing would create more orphans.
+        var stoppedIndex = index + 1;
         for (final skipped in sources.skip(index + 1)) {
+          stoppedIndex++;
           await _cleanupSource(skipped);
           const stopped =
               'لم تُستورد هذه الصورة: توقف الاستيراد بسبب تعارض '
               'حفظ المشروع.';
+          ledger
+            ?..image('source-$stoppedIndex', name: skipped.name)
+            ..stopped(
+              'source-$stoppedIndex',
+              ProcessingStage.selection,
+              reason: stopped,
+              actionTaken: 'لم يُفتح الملف بعد توقف الدفعة.',
+            );
           failures.add(ImportFailure(skipped.name, stopped));
           await reportSource(
             ImportedSourceResult.failure(
               name: skipped.name,
               failure: stopped,
-              durationMs: 0,
+              durationMs: null,
             ),
           );
         }
         break;
       } catch (error) {
+        final stageDurationMs = finishStageClock();
         ImportTrace.current?.emit(
           'source_failed',
           phase: 'import',
           error: error,
+        );
+        ledger?.failed(
+          importedAsset?.id ?? pendingId,
+          stage,
+          error: error,
+          durationMs: stageDurationMs,
+          reason:
+              'تعذر استيراد الصورة عند مرحلة «${stage.label}»: '
+              '${describeFailure(error)}',
+          inputs: {'index': index + 1},
+          actionTaken: 'لم تُضف الصورة إلى المشروع.',
         );
         final message = userError(error);
         failures.add(ImportFailure(source.name, message));
@@ -498,6 +772,7 @@ class ProjectService {
             name: source.name,
             failure: message,
             durationMs: sourceClock.elapsedMilliseconds,
+            copyDurationMs: measuredCopyDurationMs(),
           ),
         );
       } finally {
@@ -544,6 +819,7 @@ class ProjectService {
     void Function(BatchProgress progress)? onProgress,
     IntakeOptions? options,
     IntakeBatchLog? stageLog,
+    ProcessingLedger? ledger,
   }) async {
     final smartEditor = imageEditor;
     // Option 4: centring. This is not a second placement algorithm — it sets
@@ -578,6 +854,7 @@ class ProjectService {
             fullResolutionJpegCropper: fullResolutionJpegCropper,
             options: options,
             stageLog: stageLog,
+            ledger: ledger,
           ).run(
             working,
             assetIds,
@@ -602,6 +879,7 @@ class ProjectService {
         cancellation: cancellation,
         onProgress: onProgress,
         stageLog: stageLog,
+        ledger: ledger,
       );
     }
 
@@ -613,6 +891,7 @@ class ProjectService {
       onProgress: onProgress,
       options: options,
       stageLog: stageLog,
+      ledger: ledger,
     );
   }
 
@@ -718,6 +997,7 @@ class ProjectService {
     CancellationToken? cancellation,
     void Function(BatchProgress progress)? onProgress,
     IntakeBatchLog? stageLog,
+    ProcessingLedger? ledger,
   }) async {
     final ids = assetIds.toSet().toList();
     final pendingIds = <String>[];
@@ -847,6 +1127,7 @@ class ProjectService {
               ocr: ocr,
               fullResolutionJpegCropper: fullResolutionJpegCropper,
               stageLog: stageLog,
+              ledger: ledger,
             ).run(
               current,
               [id],
@@ -883,6 +1164,7 @@ class ProjectService {
         onProgress: (value) =>
             progress(firstIndex + value.completed, value.stage),
         stageLog: stageLog,
+        ledger: ledger,
       );
       merge(report);
       hasNewItems = hasNewItems || report.project.items.length > beforeItems;
@@ -911,8 +1193,32 @@ class ProjectService {
     }
 
     if (hasNewItems) {
-      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+      final centeredItemIds = <String>{};
+      final arrangement = arrangeDocuments(
+        current,
+        keepPlaced: keepPlaced,
+        onCenteringPass: centeredItemIds.addAll,
+      );
       current = await projects.save(arrangement.result);
+      ledger?.settleCentering(
+        centerEnabled: current.layout.centerCaptures,
+        placed: (itemId) => current.items.any(
+          (item) => item.id == itemId && item.pageIndex != null,
+        ),
+        pageIndex: (itemId) => current.items
+            .where((item) => item.id == itemId)
+            .firstOrNull
+            ?.pageIndex,
+        unplacedReason: (itemId) {
+          final item = current.items
+              .where((entry) => entry.id == itemId)
+              .firstOrNull;
+          return item == null
+              ? 'لم يُعثر على عنصر هذا التحديد في نتيجة الترتيب.'
+              : unplacedDocumentMessage(current, item);
+        },
+        centeredItemIds: centeredItemIds,
+      );
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
           '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
@@ -961,6 +1267,7 @@ class ProjectService {
     void Function(BatchProgress progress)? onProgress,
     IntakeOptions? options,
     IntakeBatchLog? stageLog,
+    ProcessingLedger? ledger,
   }) async {
     var current = project;
     var cropped = 0;
@@ -982,16 +1289,132 @@ class ProjectService {
 
     progress(0);
     for (var index = 0; index < ids.length; index++) {
-      if (cancellation?.isCancelled ?? false) break;
+      if (cancellation?.isCancelled ?? false) {
+        for (final skippedId in ids.skip(index)) {
+          final skippedAsset = current.assets
+              .where((entry) => entry.id == skippedId)
+              .firstOrNull;
+          ledger
+            ?..image(
+              skippedId,
+              name: skippedAsset?.name ?? '',
+              width: skippedAsset?.width,
+              height: skippedAsset?.height,
+            )
+            ..cancelled(
+              skippedId,
+              ProcessingStage.previewPreparation,
+              reason: 'أُلغيت عملية التحليل قبل تجهيز معاينة هذه الصورة.',
+              actionTaken: 'بقيت الصورة الأصلية محفوظة دون تغيير.',
+            );
+        }
+        break;
+      }
       final id = ids[index];
       final assetIndex = current.assets.indexWhere((entry) => entry.id == id);
       require(assetIndex >= 0, 'الصورة المراد ترتيبها ليست ضمن المشروع.');
+      var asset = current.assets[assetIndex];
+      ledger?.image(
+        id,
+        name: asset.name,
+        width: asset.width,
+        height: asset.height,
+      );
       if (current.items.any((item) => item.assetId == id)) {
+        ledger
+          ?..notApplicable(
+            id,
+            ProcessingStage.previewPreparation,
+            reason: 'لم تُجهز معاينة لأن الصورة ممثلة بعنصر قائم.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.preprocessing,
+            reason: 'لا يحتاج العنصر القائم إلى معالجة مسبقة جديدة.',
+          )
+          ..overridden(
+            id,
+            ProcessingStage.analysis,
+            reason: 'الصورة ممثلة بعنصر في المشروع؛ لم يُكرر تحليل الاستيراد.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.detection,
+            reason: 'لا يلزم إنشاء عنصر أو اكتشاف جديد للصورة الممثلة.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.confidence,
+            reason: 'لم تُشغّل مراحل كشف أو تصنيف جديدة.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.automaticClassification,
+            reason: 'لا توجد عملية تصنيف جديدة لهذه الصورة.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.userClassification,
+            reason: 'لا يوجد اختيار نوع جديد لهذه الصورة.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.faceVerification,
+            reason: 'لا يوجد مستند جديد للتحقق من وجهه.',
+          );
         progress(index + 1);
         continue;
       }
-      var asset = current.assets[assetIndex];
       double? warpedAspect;
+
+      final kind = options?.kind ?? DocumentKind.unknown;
+      final side = options?.side ?? SideKind.unknown;
+      final documentId = '${asset.id}-d0';
+      final document = ledger?.document(
+        id,
+        documentId: documentId,
+        index: index + 1,
+        kind: kind,
+        side: side,
+        kindSource: options?.assertsKind == true
+            ? RecordSource.user
+            : RecordSource.unknown,
+        sideSource: options?.assertsSide == true
+            ? RecordSource.user
+            : RecordSource.unknown,
+      );
+      ProcessingStage activeImageStage = ProcessingStage.previewPreparation;
+      void fillUnmeasuredStages(String reason) {
+        if (ledger == null) return;
+        for (final stage in [
+          ProcessingStage.analysis,
+          ProcessingStage.detection,
+          ProcessingStage.confidence,
+        ]) {
+          if (ledger.existingImage(id)?.stageOf(stage) == null) {
+            ledger.notApplicable(id, stage, reason: reason);
+          }
+        }
+        if (document != null) {
+          for (final stage in [
+            ProcessingStage.boundaryCorners,
+            ProcessingStage.geometryCheck,
+            ProcessingStage.boundaryReview,
+            ProcessingStage.perspective,
+            ProcessingStage.crop,
+            ProcessingStage.outputEnhancement,
+          ]) {
+            if (document.statusOf(stage) == null) {
+              ledger.documentNotApplicable(
+                id,
+                documentId,
+                stage,
+                reason: reason,
+              );
+            }
+          }
+        }
+      }
 
       final editor = imageEditor;
       final stages = stageLog?.forAsset(id, name: asset.name);
@@ -1002,18 +1425,213 @@ class ProjectService {
           JourneyStage.detection,
           'كشف الحدود غير متاح في هذا البناء؛ لم تُقَس أي حدود.',
         );
+        ledger
+          ?..notApplicable(
+            id,
+            ProcessingStage.previewPreparation,
+            reason: 'لا يتوفر محرر الصور لتجهيز معاينة الكشف.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.analysis,
+            reason: 'مسار الكشف التلقائي غير متاح في هذا البناء.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.detection,
+            reason: 'لم يتوفر كاشف حدود في هذا البناء.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.confidence,
+            reason: 'لم تُنتج مرحلة الكشف أي درجة ثقة.',
+          );
+        if (document != null) {
+          for (final stage in [
+            ProcessingStage.boundaryCorners,
+            ProcessingStage.geometryCheck,
+            ProcessingStage.boundaryReview,
+            ProcessingStage.perspective,
+            ProcessingStage.crop,
+            ProcessingStage.outputEnhancement,
+          ]) {
+            ledger?.documentNotApplicable(
+              id,
+              documentId,
+              stage,
+              reason: 'لا يوجد كاشف حدود يتيح تنفيذ هذه المرحلة.',
+            );
+          }
+        }
       } else {
         try {
-          final source = await editor.open(asset, cancellation: cancellation);
-          final rawProposal = editor is BoundaryProposalImageEditor
-              ? await editor.suggestProposal(
-                  source.preview,
-                  cancellation: cancellation,
-                )
-              : null;
-          final corners = editor is BoundaryProposalImageEditor
-              ? rawProposal?.corners
-              : await editor.suggest(source.preview);
+          final previewClock = Stopwatch()..start();
+          final EditorSource source;
+          try {
+            source = await editor.open(asset, cancellation: cancellation);
+          } on OperationCancelled {
+            previewClock.stop();
+            ledger?.cancelled(
+              id,
+              ProcessingStage.previewPreparation,
+              reason: 'أُلغيت تهيئة المعاينة عند نقطة آمنة.',
+              durationMs: previewClock.elapsedMilliseconds,
+              actionTaken: 'بقيت الصورة الأصلية محفوظة.',
+            );
+            rethrow;
+          } catch (error) {
+            previewClock.stop();
+            ledger?.failed(
+              id,
+              ProcessingStage.previewPreparation,
+              error: error,
+              durationMs: previewClock.elapsedMilliseconds,
+              reason: 'تعذر تجهيز معاينة الصورة للكشف عن الحدود.',
+              diagnostics: const ['preview_open_failed'],
+              actionTaken: 'بقيت الصورة الأصلية محفوظة للمراجعة اليدوية.',
+            );
+            rethrow;
+          }
+          previewClock.stop();
+          final previewValid =
+              source.preview.isNotEmpty &&
+              source.width > 0 &&
+              source.height > 0;
+          ledger?.succeeded(
+            id,
+            ProcessingStage.previewPreparation,
+            reason: 'جُهزت معاينة محدودة لقياس حدود الصورة.',
+            evidence: StageEvidence(
+              verified: previewValid,
+              checks: [
+                EvidenceCheck(
+                  name: 'preview_not_empty',
+                  passed: source.preview.isNotEmpty,
+                  detail: '${source.preview.length}',
+                ),
+                EvidenceCheck(
+                  name: 'dimensions_positive',
+                  passed: source.width > 0 && source.height > 0,
+                ),
+              ],
+              counts: {'preview_bytes': source.preview.length},
+            ),
+            results: {'width': source.width, 'height': source.height},
+            durationMs: previewClock.elapsedMilliseconds,
+          );
+
+          activeImageStage = ProcessingStage.analysis;
+          final analysisClock = Stopwatch()..start();
+          final BoundaryProposal? rawProposal;
+          final List<Point2>? corners;
+          try {
+            rawProposal = editor is BoundaryProposalImageEditor
+                ? await editor.suggestProposal(
+                    source.preview,
+                    cancellation: cancellation,
+                  )
+                : null;
+            corners = editor is BoundaryProposalImageEditor
+                ? rawProposal?.corners
+                : await editor.suggest(source.preview);
+          } on OperationCancelled {
+            analysisClock.stop();
+            ledger?.cancelled(
+              id,
+              ProcessingStage.analysis,
+              reason: 'أُلغيت معالجة حدود الصورة عند نقطة آمنة.',
+              durationMs: analysisClock.elapsedMilliseconds,
+              actionTaken: 'بقيت الصورة الأصلية محفوظة.',
+            );
+            rethrow;
+          } catch (error) {
+            analysisClock.stop();
+            ledger?.failed(
+              id,
+              ProcessingStage.analysis,
+              error: error,
+              durationMs: analysisClock.elapsedMilliseconds,
+              reason: 'تعذر إكمال تحليل حدود الصورة.',
+              diagnostics: const ['boundary_analysis_failed'],
+              actionTaken: 'بقيت الصورة كاملة ولم يُطبق قص تلقائي.',
+            );
+            rethrow;
+          }
+          analysisClock.stop();
+          ledger
+            ?..succeeded(
+              id,
+              ProcessingStage.analysis,
+              reason: 'أعاد تحليل الحدود نتيجة قابلة للتقييم.',
+              evidence: StageEvidence(
+                verified: true,
+                checks: [
+                  EvidenceCheck(name: 'proposal_call_returned', passed: true),
+                ],
+                counts: {'proposals': corners == null ? 0 : 1},
+              ),
+              results: {
+                'proposal_count': corners == null ? 0 : 1,
+                if (rawProposal != null) 'producer': rawProposal.producer.name,
+              },
+              durationMs: analysisClock.elapsedMilliseconds,
+            )
+            ..succeeded(
+              id,
+              ProcessingStage.detection,
+              reason: corners == null
+                  ? 'اكتمل الكشف دون اقتراح رباعي حدود.'
+                  : 'قاس الكاشف اقتراحاً واحداً للحدود.',
+              evidence: StageEvidence(
+                verified: true,
+                checks: [
+                  EvidenceCheck(
+                    name: 'detection_result_measured',
+                    passed: true,
+                  ),
+                ],
+                counts: {'regions': corners == null ? 0 : 1},
+              ),
+              results: {'proposal_present': corners != null},
+              actionTaken: corners == null
+                  ? 'بقيت الصورة كاملة للمراجعة اليدوية.'
+                  : 'انتقل الاقتراح إلى التحقق الهندسي.',
+            );
+          final boundaryConfidence = rawProposal?.modelConfidence;
+          if (boundaryConfidence == null) {
+            ledger?.notApplicable(
+              id,
+              ProcessingStage.confidence,
+              reason: 'لم يصدر هذا المسار درجة ثقة للحدود أو التصنيف.',
+            );
+          } else if (boundaryConfidence.isFinite &&
+              boundaryConfidence >= 0 &&
+              boundaryConfidence <= 1) {
+            ledger?.succeeded(
+              id,
+              ProcessingStage.confidence,
+              reason: 'سُجلت درجة الثقة التي أصدرها كاشف الحدود.',
+              evidence: StageEvidence(
+                verified: true,
+                checks: [
+                  EvidenceCheck(name: 'confidence_finite', passed: true),
+                  EvidenceCheck(name: 'confidence_in_range', passed: true),
+                ],
+                counts: {'scores': 1},
+                note: 'الدرجة صادرة من الكاشف وغير موصوفة بأنها معايرة.',
+              ),
+              results: {'boundary_model': boundaryConfidence},
+            );
+          } else {
+            ledger?.failed(
+              id,
+              ProcessingStage.confidence,
+              reason: 'أصدر كاشف الحدود درجة خارج المجال 0 إلى 1.',
+              errorType: 'InvalidConfidence',
+              errorCode: FailureCode.validation,
+              diagnostics: const ['confidence_out_of_range'],
+            );
+          }
           if (corners == null) {
             notDetected++;
             warnings.add(
@@ -1023,7 +1641,59 @@ class ProjectService {
               JourneyStage.detection,
               'لم يُقترح أي رباعي حدود لهذه الصورة؛ لا إحداثيات لتُعتمد.',
             );
+            if (document != null) {
+              for (final stage in [
+                ProcessingStage.boundaryCorners,
+                ProcessingStage.geometryCheck,
+                ProcessingStage.boundaryReview,
+                ProcessingStage.perspective,
+                ProcessingStage.crop,
+                ProcessingStage.outputEnhancement,
+              ]) {
+                ledger?.documentNotApplicable(
+                  id,
+                  documentId,
+                  stage,
+                  reason: 'لم يقترح الكاشف حدوداً يمكن التحقق منها أو قصها.',
+                );
+              }
+            }
           } else {
+            if (document != null) {
+              if (corners.length == 4) {
+                ledger?.documentSucceeded(
+                  id,
+                  documentId,
+                  ProcessingStage.boundaryCorners,
+                  reason: 'أعاد الكاشف أربع زوايا قابلة للقياس.',
+                  evidence: StageEvidence(
+                    verified: true,
+                    checks: [
+                      EvidenceCheck(
+                        name: 'four_corners',
+                        passed: true,
+                        detail: '${corners.length}',
+                      ),
+                    ],
+                  ),
+                  results: {
+                    'producer': rawProposal?.producer.name ?? 'detector',
+                  },
+                );
+              } else {
+                ledger?.documentFailed(
+                  id,
+                  documentId,
+                  ProcessingStage.boundaryCorners,
+                  reason: 'أعاد الكاشف عدداً غير صالح من الزوايا.',
+                  errorType: 'InvalidBoundaryProposal',
+                  errorCode: 'invalid_boundary_proposal',
+                  diagnostics: const ['corner_count_not_four'],
+                  results: {'corners': corners.length},
+                  actionTaken: 'لم يُسمح بالقص التلقائي.',
+                );
+              }
+            }
             // Boundary authorization is independent of the file name,
             // document-kind classifier, OCR and catalog dimensions. A valid
             // measured quad is judged by geometry and detector review rules;
@@ -1057,6 +1727,106 @@ class ProjectService {
                 ? decision.approvedByUser()
                 : decision;
             final authorization = effective.cropAuthorization;
+            if (document != null) {
+              final assessment = effective.verification.assessment;
+              if (corners.length == 4 && assessment?.acceptable == true) {
+                ledger?.documentSucceeded(
+                  id,
+                  documentId,
+                  ProcessingStage.geometryCheck,
+                  reason: 'اجتاز رباعي الحدود القياس الهندسي.',
+                  evidence: StageEvidence(
+                    verified: true,
+                    checks: [
+                      EvidenceCheck(name: 'quad_acceptable', passed: true),
+                      EvidenceCheck(
+                        name: 'four_corners',
+                        passed: corners.length == 4,
+                      ),
+                    ],
+                  ),
+                  results: {
+                    if (assessment?.geometryConfidence != null)
+                      'geometry_confidence': assessment!.geometryConfidence,
+                    if (assessment?.aspect != null)
+                      'aspect': assessment!.aspect,
+                    if (assessment?.areaFraction != null)
+                      'area_fraction': assessment!.areaFraction,
+                  },
+                );
+              } else if (corners.length == 4 && assessment != null) {
+                ledger?.documentFailed(
+                  id,
+                  documentId,
+                  ProcessingStage.geometryCheck,
+                  reason: 'رفض التحقق الهندسي رباعي الحدود المقترح.',
+                  errorType: 'GeometryRejected',
+                  errorCode: assessment.rejection?.name ?? 'geometry_rejected',
+                  diagnostics: [
+                    for (final reason in effective.verification.reasons)
+                      reason.name,
+                    if (effective.verification.reasons.isEmpty)
+                      'quad_assessment_rejected',
+                  ],
+                  results: {
+                    if (assessment.rejection != null)
+                      'rejection': assessment.rejection!.name,
+                  },
+                  actionTaken: 'لم يُنفذ القص التلقائي.',
+                );
+              } else {
+                ledger?.documentNotApplicable(
+                  id,
+                  documentId,
+                  ProcessingStage.geometryCheck,
+                  reason: 'لا يوجد رباعي من أربع زوايا لتقييمه هندسياً.',
+                );
+              }
+              if (authorization == null) {
+                ledger?.documentOverridden(
+                  id,
+                  documentId,
+                  ProcessingStage.boundaryReview,
+                  reason: effective.verification.hasUsableGeometry
+                      ? 'تحتاج الحدود مراجعة أو موافقة؛ لم تُمنح صلاحية القص الآلي.'
+                      : 'لم تجتز الحدود بوابة القبول؛ أُبقي المصدر كاملاً.',
+                  results: {
+                    'decision': effective.kind.name,
+                    'reasons': effective.verification.reasons.length,
+                    'userApproved': false,
+                  },
+                  actionTaken: 'بقيت الصورة الأصلية قابلة للقص اليدوي.',
+                );
+              } else if (effective.verification.userApproved) {
+                ledger?.documentOverridden(
+                  id,
+                  documentId,
+                  ProcessingStage.boundaryReview,
+                  reason: 'اعتمد المستخدم الحدود المقاسة صراحةً.',
+                  inputs: {'approval': 'user'},
+                  results: {'decision': effective.kind.name},
+                  actionTaken: 'سُمح بالقص بعد موافقة المستخدم.',
+                );
+              } else {
+                ledger?.documentSucceeded(
+                  id,
+                  documentId,
+                  ProcessingStage.boundaryReview,
+                  reason: 'اجتازت الحدود بوابة القبول الآلي.',
+                  evidence: StageEvidence(
+                    verified: true,
+                    checks: [
+                      EvidenceCheck(name: 'crop_authorized', passed: true),
+                      EvidenceCheck(
+                        name: 'user_approval_required',
+                        passed: true,
+                      ),
+                    ],
+                  ),
+                  results: {'decision': effective.kind.name},
+                );
+              }
+            }
             if (approveSuggested && authorization != null) {
               stages?.pass(
                 JourneyStage.detection,
@@ -1112,35 +1882,215 @@ class ProjectService {
                 );
               }
             } else {
-              current = await applyAuthorizedCrop(
-                current,
-                asset,
-                authorization,
-                sourceWidth: source.width,
-                sourceHeight: source.height,
-              );
+              final cropClock = Stopwatch()..start();
+              try {
+                current = await applyAuthorizedCrop(
+                  current,
+                  asset,
+                  authorization,
+                  sourceWidth: source.width,
+                  sourceHeight: source.height,
+                );
+              } on OperationCancelled {
+                cropClock.stop();
+                final cropDurationMs = cropClock.elapsedMilliseconds;
+                ledger?.documentCancelled(
+                  id,
+                  documentId,
+                  ProcessingStage.perspective,
+                  reason: 'أُلغيت معالجة المنظور عند نقطة آمنة.',
+                  durationMs: cropDurationMs,
+                  actionTaken: 'بقي المصدر الأصلي محفوظاً.',
+                );
+                ledger?.documentCancelled(
+                  id,
+                  documentId,
+                  ProcessingStage.crop,
+                  reason: 'أُلغيت المعالجة قبل إنتاج القص.',
+                  actionTaken: 'لم يُعلن نجاح القص.',
+                );
+                rethrow;
+              } catch (error) {
+                cropClock.stop();
+                final cropDurationMs = cropClock.elapsedMilliseconds;
+                ledger?.documentFailed(
+                  id,
+                  documentId,
+                  ProcessingStage.perspective,
+                  error: error,
+                  reason: 'تعذر تصحيح منظور الحدود المقبولة.',
+                  durationMs: cropDurationMs,
+                  diagnostics: const ['automatic_perspective_crop_failed'],
+                  actionTaken: 'بقي المصدر الأصلي دون قص.',
+                );
+                ledger?.documentStopped(
+                  id,
+                  documentId,
+                  ProcessingStage.crop,
+                  reason: 'لم يبدأ القص لأن تصحيح المنظور لم يكتمل.',
+                  actionTaken: 'يحتاج المصدر إلى مراجعة أو إعادة محاولة.',
+                );
+                rethrow;
+              }
+              cropClock.stop();
+              final cropDurationMs = cropClock.elapsedMilliseconds;
               // The accepted crop creates a new revision with its measured
               // output dimensions. Use that aspect for the provisional size;
               // the pre-crop camera frame is a different image region.
               asset = current.assets.firstWhere((entry) => entry.id == id);
               warpedAspect = effective.verification.measuredAspect;
               cropped++;
+              if (document != null) {
+                final outputValid =
+                    asset.crop != null &&
+                    asset.revisionId != null &&
+                    asset.width > 0 &&
+                    asset.height > 0;
+                final outputChecks = [
+                  EvidenceCheck(
+                    name: 'crop_geometry_saved',
+                    passed: asset.crop != null,
+                  ),
+                  EvidenceCheck(
+                    name: 'revision_written',
+                    passed: asset.revisionId != null,
+                  ),
+                  EvidenceCheck(
+                    name: 'output_dimensions_positive',
+                    passed: asset.width > 0 && asset.height > 0,
+                  ),
+                ];
+                // Perspective correction, rotation, enhancement, and crop share
+                // one renderer pass; record its measured time only once.
+                ledger
+                  ?..documentSucceeded(
+                    id,
+                    documentId,
+                    ProcessingStage.perspective,
+                    reason: 'حُفظت نسخة مصححة المنظور من الرباعي المقبول.',
+                    evidence: StageEvidence(
+                      verified: outputValid,
+                      checks: outputChecks,
+                    ),
+                    results: {
+                      'width': asset.width,
+                      'height': asset.height,
+                      if (asset.revisionId != null)
+                        'revision': asset.revisionId!,
+                    },
+                  )
+                  ..documentSucceeded(
+                    id,
+                    documentId,
+                    ProcessingStage.crop,
+                    reason: 'أُنتجت نسخة قص مقروءة من الصورة الأصلية.',
+                    evidence: StageEvidence(
+                      verified: outputValid,
+                      checks: outputChecks,
+                    ),
+                    results: {'width': asset.width, 'height': asset.height},
+                    itemCount: 1,
+                    durationMs: cropDurationMs,
+                  )
+                  ..documentSucceeded(
+                    id,
+                    documentId,
+                    ProcessingStage.outputEnhancement,
+                    reason: 'حُفظت نسخة العمل المعدلة بإعدادات الصورة.',
+                    evidence: StageEvidence(
+                      verified:
+                          asset.revisionId != null &&
+                          asset.workingPath.isNotEmpty,
+                      checks: [
+                        EvidenceCheck(
+                          name: 'revision_written',
+                          passed: asset.revisionId != null,
+                        ),
+                        EvidenceCheck(
+                          name: 'working_file_present',
+                          passed: asset.workingPath.isNotEmpty,
+                        ),
+                      ],
+                    ),
+                    results: {
+                      'quarter_turns': asset.adjustments.quarterTurns,
+                      'sharpness': asset.adjustments.sharpness,
+                    },
+                  );
+              }
             }
           }
+        } on OperationCancelled {
+          final currentStatus = ledger
+              ?.existingImage(id)
+              ?.statusOf(activeImageStage);
+          if (currentStatus != StageStatus.cancelled &&
+              currentStatus != StageStatus.succeeded) {
+            ledger?.cancelled(
+              id,
+              activeImageStage,
+              reason: 'أُلغيت المعالجة عند أول نقطة آمنة.',
+              actionTaken: 'بقيت الصورة الأصلية محفوظة للمراجعة اليدوية.',
+            );
+          }
+          fillUnmeasuredStages('أُوقفت المراحل التابعة بعد إلغاء المعالجة.');
+          warnings.add('أُلغيت العملية؛ بقيت الصورة الأصلية محفوظة.');
+          break;
         } on RevisionConflict {
+          fillUnmeasuredStages('توقفت المراحل اللاحقة بسبب تعارض حفظ المشروع.');
           rethrow;
         } catch (error) {
+          fillUnmeasuredStages(
+            'لم تُنفذ هذه المرحلة أو ما بعدها في مسار الاسترداد اليدوي.',
+          );
           notDetected++;
           warnings.add(
             '${asset.name}: تعذر تطبيق القص التلقائي؛ بقي الأصل محفوظاً (${userError(error)}).',
           );
         }
       }
+      fillUnmeasuredStages('لم ينطبق كشف الحدود أو القص الآلي على هذه الصورة.');
+      ledger?.notApplicable(
+        id,
+        ProcessingStage.preprocessing,
+        reason: 'لم يُشغّل مسار OCR أو معالجة نصية في المسار القديم.',
+      );
+      if (options?.assertsKind == true) {
+        ledger
+          ?..overridden(
+            id,
+            ProcessingStage.automaticClassification,
+            reason: 'حدّد المستخدم النوع؛ لم يُستخدم مصنّف آلي.',
+            inputs: {'kind': kind.name},
+          )
+          ..succeeded(
+            id,
+            ProcessingStage.userClassification,
+            reason: 'اعتُمد النوع الذي حدده المستخدم على العنصر.',
+            evidence: StageEvidence(
+              verified: true,
+              checks: [EvidenceCheck(name: 'user_kind_asserted', passed: true)],
+            ),
+            inputs: {'kind': kind.name},
+            results: {'source': 'user'},
+          );
+      } else {
+        ledger
+          ?..notApplicable(
+            id,
+            ProcessingStage.automaticClassification,
+            reason: 'لا يتوفر في هذا المسار مصنّف نوع مستقل.',
+          )
+          ..notApplicable(
+            id,
+            ProcessingStage.userClassification,
+            reason: 'لم يحدد المستخدم نوع المستند.',
+          );
+      }
 
       // The legacy import path has no independent OCR/visual type model. Keep
       // the measured image editable with a provisional size; never infer a
       // catalog kind from its name or aspect ratio.
-      final kind = options?.kind ?? DocumentKind.unknown;
       const recognitionConfidence = 0.0;
       if (options != null && options.assertsKind) {
         stages?.skip(
@@ -1188,6 +2138,16 @@ class ProjectService {
           sizeConfirmed: catalogSize != null,
         ),
       );
+      if (document != null) {
+        ledger?.linkDocument(
+          id,
+          documentId,
+          itemId: createdItemId,
+          outcome: catalogSize == null
+              ? 'أُنشئ عنصر للصورة بانتظار مراجعة النوع أو المقاس.'
+              : 'أُنشئ عنصر بحجم كتالوج مقاس.',
+        );
+      }
       if (IntakeDiagnostics.isActive) {
         IntakeDiagnostics.record(
           IntakeDiagnosticEntry(
@@ -1226,26 +2186,386 @@ class ProjectService {
     if (options != null) {
       current = attachIntakeChoices(current, newItems, options, newId);
     }
-    if (deferArrangement) {
-      current = await projects.save(current);
-    } else {
-      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
-      current = await projects.save(arrangement.result);
-      if (arrangement.unplaced.isNotEmpty) {
-        warnings.add(
-          '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
-          'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
-        );
-        for (final id in arrangement.unplaced) {
-          final item = current.items.firstWhere((entry) => entry.id == id);
-          warnings.add(unplacedDocumentMessage(current, item));
+    for (final stagedItem in newItems) {
+      final item = current.items.firstWhere(
+        (entry) => entry.id == stagedItem.id,
+      );
+      final documentId = '${item.assetId}-d0';
+      final asset = current.assets.firstWhere(
+        (entry) => entry.id == item.assetId,
+      );
+      final record = item.documentId == null
+          ? null
+          : current.documents
+                .where((entry) => entry.id == item.documentId)
+                .firstOrNull;
+      final selectedSide = options?.side ?? SideKind.unknown;
+      if (record != null &&
+          ledger?.existingDocument(item.assetId, documentId) != null) {
+        final sourceId = asset.derivedFrom ?? asset.id;
+        final modelVerified =
+            item.documentId == record.id &&
+            record.sourceImageId == sourceId &&
+            record.provenance.layoutItemIds.contains(item.id);
+        if (modelVerified) {
+          ledger?.documentSucceeded(
+            item.assetId,
+            documentId,
+            ProcessingStage.documentModel,
+            reason: 'أُنشئ سجل المستند وربط بالعنصر ومصدر الصورة.',
+            evidence: StageEvidence(
+              verified: true,
+              checks: [
+                EvidenceCheck(name: 'record_created', passed: true),
+                EvidenceCheck(
+                  name: 'record_linked_to_source',
+                  passed: record.sourceImageId == sourceId,
+                ),
+                EvidenceCheck(
+                  name: 'item_linked_to_record',
+                  passed: item.documentId == record.id,
+                ),
+              ],
+            ),
+            results: {'record': record.id},
+          );
+          ledger?.linkDocument(
+            item.assetId,
+            documentId,
+            recordId: record.id,
+            itemId: item.id,
+            assetId: item.assetId,
+          );
+        } else {
+          ledger?.documentFailed(
+            item.assetId,
+            documentId,
+            ProcessingStage.documentModel,
+            reason: 'لم تتطابق روابط سجل المستند والعنصر ومصدره.',
+            errorType: 'DocumentLinkMismatch',
+            errorCode: 'document_link_mismatch',
+            diagnostics: const ['record_item_source_mismatch'],
+          );
         }
+      } else {
+        ledger?.documentNotApplicable(
+          item.assetId,
+          documentId,
+          ProcessingStage.documentModel,
+          reason: 'يمثل المسار القديم الصورة بعنصر دون سجل مستند مستقل.',
+        );
       }
-      for (final id in arrangement.awaitingSize) {
-        final item = current.items.firstWhere((entry) => entry.id == id);
-        warnings.add(unplacedDocumentMessage(current, item));
+      if (item.documentKind != DocumentKind.unknown && item.sizeConfirmed) {
+        ledger?.documentSucceeded(
+          item.assetId,
+          documentId,
+          ProcessingStage.typeSideSize,
+          reason: 'ثُبت النوع ومقاس الكتالوج على عنصر الصفحة.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(
+                name: 'kind_assigned',
+                passed: item.documentKind != DocumentKind.unknown,
+              ),
+              EvidenceCheck(name: 'size_confirmed', passed: item.sizeConfirmed),
+            ],
+          ),
+          results: {
+            'kind': item.documentKind.name,
+            'side': selectedSide.name,
+            'width_mm': item.width,
+            'height_mm': item.height,
+          },
+        );
+      } else {
+        ledger?.documentStopped(
+          item.assetId,
+          documentId,
+          ProcessingStage.typeSideSize,
+          reason: 'النوع أو المقاس غير مؤكد؛ بقي القياس مؤقتاً للمراجعة.',
+          inputs: {'kind': item.documentKind.name},
+          actionTaken: 'لم تُسجَّل نتيجة النوع والمقاس كنجاح.',
+        );
+      }
+      final hasMeasuredDocument =
+          record?.sides.any((entry) => entry.detection != null) ?? false;
+      if (selectedSide == SideKind.unknown || !hasMeasuredDocument) {
+        ledger?.notApplicable(
+          item.assetId,
+          ProcessingStage.faceVerification,
+          reason: selectedSide == SideKind.unknown
+              ? 'لم يحدد المستخدم وجهاً للمستند.'
+              : 'لا يوجد مستند مقاس للتحقق من الوجه المحدد.',
+        );
+      } else if (record!.sides.any((entry) => entry.side == selectedSide)) {
+        ledger?.succeeded(
+          item.assetId,
+          ProcessingStage.faceVerification,
+          reason: 'حُفظ الوجه الذي حدده المستخدم على سجل المستند.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'side_asserted', passed: true),
+              EvidenceCheck(name: 'side_saved', passed: true),
+            ],
+          ),
+          inputs: {'side': selectedSide.name},
+        );
+      } else {
+        ledger?.failed(
+          item.assetId,
+          ProcessingStage.faceVerification,
+          reason: 'لم يُحفظ الوجه الذي اختاره المستخدم على سجل المستند.',
+          errorType: 'SideNotSaved',
+          errorCode: 'side_not_saved',
+          diagnostics: const ['side_assertion_not_persisted'],
+        );
+      }
+      if (!current.layout.centerCaptures) {
+        ledger?.documentOverridden(
+          item.assetId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'عطّل المستخدم خيار التوسيط لهذه الدفعة.',
+          actionTaken: 'بقي العنصر دون توسيط آلي.',
+        );
+      } else {
+        ledger?.documentStopped(
+          item.assetId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'ينتظر العنصر الترتيب النهائي قبل حسم التوسيط.',
+          actionTaken: 'يُتحقق من وجود العنصر على الورقة بعد الحفظ.',
+        );
       }
     }
+    Project saved;
+    try {
+      if (deferArrangement) {
+        saved = await projects.save(current);
+      } else {
+        final centeredItemIds = <String>{};
+        final arrangement = arrangeDocuments(
+          current,
+          keepPlaced: keepPlaced,
+          onCenteringPass: centeredItemIds.addAll,
+        );
+        saved = await projects.save(arrangement.result);
+        if (arrangement.unplaced.isNotEmpty) {
+          warnings.add(
+            '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
+            'راجع الأسباب الفردية التالية. لم يُصغّر أو يُقص أي مستمسك لتلائمه.',
+          );
+          for (final id in arrangement.unplaced) {
+            final item = saved.items.firstWhere((entry) => entry.id == id);
+            warnings.add(unplacedDocumentMessage(saved, item));
+          }
+        }
+        for (final id in arrangement.awaitingSize) {
+          final item = saved.items.firstWhere((entry) => entry.id == id);
+          warnings.add(unplacedDocumentMessage(saved, item));
+        }
+        ledger?.settleCentering(
+          centerEnabled: saved.layout.centerCaptures,
+          placed: (itemId) => saved.items.any(
+            (item) => item.id == itemId && item.pageIndex != null,
+          ),
+          pageIndex: (itemId) => saved.items
+              .where((item) => item.id == itemId)
+              .firstOrNull
+              ?.pageIndex,
+          unplacedReason: (itemId) {
+            final item = saved.items
+                .where((entry) => entry.id == itemId)
+                .firstOrNull;
+            return item == null
+                ? 'لم يُعثر على عنصر هذا التحديد في نتيجة الترتيب.'
+                : unplacedDocumentMessage(saved, item);
+          },
+          centeredItemIds: centeredItemIds,
+        );
+      }
+      current = saved;
+    } catch (error) {
+      for (final item in newItems) {
+        final documentId = '${item.assetId}-d0';
+        ledger?.documentFailed(
+          item.assetId,
+          documentId,
+          ProcessingStage.saveDocument,
+          error: error,
+          reason: 'تعذر حفظ عناصر المستندات في المشروع.',
+          diagnostics: const ['project_save_failed'],
+          actionTaken: 'لم يُعلن نجاح الإضافة إلى المشروع.',
+        );
+        ledger?.documentStopped(
+          item.assetId,
+          documentId,
+          ProcessingStage.addToProject,
+          reason: 'لم تُثبت إضافة العنصر لأن حفظ المشروع تعذر.',
+        );
+        ledger?.documentStopped(
+          item.assetId,
+          documentId,
+          ProcessingStage.verifyAddition,
+          reason: 'لم تُجر قراءة تحقق لأن حفظ المشروع تعذر.',
+        );
+      }
+      rethrow;
+    }
+
+    for (final item in newItems) {
+      final documentId = '${item.assetId}-d0';
+      final savedItem = saved.items
+          .where((entry) => entry.id == item.id)
+          .firstOrNull;
+      final savedAsset = saved.assets
+          .where((entry) => entry.id == item.assetId)
+          .firstOrNull;
+      final recordId = savedItem?.documentId;
+      final savedRecord = recordId == null
+          ? null
+          : saved.documents.where((entry) => entry.id == recordId).firstOrNull;
+      final saveVerified =
+          savedItem != null &&
+          savedAsset != null &&
+          savedAsset.workingPath.isNotEmpty &&
+          (recordId == null || savedRecord != null);
+      if (saveVerified) {
+        ledger?.documentSucceeded(
+          item.assetId,
+          documentId,
+          ProcessingStage.saveDocument,
+          reason: 'حُفظ العنصر وأصل الصورة وسجل المستند المتاح.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'asset_saved', passed: true),
+              EvidenceCheck(name: 'item_saved', passed: true),
+              EvidenceCheck(
+                name: 'record_saved',
+                passed: recordId == null || savedRecord != null,
+              ),
+            ],
+          ),
+          results: {'revision': saved.revision},
+        );
+        ledger?.documentSucceeded(
+          item.assetId,
+          documentId,
+          ProcessingStage.addToProject,
+          reason: 'أُضيف عنصر المستند إلى قائمة المشروع.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [EvidenceCheck(name: 'item_in_project', passed: true)],
+            counts: {'items': saved.items.length},
+          ),
+        );
+      } else {
+        ledger?.documentFailed(
+          item.assetId,
+          documentId,
+          ProcessingStage.saveDocument,
+          reason: 'عاد الحفظ دون أحد مكونات المستند المطلوبة.',
+          errorType: 'IncompleteSave',
+          errorCode: 'saved_project_incomplete',
+          diagnostics: const ['asset_item_or_record_missing'],
+        );
+        ledger?.documentFailed(
+          item.assetId,
+          documentId,
+          ProcessingStage.addToProject,
+          reason: 'لم يظهر عنصر المستند في المشروع المحفوظ.',
+          errorType: 'IncompleteSave',
+          errorCode: 'item_missing_after_save',
+          diagnostics: const ['item_missing_after_save'],
+        );
+      }
+      ledger?.linkDocument(
+        item.assetId,
+        documentId,
+        recordId: recordId,
+        itemId: savedItem?.id,
+      );
+    }
+
+    if (ledger != null && newItems.isNotEmpty) {
+      Project? readBack;
+      Object? readError;
+      try {
+        readBack = await projects.get(saved.id);
+      } on Object catch (error) {
+        readError = error;
+      }
+      for (final item in newItems) {
+        final documentId = '${item.assetId}-d0';
+        final recordId = saved.items
+            .where((entry) => entry.id == item.id)
+            .firstOrNull
+            ?.documentId;
+        if (readBack == null) {
+          ledger.documentFailed(
+            item.assetId,
+            documentId,
+            ProcessingStage.verifyAddition,
+            error: readError,
+            errorType: 'VerificationReadFailed',
+            errorCode: FailureCode.storage,
+            reason: 'تعذرت قراءة المشروع المحفوظ للتحقق من الإضافة.',
+            diagnostics: const ['read_back_failed'],
+            actionTaken: 'بقيت الإضافة غير مؤكدة.',
+          );
+          continue;
+        }
+        final confirmedAsset = readBack.assets.any(
+          (entry) => entry.id == item.assetId,
+        );
+        final confirmedItem = readBack.items.any(
+          (entry) => entry.id == item.id,
+        );
+        final confirmedRecord =
+            recordId == null ||
+            readBack.documents.any((entry) => entry.id == recordId);
+        if (confirmedAsset && confirmedItem && confirmedRecord) {
+          ledger.documentSucceeded(
+            item.assetId,
+            documentId,
+            ProcessingStage.verifyAddition,
+            reason: 'أكدت قراءة المشروع وجود الأصل والعنصر وسجل المستند.',
+            evidence: StageEvidence(
+              verified: true,
+              checks: [
+                EvidenceCheck(name: 'asset_in_saved_project', passed: true),
+                EvidenceCheck(name: 'item_in_saved_project', passed: true),
+                EvidenceCheck(
+                  name: 'record_in_saved_project',
+                  passed: confirmedRecord,
+                ),
+              ],
+              counts: {'revision': readBack.revision},
+            ),
+          );
+          ledger.linkDocument(
+            item.assetId,
+            documentId,
+            outcome: 'قُرئت الإضافة مجدداً من المشروع المحفوظ.',
+          );
+        } else {
+          ledger.documentFailed(
+            item.assetId,
+            documentId,
+            ProcessingStage.verifyAddition,
+            reason: 'لم تظهر كل مكونات المستند عند قراءة المشروع مجدداً.',
+            errorType: 'AdditionMissingOnReadBack',
+            errorCode: 'addition_missing_on_read_back',
+            diagnostics: const ['asset_item_or_record_missing_on_read_back'],
+            actionTaken: 'بقيت الإضافة غير مؤكدة.',
+          );
+        }
+      }
+    }
+
     return AutomaticLayoutReport(
       project: current,
       cropped: cropped,
@@ -1612,6 +2932,8 @@ class ProjectService {
     int? sourceWidth,
     int? sourceHeight,
     bool replaceUnconfirmedSourcePlaceholder = true,
+    ProcessingLedger? ledger,
+    String? processingDocumentId,
   }) async {
     final rootSource = asset.derivedFrom == null
         ? project.assets.firstWhere(
@@ -1656,17 +2978,105 @@ class ProjectService {
                 !documentSizeRecordFor(documentKind).mayBeConfirmedAutomatically
             ? null
             : project.catalog.sizeFor(documentKind, landscape: landscape));
-    requireValidManualBoundary(
-      corners: recipe.geometry.corners,
-      sourceWidth: effectiveWidth,
-      sourceHeight: effectiveHeight,
-      adjustments: recipe.adjustments,
-      documentKind: documentKind,
-      customSizeMm: resolvedSize,
-      catalog: project.catalog,
-      requireConfirmedSize: resolvedSize != null,
-      allowUnconfirmedSize: resolvedSize == null,
+    final imageId = rootSource.id;
+    final documentId =
+        processingDocumentId ?? reservedItemId ?? 'manual-${newId()}';
+    final document = ledger?.document(
+      imageId,
+      documentId: documentId,
+      kind: documentKind,
+      side: side,
+      kindSource: RecordSource.user,
+      sideSource: side == SideKind.unknown
+          ? RecordSource.unknown
+          : RecordSource.user,
     );
+    QuadAssessment? assessment;
+    try {
+      assessment = assessQuad(
+        recipe.geometry.corners,
+        sourceWidth: effectiveWidth,
+        sourceHeight: effectiveHeight,
+      );
+      requireValidManualBoundary(
+        corners: recipe.geometry.corners,
+        sourceWidth: effectiveWidth,
+        sourceHeight: effectiveHeight,
+        adjustments: recipe.adjustments,
+        documentKind: documentKind,
+        customSizeMm: resolvedSize,
+        catalog: project.catalog,
+        requireConfirmedSize: resolvedSize != null,
+        allowUnconfirmedSize: resolvedSize == null,
+      );
+    } catch (error) {
+      if (document != null) {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.geometryCheck,
+          error: error,
+          reason: 'رُفض الرباعي المرسوم: ${describeFailure(error)}',
+          diagnostics: const ['manual_boundary_rejected'],
+          actionTaken: 'لم يُقص المستند ولم يُحفظ.',
+        );
+      }
+      rethrow;
+    }
+    if (document != null) {
+      final geometryOk = assessment.acceptable;
+      if (geometryOk) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.geometryCheck,
+          reason: 'اجتاز الرباعي المرسوم التحقق الهندسي.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'quad_acceptable', passed: true),
+              EvidenceCheck(
+                name: 'four_corners',
+                passed: recipe.geometry.corners.length == 4,
+                detail: '${recipe.geometry.corners.length}',
+              ),
+            ],
+          ),
+          results: {
+            if (assessment.geometryConfidence != null)
+              'geometry_confidence': assessment.geometryConfidence,
+            if (assessment.aspect != null) 'aspect': assessment.aspect,
+            if (assessment.areaFraction != null)
+              'area_fraction': assessment.areaFraction,
+          },
+          actionTaken: 'تابع إلى تصحيح المنظور والقص.',
+        );
+      } else {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.geometryCheck,
+          reason: 'لم يجتز الرباعي تقييم الهندسة رغم قبول التحقق الآخر.',
+          errorType: 'GeometryRejected',
+          errorCode: assessment.rejection?.name ?? 'manual_geometry_rejected',
+          diagnostics: const ['quad_assessment_rejected'],
+          actionTaken: 'لم يُسمح بالقص.',
+        );
+      }
+      ledger?.documentSucceeded(
+        imageId,
+        documentId,
+        ProcessingStage.boundaryReview,
+        reason: 'اعتمد المستخدم هذه الحدود بطلب إضافة المستمسك.',
+        evidence: StageEvidence(
+          verified: true,
+          checks: [EvidenceCheck(name: 'user_approved', passed: true)],
+          counts: {'corners': recipe.geometry.corners.length},
+        ),
+        results: {'origin': 'user_drawn'},
+        actionTaken: 'سُمح بالقص.',
+      );
+    }
 
     if (partnerItemId != null) {
       require(
@@ -1687,13 +3097,146 @@ class ProjectService {
       fields: {'side': side.name, 'kind': documentKind.name},
     );
     final clock = Stopwatch()..start();
-    final cropBytes = editor is CropBytesImageEditor
-        ? await editor.renderCropBytes(rootSource, recipe)
-        : await editor!.preview(rootSource, recipe);
+    final Uint8List cropBytes;
+    try {
+      cropBytes = editor is CropBytesImageEditor
+          ? await editor.renderCropBytes(rootSource, recipe)
+          : await editor!.preview(rootSource, recipe);
+    } on OperationCancelled {
+      clock.stop();
+      if (document != null) {
+        ledger
+          ?..documentCancelled(
+            imageId,
+            documentId,
+            ProcessingStage.perspective,
+            reason: 'أُلغيت معالجة المنظور والقص عند أول نقطة آمنة.',
+            durationMs: clock.elapsedMilliseconds,
+            actionTaken: 'لم يُحفظ أي مستند لهذا التحديد.',
+          )
+          ..documentCancelled(
+            imageId,
+            documentId,
+            ProcessingStage.crop,
+            reason: 'أُلغيت عملية الرسم المشتركة قبل إنتاج صورة القص.',
+            actionTaken: 'لم يُعلن نجاح القص.',
+          );
+      }
+      rethrow;
+    } catch (error) {
+      clock.stop();
+      if (document != null) {
+        ledger
+          ?..documentFailed(
+            imageId,
+            documentId,
+            ProcessingStage.perspective,
+            error: error,
+            reason: 'تعذر تصحيح المنظور ضمن استدعاء رسم القص.',
+            diagnostics: const ['perspective_crop_render_failed'],
+            durationMs: clock.elapsedMilliseconds,
+            actionTaken: 'بقي المصدر الأصلي ولم يُحفظ مستند مشتق.',
+          )
+          ..documentStopped(
+            imageId,
+            documentId,
+            ProcessingStage.crop,
+            reason: 'لم يُنتج القص لأن استدعاء تصحيح المنظور لم يكتمل.',
+            actionTaken: 'يحتاج التحديد إلى مراجعة أو إعادة محاولة.',
+          );
+      }
+      rethrow;
+    }
+    ImageHeader? cropHeader;
+    try {
+      cropHeader = inspectImageHeader(cropBytes);
+    } on Object {
+      cropHeader = null;
+    }
+    final cropValid =
+        cropBytes.isNotEmpty &&
+        cropHeader != null &&
+        cropHeader.width > 0 &&
+        cropHeader.height > 0;
+    clock.stop();
+    final cropMs = clock.elapsedMilliseconds;
+    if (document != null) {
+      if (cropValid) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.perspective,
+          reason: 'صُحح المنظور من الزوايا الأربع المقبولة.',
+          evidence: StageEvidence(
+            verified: recipe.geometry.corners.length == 4,
+            checks: [
+              EvidenceCheck(
+                name: 'four_corners',
+                passed: recipe.geometry.corners.length == 4,
+              ),
+            ],
+            note:
+                'تصحيح المنظور والتدوير والحدة والقص ضمن استدعاء رسم واحد؛ '
+                'زمنه مسجل في مرحلة القص.',
+          ),
+          results: {'width': cropHeader.width, 'height': cropHeader.height},
+          actionTaken: 'تابع إلى قصّ الصورة الناتجة.',
+        );
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.crop,
+          reason: 'أُنتجت صورة مقصوصة قابلة للقراءة.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(
+                name: 'bytes_not_empty',
+                passed: cropBytes.isNotEmpty,
+                detail: '${cropBytes.length}',
+              ),
+              EvidenceCheck(name: 'header_parsed', passed: true),
+            ],
+            counts: {'bytes': cropBytes.length},
+          ),
+          results: {'width': cropHeader.width, 'height': cropHeader.height},
+          itemCount: 1,
+          durationMs: cropMs,
+          actionTaken: 'تابع إلى إنشاء المستند.',
+        );
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.outputEnhancement,
+          reason: 'طُبقت الحدة والتدوير وإعدادات الصورة على المخرج.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'rendered_output_parsed', passed: true),
+            ],
+            note:
+                'التحقق من قابلية قراءة المخرج وأبعاده؛ '
+                'الحدة والتدوير محمولان في وصف المعالجة وزمنهما ضمن مرحلة القص.',
+          ),
+        );
+      } else {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.crop,
+          reason: 'لم يُنتج القص صورة قابلة للقراءة.',
+          errorType: 'InvalidCropOutput',
+          errorCode: 'invalid_crop_output',
+          diagnostics: const ['crop_header_unreadable'],
+          durationMs: cropMs,
+          actionTaken: 'لم يُحفظ المستند.',
+        );
+      }
+    }
     stages?.pass(
       JourneyStage.crop,
       'صُحح المنظور من الزوايا الأربع.',
-      durationMs: clock.elapsedMilliseconds,
+      durationMs: cropMs,
     );
     final siblingCount = project.assets
         .where((a) => a.derivedFrom == rootSource.id)
@@ -1726,6 +3269,207 @@ class ProjectService {
     );
     final item = next.items.firstWhere((i) => i.assetId == derived.id);
     final placed = item.pageIndex != null;
+    final recordId = item.documentId;
+    final documentRecord = recordId == null
+        ? null
+        : next.documents.where((record) => record.id == recordId).firstOrNull;
+    if (document != null) {
+      ledger?.documentSucceeded(
+        imageId,
+        documentId,
+        ProcessingStage.documentModel,
+        reason: 'أُنشئ سجل المستند وعنصره وربطا بالمصدر.',
+        evidence: StageEvidence(
+          verified:
+              recordId != null &&
+              documentRecord != null &&
+              documentRecord.sourceImageId == imageId,
+          checks: [
+            EvidenceCheck(name: 'record_created', passed: recordId != null),
+            EvidenceCheck(
+              name: 'record_linked_to_source',
+              passed: documentRecord?.sourceImageId == imageId,
+            ),
+            EvidenceCheck(name: 'item_created', passed: true),
+          ],
+        ),
+        results: {'kind': documentKind.name, 'side': side.name},
+        actionTaken: 'تابع إلى تثبيت النوع والمقاس.',
+      );
+      ledger?.linkDocument(
+        imageId,
+        documentId,
+        recordId: recordId,
+        itemId: item.id,
+        assetId: derived.id,
+      );
+      final sizeSource = customSizeMm != null
+          ? 'user_measurement'
+          : item.sizeConfirmed
+          ? 'documented_catalog'
+          : 'provisional_image_dimensions';
+      if (documentKind != DocumentKind.unknown && item.sizeConfirmed) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.typeSideSize,
+          reason: 'ثُبّت النوع والوجه والمقاس المؤكد على المستند والعنصر.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'kind_required', passed: true),
+              EvidenceCheck(name: 'item_present', passed: true),
+              EvidenceCheck(name: 'size_confirmed', passed: true),
+            ],
+            counts: {'size_confirmed': 1},
+          ),
+          inputs: {'kind': documentKind.name, 'side': side.name},
+          results: {
+            'kind': documentKind.name,
+            'side': side.name,
+            'kindSource': 'user',
+            'sideSource': side == SideKind.unknown ? 'unknown' : 'user',
+            'sizeConfirmed': true,
+            'sizeSource': sizeSource,
+            'width_mm': item.width,
+            'height_mm': item.height,
+            if (partnerItemId != null) 'partner': partnerItemId,
+          },
+          actionTaken: 'تأكد النوع والمقاس قبل متابعة الإضافة.',
+        );
+      } else {
+        final sizeRecord = documentSizeRecordFor(documentKind);
+        final (reason, diagnostic) = switch (sizeRecord.provenance) {
+          SizeProvenance.documented => (
+            'تعذر حسم المقاس الموثق لهذا النوع؛ بقي القياس المؤقت للمراجعة.',
+            'catalog_size_unresolved',
+          ),
+          SizeProvenance.estimated => (
+            'المقاس الافتراضي لهذا النوع تقديري؛ لم يُدخل المستخدم قياساً يدوياً لتأكيده.',
+            'estimated_size_requires_confirmation',
+          ),
+          SizeProvenance.missing => (
+            'لا يتوفر مقاس موثق لهذا النوع، ولم يُدخل المستخدم قياساً يدوياً.',
+            'size_definition_missing',
+          ),
+        };
+        ledger?.documentNeedsReview(
+          imageId,
+          documentId,
+          ProcessingStage.typeSideSize,
+          reason: reason,
+          inputs: {
+            'kind': documentKind.name,
+            'side': side.name,
+            'sizeProvidedByUser': customSizeMm != null,
+          },
+          results: {
+            'kind': documentKind.name,
+            'side': side.name,
+            'kindSource': 'user',
+            'sideSource': side == SideKind.unknown ? 'unknown' : 'user',
+            'sizeConfirmed': false,
+            'sizeSource': sizeSource,
+            'sizeProvenance': sizeRecord.provenance.name,
+            'width_mm': item.width,
+            'height_mm': item.height,
+          },
+          diagnostics: [
+            diagnostic,
+            if (customSizeMm == null) 'user_measurement_missing',
+          ],
+          actionTaken:
+              'احتُفظ بقياس مؤقت؛ أدخل القياس الفعلي أو اختر نوعاً ذا مقاس موثق.',
+        );
+      }
+      if (placed) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.placement,
+          reason: 'وُضع هذا التحديد على ورقة A4.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [EvidenceCheck(name: 'item_on_page', passed: true)],
+            counts: {'page': item.pageIndex! + 1},
+          ),
+          results: {
+            'itemId': item.id,
+            'placed': true,
+            'page': item.pageIndex!,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          actionTaken: 'أُكد موضع المستند على الورقة.',
+        );
+      } else {
+        final placementReason = unplacedDocumentMessage(next, item);
+        final placementDiagnostic = switch (autoLayoutStatus(next, item)) {
+          AutoLayoutStatus.locked => 'placement_locked',
+          AutoLayoutStatus.sizeUnconfirmed => 'placement_size_unconfirmed',
+          AutoLayoutStatus.tooLarge => 'placement_too_large',
+          AutoLayoutStatus.groupNeedsSpace => 'placement_group_no_space',
+          AutoLayoutStatus.eligible => 'placement_no_space',
+        };
+        ledger?.documentNeedsReview(
+          imageId,
+          documentId,
+          ProcessingStage.placement,
+          reason: placementReason,
+          results: {
+            'itemId': item.id,
+            'placed': false,
+            'page': -1,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          diagnostics: [placementDiagnostic],
+          actionTaken: item.sizeConfirmed
+              ? 'أُبقي المستند محفوظاً؛ أعد الترتيب بعد توفير مساحة.'
+              : 'أُبقي المستند محفوظاً؛ ثبّت المقاس قبل محاولة الوضع.',
+        );
+      }
+      if (!next.layout.centerCaptures) {
+        ledger?.documentOverridden(
+          imageId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'عطّل المستخدم خيار التوسيط لهذه الدفعة.',
+          actionTaken: placed
+              ? 'وُضع المستند دون توسيط.'
+              : 'لا ينطبق التوسيط لأن المستند بقي خارج الورقة.',
+        );
+      } else if (!placed) {
+        ledger?.documentNotApplicable(
+          imageId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'لا ينطبق التوسيط؛ لم يُوضع المستند على ورقة A4.',
+        );
+      } else if (centeringItems.contains(item.id)) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'اجتاز المستند تمرير التوسيط ووُضع على الورقة.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'center_option_enabled', passed: true),
+              EvidenceCheck(name: 'item_placed', passed: true),
+              EvidenceCheck(name: 'centering_pass_clear', passed: true),
+            ],
+          ),
+          actionTaken: 'وُضع المستند موسّطاً.',
+        );
+      } else {
+        ledger?.documentStopped(
+          imageId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'فُعّل التوسيط لكنه لم يُطبق على هذا العنصر بعد.',
+          actionTaken: 'يُعاد التوسيط عند الترتيب.',
+        );
+      }
+    }
     stages?.record(
       IntakeStageRecord(
         stage: JourneyStage.placement,
@@ -1741,7 +3485,158 @@ class ProjectService {
       ),
     );
     clock.reset();
-    final saved = await projects.save(next);
+    final Project saved;
+    try {
+      saved = await projects.save(next);
+    } catch (error) {
+      if (document != null) {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.saveDocument,
+          error: error,
+          reason: 'تعذر حفظ المشروع بعد استخراج المستند.',
+          actionTaken: 'لم يُضف هذا المستند إلى المشروع المحفوظ.',
+        );
+      }
+      rethrow;
+    }
+    if (document != null) {
+      final savedAsset = saved.assets
+          .where((entry) => entry.id == derived.id)
+          .firstOrNull;
+      final savedItem = saved.items
+          .where((entry) => entry.id == item.id)
+          .firstOrNull;
+      final savedRecord = recordId == null
+          ? null
+          : saved.documents
+                .where((record) => record.id == recordId)
+                .firstOrNull;
+      final saveOk =
+          savedAsset != null &&
+          savedItem != null &&
+          (recordId == null || savedRecord != null);
+      if (saveOk) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.saveDocument,
+          reason: 'حُفظ المشروع وفيه أصل المستند وسجله.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [
+              EvidenceCheck(name: 'asset_saved', passed: true),
+              EvidenceCheck(name: 'record_saved', passed: true),
+              EvidenceCheck(name: 'item_saved', passed: true),
+            ],
+          ),
+          results: {'revision': saved.revision},
+          actionTaken: 'تابع إلى التحقق من الإضافة.',
+        );
+      } else {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.saveDocument,
+          reason: 'حُفظ المشروع لكن أحد أجزاء المستند غير موجود فيه.',
+          errorType: 'IncompleteSave',
+          errorCode: 'saved_project_incomplete',
+          diagnostics: const ['asset_or_record_or_item_missing'],
+          actionTaken: 'يحتاج المستند إلى إعادة إضافة.',
+        );
+      }
+      ledger?.documentSucceeded(
+        imageId,
+        documentId,
+        ProcessingStage.addToProject,
+        reason: placed
+            ? 'أُضيف المستند إلى ورقة A4.'
+            : 'أُضيف المستند إلى المشروع وبقي خارج الورقة.',
+        evidence: StageEvidence(
+          verified: savedItem != null,
+          checks: [
+            EvidenceCheck(name: 'item_in_project', passed: savedItem != null),
+          ],
+          counts: {'items': saved.items.length},
+        ),
+        results: {'page': savedItem?.pageIndex ?? -1},
+        actionTaken: placed
+            ? 'وُضع على الورقة.'
+            : 'بانتظار تأكيد المقاس أو الترتيب.',
+      );
+      Project? readBack;
+      Object? readError;
+      try {
+        readBack = await projects.get(saved.id);
+      } on Object catch (error) {
+        readError = error;
+      }
+      if (readBack == null) {
+        ledger?.documentFailed(
+          imageId,
+          documentId,
+          ProcessingStage.verifyAddition,
+          error: readError,
+          errorType: 'VerificationReadFailed',
+          errorCode: FailureCode.storage,
+          reason: 'تعذرت قراءة المشروع المحفوظ للتحقق.',
+          diagnostics: const ['read_back_failed'],
+          actionTaken: 'بقيت الإضافة غير مؤكدة.',
+        );
+      } else {
+        final confirmedAsset = readBack.assets.any(
+          (entry) => entry.id == derived.id,
+        );
+        final confirmedItem = readBack.items.any(
+          (entry) => entry.id == item.id,
+        );
+        final confirmedRecord =
+            recordId == null ||
+            readBack.documents.any((record) => record.id == recordId);
+        if (confirmedAsset && confirmedItem && confirmedRecord) {
+          ledger?.documentSucceeded(
+            imageId,
+            documentId,
+            ProcessingStage.verifyAddition,
+            reason: 'أُكد وجود المستند وأصله وعنصره في المشروع المحفوظ.',
+            evidence: StageEvidence(
+              verified: true,
+              checks: [
+                EvidenceCheck(name: 'asset_in_saved_project', passed: true),
+                EvidenceCheck(name: 'item_in_saved_project', passed: true),
+                EvidenceCheck(name: 'record_in_saved_project', passed: true),
+              ],
+              counts: {'revision': readBack.revision},
+            ),
+            actionTaken: 'اكتملت إضافة المستند.',
+          );
+        } else {
+          ledger?.documentFailed(
+            imageId,
+            documentId,
+            ProcessingStage.verifyAddition,
+            reason: 'المشروع المحفوظ لا يحتوي كل أجزاء المستند.',
+            errorType: 'VerificationFailed',
+            errorCode: 'addition_not_confirmed',
+            diagnostics: const ['saved_project_missing_document_part'],
+            actionTaken: 'يحتاج المستند إلى إعادة إضافة.',
+          );
+        }
+      }
+      ledger?.linkDocument(
+        imageId,
+        documentId,
+        recordId: recordId,
+        itemId: item.id,
+        assetId: derived.id,
+        outcome: document.failed
+            ? 'فشل: ${document.firstFailure?.reason ?? 'سبب غير محسوم'}'
+            : placed
+            ? 'حُفظ المستند وأُضيف إلى الورقة وتحققت إضافته.'
+            : 'حُفظ المستند وأُضيف خارج الورقة وتحققت إضافته.',
+      );
+    }
     stages?.pass(
       JourneyStage.save,
       'أُضيف المستمسك وحُفظ المشروع.',

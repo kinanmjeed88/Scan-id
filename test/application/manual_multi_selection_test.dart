@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
@@ -12,6 +13,7 @@ import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/manual_document_selection.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart' as rec;
 import 'package:scan_id/domain/validation.dart';
@@ -95,7 +97,7 @@ void main() {
               id: 'card-2',
               side: SideKind.back,
               corners: _card(220, 379),
-              kind: DocumentKind.rationCard,
+              kind: DocumentKind.other,
             ),
           );
       expect(set.canApply, isTrue);
@@ -103,6 +105,11 @@ void main() {
       // Exactly what the screen does: sequential calls, each receiving the
       // project the previous one saved.
       var saved = project;
+      final ledger = ProcessingLedger(
+        operationId: 'manual-selection-timing',
+        projectId: project.id,
+        projectName: project.name,
+      );
       var renders = 0;
       for (final selection in set.selections) {
         final recipe = CropDraft(
@@ -116,14 +123,18 @@ void main() {
         expect(rendered.width, lessThan(400));
         renders++;
 
+        final reservedItemId = 'reserved-item-${selection.id}';
         saved = await service.extractManualDerivedDocument(
           saved,
           source,
           recipe,
           documentKind: selection.kind,
           side: selection.side,
+          reservedItemId: reservedItemId,
           sourceWidth: 400,
           sourceHeight: 300,
+          ledger: ledger,
+          processingDocumentId: reservedItemId,
         );
         expect(
           saved.assets.length,
@@ -133,6 +144,40 @@ void main() {
       }
 
       expect(renders, 2);
+      final processing = ledger.finalize();
+      expect(processing.images, hasLength(1));
+      final documentLogs = processing.images.single.documents;
+      expect(documentLogs, hasLength(2));
+      expect(documentLogs.map((document) => document.id), [
+        'reserved-item-card-1',
+        'reserved-item-card-2',
+      ]);
+      expect(documentLogs.map((document) => document.layoutItemId), [
+        'reserved-item-card-1',
+        'reserved-item-card-2',
+      ]);
+      expect(documentLogs.first.succeeded, isTrue);
+      expect(documentLogs.first.placed, isTrue);
+      final unconfirmedSize = documentLogs.last.stageOf(
+        ProcessingStage.typeSideSize,
+      )!;
+      expect(unconfirmedSize.status, StageStatus.reviewRequired);
+      expect(unconfirmedSize.reason, contains('لا يتوفر مقاس موثق'));
+      expect(unconfirmedSize.results['sizeConfirmed'], isFalse);
+      expect(unconfirmedSize.diagnostics, contains('size_definition_missing'));
+      final unplaced = documentLogs.last.stageOf(ProcessingStage.placement)!;
+      expect(unplaced.status, StageStatus.reviewRequired);
+      expect(unplaced.reason, contains('لم يُحاول وضعه'));
+      expect(unplaced.results['placed'], isFalse);
+      expect(documentLogs.last.placed, isFalse);
+      expect(processing.documentsPlaced, 1);
+      expect(processing.documentsNotPlaced, 1);
+      expect(processing.documentsPlacementUnverified, 0);
+      for (final document in documentLogs) {
+        final crop = document.stageOf(ProcessingStage.crop)!;
+        expect(crop.status, StageStatus.succeeded);
+        expect(crop.durationMs, isNotNull);
+      }
       final persisted = await repository.get(project.id);
       expect(
         persisted.documents
@@ -148,7 +193,7 @@ void main() {
         for (final item in saved.items)
           if (derived.any((a) => a.id == item.assetId)) item.documentKind,
       };
-      expect(kinds, {DocumentKind.unifiedNationalId, DocumentKind.rationCard});
+      expect(kinds, {DocumentKind.unifiedNationalId, DocumentKind.other});
       // The source photograph itself was never replaced.
       expect(
         saved.assets.firstWhere((a) => a.id == source.id).originalPath,

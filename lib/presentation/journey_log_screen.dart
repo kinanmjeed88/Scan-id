@@ -10,16 +10,22 @@ library;
 import 'package:flutter/material.dart';
 
 import '../application/journey_log.dart';
+import '../application/processing_ledger.dart';
 import '../application/intake_stage_log.dart';
 import '../domain/intake_options.dart';
 import '../domain/document_kind.dart';
 import '../domain/image_journey.dart';
+import 'processing_report_screen.dart';
 import 'shared.dart';
 
 class JourneyLogScreen extends StatefulWidget {
-  const JourneyLogScreen({required this.log, super.key});
+  const JourneyLogScreen({required this.log, this.processingJournal, super.key});
 
   final JourneyLog log;
+
+  /// The detailed stage journal, when the host keeps one. Opened from the app
+  /// bar; null hides the action instead of showing an empty screen.
+  final ProcessingJournal? processingJournal;
 
   @override
   State<JourneyLogScreen> createState() => _JourneyLogScreenState();
@@ -95,6 +101,16 @@ class _JourneyLogScreenState extends State<JourneyLogScreen> {
           icon: const Icon(Icons.arrow_back),
         ),
         actions: [
+          if (widget.processingJournal case final journal?)
+            IconButton(
+              tooltip: 'التقرير التفصيلي لكل مرحلة',
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => ProcessingReportScreen(journal: journal),
+                ),
+              ),
+              icon: const Icon(Icons.account_tree_outlined),
+            ),
           if (journeys != null && journeys.isNotEmpty)
             IconButton(
               tooltip: 'حذف السجل',

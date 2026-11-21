@@ -16,6 +16,7 @@ import '../application/update_installer.dart';
 import '../application/update_setup.dart';
 import '../domain/project.dart';
 import 'journey_log_screen.dart';
+import 'processing_report_screen.dart';
 import 'shared.dart';
 import 'update_prompt.dart';
 
@@ -107,10 +108,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openJourneyLog() async {
     final log = widget.journeyLog;
     if (log == null) return;
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute(builder: (_) => JourneyLogScreen(log: log)));
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => JourneyLogScreen(
+          log: log,
+          processingJournal: widget.service.processingJournal,
+        ),
+      ),
+    );
     await _refreshJourneyStats();
+  }
+
+  Future<void> _openProcessingReport() async {
+    final journal = widget.service.processingJournal;
+    if (journal == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ProcessingReportScreen(journal: journal),
+      ),
+    );
   }
 
   bool get _canSave =>
@@ -271,6 +287,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           )
         else ...[
+          if (widget.service.processingJournal != null)
+            ExplainedAction(
+              icon: Icons.account_tree_outlined,
+              title: 'فتح التقرير التفصيلي لكل مرحلة',
+              summary: 'كل مرحلة بحالتها ومدة قياسها ودليل نتيجتها، ولكل مستمسك سجله.',
+              details:
+                  'ما تجده: تقرير العملية كاملاً — الخيارات التي اخترتها، ومسار '
+                  'المعالجة، ثم كل مرحلة بالترتيب الفعلي مع حالتها (ناجحة، '
+                  'فاشلة، متجاوزة، غير مطلوبة، متوقفة، لم تُنفّذ، ملغاة، قيد '
+                  'التنفيذ)، ومدة المرحلة عند توفر قياس فعلي، ومدخلاتها ونتائجها، '
+                  'وعدد العناصر، ونوع الخطأ ورمزه، وتفاصيل التشخيص، والإجراء '
+                  'الذي اتخذه النظام.\n\n'
+                  'ولكل مستمسك بطاقة مستقلة: النوع والوجه والزوايا والقص '
+                  'وتصحيح المنظور والتوسيط وإنشاء المستند وحفظه والتحقق من '
+                  'إضافته. سجل المستمسك مرتبط بصورته وبالعملية الأصلية.\n\n'
+                  'كيف يُبنى: كل مرحلة تُكتب لحظة انتهائها، لا في نهاية '
+                  'العملية؛ فلو توقف التطبيق في منتصف المعالجة بقيت المراحل '
+                  'التي نُفّذت على القرص، ويُقرأ التقرير بعدها مع الإشارة إلى '
+                  'أنه مُستعاد. ولا تُسجّل مرحلة «ناجحة» إلا إذا تحققت نتيجتها '
+                  'فعلاً — نجاح الاستدعاء وحده لا يكفي.\n\n'
+                  'ما لا يحتويه: نص المستند المقروء ولا صوراً ولا مسارات. '
+                  'المرحلة تذكر القرار وقياسه فقط.',
+              onTap: _openProcessingReport,
+            ),
           ExplainedAction(
             icon: Icons.receipt_long_outlined,
             title: 'فتح سجل معالجة الصور',

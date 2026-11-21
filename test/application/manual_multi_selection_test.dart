@@ -5,6 +5,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/contracts.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/project_service.dart';
 import 'package:scan_id/domain/crop_draft.dart';
 import 'package:scan_id/domain/document_kind.dart';
@@ -12,6 +13,7 @@ import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/image_adjustments.dart';
 import 'package:scan_id/domain/manual_document_selection.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart' as rec;
 import 'package:scan_id/domain/validation.dart';
@@ -103,6 +105,11 @@ void main() {
       // Exactly what the screen does: sequential calls, each receiving the
       // project the previous one saved.
       var saved = project;
+      final ledger = ProcessingLedger(
+        operationId: 'manual-selection-timing',
+        projectId: project.id,
+        projectName: project.name,
+      );
       var renders = 0;
       for (final selection in set.selections) {
         final recipe = CropDraft(
@@ -124,6 +131,8 @@ void main() {
           side: selection.side,
           sourceWidth: 400,
           sourceHeight: 300,
+          ledger: ledger,
+          processingDocumentId: selection.id,
         );
         expect(
           saved.assets.length,
@@ -133,6 +142,14 @@ void main() {
       }
 
       expect(renders, 2);
+      final processing = ledger.finalize();
+      expect(processing.images, hasLength(1));
+      expect(processing.images.single.documents, hasLength(2));
+      for (final document in processing.images.single.documents) {
+        final crop = document.stageOf(ProcessingStage.crop)!;
+        expect(crop.status, StageStatus.succeeded);
+        expect(crop.durationMs, isNotNull);
+      }
       final persisted = await repository.get(project.id);
       expect(
         persisted.documents

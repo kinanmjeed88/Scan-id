@@ -5,9 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/cancellation.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/application/journey_log.dart';
 import 'package:scan_id/application/intake_stage_log.dart';
 import 'package:scan_id/domain/image_journey.dart';
@@ -72,7 +74,7 @@ void main() {
         project: project,
         options: chosen,
         stageLog: IntakeBatchLog(batchId: 'test', options: chosen),
-        openManualWorkspace: (saved, asset, options, stages) async {
+        openManualWorkspace: (saved, asset, options, stages, ledger) async {
           final persisted = await projects.get(saved.id);
           expect(persisted.assets.length, opened.length + 1);
           expect(persisted.assets.any((a) => a.id == asset.id), isTrue);
@@ -112,6 +114,23 @@ void main() {
       final run = await runner.run(sources(1));
 
       expect(run.importedCount, 1);
+      final processing = run.processingReport;
+      expect(processing, isNotNull);
+      expect(processing!.finalised, isTrue);
+      expect(processing.images, hasLength(1));
+      for (final stage in [
+        ProcessingStage.selection,
+        ProcessingStage.fileValidation,
+        ProcessingStage.decode,
+        ProcessingStage.dimensions,
+        ProcessingStage.importCopy,
+      ]) {
+        expect(
+          processing.images.single.stageOf(stage)?.status,
+          StageStatus.succeeded,
+          reason: 'import should record ${stage.name}',
+        );
+      }
       final stored = await log.read();
       expect(stored, hasLength(1));
       final journey = stored.single;
@@ -540,6 +559,7 @@ class _FailingAnalysisService extends ProjectService {
     void Function(BatchProgress progress)? onProgress,
     IntakeOptions? options,
     IntakeBatchLog? stageLog,
+    ProcessingLedger? ledger,
   }) async {
     arrangements++;
     throw StateError('analysis failed');

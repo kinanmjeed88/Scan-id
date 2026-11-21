@@ -9,6 +9,7 @@ import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/full_resolution_jpeg_cropper.dart';
 import 'package:scan_id/application/ocr_engine.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/recognition_worker.dart';
 import 'package:scan_id/application/smart_recognition.dart';
 import 'package:scan_id/domain/crop_draft.dart';
@@ -16,6 +17,7 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/ocr_evidence.dart';
 import 'package:scan_id/domain/page_layout.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/domain/project.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_overrides.dart';
@@ -530,14 +532,46 @@ void main() {
       ])).project;
       final sourceId = project.assets.single.id;
       final originalPath = project.assets.single.originalPath;
+      final ledger = ProcessingLedger(
+        operationId: 'batch-successful-smart-crop',
+        projectId: project.id,
+        projectName: project.name,
+      );
 
-      final report = await s.arrangeImportedImages(project, [sourceId]);
+      final report = await s.arrangeImportedImages(
+        project,
+        [sourceId],
+        ledger: ledger,
+      );
       final result = report.project;
+      final processing = ledger.finalize();
 
       expect(report.multiDocumentImages, 1);
       expect(report.cropped, 2);
       expect(report.needsReview, 2);
       expect(recordsNeedingReview(report.project), hasLength(2));
+      expect(processing.images.single.documents, hasLength(2));
+      for (final document in processing.images.single.documents) {
+        final crop = document.stageOf(ProcessingStage.crop)!;
+        expect(crop.status, StageStatus.succeeded);
+        expect(crop.durationMs, isNotNull);
+        expect(crop.startedAt, isNotNull);
+        expect(crop.endedAt, isNotNull);
+        expect(
+          crop.endedAt!.difference(crop.startedAt!).inMilliseconds,
+          crop.durationMs,
+        );
+        final perspective = document.stageOf(ProcessingStage.perspective)!;
+        expect(perspective.durationMs, isNull);
+        expect(
+          perspective.evidence!.note,
+          contains('مدة الرسم المشتركة في مرحلة القص'),
+        );
+        expect(
+          document.stageOf(ProcessingStage.outputEnhancement)!.durationMs,
+          isNull,
+        );
+      }
       expect(result.assets, hasLength(3), reason: 'source + two derived');
       expect(result.items, hasLength(2));
       expect(result.documents, hasLength(2));
@@ -1167,9 +1201,25 @@ void main() {
       ])).project;
       final source = project.assets.single;
       final revision = project.revision;
+      final ledger = ProcessingLedger(
+        operationId: 'batch-failed-smart-crop',
+        projectId: project.id,
+        projectName: project.name,
+      );
 
-      final report = await s.arrangeImportedImages(project, [source.id]);
+      final report = await s.arrangeImportedImages(
+        project,
+        [source.id],
+        ledger: ledger,
+      );
 
+      final processing = ledger.finalize();
+      final document = processing.images.single.documents.single;
+      final cropStage = document.stageOf(ProcessingStage.crop)!;
+      expect(cropStage.status, StageStatus.failed);
+      expect(cropStage.durationMs, isNotNull);
+      expect(cropStage.errorCode, FailureCode.validation);
+      expect(cropStage.diagnostics, contains('image_apply_failed'));
       expect(report.notDetected, 1);
       expect(
         report.project.revision,
@@ -1205,11 +1255,19 @@ void main() {
         ImportSource('source.jpg', () => Stream.value(original)),
       ])).project;
       final source = project.assets.single;
+      final ledger = ProcessingLedger(
+        operationId: 'batch-cancelled-smart-crop',
+        projectId: project.id,
+        projectName: project.name,
+      );
       final token = CancellationToken();
 
-      final pending = s.arrangeImportedImages(project, [
-        source.id,
-      ], cancellation: token);
+      final pending = s.arrangeImportedImages(
+        project,
+        [source.id],
+        cancellation: token,
+        ledger: ledger,
+      );
       await cropper.started.future.timeout(const Duration(seconds: 10));
       token.cancel();
       // The native/fake crop itself is not interrupted; its late result must
@@ -1217,6 +1275,13 @@ void main() {
       cropper.release.complete(_photo());
       final report = await pending.timeout(const Duration(seconds: 10));
 
+      final processing = ledger.finalize(cancelled: true);
+      final document = processing.images.single.documents.single;
+      final cropStage = document.stageOf(ProcessingStage.crop)!;
+      expect(cropStage.status, StageStatus.cancelled);
+      expect(cropStage.durationMs, isNotNull);
+      expect(cropStage.errorCode, FailureCode.cancelled);
+      expect(cropStage.diagnostics, contains('operation_cancelled'));
       expect(cropper.calls, hasLength(1));
       expect(report.project.revision, project.revision);
       expect(report.project.assets, hasLength(1));

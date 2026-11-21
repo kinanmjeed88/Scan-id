@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scan_id/application/contracts.dart';
 import 'package:scan_id/application/project_service.dart';
+import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/application/smart_recognition.dart';
 import 'package:scan_id/domain/boundary_decision.dart';
 import 'package:scan_id/domain/crop_draft.dart';
@@ -14,6 +15,7 @@ import 'package:scan_id/domain/document_kind.dart';
 import 'package:scan_id/domain/intake_options.dart';
 import 'package:scan_id/domain/geometry.dart';
 import 'package:scan_id/domain/project.dart';
+import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/domain/recognition.dart';
 import 'package:scan_id/domain/recognition_routing.dart';
 import 'package:scan_id/application/recognition_pipeline.dart';
@@ -196,6 +198,11 @@ void main() {
           segmenter: editor.segment,
         );
         final original = await service.create('اختبار المسار');
+        final ledger = ProcessingLedger(
+          operationId: 'manual-intake-single-crop-$smart',
+          projectId: original.id,
+          projectName: original.name,
+        );
         final imported = await service.importImages(original, [
           ImportSource(
             'card.png',
@@ -210,9 +217,16 @@ void main() {
             side: SideKind.back,
             acceptSuggestedBoundary: true,
           ),
+          ledger: ledger,
         );
+        final processing = ledger.finalize();
+        final crop = processing.images.single.documents.single.stageOf(
+          ProcessingStage.crop,
+        )!;
         final saved = await projects.get(original.id);
         expect(report.cropped, 1);
+        expect(crop.status, StageStatus.succeeded);
+        expect(crop.durationMs, isNotNull);
         expect(saved.documents.single.sides.single.side, SideKind.back);
         final item = saved.items.single;
         expect(item.documentKind, DocumentKind.unifiedNationalId);

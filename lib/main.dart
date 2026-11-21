@@ -24,6 +24,7 @@ import 'imaging/docaligner_model.dart';
 import 'persistence/local_asset_repository.dart';
 import 'persistence/local_project_backups.dart';
 import 'persistence/journey_log_store.dart';
+import 'persistence/processing_journal_store.dart';
 import 'persistence/local_project_repository.dart';
 import 'persistence/local_image_editor.dart';
 import 'persistence/local_project_recovery.dart';
@@ -151,6 +152,9 @@ Future<ProjectService> _openStorage({bool recover = false}) async {
     // The per-image report Settings shows. Construction writes nothing: the
     // file is created by the first import that has a journey to file.
     journeyLog: LocalJourneyLog(),
+    // The detailed stage journal: appended per stage, recoverable after a
+    // crash, and read by the Settings report screen.
+    processingJournal: LocalProcessingJournal(),
   );
   StartupDiagnostics.mark('services.construct.complete');
   StartupDiagnostics.mark('storage.open.complete');

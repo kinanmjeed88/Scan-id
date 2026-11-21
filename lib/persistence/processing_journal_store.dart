@@ -212,7 +212,11 @@ class LocalProcessingJournal implements ProcessingJournal {
             bytes = 0;
           }
           if (!isReport && bytes + lineBytes > maxBytesPerOperation) return;
-          await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
+          await file.writeAsString(
+            '$line\n',
+            mode: FileMode.append,
+            flush: true,
+          );
           wrote = true;
         });
         if (wrote && (isReport || event['event'] == 'batch')) {

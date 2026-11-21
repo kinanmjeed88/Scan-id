@@ -187,6 +187,47 @@ void main() {
     expect(PageLayout.item(r, 'b').height, 88);
   });
 
+  test('centering pass reports an item already centered by packing', () {
+    final calls = <List<String>>[];
+    final source = _project([
+      _sizedDoc('wide', 200, 30),
+    ]).copyWith(layout: LayoutSettings(centerCaptures: true));
+
+    final result = arrangeDocuments(
+      source,
+      onCenteringPass: (ids) => calls.add(ids.toList()),
+    );
+
+    expect(PageLayout.item(result.result, 'wide').x, 5);
+    expect(calls, [
+      ['wide'],
+    ]);
+  });
+
+  test('centering pass excludes a placed item blocked by an obstacle', () {
+    final calls = <List<String>>[];
+    final fixed = _sizedDoc(
+      'fixed',
+      50,
+      50,
+      locked: true,
+    ).copyWith(x: 70, y: 5);
+    final moving = _sizedDoc('moving', 40, 30, page: null);
+    final source = _project([
+      fixed,
+      moving,
+    ]).copyWith(layout: LayoutSettings(centerCaptures: true));
+
+    final result = arrangeDocuments(
+      source,
+      onCenteringPass: (ids) => calls.add(ids.toList()),
+    );
+
+    expect(PageLayout.item(result.result, 'moving').x, 165);
+    expect(calls, hasLength(1));
+    expect(calls.single, isEmpty);
+  });
+
   for (final strategy in ArrangementStrategy.values) {
     for (final center in [false, true]) {
       test('one final centering pass only when enabled: $strategy/$center', () {

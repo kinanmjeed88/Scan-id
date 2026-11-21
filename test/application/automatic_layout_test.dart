@@ -92,13 +92,9 @@ void main() {
         ProcessingStage.importCopy,
       ];
       final durations = [
-        for (final stage in importStages)
-          image.stageOf(stage)!.durationMs!,
+        for (final stage in importStages) image.stageOf(stage)!.durationMs!,
       ];
-      expect(
-        results.single.copyDurationMs,
-        durations.reduce((a, b) => a + b),
-      );
+      expect(results.single.copyDurationMs, durations.reduce((a, b) => a + b));
     },
   );
 

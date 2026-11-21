@@ -96,12 +96,14 @@ class IntakeStageLog {
   void block(
     JourneyStage stage,
     String reason, {
+    int? durationMs,
     Map<String, Object?> fields = const {},
   }) => record(
     IntakeStageRecord(
       stage: stage,
       outcome: JourneyOutcome.blocked,
       detail: reason,
+      durationMs: durationMs,
       fields: fields,
     ),
   );

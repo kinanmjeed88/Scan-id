@@ -20,6 +20,7 @@ import '../domain/quad_assessment.dart';
 import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
+import '../domain/validation.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
@@ -552,7 +553,10 @@ class RecognitionPipeline {
           phase: 'ocr-region',
         );
         preprocessingSucceeded = ocrBytes.isNotEmpty;
-        require(ocrBytes.isNotEmpty, 'لم تُنتج المعالجة المسبقة صورة OCR صالحة.');
+        require(
+          ocrBytes.isNotEmpty,
+          'لم تُنتج المعالجة المسبقة صورة OCR صالحة.',
+        );
       } finally {
         preprocessingClock.stop();
         onPreprocessing?.call(
@@ -730,6 +734,7 @@ class RecognitionPipeline {
       preprocessingAttempts++;
       if (!succeeded) preprocessingFailures++;
     }
+
     final manualKind = options?.route == IntakeRoute.singleManualKind;
     final recognitionClock = manualKind ? null : (Stopwatch()..start());
     if (!manualKind && ocr.isEnabled) {

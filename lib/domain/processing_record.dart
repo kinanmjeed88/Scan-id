@@ -54,10 +54,7 @@ enum ProcessingStage {
     'تحسين الصورة والمعالجة المسبقة',
     'قصّ منطقة القراءة وتجهيزها قبل تحليل النص.',
   ),
-  analysis(
-    'تحليل الصورة',
-    'تشغيل مسار التحليل الكامل على معاينة الصورة.',
-  ),
+  analysis('تحليل الصورة', 'تشغيل مسار التحليل الكامل على معاينة الصورة.'),
   detection(
     'اكتشاف المستمسك أو المستمسكات',
     'قياس المناطق التي يمكن أن تكون مستمسكات في الصورة.',
@@ -94,10 +91,7 @@ enum ProcessingStage {
     'تصحيح المنظور',
     'تحويل الرباعي المقبول إلى مستطيل عبر تحويل المنظور.',
   ),
-  crop(
-    'تنفيذ القص',
-    'إنتاج بايتات الصورة المقصوصة من المصدر الأصلي.',
-  ),
+  crop('تنفيذ القص', 'إنتاج بايتات الصورة المقصوصة من المصدر الأصلي.'),
   centering(
     'توسيط المستمسك عند تفعيل الخيار',
     'تطبيق خيار التوسيط المحفوظ في المشروع عند إضافة المستند.',
@@ -114,10 +108,7 @@ enum ProcessingStage {
     'تمرير النوع والوجه والمقاس',
     'تثبيت النوع والوجه والمقاس على المستند والعنصر.',
   ),
-  saveDocument(
-    'حفظ المستند',
-    'كتابة ملف المستند وحفظ المشروع الذي يشير إليه.',
-  ),
+  saveDocument('حفظ المستند', 'كتابة ملف المستند وحفظ المشروع الذي يشير إليه.'),
   addToProject(
     'إضافته إلى المشروع',
     'إضافة المستند إلى قائمة العناصر أو إلى ورقة A4.',
@@ -126,10 +117,7 @@ enum ProcessingStage {
     'التحقق من نجاح الإضافة',
     'قراءة المشروع المحفوظ للتأكد من وجود الأصل والمستند والعنصر.',
   ),
-  completion(
-    'إنهاء العملية',
-    'إغلاق عملية الصورة وإثبات نتيجتها النهائية.',
-  );
+  completion('إنهاء العملية', 'إغلاق عملية الصورة وإثبات نتيجتها النهائية.');
 
   const ProcessingStage(this.label, this.description);
 
@@ -199,17 +187,13 @@ enum StageStatus {
 
   /// Whether a human has to act on this stage.
   bool get needsAttention =>
-      this == failed ||
-      this == stopped ||
-      this == cancelled ||
-      this == running;
+      this == failed || this == stopped || this == cancelled || this == running;
 
   /// Whether the stage reached a settled result.
   bool get isTerminal => this != running;
 
   /// Whether this status is a problem rather than a decision.
-  bool get isProblem =>
-      this == failed || this == stopped || this == cancelled;
+  bool get isProblem => this == failed || this == stopped || this == cancelled;
 
   /// Whether the stage actually produced the output it exists for.
   bool get delivered => this == succeeded;
@@ -274,10 +258,7 @@ class StageEvidence {
        counts = Map.unmodifiable(counts),
        note = _oneLine(note, maxNoteLength) {
     require(checks.length <= maxChecks, 'عدد أدلة المرحلة كبير جداً.');
-    require(
-      counts.length <= maxCounts,
-      'عدد عدادات المرحلة كبير جداً.',
-    );
+    require(counts.length <= maxCounts, 'عدد عدادات المرحلة كبير جداً.');
     for (final entry in this.counts.entries) {
       require(
         _codePattern.hasMatch(entry.key) && entry.key.length <= 40,
@@ -366,7 +347,7 @@ class StageRecord {
     List<String> diagnostics = const [],
     String actionTaken = '',
     this.evidence,
-    int attempt = 1,
+    this.attempt = 1,
   }) : reason = _oneLine(reason, maxReasonLength),
        inputs = Map.unmodifiable(_boundedFields(inputs)),
        results = Map.unmodifiable(_boundedFields(results)),
@@ -514,12 +495,8 @@ class StageRecord {
       durationMs: map['duration_ms'] == null
           ? null
           : integer(map['duration_ms'], 'duration_ms'),
-      inputs: map['inputs'] == null
-          ? const {}
-          : objectMap(map['inputs']),
-      results: map['results'] == null
-          ? const {}
-          : objectMap(map['results']),
+      inputs: map['inputs'] == null ? const {} : objectMap(map['inputs']),
+      results: map['results'] == null ? const {} : objectMap(map['results']),
       itemCount: map['items'] == null ? null : integer(map['items'], 'items'),
       errorType: map['error_type'] == null
           ? null
@@ -574,10 +551,7 @@ class DocumentProcessingLog {
         'مرحلة على مستوى الصورة لا تُسجل داخل سجل المستند.',
       );
     }
-    require(
-      _uniqueStages(this.stages),
-      'مراحل المستند مكررة دون داعٍ.',
-    );
+    require(_uniqueStages(this.stages), 'مراحل المستند مكررة دون داعٍ.');
   }
 
   final String id;
@@ -596,6 +570,32 @@ class DocumentProcessingLog {
 
   /// The human sentence that summarises this document's result.
   String outcome;
+
+  /// Copies the record with refreshed selection metadata while retaining every
+  /// measured stage and every link to the saved project.
+  DocumentProcessingLog copyWithMetadata({
+    int? selectionIndex,
+    String? label,
+    DocumentKind? kind,
+    SideKind? side,
+    RecordSource? kindSource,
+    RecordSource? sideSource,
+  }) => DocumentProcessingLog(
+    id: id,
+    imageId: imageId,
+    selectionIndex: selectionIndex ?? this.selectionIndex,
+    label: label ?? this.label,
+    kind: kind ?? this.kind,
+    side: side ?? this.side,
+    kindSource: kindSource ?? this.kindSource,
+    sideSource: sideSource ?? this.sideSource,
+    startedAt: startedAt,
+    stages: stages,
+    derivedAssetId: derivedAssetId,
+    documentRecordId: documentRecordId,
+    layoutItemId: layoutItemId,
+    outcome: outcome,
+  );
 
   StageRecord? stageOf(ProcessingStage stage) {
     for (final record in stages) {
@@ -653,9 +653,9 @@ class DocumentProcessingLog {
     final blocking = blockers.isEmpty ? null : blockers.first;
     final lastRecorded = stages.isEmpty
         ? -1
-        : stages.map((record) => record.stage.index).reduce(
-            (left, right) => left > right ? left : right,
-          );
+        : stages
+              .map((record) => record.stage.index)
+              .reduce((left, right) => left > right ? left : right);
     return [
       for (final stage in ProcessingStage.values)
         if (stage.documentScoped)
@@ -686,9 +686,9 @@ class DocumentProcessingLog {
     final recorded = {for (final record in stages) record.stage};
     final last = stages.isEmpty
         ? -1
-        : stages.map((record) => record.stage.index).reduce(
-            (left, right) => left > right ? left : right,
-          );
+        : stages
+              .map((record) => record.stage.index)
+              .reduce((left, right) => left > right ? left : right);
     return [
       for (final stage in ProcessingStage.values)
         if (stage.documentScoped &&
@@ -824,11 +824,11 @@ class ImageProcessingLog {
          ),
        ) {
     require(operationId.isNotEmpty, 'معرّف العملية مطلوب.');
-    require(imageId.isNotEmpty && imageId.length <= 160, 'معرّف الصورة غير صالح.');
     require(
-      sourceWidth == null || sourceWidth! > 0,
-      'عرض المصدر غير صالح.',
+      imageId.isNotEmpty && imageId.length <= 160,
+      'معرّف الصورة غير صالح.',
     );
+    require(sourceWidth == null || sourceWidth! > 0, 'عرض المصدر غير صالح.');
     require(
       sourceHeight == null || sourceHeight! > 0,
       'ارتفاع المصدر غير صالح.',
@@ -845,10 +845,7 @@ class ImageProcessingLog {
       'معرّفات المستندات مكررة داخل الصورة.',
     );
     for (final document in this.documents) {
-      require(
-        document.imageId == imageId,
-        'سجل المستند مرتبط بصورة أخرى.',
-      );
+      require(document.imageId == imageId, 'سجل المستند مرتبط بصورة أخرى.');
     }
   }
 
@@ -983,8 +980,7 @@ class ImageProcessingLog {
           StageRecord(
             stage: stage,
             status: StageStatus.stopped,
-            reason:
-                'لم تُنفَّذ لأن مرحلة «${blocking.stage.label}» لم تكتمل.',
+            reason: 'لم تُنفَّذ لأن مرحلة «${blocking.stage.label}» لم تكتمل.',
             actionTaken: 'أُوقفت السلسلة عند أول مرحلة غير مكتملة.',
           ),
         );
@@ -1014,7 +1010,9 @@ class ImageProcessingLog {
     }
     return [
       for (final stage in ProcessingStage.values)
-        if (!stage.documentScoped && stage.index < last && !recorded.contains(stage))
+        if (!stage.documentScoped &&
+            stage.index < last &&
+            !recorded.contains(stage))
           stage,
     ];
   }
@@ -1138,8 +1136,8 @@ class ProcessingReport {
     required List<ImageProcessingLog> images,
     this.endedAt,
     this.options,
-    this.optionCodes = const [],
-    this.warnings = const [],
+    List<String> optionCodes = const [],
+    List<String> warnings = const [],
     this.recovered = false,
     this.finalised = true,
   }) : images = List.unmodifiable(images),
@@ -1152,7 +1150,10 @@ class ProcessingReport {
          ),
        ),
        projectName = _oneLine(projectName, 200) {
-    require(batchId.isNotEmpty && batchId.length <= 160, 'معرّف الدفعة غير صالح.');
+    require(
+      batchId.isNotEmpty && batchId.length <= 160,
+      'معرّف الدفعة غير صالح.',
+    );
     require(projectId.isNotEmpty, 'معرّف المشروع مطلوب.');
     require(
       this.images.map((image) => image.imageId).toSet().length ==
@@ -1206,13 +1207,16 @@ class ProcessingReport {
       .length;
 
   /// Documents whose save stage succeeded.
-  int get documentsSaved => documents.where((document) => document.saved).length;
+  int get documentsSaved =>
+      documents.where((document) => document.saved).length;
 
   /// Documents confirmed present in the saved project.
-  int get documentsAdded => documents.where((document) => document.added).length;
+  int get documentsAdded =>
+      documents.where((document) => document.added).length;
 
   /// Documents that failed at any document-level stage.
-  int get documentsFailed => documents.where((document) => document.failed).length;
+  int get documentsFailed =>
+      documents.where((document) => document.failed).length;
 
   /// Stages that succeeded, over every image and document.
   int get stagesSucceeded => _stageRecords
@@ -1276,8 +1280,11 @@ class ProcessingReport {
 
   /// The report's overall verdict, derived from recorded statuses only.
   ProcessingVerdict get verdict {
-    if (!finalised || images.any((image) => image.outcome == ImageOutcome.running)) {
-      return recovered ? ProcessingVerdict.interrupted : ProcessingVerdict.running;
+    if (!finalised ||
+        images.any((image) => image.outcome == ImageOutcome.running)) {
+      return recovered
+          ? ProcessingVerdict.interrupted
+          : ProcessingVerdict.running;
     }
     if (stagesCancelled > 0) return ProcessingVerdict.cancelled;
     if (images.any((image) => image.outcome == ImageOutcome.interrupted)) {
@@ -1459,17 +1466,22 @@ bool _uniqueStages(List<StageRecord> stages) =>
 
 int? _durationOf(DateTime? startedAt, DateTime? endedAt, int? durationMs) {
   if (startedAt != null && endedAt != null) {
-    final measured = endedAt.difference(startedAt).inMilliseconds;
-    require(measured >= 0, 'وقت انتهاء المرحلة قبل وقت بدئها.');
-    // The two timestamps are the authoritative measurement; a separately
-    // supplied duration is redundant and must never turn a diagnostic into a
-    // failure. The stopwatch and the wall clock can legitimately differ.
-    return measured;
+    require(
+      !endedAt.isBefore(startedAt),
+      'وقت انتهاء المرحلة قبل وقت بدئها.',
+    );
+    if (durationMs == null) {
+      return endedAt.difference(startedAt).inMilliseconds;
+    }
   }
   if (durationMs != null) {
     require(durationMs >= 0, 'مدة المرحلة سالبة.');
+    // Prefer the monotonic stopwatch measurement when available. Wall-clock
+    // timestamps are retained for chronology, but can have coarser resolution
+    // or move when the device clock is adjusted.
+    return durationMs;
   }
-  return durationMs;
+  return null;
 }
 
 /// Dictionary codes and measured values only: bounded keys, scalar values,

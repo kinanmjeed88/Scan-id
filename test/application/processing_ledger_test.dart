@@ -25,6 +25,11 @@ class _Sink implements ProcessingJournalSink {
   void add(Map<String, Object?> event) => events.add(event);
 }
 
+class _ThrowingSink implements ProcessingJournalSink {
+  @override
+  void add(Map<String, Object?> event) => throw StateError('disk unavailable');
+}
+
 ProcessingLedger _ledger({
   String batch = 'batch-1',
   String projectName = 'مشروع الاختبار',
@@ -117,15 +122,19 @@ void main() {
         successReason: 'فُك الترميز وأُنتجت بكسلات صالحة.',
         results: (pixels) => {'pixels': pixels},
         items: (_) => 1,
-        checks: (_) => [
-          EvidenceCheck(name: 'pixels_positive', passed: true),
-        ],
+        checks: (_) => [EvidenceCheck(name: 'pixels_positive', passed: true)],
       );
 
-      final stage = ledger.report.images.single.stageOf(ProcessingStage.decode)!;
+      final stage = ledger.report.images.single.stageOf(
+        ProcessingStage.decode,
+      )!;
       expect(value, 240000);
       expect(stage.status, StageStatus.succeeded);
-      expect(stage.durationMs, 37);
+      expect(stage.durationMs, isNotNull);
+      expect(
+        stage.endedAt!.difference(stage.startedAt!).inMilliseconds,
+        37,
+      );
       expect(stage.evidence!.verified, isTrue);
       expect(stage.results['pixels'], 240000);
       expect(stage.itemCount, 1);
@@ -146,42 +155,50 @@ void main() {
       expect(stage.durationMs, isNull);
     });
 
-    test('a positive predicate without measured evidence is not success', () async {
-      final ledger = _ledger();
-      ledger.image('img');
+    test(
+      'a positive predicate without measured evidence is not success',
+      () async {
+        final ledger = _ledger();
+        ledger.image('img');
 
-      final value = await ledger.run<int>(
-        'img',
-        ProcessingStage.decode,
-        () async => 1,
-        verify: (pixels) => pixels > 0,
-        successReason: 'فُك الترميز.',
-      );
+        final value = await ledger.run<int>(
+          'img',
+          ProcessingStage.decode,
+          () async => 1,
+          verify: (pixels) => pixels > 0,
+          successReason: 'فُك الترميز.',
+        );
 
-      expect(value, 1);
-      final stage = ledger.report.images.single.stageOf(ProcessingStage.decode)!;
-      expect(stage.status, StageStatus.failed);
-      expect(stage.errorCode, FailureCode.resultUnverified);
-      expect(stage.diagnostics, contains('evidence_measurement_missing'));
-      expect(stage.evidence!.verified, isFalse);
-    });
+        expect(value, 1);
+        final stage = ledger.report.images.single.stageOf(
+          ProcessingStage.decode,
+        )!;
+        expect(stage.status, StageStatus.failed);
+        expect(stage.errorCode, FailureCode.resultUnverified);
+        expect(stage.diagnostics, contains('evidence_measurement_missing'));
+        expect(stage.evidence!.verified, isFalse);
+      },
+    );
 
-    test('contradictory checks are downgraded instead of breaking the task', () {
-      final ledger = _ledger();
-      final record = ledger.succeeded(
-        'img',
-        ProcessingStage.dimensions,
-        reason: 'قِيست الأبعاد.',
-        evidence: StageEvidence(
-          verified: true,
-          checks: [EvidenceCheck(name: 'dimensions_positive', passed: false)],
-        ),
-      );
+    test(
+      'contradictory checks are downgraded instead of breaking the task',
+      () {
+        final ledger = _ledger();
+        final record = ledger.succeeded(
+          'img',
+          ProcessingStage.dimensions,
+          reason: 'قِيست الأبعاد.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [EvidenceCheck(name: 'dimensions_positive', passed: false)],
+          ),
+        );
 
-      expect(record.status, StageStatus.failed);
-      expect(record.errorCode, FailureCode.resultUnverified);
-      expect(record.evidence!.verified, isFalse);
-    });
+        expect(record.status, StageStatus.failed);
+        expect(record.errorCode, FailureCode.resultUnverified);
+        expect(record.evidence!.verified, isFalse);
+      },
+    );
 
     test('a call that returned but failed verification is a failure', () async {
       final clock = _Clock(DateTime.utc(2026, 1, 1, 10));
@@ -196,7 +213,9 @@ void main() {
         successReason: 'فُك الترميز.',
       );
 
-      final stage = ledger.report.images.single.stageOf(ProcessingStage.decode)!;
+      final stage = ledger.report.images.single.stageOf(
+        ProcessingStage.decode,
+      )!;
       expect(value, 0);
       expect(stage.status, StageStatus.failed);
       expect(stage.errorCode, FailureCode.resultUnverified);
@@ -234,26 +253,31 @@ void main() {
       expect(image.stageOf(ProcessingStage.crop), isNull);
     });
 
-    test('OperationCancelled records a cancelled stage, not a failure', () async {
-      final ledger = _ledger();
-      ledger.image('img');
+    test(
+      'OperationCancelled records a cancelled stage, not a failure',
+      () async {
+        final ledger = _ledger();
+        ledger.image('img');
 
-      await expectLater(
-        ledger.run<int>(
-          'img',
+        await expectLater(
+          ledger.run<int>(
+            'img',
+            ProcessingStage.analysis,
+            () async => throw const OperationCancelled(),
+            verify: (value) => value > 0,
+            successReason: 'اكتمل التحليل.',
+          ),
+          throwsA(isA<OperationCancelled>()),
+        );
+
+        final stage = ledger.report.images.single.stageOf(
           ProcessingStage.analysis,
-          () async => throw const OperationCancelled(),
-          verify: (value) => value > 0,
-          successReason: 'اكتمل التحليل.',
-        ),
-        throwsA(isA<OperationCancelled>()),
-      );
-
-      final stage = ledger.report.images.single.stageOf(ProcessingStage.analysis)!;
-      expect(stage.status, StageStatus.cancelled);
-      expect(stage.errorCode, FailureCode.cancelled);
-      expect(stage.diagnostics, contains('operation_cancelled'));
-    });
+        )!;
+        expect(stage.status, StageStatus.cancelled);
+        expect(stage.errorCode, FailureCode.cancelled);
+        expect(stage.diagnostics, contains('operation_cancelled'));
+      },
+    );
 
     test('runSync verifies the same way', () {
       final ledger = _ledger();
@@ -276,43 +300,49 @@ void main() {
       );
     });
 
-    test('runDocument keeps one verified attempt and rethrows failures', () async {
-      final ledger = _ledger();
-      ledger.image('img');
-      final document = ledger.document('img', documentId: 'doc-1');
-      final result = await ledger.runDocument<int>(
-        'img',
-        document.id,
-        ProcessingStage.crop,
-        () async => 4,
-        verify: (bytes) => bytes > 0,
-        successReason: 'أُنتجت بايتات قص غير فارغة.',
-        checks: (bytes) => [
-          EvidenceCheck(name: 'bytes_not_empty', passed: bytes > 0),
-        ],
-        results: (bytes) => {'bytes': bytes},
-      );
-      expect(result, 4);
-      expect(document.stageOf(ProcessingStage.crop)!.attempt, 1);
-      expect(document.stageOf(ProcessingStage.crop)!.status, StageStatus.succeeded);
-
-      await expectLater(
-        ledger.runDocument<int>(
+    test(
+      'runDocument keeps one verified attempt and rethrows failures',
+      () async {
+        final ledger = _ledger();
+        ledger.image('img');
+        final document = ledger.document('img', documentId: 'doc-1');
+        final result = await ledger.runDocument<int>(
           'img',
           document.id,
-          ProcessingStage.perspective,
-          () async => throw const FormatException('bad output'),
-          verify: (value) => value > 0,
-          successReason: 'صُحح المنظور.',
-          failureAction: 'لم يُحفظ المستند.',
-        ),
-        throwsA(isA<FormatException>()),
-      );
-      final failed = document.stageOf(ProcessingStage.perspective)!;
-      expect(failed.status, StageStatus.failed);
-      expect(failed.errorType, 'FormatException');
-      expect(failed.errorCode, FailureCode.unknown);
-    });
+          ProcessingStage.crop,
+          () async => 4,
+          verify: (bytes) => bytes > 0,
+          successReason: 'أُنتجت بايتات قص غير فارغة.',
+          checks: (bytes) => [
+            EvidenceCheck(name: 'bytes_not_empty', passed: bytes > 0),
+          ],
+          results: (bytes) => {'bytes': bytes},
+        );
+        expect(result, 4);
+        expect(document.stageOf(ProcessingStage.crop)!.attempt, 1);
+        expect(
+          document.stageOf(ProcessingStage.crop)!.status,
+          StageStatus.succeeded,
+        );
+
+        await expectLater(
+          ledger.runDocument<int>(
+            'img',
+            document.id,
+            ProcessingStage.perspective,
+            () async => throw const FormatException('bad output'),
+            verify: (value) => value > 0,
+            successReason: 'صُحح المنظور.',
+            failureAction: 'لم يُحفظ المستند.',
+          ),
+          throwsA(isA<FormatException>()),
+        );
+        final failed = document.stageOf(ProcessingStage.perspective)!;
+        expect(failed.status, StageStatus.failed);
+        expect(failed.errorType, 'FormatException');
+        expect(failed.errorCode, FailureCode.unknown);
+      },
+    );
 
     test('runDocument preserves cancellation status', () async {
       final ledger = _ledger();
@@ -362,6 +392,46 @@ void main() {
     });
   });
 
+  test('repeated ids register one image and one document record', () {
+    final ledger = _ledger();
+    final firstImage = ledger.image('img', name: 'one.jpg');
+    final secondImage = ledger.image('img', name: 'replacement.jpg');
+    final firstDocument = ledger.document(
+      'img',
+      documentId: 'doc-1',
+      kind: DocumentKind.unifiedNationalId,
+      side: SideKind.front,
+    );
+    final secondDocument = ledger.document(
+      'img',
+      documentId: 'doc-1',
+      kind: DocumentKind.unifiedNationalId,
+      side: SideKind.front,
+    );
+
+    expect(identical(firstImage, secondImage), isTrue);
+    expect(identical(firstDocument, secondDocument), isTrue);
+    expect(ledger.report.images, hasLength(1));
+    expect(ledger.report.images.single.documents, hasLength(1));
+  });
+
+  test('a failing diagnostics sink cannot fail recording or finalisation', () {
+    final ledger = _ledger(sink: _ThrowingSink());
+    ledger.image('img');
+
+    final stage = ledger.succeeded(
+      'img',
+      ProcessingStage.selection,
+      reason: 'استُلم المصدر.',
+      evidence: _ok(),
+    );
+    final report = ledger.finalize();
+
+    expect(stage.status, StageStatus.succeeded);
+    expect(report.finalised, isTrue);
+    expect(report.images.single.statusOf(ProcessingStage.selection), StageStatus.succeeded);
+  });
+
   group('statuses stay distinct and keep their real reason', () {
     test('bypass and non-applicable are not success', () {
       final ledger = _ledger();
@@ -395,8 +465,17 @@ void main() {
         image.stageOf(ProcessingStage.confidence)!.status,
         StageStatus.notApplicable,
       );
-      expect(image.stageOf(ProcessingStage.analysis)!.status, StageStatus.succeeded);
-      expect(image.filledStages().every((stage) => stage.status != StageStatus.succeeded || stage.evidence != null), isTrue);
+      expect(
+        image.stageOf(ProcessingStage.analysis)!.status,
+        StageStatus.succeeded,
+      );
+      expect(
+        image.filledStages().every(
+          (stage) =>
+              stage.status != StageStatus.succeeded || stage.evidence != null,
+        ),
+        isTrue,
+      );
     });
 
     test('recording the same stage twice replaces it and counts attempts', () {
@@ -444,9 +523,18 @@ void main() {
 
       final report = ledger.finalize();
       final image = report.images.single;
-      expect(image.stageOf(ProcessingStage.completion)!.status, StageStatus.succeeded);
-      expect(image.stageOf(ProcessingStage.dimensions)!.status, StageStatus.stopped);
-      expect(image.stageOf(ProcessingStage.dimensions)!.reason, contains('فك الترميز'));
+      expect(
+        image.stageOf(ProcessingStage.completion)!.status,
+        StageStatus.succeeded,
+      );
+      expect(
+        image.stageOf(ProcessingStage.dimensions)!.status,
+        StageStatus.stopped,
+      );
+      expect(
+        image.stageOf(ProcessingStage.dimensions)!.reason,
+        contains('فك الترميز'),
+      );
       expect(image.outcome, ImageOutcome.failed);
       expect(report.verdict, ProcessingVerdict.failed);
       expect(report.headline, isNotEmpty);
@@ -465,7 +553,9 @@ void main() {
       );
 
       final report = ledger.finalize(cancelled: true);
-      final completion = report.images.single.stageOf(ProcessingStage.completion)!;
+      final completion = report.images.single.stageOf(
+        ProcessingStage.completion,
+      )!;
       expect(completion.status, StageStatus.cancelled);
       expect(completion.evidence, isNull);
       expect(report.verdict, ProcessingVerdict.cancelled);
@@ -517,7 +607,10 @@ void main() {
         isTrue,
       );
       final report = ledger.finalize(batchStop: failure);
-      expect(report.images.every((image) => image.outcome == ImageOutcome.stopped), isTrue);
+      expect(
+        report.images.every((image) => image.outcome == ImageOutcome.stopped),
+        isTrue,
+      );
       expect(report.verdict, ProcessingVerdict.stopped);
     });
 
@@ -572,10 +665,25 @@ void main() {
     test('partial success splits saved documents from the failed one', () {
       final ledger = _ledger();
       ledger.image('img');
-      ledger.succeeded('img', ProcessingStage.selection, reason: 'استُلمت.', evidence: _ok());
-      ledger.succeeded('img', ProcessingStage.analysis, reason: 'حُلّلت.', evidence: _ok());
+      ledger.succeeded(
+        'img',
+        ProcessingStage.selection,
+        reason: 'استُلمت.',
+        evidence: _ok(),
+      );
+      ledger.succeeded(
+        'img',
+        ProcessingStage.analysis,
+        reason: 'حُلّلت.',
+        evidence: _ok(),
+      );
       for (var index = 1; index <= 3; index++) {
-        _succeedDocument(ledger, imageId: 'img', documentId: 'doc-$index', index: index);
+        _succeedDocument(
+          ledger,
+          imageId: 'img',
+          documentId: 'doc-$index',
+          index: index,
+        );
       }
       final failed = ledger.document(
         'img',
@@ -602,84 +710,204 @@ void main() {
       expect(report.documentsFailed, 1);
       expect(report.verdict, ProcessingVerdict.partial);
       expect(report.images.single.outcome, ImageOutcome.partial);
-      expect(
-        report.images.single.documents.map((d) => d.imageId).toSet(),
-        {'img'},
-      );
-      expect(failed.stageOf(ProcessingStage.crop)!.diagnostics, ['bytes_empty']);
+      expect(report.images.single.documents.map((d) => d.imageId).toSet(), {
+        'img',
+      });
+      expect(failed.stageOf(ProcessingStage.crop)!.diagnostics, [
+        'bytes_empty',
+      ]);
     });
   });
 
   group('journal and recovery', () {
-    test('events carry increasing sequence numbers and the chosen options', () async {
-      const options = IntakeOptions(
-        kind: DocumentKind.unifiedNationalId,
-        side: SideKind.front,
-        multiDocument: true,
-        centerDocuments: false,
-        acceptSuggestedBoundary: true,
-        confirmed: {IntakeOptionKey.kind, IntakeOptionKey.side},
+    test(
+      'events carry increasing sequence numbers and the chosen options',
+      () async {
+        const options = IntakeOptions(
+          kind: DocumentKind.unifiedNationalId,
+          side: SideKind.front,
+          multiDocument: true,
+          centerDocuments: false,
+          acceptSuggestedBoundary: true,
+          confirmed: {IntakeOptionKey.kind, IntakeOptionKey.side},
+        );
+        final sink = _Sink();
+        final ledger = _ledger(
+          batch: 'batch-events',
+          sink: sink,
+          options: options,
+        );
+        ledger.image('img', name: 'one.jpg');
+        ledger.succeeded(
+          'img',
+          ProcessingStage.selection,
+          reason: 'استُلمت.',
+          evidence: _ok(),
+        );
+        ledger.warn('img', 'صورة صغيرة.');
+        final report = ledger.finalize();
+
+        expect(sink.events.first['event'], 'batch');
+        expect(sink.events.last['event'], 'report');
+        final sequences = [
+          for (final event in sink.events) event['seq']! as int,
+        ];
+        expect(sequences, orderedEquals([...sequences]..sort()));
+        expect(report.options!.multiDocument, isTrue);
+        expect(report.options!.centerDocuments, isFalse);
+        expect(report.optionCodes, contains('center=false'));
+        expect(report.route, IntakeRoute.manualSelections);
+        expect(report.warnings, contains('صورة صغيرة.'));
+      },
+    );
+
+    test(
+      'rekey preserves early import stages and recovers one real image id',
+      () {
+        final sink = _Sink();
+        final ledger = _ledger(batch: 'batch-rekey', sink: sink);
+        ledger.image('source-1', name: 'one.jpg');
+        ledger.succeeded(
+          'source-1',
+          ProcessingStage.selection,
+          reason: 'استُلم المصدر.',
+          evidence: _ok(),
+        );
+        ledger.succeeded(
+          'source-1',
+          ProcessingStage.fileValidation,
+          reason: 'اجتاز التحقق الأولي.',
+          evidence: _ok(),
+        );
+        ledger.rekeyImage('source-1', 'asset-1', width: 320, height: 480);
+        ledger.succeeded(
+          'asset-1',
+          ProcessingStage.decode,
+          reason: 'فُك ترميز الصورة.',
+          evidence: _ok(),
+        );
+        final replayEvents = [...sink.events];
+        final report = ledger.finalize();
+        expect(report.images, hasLength(1));
+        expect(report.images.single.imageId, 'asset-1');
+        expect(report.images.single.sourceWidth, 320);
+        expect(report.images.single.sourceHeight, 480);
+        expect(
+          report.images.single.stageOf(ProcessingStage.selection)!.status,
+          StageStatus.succeeded,
+        );
+        final recovered = ProcessingLedger.tryRecover(
+          'batch-rekey',
+          replayEvents,
+        );
+        expect(recovered, isNotNull);
+        expect(recovered!.images, hasLength(1));
+        expect(recovered.images.single.imageId, 'asset-1');
+        expect(recovered.images.single.imageName, 'one.jpg');
+        expect(recovered.images.single.sourceWidth, 320);
+        expect(recovered.images.single.sourceHeight, 480);
+        expect(recovered.images.single.startedAt, report.images.single.startedAt);
+        expect(
+          recovered.images.single
+              .stageOf(ProcessingStage.fileValidation)!
+              .status,
+          StageStatus.succeeded,
+        );
+      },
+    );
+
+    test('rekey merges an already-created target once, including warnings', () {
+      final sink = _Sink();
+      final clock = _Clock(DateTime.utc(2026, 1, 1, 10));
+      final ledger = _ledger(
+        batch: 'batch-rekey-existing',
+        sink: sink,
+        clock: clock,
       );
-      final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-events', sink: sink, options: options);
-      ledger.image('img', name: 'one.jpg');
-      ledger.succeeded('img', ProcessingStage.selection, reason: 'استُلمت.', evidence: _ok());
-      ledger.warn('img', 'صورة صغيرة.');
-      final report = ledger.finalize();
-
-      expect(sink.events.first['event'], 'batch');
-      expect(sink.events.last['event'], 'report');
-      final sequences = [
-        for (final event in sink.events) event['seq']! as int,
-      ];
-      expect(sequences, orderedEquals([...sequences]..sort()));
-      expect(report.options!.multiDocument, isTrue);
-      expect(report.options!.centerDocuments, isFalse);
-      expect(report.optionCodes, contains('center=false'));
-      expect(report.route, IntakeRoute.manualSelections);
-      expect(report.warnings, contains('صورة صغيرة.'));
-    });
-
-    test('rekey preserves early import stages and recovers one real image id', () {
-      final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-rekey', sink: sink);
-      ledger.image('source-1', name: 'one.jpg');
+      final source = ledger.image('source-1', name: 'one.jpg');
       ledger.succeeded(
         'source-1',
         ProcessingStage.selection,
         reason: 'استُلم المصدر.',
         evidence: _ok(),
       );
-      ledger.succeeded(
-        'source-1',
-        ProcessingStage.fileValidation,
-        reason: 'اجتاز التحقق الأولي.',
-        evidence: _ok(),
-      );
-      ledger.rekeyImage('source-1', 'asset-1', width: 320, height: 480);
+      ledger.warn('source-1', 'تحذير المصدر.');
+      clock.advance(50);
+      ledger.image('asset-1', width: 320, height: 480);
       ledger.succeeded(
         'asset-1',
         ProcessingStage.decode,
         reason: 'فُك ترميز الصورة.',
         evidence: _ok(),
       );
+      ledger.warn('asset-1', 'تحذير الأصل.');
+
+      ledger.rekeyImage('source-1', 'asset-1', width: 320, height: 480);
+      final replayEvents = [...sink.events];
       final report = ledger.finalize();
+      final recovered = ProcessingLedger.tryRecover(
+        'batch-rekey-existing',
+        replayEvents,
+      );
+
       expect(report.images, hasLength(1));
       expect(report.images.single.imageId, 'asset-1');
+      expect(report.images.single.imageName, 'one.jpg');
       expect(report.images.single.sourceWidth, 320);
       expect(report.images.single.sourceHeight, 480);
+      expect(report.images.single.startedAt, source.startedAt);
       expect(
-        report.images.single.stageOf(ProcessingStage.selection)!.status,
+        report.images.single.stages.map((record) => record.stage).toSet(),
+        hasLength(report.images.single.stages.length),
+      );
+      expect(
+        report.images.single.stageOf(ProcessingStage.selection)?.status,
         StageStatus.succeeded,
       );
-      final recovered = ProcessingLedger.tryRecover('batch-rekey', sink.events);
+      expect(
+        report.images.single.stageOf(ProcessingStage.decode)?.status,
+        StageStatus.succeeded,
+      );
+      expect(
+        report.images.single.warnings,
+        containsAll(['تحذير المصدر.', 'تحذير الأصل.']),
+      );
       expect(recovered, isNotNull);
       expect(recovered!.images, hasLength(1));
-      expect(recovered.images.single.imageId, 'asset-1');
+      expect(recovered.images.single.imageName, 'one.jpg');
       expect(recovered.images.single.sourceWidth, 320);
+      expect(recovered.images.single.sourceHeight, 480);
+      expect(recovered.images.single.startedAt, report.images.single.startedAt);
       expect(
-        recovered.images.single.stageOf(ProcessingStage.fileValidation)!.status,
-        StageStatus.succeeded,
+        recovered.images.single.stages.map((record) => record.stage).toSet(),
+        hasLength(recovered.images.single.stages.length),
+      );
+      expect(
+        recovered.images.single.warnings,
+        containsAll(['تحذير المصدر.', 'تحذير الأصل.']),
+      );
+      expect(report.images.single.warnings, hasLength(2));
+      expect(recovered.images.single.warnings, hasLength(2));
+    });
+
+    test('a rejected rekey leaves an image with documents intact', () {
+      final ledger = _ledger(batch: 'batch-rekey-after-document');
+      ledger.image('source-1', name: 'one.jpg');
+      final document = ledger.document(
+        'source-1',
+        documentId: 'doc-1',
+        kind: DocumentKind.unifiedNationalId,
+      );
+
+      expect(
+        () => ledger.rekeyImage('source-1', 'asset-1'),
+        throwsA(isA<StateError>()),
+      );
+      expect(ledger.existingImage('source-1'), isNotNull);
+      expect(ledger.existingImage('asset-1'), isNull);
+      expect(
+        ledger.report.images.single.documents.single,
+        same(document),
       );
     });
 
@@ -689,93 +917,117 @@ void main() {
       ledger.image('img');
       ledger.image('img', name: r'C:\private\one.jpg');
 
-      final recovered = ProcessingLedger.tryRecover('batch-late-name', sink.events);
+      final recovered = ProcessingLedger.tryRecover(
+        'batch-late-name',
+        sink.events,
+      );
       expect(recovered, isNotNull);
       expect(recovered!.images.single.imageName, 'one.jpg');
     });
 
-    test('a durable batch stop recovers as terminal without replacing completed stages', () {
-      final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-stop-recovery', sink: sink);
-      ledger.image('img', name: 'one.jpg');
-      final document = ledger.document('img', documentId: 'doc-1');
-      final waitingDocument = ledger.document('img', documentId: 'doc-2');
-      ledger.documentSucceeded(
-        'img',
-        document.id,
-        ProcessingStage.addToProject,
-        reason: 'أُضيف المستند إلى المشروع.',
-        evidence: _ok(),
-      );
-      final stop = ledger.failBatch(
-        ProcessingStage.addToProject,
-        'تعذّر إكمال ترتيب الدفعة.',
-        errorCode: FailureCode.storage,
-      );
-      expect(
-        document.stageOf(ProcessingStage.addToProject)!.status,
-        StageStatus.succeeded,
-      );
-      expect(
-        waitingDocument.stageOf(ProcessingStage.addToProject)!.status,
-        StageStatus.failed,
-      );
+    test(
+      'a durable batch stop recovers as terminal without replacing completed stages',
+      () {
+        final sink = _Sink();
+        final ledger = _ledger(batch: 'batch-stop-recovery', sink: sink);
+        ledger.image('img', name: 'one.jpg');
+        final document = ledger.document('img', documentId: 'doc-1');
+        final waitingDocument = ledger.document('img', documentId: 'doc-2');
+        ledger.documentSucceeded(
+          'img',
+          document.id,
+          ProcessingStage.addToProject,
+          reason: 'أُضيف المستند إلى المشروع.',
+          evidence: _ok(),
+        );
+        final stop = ledger.failBatch(
+          ProcessingStage.addToProject,
+          'تعذّر إكمال ترتيب الدفعة.',
+          errorCode: FailureCode.storage,
+        );
+        expect(
+          document.stageOf(ProcessingStage.addToProject)!.status,
+          StageStatus.succeeded,
+        );
+        expect(
+          waitingDocument.stageOf(ProcessingStage.addToProject)!.status,
+          StageStatus.failed,
+        );
 
-      // Replay before the final summary event: the explicit stop event is
-      // sufficient to identify a terminal, stopped batch.
-      final recovered = ProcessingLedger.tryRecover(
-        'batch-stop-recovery',
-        sink.events,
-      );
-      expect(recovered, isNotNull);
-      expect(recovered!.recovered, isTrue);
-      expect(recovered.finalised, isTrue);
-      expect(recovered.verdict, ProcessingVerdict.stopped);
-      expect(recovered.images.single.outcome, ImageOutcome.stopped);
-      expect(
-        recovered.images.single.documents.first
-            .stageOf(ProcessingStage.addToProject)!
-            .status,
-        StageStatus.succeeded,
-      );
-      expect(
-        recovered.images.single.documents.last
-            .stageOf(ProcessingStage.addToProject)!
-            .status,
-        StageStatus.failed,
-      );
-      expect(recovered.warnings, contains(stop.reason));
-    });
+        // Replay before the final summary event: the explicit stop event is
+        // sufficient to identify a terminal, stopped batch.
+        final recovered = ProcessingLedger.tryRecover(
+          'batch-stop-recovery',
+          sink.events,
+        );
+        expect(recovered, isNotNull);
+        expect(recovered!.recovered, isTrue);
+        expect(recovered.finalised, isTrue);
+        expect(recovered.verdict, ProcessingVerdict.stopped);
+        expect(recovered.images.single.outcome, ImageOutcome.stopped);
+        expect(
+          recovered.images.single.documents.first
+              .stageOf(ProcessingStage.addToProject)!
+              .status,
+          StageStatus.succeeded,
+        );
+        expect(
+          recovered.images.single.documents.last
+              .stageOf(ProcessingStage.addToProject)!
+              .status,
+          StageStatus.failed,
+        );
+        expect(recovered.warnings, contains(stop.reason));
+      },
+    );
 
-    test('an interrupted operation is recovered as interrupted, with its stages', () {
-      final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-crash', sink: sink);
-      ledger.image('img', name: 'one.jpg');
-      ledger.succeeded('img', ProcessingStage.selection, reason: 'استُلمت.', evidence: _ok());
-      ledger.succeeded('img', ProcessingStage.fileValidation, reason: 'صيغة مدعومة.', evidence: _ok());
+    test(
+      'an interrupted operation is recovered as interrupted, with its stages',
+      () {
+        final sink = _Sink();
+        final ledger = _ledger(batch: 'batch-crash', sink: sink);
+        ledger.image('img', name: 'one.jpg');
+        ledger.succeeded(
+          'img',
+          ProcessingStage.selection,
+          reason: 'استُلمت.',
+          evidence: _ok(),
+        );
+        ledger.succeeded(
+          'img',
+          ProcessingStage.fileValidation,
+          reason: 'صيغة مدعومة.',
+          evidence: _ok(),
+        );
 
-      final recovered = ProcessingLedger.tryRecover('batch-crash', sink.events);
-      expect(recovered, isNotNull);
-      expect(recovered!.recovered, isTrue);
-      expect(recovered.finalised, isFalse);
-      expect(recovered.verdict, ProcessingVerdict.interrupted);
-      expect(recovered.images.single.outcome, ImageOutcome.interrupted);
-      expect(
-        recovered.images.single.stageOf(ProcessingStage.fileValidation)!.status,
-        StageStatus.succeeded,
-      );
-      expect(
-        recovered.images.single.stageOf(ProcessingStage.dimensions),
-        isNull,
-      );
-      expect(
-        recovered.images.single
-            .filledStages()
-            .firstWhere((stage) => stage.stage == ProcessingStage.dimensions)
-            .status,
-        StageStatus.notReached,
-      );
-    });
+        final recovered = ProcessingLedger.tryRecover(
+          'batch-crash',
+          sink.events,
+        );
+        expect(recovered, isNotNull);
+        expect(recovered!.recovered, isTrue);
+        expect(recovered.finalised, isFalse);
+        expect(recovered.verdict, ProcessingVerdict.interrupted);
+        expect(recovered.images.single.outcome, ImageOutcome.interrupted);
+        expect(
+          recovered.images.single
+              .stageOf(ProcessingStage.fileValidation)!
+              .status,
+          StageStatus.succeeded,
+        );
+        expect(
+          recovered.images.single.stageOf(ProcessingStage.dimensions),
+          isNull,
+        );
+        expect(
+          recovered.images.single
+              .filledStages()
+              .firstWhere((stage) => stage.stage == ProcessingStage.dimensions)
+              .status,
+          StageStatus.notReached,
+        );
+      },
+    );
 
     test('a filed report survives replay with its verdict and options', () {
       const options = IntakeOptions(
@@ -784,9 +1036,18 @@ void main() {
         confirmed: {IntakeOptionKey.kind},
       );
       final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-filed', sink: sink, options: options);
+      final ledger = _ledger(
+        batch: 'batch-filed',
+        sink: sink,
+        options: options,
+      );
       ledger.image('img', name: 'one.jpg');
-      ledger.succeeded('img', ProcessingStage.selection, reason: 'استُلمت.', evidence: _ok());
+      ledger.succeeded(
+        'img',
+        ProcessingStage.selection,
+        reason: 'استُلمت.',
+        evidence: _ok(),
+      );
       ledger.finalize(cancelled: true);
 
       final recovered = ProcessingLedger.tryRecover('batch-filed', sink.events);
@@ -798,6 +1059,71 @@ void main() {
       expect(recovered.images.single.imageName, 'one.jpg');
     });
 
+    test(
+      'a repeated document id refreshes metadata and keeps its history',
+      () {
+        final sink = _Sink();
+        final ledger = _ledger(batch: 'batch-document-metadata', sink: sink);
+        ledger.image('img');
+        final initial = ledger.document(
+          'img',
+          documentId: 'doc-1',
+          index: 3,
+          label: 'المستمسك 3',
+        );
+        ledger.documentSucceeded(
+          'img',
+          initial.id,
+          ProcessingStage.boundaryCorners,
+          reason: 'رُسمت الزوايا الأربع.',
+          evidence: _ok(),
+        );
+        final startedAt = initial.startedAt;
+
+        // This mirrors the manual crop screen followed by the service: the
+        // service supplies type/side again but has no selection label or index.
+        final updated = ledger.document(
+          'img',
+          documentId: 'doc-1',
+          kind: DocumentKind.passport,
+          side: SideKind.front,
+          kindSource: RecordSource.user,
+          sideSource: RecordSource.user,
+        );
+
+        expect(updated, isNot(same(initial)));
+        expect(updated.selectionIndex, 3);
+        expect(updated.label, 'المستمسك 3');
+        expect(updated.kind, DocumentKind.passport);
+        expect(updated.side, SideKind.front);
+        expect(updated.kindSource, RecordSource.user);
+        expect(updated.sideSource, RecordSource.user);
+        expect(updated.startedAt, startedAt);
+        expect(
+          updated.statusOf(ProcessingStage.boundaryCorners),
+          StageStatus.succeeded,
+        );
+        expect(ledger.report.images.single.documents, hasLength(1));
+
+        final recovered = ProcessingLedger.tryRecover(
+          'batch-document-metadata',
+          sink.events,
+        );
+        expect(recovered, isNotNull);
+        final restored = recovered!.images.single.documents.single;
+        expect(restored.selectionIndex, 3);
+        expect(restored.label, 'المستمسك 3');
+        expect(restored.kind, DocumentKind.passport);
+        expect(restored.side, SideKind.front);
+        expect(restored.kindSource, RecordSource.user);
+        expect(restored.sideSource, RecordSource.user);
+        expect(
+          restored.statusOf(ProcessingStage.boundaryCorners),
+          StageStatus.succeeded,
+        );
+      },
+    );
+
     test('a document is linked to its source image and its created ids', () {
       final ledger = _ledger();
       ledger.image('img');
@@ -806,8 +1132,8 @@ void main() {
         documentId: 'doc-1',
         kind: DocumentKind.unifiedNationalId,
         side: SideKind.front,
-        kindSource: RecordSource.auto,
-        sideSource: RecordSource.auto,
+        kindSource: RecordSource.automatic,
+        sideSource: RecordSource.automatic,
       );
       ledger.linkDocument(
         'img',
@@ -840,11 +1166,45 @@ void main() {
       );
       ledger.linkDocument('img', document.id, itemId: 'item-1');
 
-      ledger.settleCentering(centerEnabled: true, placed: (id) => id == 'item-1');
-      final centering = ledger.report.images.single.documents.single
-          .stageOf(ProcessingStage.centering)!;
+      ledger.settleCentering(
+        centerEnabled: true,
+        placed: (id) => id == 'item-1',
+        centeredItemIds: {'item-1'},
+      );
+      final centering = ledger.report.images.single.documents.single.stageOf(
+        ProcessingStage.centering,
+      )!;
       expect(centering.status, StageStatus.succeeded);
-      expect(centering.evidence!.checks.map((check) => check.name), contains('item_placed'));
+      expect(
+        centering.evidence!.checks.map((check) => check.name),
+        contains('item_placed'),
+      );
+    });
+
+    test('a placed item blocked from centering stays stopped', () {
+      final ledger = _ledger();
+      ledger.image('img');
+      final document = ledger.document('img', documentId: 'doc-blocked');
+      ledger.documentStopped(
+        'img',
+        document.id,
+        ProcessingStage.centering,
+        reason: 'ينتظر الترتيب.',
+      );
+      ledger.linkDocument('img', document.id, itemId: 'item-blocked');
+
+      ledger.settleCentering(
+        centerEnabled: true,
+        placed: (id) => id == 'item-blocked',
+        centeredItemIds: const {},
+      );
+
+      final centering = ledger.report.images.single.documents.single.stageOf(
+        ProcessingStage.centering,
+      )!;
+      expect(centering.status, StageStatus.stopped);
+      expect(centering.diagnostics, ['centering_not_applied']);
+      expect(centering.reason, contains('دون تعارض'));
     });
 
     test('a disabled option is a bypass, not a success', () {
@@ -857,7 +1217,11 @@ void main() {
         ProcessingStage.centering,
         reason: 'ينتظر الترتيب.',
       );
-      ledger.settleCentering(centerEnabled: false, placed: (_) => false);
+      ledger.settleCentering(
+        centerEnabled: false,
+        placed: (_) => false,
+        centeredItemIds: const {},
+      );
       final disabledCentering = ledger.report.images.single.documents.single
           .stageOf(ProcessingStage.centering)!;
       expect(disabledCentering.status, StageStatus.overridden);
@@ -875,9 +1239,14 @@ void main() {
         reason: 'ينتظر الترتيب.',
       );
       ledger.linkDocument('img', unplaced.id, itemId: 'item-2');
-      ledger.settleCentering(centerEnabled: true, placed: (_) => false);
-      final centering = ledger.report.images.single.documents.single
-          .stageOf(ProcessingStage.centering)!;
+      ledger.settleCentering(
+        centerEnabled: true,
+        placed: (_) => false,
+        centeredItemIds: const {},
+      );
+      final centering = ledger.report.images.single.documents.single.stageOf(
+        ProcessingStage.centering,
+      )!;
       expect(centering.status, StageStatus.stopped);
       expect(centering.diagnostics, ['item_not_placed']);
     });
@@ -885,7 +1254,10 @@ void main() {
 
   group('privacy and boundedness', () {
     test('an exception path is never copied into the record', () {
-      expect(describeFailure(StateError('/home/user/secret/scan.jpg')), 'StateError');
+      expect(
+        describeFailure(StateError('/home/user/secret/scan.jpg')),
+        'StateError',
+      );
       expect(describeFailure(null), 'سبب غير محدد');
       expect(FailureCode.of(StateError('x')), FailureCode.unknown);
     });
@@ -926,22 +1298,24 @@ void main() {
       expect(report.images.single.warnings, hasLength(1));
     });
 
-    test('batch warnings are sanitized, bounded, and included in the report', () {
-      final sink = _Sink();
-      final ledger = _ledger(batch: 'batch-warning-summary', sink: sink);
-      ledger.warnBatch(r'تعذر الوصول إلى C:\private\source.jpg');
-      final report = ledger.finalize();
+    test(
+      'batch warnings are sanitized, bounded, and included in the report',
+      () {
+        final sink = _Sink();
+        final ledger = _ledger(batch: 'batch-warning-summary', sink: sink);
+        ledger.warnBatch(r'تعذر الوصول إلى C:\private\source.jpg');
+        final report = ledger.finalize();
 
-      expect(report.warnings, hasLength(1));
-      expect(report.warnings.single, isNot(contains('private')));
-      expect(
-        sink.events.any(
-          (event) =>
-              event['event'] == 'warning' && event['image'] == null,
-        ),
-        isTrue,
-      );
-    });
+        expect(report.warnings, hasLength(1));
+        expect(report.warnings.single, isNot(contains('private')));
+        expect(
+          sink.events.any(
+            (event) => event['event'] == 'warning' && event['image'] == null,
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('long free text is clipped to one bounded line', () {
       final ledger = _ledger();
@@ -951,7 +1325,9 @@ void main() {
         ProcessingStage.preprocessing,
         reason: List.filled(100, 'سبب\nطويل ').join(),
       );
-      final stage = ledger.report.images.single.stageOf(ProcessingStage.preprocessing)!;
+      final stage = ledger.report.images.single.stageOf(
+        ProcessingStage.preprocessing,
+      )!;
       expect(stage.reason.length, lessThanOrEqualTo(280));
       expect(stage.reason.contains('\n'), isFalse);
     });

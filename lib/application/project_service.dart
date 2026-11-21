@@ -485,6 +485,7 @@ class ProjectService {
         if (clock != null && clock.isRunning) clock.stop();
         return clock?.elapsedMilliseconds;
       }
+
       try {
         // Create the source row before any check can fail so its filename and
         // selection are preserved even when the project is already at capacity.
@@ -537,10 +538,7 @@ class ProjectService {
           evidence: StageEvidence(
             verified: validationVerified,
             checks: [
-              EvidenceCheck(
-                name: 'bytes_not_empty',
-                passed: bytes.isNotEmpty,
-              ),
+              EvidenceCheck(name: 'bytes_not_empty', passed: bytes.isNotEmpty),
               EvidenceCheck(
                 name: 'size_within_limit',
                 passed: bytes.length <= maxImportBytes,
@@ -710,8 +708,7 @@ class ProjectService {
           stage,
           error: error,
           durationMs: stageDurationMs,
-          reason:
-              'توقف الاستيراد عند «${stage.label}» بسبب تعارض حفظ المشروع.',
+          reason: 'توقف الاستيراد عند «${stage.label}» بسبب تعارض حفظ المشروع.',
           inputs: {'index': index + 1},
           actionTaken: 'أُوقف الاستيراد لأن نسخة المشروع في الذاكرة قديمة.',
         );
@@ -1196,13 +1193,19 @@ class ProjectService {
     }
 
     if (hasNewItems) {
-      final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+      final centeredItemIds = <String>{};
+      final arrangement = arrangeDocuments(
+        current,
+        keepPlaced: keepPlaced,
+        onCenteringPass: centeredItemIds.addAll,
+      );
       current = await projects.save(arrangement.result);
       ledger?.settleCentering(
         centerEnabled: current.layout.centerCaptures,
         placed: (itemId) => current.items.any(
           (item) => item.id == itemId && item.pageIndex != null,
         ),
+        centeredItemIds: centeredItemIds,
       );
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
@@ -1570,7 +1573,10 @@ class ProjectService {
               evidence: StageEvidence(
                 verified: true,
                 checks: [
-                  EvidenceCheck(name: 'detection_result_measured', passed: true),
+                  EvidenceCheck(
+                    name: 'detection_result_measured',
+                    passed: true,
+                  ),
                 ],
                 counts: {'regions': corners == null ? 0 : 1},
               ),
@@ -1658,7 +1664,9 @@ class ProjectService {
                       ),
                     ],
                   ),
-                  results: {'producer': rawProposal?.producer.name ?? 'detector'},
+                  results: {
+                    'producer': rawProposal?.producer.name ?? 'detector',
+                  },
                 );
               } else {
                 ledger?.documentFailed(
@@ -1728,7 +1736,8 @@ class ProjectService {
                   results: {
                     if (assessment?.geometryConfidence != null)
                       'geometry_confidence': assessment!.geometryConfidence,
-                    if (assessment?.aspect != null) 'aspect': assessment!.aspect,
+                    if (assessment?.aspect != null)
+                      'aspect': assessment!.aspect,
                     if (assessment?.areaFraction != null)
                       'area_fraction': assessment!.areaFraction,
                   },
@@ -1796,7 +1805,10 @@ class ProjectService {
                     verified: true,
                     checks: [
                       EvidenceCheck(name: 'crop_authorized', passed: true),
-                      EvidenceCheck(name: 'user_approval_required', passed: true),
+                      EvidenceCheck(
+                        name: 'user_approval_required',
+                        passed: true,
+                      ),
                     ],
                   ),
                   results: {'decision': effective.kind.name},
@@ -1953,10 +1965,7 @@ class ProjectService {
                       verified: outputValid,
                       checks: outputChecks,
                     ),
-                    results: {
-                      'width': asset.width,
-                      'height': asset.height,
-                    },
+                    results: {'width': asset.width, 'height': asset.height},
                     itemCount: 1,
                   )
                   ..documentSucceeded(
@@ -1988,7 +1997,9 @@ class ProjectService {
             }
           }
         } on OperationCancelled {
-          final currentStatus = ledger?.existingImage(id)?.statusOf(activeImageStage);
+          final currentStatus = ledger
+              ?.existingImage(id)
+              ?.statusOf(activeImageStage);
           if (currentStatus != StageStatus.cancelled &&
               currentStatus != StageStatus.succeeded) {
             ledger?.cancelled(
@@ -1998,15 +2009,11 @@ class ProjectService {
               actionTaken: 'بقيت الصورة الأصلية محفوظة للمراجعة اليدوية.',
             );
           }
-          fillUnmeasuredStages(
-            'أُوقفت المراحل التابعة بعد إلغاء المعالجة.',
-          );
+          fillUnmeasuredStages('أُوقفت المراحل التابعة بعد إلغاء المعالجة.');
           warnings.add('أُلغيت العملية؛ بقيت الصورة الأصلية محفوظة.');
           break;
         } on RevisionConflict {
-          fillUnmeasuredStages(
-            'توقفت المراحل اللاحقة بسبب تعارض حفظ المشروع.',
-          );
+          fillUnmeasuredStages('توقفت المراحل اللاحقة بسبب تعارض حفظ المشروع.');
           rethrow;
         } catch (error) {
           fillUnmeasuredStages(
@@ -2018,9 +2025,7 @@ class ProjectService {
           );
         }
       }
-      fillUnmeasuredStages(
-        'لم ينطبق كشف الحدود أو القص الآلي على هذه الصورة.',
-      );
+      fillUnmeasuredStages('لم ينطبق كشف الحدود أو القص الآلي على هذه الصورة.');
       ledger?.notApplicable(
         id,
         ProcessingStage.preprocessing,
@@ -2040,9 +2045,7 @@ class ProjectService {
             reason: 'اعتُمد النوع الذي حدده المستخدم على العنصر.',
             evidence: StageEvidence(
               verified: true,
-              checks: [
-                EvidenceCheck(name: 'user_kind_asserted', passed: true),
-              ],
+              checks: [EvidenceCheck(name: 'user_kind_asserted', passed: true)],
             ),
             inputs: {'kind': kind.name},
             results: {'source': 'user'},
@@ -2160,15 +2163,21 @@ class ProjectService {
       current = attachIntakeChoices(current, newItems, options, newId);
     }
     for (final stagedItem in newItems) {
-      final item = current.items.firstWhere((entry) => entry.id == stagedItem.id);
+      final item = current.items.firstWhere(
+        (entry) => entry.id == stagedItem.id,
+      );
       final documentId = '${item.assetId}-d0';
-      final asset = current.assets.firstWhere((entry) => entry.id == item.assetId);
+      final asset = current.assets.firstWhere(
+        (entry) => entry.id == item.assetId,
+      );
       final record = item.documentId == null
           ? null
           : current.documents
                 .where((entry) => entry.id == item.documentId)
                 .firstOrNull;
-      if (record != null && ledger?.existingDocument(item.assetId, documentId) != null) {
+      final selectedSide = options?.side ?? SideKind.unknown;
+      if (record != null &&
+          ledger?.existingDocument(item.assetId, documentId) != null) {
         final sourceId = asset.derivedFrom ?? asset.id;
         final modelVerified =
             item.documentId == record.id &&
@@ -2240,7 +2249,7 @@ class ProjectService {
           ),
           results: {
             'kind': item.documentKind.name,
-            'side': side.name,
+            'side': selectedSide.name,
             'width_mm': item.width,
             'height_mm': item.height,
           },
@@ -2257,15 +2266,15 @@ class ProjectService {
       }
       final hasMeasuredDocument =
           record?.sides.any((entry) => entry.detection != null) ?? false;
-      if (side == SideKind.unknown || !hasMeasuredDocument) {
+      if (selectedSide == SideKind.unknown || !hasMeasuredDocument) {
         ledger?.notApplicable(
           item.assetId,
           ProcessingStage.faceVerification,
-          reason: side == SideKind.unknown
+          reason: selectedSide == SideKind.unknown
               ? 'لم يحدد المستخدم وجهاً للمستند.'
               : 'لا يوجد مستند مقاس للتحقق من الوجه المحدد.',
         );
-      } else if (record!.sides.any((entry) => entry.side == side)) {
+      } else if (record!.sides.any((entry) => entry.side == selectedSide)) {
         ledger?.succeeded(
           item.assetId,
           ProcessingStage.faceVerification,
@@ -2277,7 +2286,7 @@ class ProjectService {
               EvidenceCheck(name: 'side_saved', passed: true),
             ],
           ),
-          inputs: {'side': side.name},
+          inputs: {'side': selectedSide.name},
         );
       } else {
         ledger?.failed(
@@ -2312,7 +2321,12 @@ class ProjectService {
       if (deferArrangement) {
         saved = await projects.save(current);
       } else {
-        final arrangement = arrangeDocuments(current, keepPlaced: keepPlaced);
+        final centeredItemIds = <String>{};
+        final arrangement = arrangeDocuments(
+          current,
+          keepPlaced: keepPlaced,
+          onCenteringPass: centeredItemIds.addAll,
+        );
         saved = await projects.save(arrangement.result);
         if (arrangement.unplaced.isNotEmpty) {
           warnings.add(
@@ -2333,6 +2347,7 @@ class ProjectService {
           placed: (itemId) => saved.items.any(
             (item) => item.id == itemId && item.pageIndex != null,
           ),
+          centeredItemIds: centeredItemIds,
         );
       }
       current = saved;
@@ -3009,8 +3024,7 @@ class ProjectService {
           ProcessingStage.geometryCheck,
           reason: 'لم يجتز الرباعي تقييم الهندسة رغم قبول التحقق الآخر.',
           errorType: 'GeometryRejected',
-          errorCode:
-              assessment?.rejection?.name ?? 'manual_geometry_rejected',
+          errorCode: assessment?.rejection?.name ?? 'manual_geometry_rejected',
           diagnostics: const ['quad_assessment_rejected'],
           actionTaken: 'لم يُسمح بالقص.',
         );
@@ -3022,9 +3036,7 @@ class ProjectService {
         reason: 'اعتمد المستخدم هذه الحدود بطلب إضافة المستمسك.',
         evidence: StageEvidence(
           verified: true,
-          checks: [
-            EvidenceCheck(name: 'user_approved', passed: true),
-          ],
+          checks: [EvidenceCheck(name: 'user_approved', passed: true)],
           counts: {'corners': recipe.geometry.corners.length},
         ),
         results: {'origin': 'user_drawn'},
@@ -3133,10 +3145,7 @@ class ProjectService {
                 'تصحيح المنظور والتدوير والحدة والقص ضمن استدعاء رسم واحد؛ '
                 'زمنه مسجل في مرحلة القص.',
           ),
-          results: {
-            'width': cropHeader.width,
-            'height': cropHeader.height,
-          },
+          results: {'width': cropHeader.width, 'height': cropHeader.height},
           actionTaken: 'تابع إلى قصّ الصورة الناتجة.',
         );
         ledger?.documentSucceeded(
@@ -3156,10 +3165,7 @@ class ProjectService {
             ],
             counts: {'bytes': cropBytes.length},
           ),
-          results: {
-            'width': cropHeader.width,
-            'height': cropHeader.height,
-          },
+          results: {'width': cropHeader.width, 'height': cropHeader.height},
           itemCount: 1,
           durationMs: cropMs,
           actionTaken: 'تابع إلى إنشاء المستند.',
@@ -3177,7 +3183,8 @@ class ProjectService {
                 passed: cropHeader != null,
               ),
             ],
-            note: 'التحقق من قابلية قراءة المخرج وأبعاده؛ '
+            note:
+                'التحقق من قابلية قراءة المخرج وأبعاده؛ '
                 'الحدة والتدوير محمولان في وصف المعالجة وزمنهما ضمن مرحلة القص.',
           ),
         );
@@ -3278,9 +3285,7 @@ class ProjectService {
               EvidenceCheck(name: 'item_present', passed: true),
               EvidenceCheck(name: 'size_confirmed', passed: true),
             ],
-            counts: {
-              'size_confirmed': 1,
-            },
+            counts: {'size_confirmed': 1},
           ),
           results: {
             'kind': documentKind.name,
@@ -3309,17 +3314,18 @@ class ProjectService {
           reason: 'عطّل المستخدم خيار التوسيط لهذه الدفعة.',
           actionTaken: 'وُضع المستند دون توسيط.',
         );
-      } else if (centeringItems.contains(item.id)) {
+      } else if (placed && centeringItems.contains(item.id)) {
         ledger?.documentSucceeded(
           imageId,
           documentId,
           ProcessingStage.centering,
-          reason: 'طُبق التوسيط على المستند أثناء الإضافة.',
+          reason: 'اجتاز المستند تمرير التوسيط ووُضع على الورقة.',
           evidence: StageEvidence(
             verified: true,
             checks: [
               EvidenceCheck(name: 'center_option_enabled', passed: true),
-              EvidenceCheck(name: 'centering_pass_applied', passed: true),
+              EvidenceCheck(name: 'item_placed', passed: true),
+              EvidenceCheck(name: 'centering_pass_clear', passed: true),
             ],
           ),
           actionTaken: 'وُضع المستند موسّطاً.',
@@ -3374,7 +3380,9 @@ class ProjectService {
           .firstOrNull;
       final savedRecord = recordId == null
           ? null
-          : saved.documents.where((record) => record.id == recordId).firstOrNull;
+          : saved.documents
+                .where((record) => record.id == recordId)
+                .firstOrNull;
       final saveOk =
           savedAsset != null &&
           savedItem != null &&

@@ -283,14 +283,14 @@ ArrangementResult arrangeDocuments(
         obstacles.putIfAbsent(pageIndex, () => []).add(item.bounds);
       }
     }
-    onCenteringPass?.call(placed.keys);
-    _centerPageItems(
+    final centered = _centerPageItems(
       placed,
       source.paper.printable,
       source.layout.horizontalGap,
       source.layout.verticalGap,
       obstacles,
     );
+    onCenteringPass?.call(centered);
   }
 
   final items = [
@@ -794,13 +794,14 @@ Map<String, DocumentItem> _ordered(
 /// with keep-placed, could move only a newly added document there. The user's
 /// reading order and the packer's vertical placement are intentional; this
 /// command changes alignment only.
-void _centerPageItems(
+Set<String> _centerPageItems(
   Map<String, DocumentItem> placed,
   RectMm area,
   double gx,
   double gy,
   Map<int, List<RectMm>> obstacles,
 ) {
+  final centered = <String>{};
   final pages = placed.values.map((item) => item.pageIndex).toSet();
   for (final page in pages) {
     final pageItems = placed.values
@@ -825,12 +826,19 @@ void _centerPageItems(
     final clear = shifted.every(
       (r) => others.every((o) => !_gapOverlap(r, o, gx, gy)),
     );
-    if (clear && (shiftX.abs() > _eps || shiftY.abs() > _eps)) {
-      for (final item in pageItems) {
-        placed[item.id] = item.copyWith(x: item.x + shiftX, y: item.y + shiftY);
+    if (clear) {
+      centered.addAll(pageItems.map((item) => item.id));
+      if (shiftX.abs() > _eps || shiftY.abs() > _eps) {
+        for (final item in pageItems) {
+          placed[item.id] = item.copyWith(
+            x: item.x + shiftX,
+            y: item.y + shiftY,
+          );
+        }
       }
     }
   }
+  return centered;
 }
 
 /// Densest packing per page (MaxRects); whatever does not fit flows on.

@@ -6,10 +6,8 @@ import 'package:scan_id/application/processing_ledger.dart';
 import 'package:scan_id/domain/processing_record.dart';
 import 'package:scan_id/persistence/processing_journal_store.dart';
 
-StageEvidence _ok() => StageEvidence(
-  verified: true,
-  counts: const {'items': 1},
-);
+StageEvidence _ok() =>
+    StageEvidence(verified: true, counts: const {'items': 1});
 
 void main() {
   late Directory root;
@@ -172,6 +170,29 @@ void main() {
     );
   });
 
+  test('unavailable journal storage cannot fail processing or its report', () async {
+    final journal = LocalProcessingJournal(
+      supportDirectory: () async => throw const FileSystemException(
+        'storage unavailable',
+      ),
+    );
+    final ledger = ledgerFor('batch-store-unavailable', journal);
+
+    ledger.image('img');
+    ledger.succeeded(
+      'img',
+      ProcessingStage.selection,
+      reason: 'استُلم المصدر.',
+      evidence: _ok(),
+    );
+    final report = ledger.finalize();
+    await journal.idle;
+
+    expect(report.finalised, isTrue);
+    expect(report.images.single.statusOf(ProcessingStage.selection), StageStatus.succeeded);
+    expect(await journal.reports(), isEmpty);
+  });
+
   test('unknown and invalid operation ids are not invented', () async {
     final journal = store();
     expect(await journal.reportFor('missing-operation'), isNull);
@@ -246,35 +267,37 @@ void main() {
     },
   );
 
-  test('the event cap does not double-count already-written queue entries', () async {
-    final journal = store(maxEventsPerOperation: 3);
-    final ledger = ledgerFor('batch-store-exact-cap', journal);
-    await journal.idle;
-    ledger.image('img');
-    await journal.idle;
-    ledger.succeeded(
-      'img',
-      ProcessingStage.selection,
-      reason: 'استُلم المصدر.',
-      evidence: _ok(),
-    );
-    await journal.idle;
-    ledger.succeeded(
-      'img',
-      ProcessingStage.fileValidation,
-      reason: 'صيغة مدعومة.',
-      evidence: _ok(),
-    );
-    ledger.finalize();
-    await journal.idle;
+  test(
+    'the event cap does not double-count already-written queue entries',
+    () async {
+      final journal = store(maxEventsPerOperation: 3);
+      final ledger = ledgerFor('batch-store-exact-cap', journal);
+      await journal.idle;
+      ledger.image('img');
+      await journal.idle;
+      ledger.succeeded(
+        'img',
+        ProcessingStage.selection,
+        reason: 'استُلم المصدر.',
+        evidence: _ok(),
+      );
+      await journal.idle;
+      ledger.succeeded(
+        'img',
+        ProcessingStage.fileValidation,
+        reason: 'صيغة مدعومة.',
+        evidence: _ok(),
+      );
+      ledger.finalize();
+      await journal.idle;
 
-    final lines = await fileFor('batch-store-exact-cap').readAsLines();
-    final events = [
-      for (final line in lines)
-        (jsonDecode(line) as Map)['event'],
-    ];
-    expect(events, ['batch', 'image', 'stage', 'report']);
-  });
+      final lines = await fileFor('batch-store-exact-cap').readAsLines();
+      final events = [
+        for (final line in lines) (jsonDecode(line) as Map)['event'],
+      ];
+      expect(events, ['batch', 'image', 'stage', 'report']);
+    },
+  );
 
   test(
     'ordinary JSONL lines cannot cross the byte cap but the final report can',
@@ -305,12 +328,7 @@ void main() {
       ProcessingStage.dimensions,
       ProcessingStage.analysis,
     ]) {
-      ledger.succeeded(
-        'img',
-        stage,
-        reason: 'مرحلة مقاسة.',
-        evidence: _ok(),
-      );
+      ledger.succeeded('img', stage, reason: 'مرحلة مقاسة.', evidence: _ok());
     }
     ledger.finalize();
     await journal.idle;

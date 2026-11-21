@@ -538,11 +538,9 @@ void main() {
         projectName: project.name,
       );
 
-      final report = await s.arrangeImportedImages(
-        project,
-        [sourceId],
-        ledger: ledger,
-      );
+      final report = await s.arrangeImportedImages(project, [
+        sourceId,
+      ], ledger: ledger);
       final result = report.project;
       final processing = ledger.finalize();
 
@@ -1207,11 +1205,9 @@ void main() {
         projectName: project.name,
       );
 
-      final report = await s.arrangeImportedImages(
-        project,
-        [source.id],
-        ledger: ledger,
-      );
+      final report = await s.arrangeImportedImages(project, [
+        source.id,
+      ], ledger: ledger);
 
       final processing = ledger.finalize();
       final document = processing.images.single.documents.single;

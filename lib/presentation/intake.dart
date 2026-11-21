@@ -382,13 +382,14 @@ class IntakeRunner {
       if (!await writeCheckpoint(pending)) {
         await service.discardSources(sources);
         for (var index = 0; index < sources.length; index++) {
-          ledger
-              .image('source-${index + 1}', name: sources[index].name)
-              .stopped(
-                ProcessingStage.selection,
-                reason: journeyStartFailure,
-                actionTaken: 'لم يُفتح الملف؛ لم يبدأ الاستيراد.',
-              );
+          final imageId = 'source-${index + 1}';
+          ledger.image(imageId, name: sources[index].name);
+          ledger.stopped(
+            imageId,
+            ProcessingStage.selection,
+            reason: journeyStartFailure,
+            actionTaken: 'لم يُفتح الملف؛ لم يبدأ الاستيراد.',
+          );
         }
         return IntakeRun(
           project: project,
@@ -400,7 +401,7 @@ class IntakeRunner {
           trace: context,
           journeyWriteFailed: true,
           journeyStartBlocked: true,
-          processingReport: finaliseLedger(cancelled: true),
+          processingReport: finaliseLedger(),
         );
       }
       await saveProgress(project, finished: false, committed: false);
@@ -461,13 +462,7 @@ class IntakeRunner {
         try {
           final open = openManualWorkspace;
           if (open == null) throw StateError('Manual workspace unavailable');
-          final saved = await open(
-            latest,
-            asset,
-            chosen,
-            stageLog,
-            _ledger,
-          );
+          final saved = await open(latest, asset, chosen, stageLog, _ledger);
           if (saved != null) return saved;
           log?.skip(
             JourneyStage.crop,

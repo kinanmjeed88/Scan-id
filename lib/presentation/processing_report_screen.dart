@@ -12,6 +12,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../application/processing_ledger.dart';
+import '../domain/document_kind.dart' show DocumentKindDetails;
 import '../domain/intake_options.dart';
 import '../domain/processing_record.dart';
 import '../domain/recognition.dart' show SideKind;
@@ -229,16 +230,20 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
   Widget _image(ImageProcessingLog image) {
     final theme = Theme.of(context);
     final stages = image.filledStages();
-    final shown = stages.where(
-      (stage) =>
-          stage.status != StageStatus.notReached &&
-          stage.status != StageStatus.stopped,
-    ).toList();
-    final skipped = stages.where(
-      (stage) =>
-          stage.status == StageStatus.notReached ||
-          stage.status == StageStatus.stopped,
-    ).toList();
+    final shown = stages
+        .where(
+          (stage) =>
+              stage.status != StageStatus.notReached &&
+              stage.status != StageStatus.stopped,
+        )
+        .toList();
+    final skipped = stages
+        .where(
+          (stage) =>
+              stage.status == StageStatus.notReached ||
+              stage.status == StageStatus.stopped,
+        )
+        .toList();
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ExpansionTile(
@@ -318,10 +323,7 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
-              _StatusPill(
-                label: stage.status.label,
-                status: stage.status,
-              ),
+              _StatusPill(label: stage.status.label, status: stage.status),
               if (stage.attempt > 1)
                 Padding(
                   padding: const EdgeInsetsDirectional.only(start: 4),
@@ -333,8 +335,7 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
             ],
           ),
           Text(stage.reason, style: theme.textTheme.bodySmall),
-          if (stage.evidence case final evidence?)
-            _evidence(evidence, theme),
+          if (stage.evidence case final evidence?) _evidence(evidence, theme),
           if (stage.inputs.isNotEmpty)
             Text(
               'المدخلات: ${_pairs(stage.inputs)}',

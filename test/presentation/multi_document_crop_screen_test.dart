@@ -105,11 +105,13 @@ Widget _app(
   Project project,
   ProjectService service, {
   ProcessingLedger? ledger,
+  IntakeOptions? options,
 }) => AppShell(
   home: MultiDocumentCropScreen(
     project: project,
     asset: project.assets.first,
     service: service,
+    options: options,
     ledger: ledger,
   ),
 );
@@ -164,9 +166,7 @@ void main() {
       projectName: setup.project.name,
     );
 
-    await tester.pumpWidget(
-      _app(setup.project, setup.service, ledger: ledger),
-    );
+    await tester.pumpWidget(_app(setup.project, setup.service, ledger: ledger));
     await tester.pumpAndSettle();
 
     final preview = ledger.report.images.single.stageOf(
@@ -179,10 +179,7 @@ void main() {
       preview.evidence!.checks
           .map((check) => (check.name, check.passed))
           .toList(),
-      [
-        ('preview_not_empty', true),
-        ('dimensions_positive', true),
-      ],
+      [('preview_not_empty', true), ('dimensions_positive', true)],
     );
   });
 
@@ -321,6 +318,63 @@ void main() {
       expect(
         saved.layoutGroups.single.arrangement,
         GroupArrangement.sideBySide,
+      );
+    },
+  );
+
+  testWidgets(
+    'manual addition records a successful centering pass and centered placement',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final setup = await _setup();
+      final emptyProject = await setup.repository.save(
+        setup.project.copyWith(items: const [], documents: const []),
+      );
+      final ledger = ProcessingLedger(
+        operationId: 'manual-add-centering',
+        projectId: emptyProject.id,
+        projectName: emptyProject.name,
+      );
+
+      await tester.pumpWidget(
+        _app(
+          emptyProject,
+          setup.service,
+          ledger: ledger,
+          options: const IntakeOptions(
+            kind: DocumentKind.passport,
+            multiDocument: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _drawCard(tester);
+      await tester.tap(find.byKey(const Key('multi-selection-apply')));
+      await tester.pumpAndSettle();
+
+      final saved = setup.repository.values[emptyProject.id]!;
+      expect(saved.layout.centerCaptures, isTrue);
+      expect(saved.items, hasLength(1));
+      final item = saved.items.single;
+      expect(item.pageIndex, isNotNull);
+      final printable = saved.paper.printable;
+      expect(
+        item.x + item.width / 2,
+        closeTo(printable.x + printable.width / 2, 1e-6),
+      );
+      final document = ledger.report.images.single.documents.single;
+      final centering = document.stageOf(ProcessingStage.centering)!;
+      expect(centering.status, StageStatus.succeeded);
+      expect(
+        centering.evidence!.checks.map((check) => check.name),
+        containsAll([
+          'center_option_enabled',
+          'item_placed',
+          'centering_pass_clear',
+        ]),
       );
     },
   );

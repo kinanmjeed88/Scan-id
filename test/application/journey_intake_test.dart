@@ -166,14 +166,11 @@ void main() {
       (entry) => entry.imageName == 'صورة1.png',
     );
     expect(refused.imported, isFalse);
-    expect(
-      refused.steps.any(
-        (step) =>
-            step.stage == JourneyStage.copy &&
-            step.outcome == JourneyOutcome.blocked,
-      ),
-      isTrue,
+    final failedCopy = refused.steps.singleWhere(
+      (step) => step.stage == JourneyStage.copy,
     );
+    expect(failedCopy.outcome, JourneyOutcome.blocked);
+    expect(failedCopy.durationMs, isNotNull);
     expect(imported.imported, isTrue);
   });
 
@@ -353,6 +350,17 @@ void main() {
     expect(result.journeyWriteFailed, isTrue);
     expect(result.journeyStartBlocked, isTrue);
     expect(result.error, isNotNull);
+    final processing = result.processingReport!;
+    expect(processing.images.single.imageName, 'image.png');
+    expect(
+      processing.images.single.statusOf(ProcessingStage.selection),
+      StageStatus.stopped,
+    );
+    expect(
+      processing.images.single.statusOf(ProcessingStage.completion),
+      StageStatus.stopped,
+    );
+    expect(processing.verdict, ProcessingVerdict.stopped);
     expect(failing.attempts, 2);
     expect(opened, isFalse);
     expect(cleaned, isTrue);

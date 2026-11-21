@@ -310,31 +310,34 @@ void main() {
     );
   });
 
-  test('cancellation during preprocessing escapes the OCR failure fallback', () async {
-    final entered = Completer<void>();
-    final release = Completer<void>();
-    final token = CancellationToken();
-    final pipeline = RecognitionPipeline(
-      suggestSingle: (_) async => _quad(),
-      segment: _noMulti,
-      ocr: _TimedOcr(),
-      prepareOcrRegion: (bytes, {corners, region, cancellation}) async {
-        entered.complete();
-        await release.future;
-        cancellation?.throwIfCancelled();
-        return bytes;
-      },
-    );
-    final pending = pipeline.analyze(
-      _input(previewBytes: _twoColoredDocumentRegions()),
-      token: token,
-    );
+  test(
+    'cancellation during preprocessing escapes the OCR failure fallback',
+    () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final token = CancellationToken();
+      final pipeline = RecognitionPipeline(
+        suggestSingle: (_) async => _quad(),
+        segment: _noMulti,
+        ocr: _TimedOcr(),
+        prepareOcrRegion: (bytes, {corners, region, cancellation}) async {
+          entered.complete();
+          await release.future;
+          cancellation?.throwIfCancelled();
+          return bytes;
+        },
+      );
+      final pending = pipeline.analyze(
+        _input(previewBytes: _twoColoredDocumentRegions()),
+        token: token,
+      );
 
-    await entered.future.timeout(const Duration(seconds: 2));
-    token.cancel();
-    release.complete();
-    await expectLater(pending, throwsA(isA<OperationCancelled>()));
-  });
+      await entered.future.timeout(const Duration(seconds: 2));
+      token.cancel();
+      release.complete();
+      await expectLater(pending, throwsA(isA<OperationCancelled>()));
+    },
+  );
 
   test(
     'a qualified kind and matching catalog shape resolve only a classical score review',

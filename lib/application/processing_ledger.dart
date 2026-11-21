@@ -214,25 +214,9 @@ class ProcessingLedger {
       image(to, width: width, height: height);
       return;
     }
-    final parent = _images.remove(from);
+    final parent = _images[from];
     if (parent == null) {
       image(to, width: width, height: height);
-      _emit({'event': 'image_rekey', 'from': from, 'to': to});
-      return;
-    }
-    final target = _images[to];
-    if (target != null) {
-      // The real id already exists: keep its records and fill the gaps from
-      // the provisional one. Never duplicate a stage that is already there.
-      for (final record in parent.stages) {
-        if (target.stageOf(record.stage) == null) {
-          target.record(record);
-          _emitStage(target, record);
-        }
-      }
-      for (final warning in parent.warnings) {
-        target.addWarning(warning);
-      }
       _emit({'event': 'image_rekey', 'from': from, 'to': to});
       return;
     }
@@ -241,6 +225,49 @@ class ProcessingLedger {
       // an already-linked record. This method is for the pre-document window
       // of the import only.
       throw StateError('rekeyImage is only valid before documents exist');
+    }
+    final target = _images[to];
+    if (target != null) {
+      // The real id already exists: keep its records and fill the gaps from
+      // the provisional one. Never duplicate a stage that is already there.
+      final missingStages = [
+        for (final record in parent.stages)
+          if (target.stageOf(record.stage) == null) record,
+      ];
+      final stages = [...target.stages, ...missingStages]
+        ..sort((left, right) => left.stage.index.compareTo(right.stage.index));
+      final merged = ImageProcessingLog(
+        operationId: target.operationId,
+        imageId: to,
+        imageName: target.imageName.isNotEmpty
+            ? target.imageName
+            : parent.imageName,
+        sourceWidth: width ?? target.sourceWidth ?? parent.sourceWidth,
+        sourceHeight: height ?? target.sourceHeight ?? parent.sourceHeight,
+        startedAt: target.startedAt.isBefore(parent.startedAt)
+            ? target.startedAt
+            : parent.startedAt,
+        stages: stages,
+        documents: target.documents,
+        warnings: [...target.warnings, ...parent.warnings],
+        endedAt: target.endedAt ?? parent.endedAt,
+        outcomeOverride: target.outcomeOverride ?? parent.outcomeOverride,
+      );
+      _images.remove(from);
+      _images[to] = merged;
+      for (final record in missingStages) {
+        _emitStage(merged, record);
+      }
+      _emit({
+        'event': 'image_rekey',
+        'from': from,
+        'to': to,
+        'name': merged.imageName,
+        if (merged.sourceWidth != null) 'width': merged.sourceWidth,
+        if (merged.sourceHeight != null) 'height': merged.sourceHeight,
+        'started_utc': merged.startedAt.toIso8601String(),
+      });
+      return;
     }
     final moved = ImageProcessingLog(
       operationId: parent.operationId,
@@ -254,13 +281,16 @@ class ProcessingLedger {
       endedAt: parent.endedAt,
       outcomeOverride: parent.outcomeOverride,
     );
+    _images.remove(from);
     _images[to] = moved;
     _emit({
       'event': 'image_rekey',
       'from': from,
       'to': to,
-      if (width != null) 'width': width,
-      if (height != null) 'height': height,
+      if (moved.imageName.isNotEmpty) 'name': moved.imageName,
+      if (moved.sourceWidth != null) 'width': moved.sourceWidth,
+      if (moved.sourceHeight != null) 'height': moved.sourceHeight,
+      'started_utc': moved.startedAt.toIso8601String(),
     });
   }
 
@@ -718,29 +748,51 @@ class ProcessingLedger {
   }
 
   /// The independent document record for one manual selection or one measured
-  /// region. The same id returns the same record, so a retry updates it.
+  /// region. Reusing an id refreshes supplied metadata without losing its
+  /// stage history or links.
   DocumentProcessingLog document(
     String imageId, {
     required String documentId,
     int? index,
-    String label = '',
-    DocumentKind kind = DocumentKind.unknown,
-    SideKind side = SideKind.unknown,
-    RecordSource kindSource = RecordSource.unknown,
-    RecordSource sideSource = RecordSource.unknown,
+    String? label,
+    DocumentKind? kind,
+    SideKind? side,
+    RecordSource? kindSource,
+    RecordSource? sideSource,
   }) {
     final parent = image(imageId);
     final existing = parent.documents.where((d) => d.id == documentId);
-    if (existing.isNotEmpty) return existing.first;
+    if (existing.isNotEmpty) {
+      final previous = existing.first;
+      final updated = previous.copyWithMetadata(
+        selectionIndex: index,
+        label: label,
+        kind: kind,
+        side: side,
+        kindSource: kindSource,
+        sideSource: sideSource,
+      );
+      final metadataChanged =
+          updated.selectionIndex != previous.selectionIndex ||
+          updated.label != previous.label ||
+          updated.kind != previous.kind ||
+          updated.side != previous.side ||
+          updated.kindSource != previous.kindSource ||
+          updated.sideSource != previous.sideSource;
+      if (!metadataChanged) return previous;
+      parent.replaceDocument(updated);
+      _emitDocument(parent, updated);
+      return updated;
+    }
     final created = DocumentProcessingLog(
       id: documentId,
       imageId: imageId,
       selectionIndex: index ?? parent.documents.length + 1,
-      label: label,
-      kind: kind,
-      side: side,
-      kindSource: kindSource,
-      sideSource: sideSource,
+      label: label ?? '',
+      kind: kind ?? DocumentKind.unknown,
+      side: side ?? SideKind.unknown,
+      kindSource: kindSource ?? RecordSource.unknown,
+      sideSource: sideSource ?? RecordSource.unknown,
       startedAt: _clock().toUtc(),
     );
     parent.replaceDocument(created);
@@ -764,7 +816,9 @@ class ProcessingLedger {
     StageRecord record,
   ) {
     final parent = image(imageId);
-    final document = parent.documents.where((d) => d.id == documentId).firstOrNull;
+    final document = parent.documents
+        .where((d) => d.id == documentId)
+        .firstOrNull;
     if (document == null) {
       throw StateError('The document is not part of this image record');
     }
@@ -773,7 +827,6 @@ class ProcessingLedger {
     _emitDocument(parent, document);
     return recorded;
   }
-
 
   StageRecord documentSucceeded(
     String imageId,
@@ -973,11 +1026,13 @@ class ProcessingLedger {
   /// Resolves centring stages that were deferred to the batch arrangement.
   ///
   /// [placed] answers whether an item id ended on a page of the saved project.
-  /// A document whose centring cannot be confirmed stays «متوقفة» with the
-  /// reason, never silently successful.
+  /// [centeredItemIds] comes from the arrangement pass itself and includes
+  /// items that were already centered when the pass ran. A placed item that the
+  /// pass could not center stays «متوقفة», never silently successful.
   void settleCentering({
     required bool centerEnabled,
     required bool Function(String itemId) placed,
+    required Set<String> centeredItemIds,
   }) {
     for (final parent in _images.values.toList()) {
       for (final document in [...parent.documents]) {
@@ -996,20 +1051,23 @@ class ProcessingLedger {
           continue;
         }
         final itemId = document.layoutItemId;
-        if (itemId != null && placed(itemId)) {
+        final itemIsPlaced = itemId != null && placed(itemId);
+        if (itemIsPlaced && centeredItemIds.contains(itemId)) {
           documentSucceeded(
             parent.imageId,
             document.id,
             ProcessingStage.centering,
-            reason: 'فُعّل التوسيط ووُضع المستند على الورقة.',
+            reason: 'اجتاز المستند تمرير التوسيط ووُضع على الورقة.',
             evidence: StageEvidence(
               verified: true,
               checks: [
                 EvidenceCheck(name: 'center_option_enabled', passed: true),
                 EvidenceCheck(name: 'item_placed', passed: true),
+                EvidenceCheck(name: 'centering_pass_clear', passed: true),
               ],
-              note: 'التوسيط ينفذه محرك الترتيب نفسه؛ التحقق من تفعيله ومن '
-                  'وجود العنصر على الورقة.',
+              note:
+                  'محرك الترتيب أدرج العنصر ضمن الصفحة التي اجتاز فيها '
+                  'فحص التوسيط دون تعارض.',
             ),
             actionTaken: 'اكتمل التوسيط مع وضع المستند.',
           );
@@ -1020,9 +1078,16 @@ class ProcessingLedger {
             StageRecord(
               stage: ProcessingStage.centering,
               status: StageStatus.stopped,
-              reason: 'لم تُثبت إضافة المستند إلى الورقة؛ تعذر التحقق من التوسيط.',
-              diagnostics: const ['item_not_placed'],
-              actionTaken: 'يبقى التوسيط بانتظار الترتيب.',
+              reason: itemIsPlaced
+                  ? 'تعذر إثبات تطبيق التوسيط دون تعارض على هذا المستند.'
+                  : 'لم تُثبت إضافة المستند إلى الورقة؛ تعذر التحقق من التوسيط.',
+              diagnostics: [
+                if (!itemIsPlaced) 'item_not_placed',
+                if (itemIsPlaced) 'centering_not_applied',
+              ],
+              actionTaken: itemIsPlaced
+                  ? 'بقي المستند في موضعه لتجنب تعارض؛ راجع الترتيب.'
+                  : 'يبقى التوسيط بانتظار الترتيب.',
             ),
           );
         }
@@ -1217,8 +1282,7 @@ class ProcessingLedger {
           StageRecord(
             stage: ProcessingStage.completion,
             status: StageStatus.stopped,
-            reason:
-                'توقفت العملية قبل إنهاء هذه الصورة: ${stop.reason}',
+            reason: 'توقفت العملية قبل إنهاء هذه الصورة: ${stop.reason}',
             startedAt: end,
             endedAt: end,
             actionTaken: 'حُفظت الحالة الأخيرة ولم تُدَّعَ نتيجة نهائية.',
@@ -1229,8 +1293,8 @@ class ProcessingLedger {
         image.outcomeOverride ??= outcome;
         final completionStatus = switch (outcome) {
           ImageOutcome.cancelled => StageStatus.cancelled,
-          ImageOutcome.stopped || ImageOutcome.interrupted =>
-            StageStatus.stopped,
+          ImageOutcome.stopped ||
+          ImageOutcome.interrupted => StageStatus.stopped,
           _ => StageStatus.succeeded,
         };
         image.record(
@@ -1252,10 +1316,12 @@ class ProcessingLedger {
                 : null,
             actionTaken: switch (outcome) {
               ImageOutcome.completed => 'لا إجراء مطلوب.',
-              ImageOutcome.completedWithReview => 'الصورة بانتظار مراجعة بشرية.',
+              ImageOutcome.completedWithReview =>
+                'الصورة بانتظار مراجعة بشرية.',
               ImageOutcome.partial => 'حُفظ ما نجح، وبقي ما فشل للمعالجة.',
               ImageOutcome.cancelled => 'حُفظ ما أُنجز قبل الإلغاء.',
-              ImageOutcome.stopped => 'حُفظت الحالة الأخيرة دون ادعاء الاكتمال.',
+              ImageOutcome.stopped =>
+                'حُفظت الحالة الأخيرة دون ادعاء الاكتمال.',
               ImageOutcome.interrupted => 'أُشير إلى انقطاع العملية.',
               _ => 'سُجلت النتيجة دون ادّعاء نجاح.',
             },
@@ -1369,10 +1435,7 @@ class ProcessingLedger {
     });
   }
 
-  void _emitDocument(
-    ImageProcessingLog image,
-    DocumentProcessingLog document,
-  ) {
+  void _emitDocument(ImageProcessingLog image, DocumentProcessingLog document) {
     _emit({
       'event': 'document',
       'image': image.imageId,
@@ -1463,7 +1526,9 @@ class ProcessingLedger {
             imageId: id,
             imageName: event['name'] is String ? event['name'] as String : '',
             sourceWidth: event['width'] is int ? event['width'] as int : null,
-            sourceHeight: event['height'] is int ? event['height'] as int : null,
+            sourceHeight: event['height'] is int
+                ? event['height'] as int
+                : null,
             startedAt: parsed?.toUtc() ?? lastUtc,
           ),
         );
@@ -1526,18 +1591,23 @@ class ProcessingLedger {
           final parent = images.remove(from);
           if (parent != null) {
             final target = images[to];
+            final eventStarted = event['started_utc'] is String
+                ? DateTime.tryParse(event['started_utc'] as String)?.toUtc()
+                : null;
             if (target == null) {
               images[to] = ImageProcessingLog(
                 operationId: parent.operationId,
                 imageId: to,
-                imageName: parent.imageName,
+                imageName: event['name'] is String
+                    ? event['name'] as String
+                    : parent.imageName,
                 sourceWidth: event['width'] is int
                     ? event['width'] as int
                     : parent.sourceWidth,
                 sourceHeight: event['height'] is int
                     ? event['height'] as int
                     : parent.sourceHeight,
-                startedAt: parent.startedAt,
+                startedAt: eventStarted ?? parent.startedAt,
                 stages: parent.stages,
                 warnings: parent.warnings,
                 endedAt: parent.endedAt,
@@ -1547,6 +1617,31 @@ class ProcessingLedger {
               for (final record in parent.stages) {
                 if (target.stageOf(record.stage) == null) target.record(record);
               }
+              images[to] = ImageProcessingLog(
+                operationId: target.operationId,
+                imageId: to,
+                imageName: target.imageName.isNotEmpty
+                    ? target.imageName
+                    : event['name'] is String
+                    ? event['name'] as String
+                    : parent.imageName,
+                sourceWidth: event['width'] is int
+                    ? event['width'] as int
+                    : target.sourceWidth ?? parent.sourceWidth,
+                sourceHeight: event['height'] is int
+                    ? event['height'] as int
+                    : target.sourceHeight ?? parent.sourceHeight,
+                startedAt: eventStarted ??
+                    (target.startedAt.isBefore(parent.startedAt)
+                        ? target.startedAt
+                        : parent.startedAt),
+                stages: target.stages,
+                documents: target.documents,
+                warnings: [...target.warnings, ...parent.warnings],
+                endedAt: target.endedAt ?? parent.endedAt,
+                outcomeOverride:
+                    target.outcomeOverride ?? parent.outcomeOverride,
+              );
             }
           }
         }
@@ -1607,7 +1702,8 @@ class ProcessingLedger {
       batchId: batchId,
       projectId: projectId ?? 'unknown',
       projectName: projectName,
-      startedAt: startedAt ?? (ordered.isEmpty ? lastUtc : ordered.first.startedAt),
+      startedAt:
+          startedAt ?? (ordered.isEmpty ? lastUtc : ordered.first.startedAt),
       endedAt: lastUtc,
       options: options,
       optionCodes: options?.traceCodes.toList() ?? const [],
@@ -1639,20 +1735,19 @@ class ProcessingLedger {
   static ImageProcessingLog _batchStopped(
     ImageProcessingLog image,
     StageRecord stop,
-  ) =>
-      ImageProcessingLog(
-        operationId: image.operationId,
-        imageId: image.imageId,
-        imageName: image.imageName,
-        startedAt: image.startedAt,
-        sourceWidth: image.sourceWidth,
-        sourceHeight: image.sourceHeight,
-        stages: image.stages,
-        documents: image.documents,
-        warnings: [...image.warnings, stop.reason],
-        endedAt: image.endedAt,
-        outcomeOverride: ImageOutcome.stopped,
-      );
+  ) => ImageProcessingLog(
+    operationId: image.operationId,
+    imageId: image.imageId,
+    imageName: image.imageName,
+    startedAt: image.startedAt,
+    sourceWidth: image.sourceWidth,
+    sourceHeight: image.sourceHeight,
+    stages: image.stages,
+    documents: image.documents,
+    warnings: [...image.warnings, stop.reason],
+    endedAt: image.endedAt,
+    outcomeOverride: ImageOutcome.stopped,
+  );
 
   static ImageProcessingLog _interrupted(ImageProcessingLog image) =>
       ImageProcessingLog(

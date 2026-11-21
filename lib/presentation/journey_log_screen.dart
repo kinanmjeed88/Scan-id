@@ -19,7 +19,11 @@ import 'processing_report_screen.dart';
 import 'shared.dart';
 
 class JourneyLogScreen extends StatefulWidget {
-  const JourneyLogScreen({required this.log, this.processingJournal, super.key});
+  const JourneyLogScreen({
+    required this.log,
+    this.processingJournal,
+    super.key,
+  });
 
   final JourneyLog log;
 

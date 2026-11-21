@@ -291,7 +291,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ExplainedAction(
               icon: Icons.account_tree_outlined,
               title: 'فتح التقرير التفصيلي لكل مرحلة',
-              summary: 'كل مرحلة بحالتها ومدة قياسها ودليل نتيجتها، ولكل مستمسك سجله.',
+              summary:
+                  'كل مرحلة بحالتها ومدة قياسها ودليل نتيجتها، ولكل مستمسك سجله.',
               details:
                   'ما تجده: تقرير العملية كاملاً — الخيارات التي اخترتها، ومسار '
                   'المعالجة، ثم كل مرحلة بالترتيب الفعلي مع حالتها (ناجحة، '

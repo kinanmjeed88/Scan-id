@@ -583,15 +583,16 @@ class SmartIntake {
         () => projects.save(current),
         phase: 'arrangement',
       );
-      await _recordCommittedDocuments(
-        current,
-        newDocuments,
-        arranged: false,
-      );
+      await _recordCommittedDocuments(current, newDocuments, arranged: false);
     } else {
+      final centeredItemIds = <String>{};
       final arrangement = ImportTrace.syncStage(
         'layout',
-        () => arrangeDocuments(current, keepPlaced: keepPlaced),
+        () => arrangeDocuments(
+          current,
+          keepPlaced: keepPlaced,
+          onCenteringPass: centeredItemIds.addAll,
+        ),
       );
       current = await ImportTrace.stage(
         'persistence',
@@ -602,12 +603,7 @@ class SmartIntake {
         current,
         newDocuments,
         arranged: true,
-      );
-      ledger?.settleCentering(
-        centerEnabled: current.layout.centerCaptures,
-        placed: (itemId) => current.items.any(
-          (item) => item.id == itemId && item.pageIndex != null,
-        ),
+        centeredItemIds: centeredItemIds,
       );
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
@@ -684,7 +680,8 @@ class SmartIntake {
       ledger.failed(
         imageId,
         ProcessingStage.preprocessing,
-        reason: 'فشلت تهيئة OCR في $preprocessingFailures من '
+        reason:
+            'فشلت تهيئة OCR في $preprocessingFailures من '
             '$preprocessingAttempts محاولات.',
         durationMs: preprocessingDurationMs,
         errorType: 'PreprocessingFailure',
@@ -701,7 +698,10 @@ class SmartIntake {
             EvidenceCheck(name: 'preprocessing_attempted', passed: true),
             EvidenceCheck(name: 'preprocessing_complete', passed: false),
           ],
-          counts: {'reads': preprocessingAttempts, 'failed': preprocessingFailures},
+          counts: {
+            'reads': preprocessingAttempts,
+            'failed': preprocessingFailures,
+          },
         ),
         actionTaken: 'استمر التحليل دون نص للمناطق التي فشلت تهيئتها.',
       );
@@ -868,13 +868,13 @@ class SmartIntake {
                     'الباقي غير محسوم.',
           evidence: StageEvidence(
             verified: true,
-            checks: [
-              EvidenceCheck(name: 'classification_ran', passed: true),
-            ],
+            checks: [EvidenceCheck(name: 'classification_ran', passed: true)],
             counts: {'regions': regions.length, 'known': known},
           ),
           results: {'known': known},
-          durationMs: recognitionDurations.isEmpty ? null : recognitionDurationMs,
+          durationMs: recognitionDurations.isEmpty
+              ? null
+              : recognitionDurationMs,
           actionTaken: known == regions.length
               ? 'استُخدم النوع المقاس.'
               : 'بقيت الأنواع غير المحسومة للمراجعة البشرية.',
@@ -1016,9 +1016,7 @@ class SmartIntake {
           reason: 'اجتاز الرباعي التحقق الهندسي.',
           evidence: StageEvidence(
             verified: true,
-            checks: [
-              EvidenceCheck(name: 'quad_acceptable', passed: true),
-            ],
+            checks: [EvidenceCheck(name: 'quad_acceptable', passed: true)],
           ),
           results: {
             if (assessment.geometryConfidence != null)
@@ -1043,9 +1041,7 @@ class SmartIntake {
           actionTaken: 'لم يُسمح بالقص الآلي؛ بقي للمراجعة اليدوية.',
           evidence: StageEvidence(
             verified: false,
-            checks: [
-              EvidenceCheck(name: 'quad_acceptable', passed: false),
-            ],
+            checks: [EvidenceCheck(name: 'quad_acceptable', passed: false)],
           ),
         );
       }
@@ -1104,12 +1100,8 @@ class SmartIntake {
     if (ledger == null) return;
     final imageId = analyzed.asset.id;
     for (final detection in analyzed.analysis.allRegions) {
-      final document = ledger.existingDocument(
-        imageId,
-        detection.detectionId,
-      );
-      if (document == null ||
-          document.statusOf(ProcessingStage.crop) != null) {
+      final document = ledger.existingDocument(imageId, detection.detectionId);
+      if (document == null || document.statusOf(ProcessingStage.crop) != null) {
         continue;
       }
       if (cancelled) {
@@ -1193,8 +1185,7 @@ class SmartIntake {
           ProcessingStage.crop,
           reason: 'قُصّ المستند وأُنتجت صورة بأبعاد صالحة.',
           evidence: StageEvidence(
-            verified:
-                processed.outputWidth! > 0 && processed.outputHeight! > 0,
+            verified: processed.outputWidth! > 0 && processed.outputHeight! > 0,
             checks: [
               EvidenceCheck(
                 name: 'output_width_positive',
@@ -1313,15 +1304,10 @@ class SmartIntake {
           ],
           counts: {'sides': record.sides.length},
         ),
-        results: {
-          'kind': kind.name,
-          'side': side.side.name,
-        },
+        results: {'kind': kind.name, 'side': side.side.name},
         actionTaken: 'تابع إلى تثبيت النوع والمقاس.',
       );
-      if (kind != DocumentKind.unknown &&
-          item != null &&
-          item.sizeConfirmed) {
+      if (kind != DocumentKind.unknown && item != null && item.sizeConfirmed) {
         ledger.documentSucceeded(
           imageId,
           document.id,
@@ -1334,10 +1320,7 @@ class SmartIntake {
               EvidenceCheck(name: 'item_present', passed: true),
               EvidenceCheck(name: 'size_confirmed', passed: true),
             ],
-            counts: {
-              'kind_known': 1,
-              'size_confirmed': 1,
-            },
+            counts: {'kind_known': 1, 'size_confirmed': 1},
           ),
           results: {
             'kind': kind.name,
@@ -1372,6 +1355,7 @@ class SmartIntake {
     Project current,
     List<DocumentRecord> documents, {
     required bool arranged,
+    Set<String> centeredItemIds = const <String>{},
   }) async {
     final ledger = this.ledger;
     if (ledger == null || documents.isEmpty) return;
@@ -1420,14 +1404,8 @@ class SmartIntake {
         evidence: StageEvidence(
           verified: recordSaved && assetPresent,
           checks: [
-            EvidenceCheck(
-              name: 'record_persisted',
-              passed: recordSaved,
-            ),
-            EvidenceCheck(
-              name: 'asset_present',
-              passed: assetPresent,
-            ),
+            EvidenceCheck(name: 'record_persisted', passed: recordSaved),
+            EvidenceCheck(name: 'asset_present', passed: assetPresent),
           ],
         ),
         results: {'revision': current.revision},
@@ -1454,9 +1432,7 @@ class SmartIntake {
               : 'أُضيف المستند إلى ورقة A4.',
           evidence: StageEvidence(
             verified: true,
-            checks: [
-              EvidenceCheck(name: 'item_in_project', passed: true),
-            ],
+            checks: [EvidenceCheck(name: 'item_in_project', passed: true)],
             counts: {'items': current.items.length},
           ),
           results: {'page': item.pageIndex ?? -1},
@@ -1524,26 +1500,22 @@ class SmartIntake {
         }
       }
       if (item != null && current.layout.centerCaptures) {
-        if (arranged && item.pageIndex != null) {
+        if (arranged &&
+            item.pageIndex != null &&
+            centeredItemIds.contains(item.id)) {
           ledger.documentSucceeded(
             imageId,
             document.id,
             ProcessingStage.centering,
-            reason: 'فُعّل التوسيط ووُضع المستند على الورقة.',
+            reason: 'اجتاز المستند تمرير التوسيط ووُضع على الورقة.',
             evidence: StageEvidence(
               verified: true,
               checks: [
-                EvidenceCheck(
-                  name: 'center_option_enabled',
-                  passed: current.layout.centerCaptures,
-                ),
-                EvidenceCheck(
-                  name: 'item_placed',
-                  passed: item.pageIndex != null,
-                ),
+                EvidenceCheck(name: 'center_option_enabled', passed: true),
+                EvidenceCheck(name: 'item_placed', passed: true),
+                EvidenceCheck(name: 'centering_pass_clear', passed: true),
               ],
-              note: 'التوسيط ينفذه محرك الترتيب نفسه؛ التحقق من تفعيله ومن '
-                  'وجود العنصر على الورقة.',
+              note: 'أدرج محرك الترتيب العنصر في تمرير التوسيط دون تعارض.',
             ),
             actionTaken: 'اكتمل التوسيط مع وضع المستند.',
           );
@@ -1552,8 +1524,16 @@ class SmartIntake {
             imageId,
             document.id,
             ProcessingStage.centering,
-            reason: 'أُجّل التوسيط إلى ترتيب الدفعة؛ لم تُثبت نتيجته بعد.',
-            actionTaken: 'يُسوّى عند اكتمال الترتيب.',
+            reason: !arranged
+                ? 'أُجّل التوسيط إلى ترتيب الدفعة؛ لم تُثبت نتيجته بعد.'
+                : item.pageIndex == null
+                ? 'لم يُوضع المستند على الورقة؛ تعذر تطبيق التوسيط.'
+                : 'تعذر إثبات تطبيق التوسيط دون تعارض على هذا المستند.',
+            actionTaken: !arranged
+                ? 'يُسوّى عند اكتمال الترتيب.'
+                : item.pageIndex == null
+                ? 'بقي المستند خارج الورقة للمراجعة.'
+                : 'بقي المستند في موضعه لتجنب تعارض؛ راجع الترتيب.',
           );
         }
       } else if (item != null) {
@@ -1677,32 +1657,31 @@ class SmartIntake {
                   width: source.width,
                   height: source.height,
                 );
-                ledger
-                  ?..succeeded(
-                    asset.id,
-                    ProcessingStage.previewPreparation,
-                    reason: 'أُنتجت نسخة معاينة صالحة للتحليل.',
-                    evidence: StageEvidence(
-                      verified: true,
-                      checks: [
-                        EvidenceCheck(
-                          name: 'preview_not_empty',
-                          passed: source.preview.isNotEmpty,
-                          detail: '${source.preview.length}',
-                        ),
-                        EvidenceCheck(
-                          name: 'dimensions_positive',
-                          passed: source.width > 0 && source.height > 0,
-                        ),
-                      ],
-                      counts: {'preview_bytes': source.preview.length},
-                    ),
-                    results: {'width': source.width, 'height': source.height},
-                    durationMs: previewClock.elapsedMilliseconds,
-                  );
-                if (ledger?.existingImage(asset.id)?.stageOf(
-                      ProcessingStage.dimensions,
-                    ) ==
+                ledger?..succeeded(
+                  asset.id,
+                  ProcessingStage.previewPreparation,
+                  reason: 'أُنتجت نسخة معاينة صالحة للتحليل.',
+                  evidence: StageEvidence(
+                    verified: true,
+                    checks: [
+                      EvidenceCheck(
+                        name: 'preview_not_empty',
+                        passed: source.preview.isNotEmpty,
+                        detail: '${source.preview.length}',
+                      ),
+                      EvidenceCheck(
+                        name: 'dimensions_positive',
+                        passed: source.width > 0 && source.height > 0,
+                      ),
+                    ],
+                    counts: {'preview_bytes': source.preview.length},
+                  ),
+                  results: {'width': source.width, 'height': source.height},
+                  durationMs: previewClock.elapsedMilliseconds,
+                );
+                if (ledger
+                        ?.existingImage(asset.id)
+                        ?.stageOf(ProcessingStage.dimensions) ==
                     null) {
                   ledger?.succeeded(
                     asset.id,
@@ -1723,10 +1702,7 @@ class SmartIntake {
                         ),
                       ],
                     ),
-                    results: {
-                      'width': source.width,
-                      'height': source.height,
-                    },
+                    results: {'width': source.width, 'height': source.height},
                   );
                 }
                 final importIndex = pending.indexOf(asset);
@@ -1773,7 +1749,8 @@ class SmartIntake {
                       ),
                       EvidenceCheck(
                         name: 'region_count_valid',
-                        passed: value.regionCount >= 0 && value.regionCount <= 100,
+                        passed:
+                            value.regionCount >= 0 && value.regionCount <= 100,
                       ),
                     ],
                     failureAction: 'بقيت الصورة الأصلية للمعالجة اليدوية.',

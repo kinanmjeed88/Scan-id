@@ -7,9 +7,7 @@ import 'package:scan_id/domain/validation.dart';
 
 StageEvidence _evidence({int items = 1}) => StageEvidence(
   verified: true,
-  checks: [
-    EvidenceCheck(name: 'measured', passed: true, detail: '$items'),
-  ],
+  checks: [EvidenceCheck(name: 'measured', passed: true, detail: '$items')],
   counts: {'items': items},
 );
 
@@ -24,11 +22,7 @@ StageRecord _stage(
   status: status,
   reason: reason,
   results: results,
-  evidence:
-      evidence ??
-      (status == StageStatus.succeeded
-          ? _evidence()
-          : null),
+  evidence: evidence ?? (status == StageStatus.succeeded ? _evidence() : null),
 );
 
 DocumentProcessingLog _document({
@@ -67,16 +61,8 @@ DocumentProcessingLog _document({
         save,
         reason: save == StageStatus.succeeded ? 'حُفظ.' : 'لم يُحفظ.',
       ),
-      _stage(
-        ProcessingStage.addToProject,
-        save,
-        reason: 'أُضيف.',
-      ),
-      _stage(
-        ProcessingStage.verifyAddition,
-        verify,
-        reason: 'تُحقّق.',
-      ),
+      _stage(ProcessingStage.addToProject, save, reason: 'أُضيف.'),
+      _stage(ProcessingStage.verifyAddition, verify, reason: 'تُحقّق.'),
     ],
   ],
   outcome: failedCrop ? 'فشل' : 'نجح',
@@ -186,9 +172,18 @@ void main() {
       expect(undetermined.diagnostics, isNotEmpty);
     });
 
-    test('duration is measured from the timestamps exactly', () {
+    test('an explicit measurement wins, otherwise timestamps supply duration', () {
       final start = DateTime.utc(2026, 1, 1, 10, 0, 0);
-      final record = StageRecord(
+      final measured = StageRecord(
+        stage: ProcessingStage.decode,
+        status: StageStatus.succeeded,
+        reason: 'فُك الترميز.',
+        startedAt: start,
+        endedAt: start.add(const Duration(milliseconds: 1250)),
+        durationMs: 980,
+        evidence: _evidence(),
+      );
+      final derived = StageRecord(
         stage: ProcessingStage.decode,
         status: StageStatus.succeeded,
         reason: 'فُك الترميز.',
@@ -196,22 +191,27 @@ void main() {
         endedAt: start.add(const Duration(milliseconds: 1250)),
         evidence: _evidence(),
       );
-      expect(record.durationMs, 1250);
+
+      expect(measured.durationMs, 980);
+      expect(derived.durationMs, 1250);
     });
 
-    test('an end before the start is refused', () {
+    test('an end before the start is refused with or without a measurement', () {
       final start = DateTime.utc(2026, 1, 1, 10);
-      expect(
-        () => StageRecord(
-          stage: ProcessingStage.decode,
-          status: StageStatus.succeeded,
-          reason: 'فُك.',
-          startedAt: start,
-          endedAt: start.subtract(const Duration(seconds: 1)),
-          evidence: _evidence(),
-        ),
-        throwsA(isA<ValidationException>()),
-      );
+      for (final durationMs in <int?>[null, 500]) {
+        expect(
+          () => StageRecord(
+            stage: ProcessingStage.decode,
+            status: StageStatus.succeeded,
+            reason: 'فُك.',
+            startedAt: start,
+            endedAt: start.subtract(const Duration(seconds: 1)),
+            durationMs: durationMs,
+            evidence: _evidence(),
+          ),
+          throwsA(isA<ValidationException>()),
+        );
+      }
     });
 
     test('long text is clipped, never turned into a second failure', () {
@@ -278,7 +278,10 @@ void main() {
         ],
       );
       final filled = image.filledStages();
-      expect(filled.length, ProcessingStage.values.where((s) => !s.documentScoped).length);
+      expect(
+        filled.length,
+        ProcessingStage.values.where((s) => !s.documentScoped).length,
+      );
       final decode = filled.firstWhere(
         (stage) => stage.stage == ProcessingStage.decode,
       );
@@ -340,10 +343,7 @@ void main() {
         image.statusOf(ProcessingStage.confidence),
         StageStatus.notApplicable,
       );
-      expect(
-        image.statusOf(ProcessingStage.analysis),
-        StageStatus.succeeded,
-      );
+      expect(image.statusOf(ProcessingStage.analysis), StageStatus.succeeded);
     });
   });
 
@@ -369,15 +369,21 @@ void main() {
         ProcessingStage.values.where((stage) => stage.documentScoped).length,
       );
       expect(
-        filled.firstWhere((stage) => stage.stage == ProcessingStage.geometryCheck).status,
+        filled
+            .firstWhere((stage) => stage.stage == ProcessingStage.geometryCheck)
+            .status,
         StageStatus.notReached,
       );
       expect(
-        filled.firstWhere((stage) => stage.stage == ProcessingStage.crop).status,
+        filled
+            .firstWhere((stage) => stage.stage == ProcessingStage.crop)
+            .status,
         StageStatus.failed,
       );
       expect(
-        filled.firstWhere((stage) => stage.stage == ProcessingStage.saveDocument).status,
+        filled
+            .firstWhere((stage) => stage.stage == ProcessingStage.saveDocument)
+            .status,
         StageStatus.stopped,
       );
       expect(document.recordingGaps, contains(ProcessingStage.geometryCheck));
@@ -420,10 +426,7 @@ void main() {
         acceptSuggestedBoundary: true,
         centerDocuments: false,
         multiDocument: true,
-        confirmed: {
-          IntakeOptionKey.kind,
-          IntakeOptionKey.center,
-        },
+        confirmed: {IntakeOptionKey.kind, IntakeOptionKey.center},
       );
       final report = _report(options: options);
       expect(report.route, IntakeRoute.manualSelections);
@@ -478,26 +481,29 @@ void main() {
       expect(record.toJson(), isNotEmpty);
     });
 
-    test('diagnostics retain a basename but never persist a filesystem path', () {
-      final image = ImageProcessingLog(
-        operationId: 'op',
-        imageId: 'img',
-        imageName: r'C:\Users\Alice\private\scan.png',
-        startedAt: DateTime.utc(2026, 1, 1),
-        stages: [
-          StageRecord(
-            stage: ProcessingStage.selection,
-            status: StageStatus.succeeded,
-            reason: 'استُلم المصدر.',
-            evidence: _evidence(),
-            results: const {'path': r'C:\Users\Alice\private\scan.png'},
-          ),
-        ],
-      );
-      expect(image.imageName, 'scan.png');
-      final result = image.stages.single.results['path'] as String;
-      expect(result, isNot(contains('Alice')));
-      expect(result, contains('مسار محذوف'));
-    });
+    test(
+      'diagnostics retain a basename but never persist a filesystem path',
+      () {
+        final image = ImageProcessingLog(
+          operationId: 'op',
+          imageId: 'img',
+          imageName: r'C:\Users\Alice\private\scan.png',
+          startedAt: DateTime.utc(2026, 1, 1),
+          stages: [
+            StageRecord(
+              stage: ProcessingStage.selection,
+              status: StageStatus.succeeded,
+              reason: 'استُلم المصدر.',
+              evidence: _evidence(),
+              results: const {'path': r'C:\Users\Alice\private\scan.png'},
+            ),
+          ],
+        );
+        expect(image.imageName, 'scan.png');
+        final result = image.stages.single.results['path'] as String;
+        expect(result, isNot(contains('Alice')));
+        expect(result, contains('مسار محذوف'));
+      },
+    );
   });
 }

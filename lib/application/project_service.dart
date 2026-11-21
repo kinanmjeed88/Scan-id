@@ -1205,6 +1205,18 @@ class ProjectService {
         placed: (itemId) => current.items.any(
           (item) => item.id == itemId && item.pageIndex != null,
         ),
+        pageIndex: (itemId) => current.items
+            .where((item) => item.id == itemId)
+            .firstOrNull
+            ?.pageIndex,
+        unplacedReason: (itemId) {
+          final item = current.items
+              .where((entry) => entry.id == itemId)
+              .firstOrNull;
+          return item == null
+              ? 'لم يُعثر على عنصر هذا التحديد في نتيجة الترتيب.'
+              : unplacedDocumentMessage(current, item);
+        },
         centeredItemIds: centeredItemIds,
       );
       if (arrangement.unplaced.isNotEmpty) {
@@ -2359,6 +2371,18 @@ class ProjectService {
           placed: (itemId) => saved.items.any(
             (item) => item.id == itemId && item.pageIndex != null,
           ),
+          pageIndex: (itemId) => saved.items
+              .where((item) => item.id == itemId)
+              .firstOrNull
+              ?.pageIndex,
+          unplacedReason: (itemId) {
+            final item = saved.items
+                .where((entry) => entry.id == itemId)
+                .firstOrNull;
+            return item == null
+                ? 'لم يُعثر على عنصر هذا التحديد في نتيجة الترتيب.'
+                : unplacedDocumentMessage(saved, item);
+          },
           centeredItemIds: centeredItemIds,
         );
       }
@@ -3279,6 +3303,11 @@ class ProjectService {
         itemId: item.id,
         assetId: derived.id,
       );
+      final sizeSource = customSizeMm != null
+          ? 'user_measurement'
+          : item.sizeConfirmed
+          ? 'documented_catalog'
+          : 'provisional_image_dimensions';
       if (documentKind != DocumentKind.unknown && item.sizeConfirmed) {
         ledger?.documentSucceeded(
           imageId,
@@ -3294,23 +3323,108 @@ class ProjectService {
             ],
             counts: {'size_confirmed': 1},
           ),
+          inputs: {'kind': documentKind.name, 'side': side.name},
           results: {
             'kind': documentKind.name,
             'side': side.name,
+            'kindSource': 'user',
+            'sideSource': side == SideKind.unknown ? 'unknown' : 'user',
             'sizeConfirmed': true,
+            'sizeSource': sizeSource,
+            'width_mm': item.width,
+            'height_mm': item.height,
             if (partnerItemId != null) 'partner': partnerItemId,
           },
           actionTaken: 'تأكد النوع والمقاس قبل متابعة الإضافة.',
         );
       } else {
-        ledger?.documentStopped(
+        final sizeRecord = documentSizeRecordFor(documentKind);
+        final (reason, diagnostic) = switch (sizeRecord.provenance) {
+          SizeProvenance.documented => (
+            'تعذر حسم المقاس الموثق لهذا النوع؛ بقي القياس المؤقت للمراجعة.',
+            'catalog_size_unresolved',
+          ),
+          SizeProvenance.estimated => (
+            'المقاس الافتراضي لهذا النوع تقديري؛ لم يُدخل المستخدم قياساً يدوياً لتأكيده.',
+            'estimated_size_requires_confirmation',
+          ),
+          SizeProvenance.missing => (
+            'لا يتوفر مقاس موثق لهذا النوع، ولم يُدخل المستخدم قياساً يدوياً.',
+            'size_definition_missing',
+          ),
+        };
+        ledger?.documentNeedsReview(
           imageId,
           documentId,
           ProcessingStage.typeSideSize,
-          reason: documentKind == DocumentKind.unknown
-              ? 'لم يُحسم نوع المستند؛ بقي النوع والمقاس للمراجعة.'
-              : 'المقاس مبدئي وغير مؤكد؛ بقي المستند للمراجعة.',
-          actionTaken: 'لم تُسجَّل نتيجة النوع والمقاس كنجاح.',
+          reason: reason,
+          inputs: {
+            'kind': documentKind.name,
+            'side': side.name,
+            'sizeProvidedByUser': customSizeMm != null,
+          },
+          results: {
+            'kind': documentKind.name,
+            'side': side.name,
+            'kindSource': 'user',
+            'sideSource': side == SideKind.unknown ? 'unknown' : 'user',
+            'sizeConfirmed': false,
+            'sizeSource': sizeSource,
+            'sizeProvenance': sizeRecord.provenance.name,
+            'width_mm': item.width,
+            'height_mm': item.height,
+          },
+          diagnostics: [
+            diagnostic,
+            if (customSizeMm == null) 'user_measurement_missing',
+          ],
+          actionTaken:
+              'احتُفظ بقياس مؤقت؛ أدخل القياس الفعلي أو اختر نوعاً ذا مقاس موثق.',
+        );
+      }
+      if (placed) {
+        ledger?.documentSucceeded(
+          imageId,
+          documentId,
+          ProcessingStage.placement,
+          reason: 'وُضع هذا التحديد على ورقة A4.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [EvidenceCheck(name: 'item_on_page', passed: true)],
+            counts: {'page': item.pageIndex! + 1},
+          ),
+          results: {
+            'itemId': item.id,
+            'placed': true,
+            'page': item.pageIndex!,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          actionTaken: 'أُكد موضع المستند على الورقة.',
+        );
+      } else {
+        final placementReason = unplacedDocumentMessage(next, item);
+        final placementDiagnostic = switch (autoLayoutStatus(next, item)) {
+          AutoLayoutStatus.locked => 'placement_locked',
+          AutoLayoutStatus.sizeUnconfirmed => 'placement_size_unconfirmed',
+          AutoLayoutStatus.tooLarge => 'placement_too_large',
+          AutoLayoutStatus.groupNeedsSpace => 'placement_group_no_space',
+          AutoLayoutStatus.eligible => 'placement_no_space',
+        };
+        ledger?.documentNeedsReview(
+          imageId,
+          documentId,
+          ProcessingStage.placement,
+          reason: placementReason,
+          results: {
+            'itemId': item.id,
+            'placed': false,
+            'page': -1,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          diagnostics: [placementDiagnostic],
+          actionTaken: item.sizeConfirmed
+              ? 'أُبقي المستند محفوظاً؛ أعد الترتيب بعد توفير مساحة.'
+              : 'أُبقي المستند محفوظاً؛ ثبّت المقاس قبل محاولة الوضع.',
         );
       }
       if (!next.layout.centerCaptures) {
@@ -3319,9 +3433,18 @@ class ProjectService {
           documentId,
           ProcessingStage.centering,
           reason: 'عطّل المستخدم خيار التوسيط لهذه الدفعة.',
-          actionTaken: 'وُضع المستند دون توسيط.',
+          actionTaken: placed
+              ? 'وُضع المستند دون توسيط.'
+              : 'لا ينطبق التوسيط لأن المستند بقي خارج الورقة.',
         );
-      } else if (placed && centeringItems.contains(item.id)) {
+      } else if (!placed) {
+        ledger?.documentNotApplicable(
+          imageId,
+          documentId,
+          ProcessingStage.centering,
+          reason: 'لا ينطبق التوسيط؛ لم يُوضع المستند على ورقة A4.',
+        );
+      } else if (centeringItems.contains(item.id)) {
         ledger?.documentSucceeded(
           imageId,
           documentId,

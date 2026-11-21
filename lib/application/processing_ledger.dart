@@ -449,6 +449,31 @@ class ProcessingLedger {
     );
   }
 
+  /// Records a completed stage whose measured result still needs a human
+  /// decision. This is distinct from failure and from an intentional bypass.
+  StageRecord needsReview(
+    String imageId,
+    ProcessingStage stage, {
+    required String reason,
+    Map<String, Object?> inputs = const {},
+    Map<String, Object?> results = const {},
+    int? itemCount,
+    List<String> diagnostics = const [],
+    String actionTaken = '',
+  }) => _record(
+    imageId,
+    StageRecord(
+      stage: stage,
+      status: StageStatus.reviewRequired,
+      reason: reason,
+      inputs: inputs,
+      results: results,
+      itemCount: itemCount,
+      diagnostics: diagnostics,
+      actionTaken: actionTaken,
+    ),
+  );
+
   /// Records a stage bypassed by a choice or a routing rule.
   StageRecord overridden(
     String imageId,
@@ -948,12 +973,37 @@ class ProcessingLedger {
     ),
   );
 
+  StageRecord documentNeedsReview(
+    String imageId,
+    String documentId,
+    ProcessingStage stage, {
+    required String reason,
+    Map<String, Object?> inputs = const {},
+    Map<String, Object?> results = const {},
+    List<String> diagnostics = const [],
+    String actionTaken = '',
+  }) => recordDocument(
+    imageId,
+    documentId,
+    StageRecord(
+      stage: stage,
+      status: StageStatus.reviewRequired,
+      reason: reason,
+      inputs: inputs,
+      results: results,
+      diagnostics: diagnostics,
+      actionTaken: actionTaken,
+    ),
+  );
+
   StageRecord documentStopped(
     String imageId,
     String documentId,
     ProcessingStage stage, {
     required String reason,
     Map<String, Object?> inputs = const {},
+    Map<String, Object?> results = const {},
+    List<String> diagnostics = const [],
     String actionTaken = '',
   }) => recordDocument(
     imageId,
@@ -963,6 +1013,8 @@ class ProcessingLedger {
       status: StageStatus.stopped,
       reason: reason,
       inputs: inputs,
+      results: results,
+      diagnostics: diagnostics,
       actionTaken: actionTaken,
     ),
   );
@@ -1023,9 +1075,10 @@ class ProcessingLedger {
     _emitDocument(parent, document);
   }
 
-  /// Resolves centring stages that were deferred to the batch arrangement.
+  /// Resolves placement and centring stages after the batch arrangement.
   ///
-  /// [placed] answers whether an item id ended on a page of the saved project.
+  /// [placed] answers whether an item id ended on a page of the saved project;
+  /// [unplacedReason] preserves that item's actionable layout reason.
   /// [centeredItemIds] comes from the arrangement pass itself and includes
   /// items that were already centered when the pass ran. A placed item that the
   /// pass could not center stays «متوقفة», never silently successful.
@@ -1033,9 +1086,66 @@ class ProcessingLedger {
     required bool centerEnabled,
     required bool Function(String itemId) placed,
     required Set<String> centeredItemIds,
+    int? Function(String itemId)? pageIndex,
+    String Function(String itemId)? unplacedReason,
   }) {
     for (final parent in _images.values.toList()) {
       for (final document in [...parent.documents]) {
+        final itemId = document.layoutItemId;
+        final itemIsPlaced = itemId != null && placed(itemId);
+        final placementRecord = document.stageOf(ProcessingStage.placement);
+        final placementPending =
+            placementRecord == null ||
+            (placementRecord.status == StageStatus.stopped &&
+                placementRecord.diagnostics.contains('arrangement_deferred'));
+        if (placementPending) {
+          if (itemId == null) {
+            documentFailed(
+              parent.imageId,
+              document.id,
+              ProcessingStage.placement,
+              reason: 'لم يُربط سجل هذا التحديد بمعرّف عنصر الورقة.',
+              errorType: 'MissingLayoutItem',
+              errorCode: 'layout_item_missing',
+              diagnostics: const ['layout_item_id_missing'],
+              actionTaken: 'تعذر التحقق من وضع المستند.',
+            );
+          } else if (itemIsPlaced) {
+            final page = pageIndex?.call(itemId);
+            documentSucceeded(
+              parent.imageId,
+              document.id,
+              ProcessingStage.placement,
+              reason: 'وُضع عنصر هذا التحديد على ورقة A4.',
+              evidence: StageEvidence(
+                verified: true,
+                checks: [EvidenceCheck(name: 'item_on_page', passed: true)],
+                counts: page == null ? const {} : {'page': page + 1},
+              ),
+              results: {
+                'itemId': itemId,
+                'placed': true,
+                if (page != null) 'page': page,
+              },
+              actionTaken: 'أُكد موضع المستند على الورقة.',
+            );
+          } else {
+            documentNeedsReview(
+              parent.imageId,
+              document.id,
+              ProcessingStage.placement,
+              reason: unplacedReason?.call(itemId) ??
+                  'بقي المستند محفوظاً خارج ورقة A4؛ لم يثبت وضعه.',
+              results: {
+                'itemId': itemId,
+                'placed': false,
+                'page': -1,
+              },
+              diagnostics: const ['item_not_placed'],
+              actionTaken: 'راجع سبب عدم الوضع ثم أكد المقاس أو أعد الترتيب.',
+            );
+          }
+        }
         if (document.statusOf(ProcessingStage.centering) !=
             StageStatus.stopped) {
           continue;
@@ -1046,13 +1156,22 @@ class ProcessingLedger {
             document.id,
             ProcessingStage.centering,
             reason: 'عطّل المستخدم خيار التوسيط لهذه الدفعة.',
-            actionTaken: 'وُضع المستند دون توسيط.',
+            actionTaken: itemIsPlaced
+                ? 'وُضع المستند دون توسيط.'
+                : 'لا ينطبق التوسيط لأن المستند بقي خارج الورقة.',
           );
           continue;
         }
-        final itemId = document.layoutItemId;
-        final itemIsPlaced = itemId != null && placed(itemId);
-        if (itemIsPlaced && centeredItemIds.contains(itemId)) {
+        if (!itemIsPlaced) {
+          documentNotApplicable(
+            parent.imageId,
+            document.id,
+            ProcessingStage.centering,
+            reason: 'لا ينطبق التوسيط؛ لم يُوضع المستند على ورقة A4.',
+          );
+          continue;
+        }
+        if (centeredItemIds.contains(itemId)) {
           documentSucceeded(
             parent.imageId,
             document.id,
@@ -1292,21 +1411,59 @@ class ProcessingLedger {
         final outcome = image.outcome;
         image.outcomeOverride ??= outcome;
         final completionStatus = switch (outcome) {
+          ImageOutcome.completed => StageStatus.succeeded,
+          ImageOutcome.completedWithReview || ImageOutcome.partial =>
+            StageStatus.reviewRequired,
+          ImageOutcome.failed => StageStatus.failed,
           ImageOutcome.cancelled => StageStatus.cancelled,
-          ImageOutcome.stopped ||
-          ImageOutcome.interrupted => StageStatus.stopped,
-          _ => StageStatus.succeeded,
+          ImageOutcome.stopped || ImageOutcome.interrupted =>
+            StageStatus.stopped,
+          ImageOutcome.running => StageStatus.running,
         };
         image.record(
           StageRecord(
             stage: ProcessingStage.completion,
             status: completionStatus,
-            reason: 'أُنهيت العملية بنتيجة: ${outcome.label}.',
+            reason: switch (outcome) {
+              ImageOutcome.completed => 'اكتملت كل المراحل والمستندات المضافة.',
+              ImageOutcome.completedWithReview =>
+                'انتهى التنفيذ، لكن بقيت مرحلة أو مستند يحتاج مراجعة.',
+              ImageOutcome.partial =>
+                'نجح بعض المستندات وفشل بعضها؛ لا يُعلن اكتمال الصورة.',
+              ImageOutcome.failed =>
+                'انتهت المعالجة بفشل؛ لم تتحقق متطلبات الاكتمال.',
+              ImageOutcome.cancelled => cancellationReason,
+              ImageOutcome.stopped =>
+                'توقفت العملية قبل إتمام العمل.',
+              ImageOutcome.interrupted => 'انقطعت العملية قبل إتمام العمل.',
+              ImageOutcome.running => 'بقيت المعالجة قيد التنفيذ.',
+            },
             startedAt: end,
             endedAt: end,
+            errorType: completionStatus == StageStatus.failed
+                ? 'ProcessingIncomplete'
+                : null,
+            errorCode: completionStatus == StageStatus.failed
+                ? 'processing_incomplete'
+                : null,
+            diagnostics: completionStatus == StageStatus.failed
+                ? const ['processing_requirements_not_met']
+                : const [],
             evidence: completionStatus == StageStatus.succeeded
                 ? StageEvidence(
                     verified: true,
+                    checks: [
+                      EvidenceCheck(
+                        name: 'image_completed',
+                        passed: outcome == ImageOutcome.completed,
+                      ),
+                      EvidenceCheck(
+                        name: 'documents_complete',
+                        passed: image.documents.every(
+                          (document) => document.succeeded,
+                        ),
+                      ),
+                    ],
                     counts: {
                       'stages': image.stages.length,
                       'documents': image.documents.length,
@@ -1317,13 +1474,15 @@ class ProcessingLedger {
             actionTaken: switch (outcome) {
               ImageOutcome.completed => 'لا إجراء مطلوب.',
               ImageOutcome.completedWithReview =>
-                'الصورة بانتظار مراجعة بشرية.',
-              ImageOutcome.partial => 'حُفظ ما نجح، وبقي ما فشل للمعالجة.',
+                'راجع المرحلة أو المستند المحدد قبل اعتبار الصورة مكتملة.',
+              ImageOutcome.partial =>
+                'حُفظ ما نجح؛ أعد معالجة المستندات الفاشلة أو راجعها.',
               ImageOutcome.cancelled => 'حُفظ ما أُنجز قبل الإلغاء.',
               ImageOutcome.stopped =>
                 'حُفظت الحالة الأخيرة دون ادعاء الاكتمال.',
               ImageOutcome.interrupted => 'أُشير إلى انقطاع العملية.',
-              _ => 'سُجلت النتيجة دون ادّعاء نجاح.',
+              ImageOutcome.failed => 'لا تُعرض العملية على أنها مكتملة.',
+              ImageOutcome.running => 'العملية لم تصل إلى نتيجة نهائية.',
             },
           ),
         );

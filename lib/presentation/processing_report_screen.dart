@@ -184,8 +184,12 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
                   'قُصّ: ${report.documentsCropped} · '
                   'حُفظ: ${report.documentsSaved} · '
                   'أُضيف وتُحقّق: ${report.documentsAdded} · '
+                  'على الورقة: ${report.documentsPlaced} · '
+                  'خارجها: ${report.documentsNotPlaced} · '
+                  'وضع غير مؤكد: ${report.documentsPlacementUnverified} · '
                   'فشل: ${report.documentsFailed}\n'
                   'المراحل — ناجحة: ${report.stagesSucceeded} · '
+                  'تحتاج مراجعة: ${report.stagesReviewRequired} · '
                   'فاشلة: ${report.stagesFailed} · '
                   'متجاوزة: ${report.stagesOverridden} · '
                   'غير مطلوبة: ${report.stagesNotApplicable} · '
@@ -432,11 +436,40 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
         ),
         subtitle: Text(
           '${document.kind.label} · ${_sideLabel(document.side)} · '
+          '${document.statusOf(ProcessingStage.crop) == StageStatus.succeeded ? 'القص ناجح' : 'القص غير مكتمل'} · '
+          '${document.placed ? 'موضوع على الورقة' : document.placementStatus == StageStatus.reviewRequired ? 'بقي خارج الورقة' : 'الوضع غير مؤكد'} · '
           '${document.saved ? 'محفوظ' : 'الحفظ غير مؤكد'} · '
           '${document.added ? 'مضاف ومتحقق' : 'الإضافة غير مؤكدة'}',
           style: theme.textTheme.bodySmall,
         ),
         children: [
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SelectableText(
+              'معرّف سجل المعالجة: ${document.id} · '
+              'رقم التحديد: ${document.selectionIndex} · '
+              'مصدر النوع: ${document.kindSource.label} · '
+              'مصدر الوجه: ${document.sideSource.label}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+          if (document.layoutItemId != null ||
+              document.documentRecordId != null ||
+              document.derivedAssetId != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: SelectableText(
+                [
+                  if (document.layoutItemId != null)
+                    'عنصر الورقة: ${document.layoutItemId}',
+                  if (document.documentRecordId != null)
+                    'سجل المستند: ${document.documentRecordId}',
+                  if (document.derivedAssetId != null)
+                    'الأصل المشتق: ${document.derivedAssetId}',
+                ].join(' · '),
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
           for (final stage in stages)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -466,6 +499,11 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
                   Text(stage.reason, style: theme.textTheme.bodySmall),
                   if (stage.evidence case final evidence?)
                     _evidence(evidence, theme),
+                  if (stage.inputs.isNotEmpty)
+                    Text(
+                      'المدخلات: ${_pairs(stage.inputs)}',
+                      style: theme.textTheme.bodySmall,
+                    ),
                   if (stage.results.isNotEmpty)
                     Text(
                       'النتائج: ${_pairs(stage.results)}',
@@ -479,6 +517,8 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
                         color: theme.colorScheme.error,
                       ),
                     ),
+                  for (final line in stage.diagnostics)
+                    Text('تشخيص: $line', style: theme.textTheme.bodySmall),
                   if (stage.actionTaken.isNotEmpty)
                     Text(
                       'الإجراء: ${stage.actionTaken}',
@@ -553,7 +593,7 @@ class _ProcessingReportScreenState extends State<ProcessingReportScreen> {
   static StageStatus _verdictStatus(ProcessingVerdict verdict) =>
       switch (verdict) {
         ProcessingVerdict.completed => StageStatus.succeeded,
-        ProcessingVerdict.completedWithReview => StageStatus.running,
+        ProcessingVerdict.completedWithReview => StageStatus.reviewRequired,
         ProcessingVerdict.partial => StageStatus.failed,
         ProcessingVerdict.failed => StageStatus.failed,
         ProcessingVerdict.cancelled => StageStatus.cancelled,
@@ -576,6 +616,10 @@ class _StatusPill extends StatelessWidget {
       StageStatus.succeeded => (
         theme.colorScheme.primaryContainer,
         theme.colorScheme.onPrimaryContainer,
+      ),
+      StageStatus.reviewRequired => (
+        theme.colorScheme.tertiaryContainer,
+        theme.colorScheme.onTertiaryContainer,
       ),
       StageStatus.failed => (
         theme.colorScheme.errorContainer,

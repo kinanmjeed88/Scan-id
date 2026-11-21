@@ -97,7 +97,7 @@ void main() {
               id: 'card-2',
               side: SideKind.back,
               corners: _card(220, 379),
-              kind: DocumentKind.rationCard,
+              kind: DocumentKind.other,
             ),
           );
       expect(set.canApply, isTrue);
@@ -123,16 +123,18 @@ void main() {
         expect(rendered.width, lessThan(400));
         renders++;
 
+        final reservedItemId = 'reserved-item-${selection.id}';
         saved = await service.extractManualDerivedDocument(
           saved,
           source,
           recipe,
           documentKind: selection.kind,
           side: selection.side,
+          reservedItemId: reservedItemId,
           sourceWidth: 400,
           sourceHeight: 300,
           ledger: ledger,
-          processingDocumentId: selection.id,
+          processingDocumentId: reservedItemId,
         );
         expect(
           saved.assets.length,
@@ -144,8 +146,37 @@ void main() {
       expect(renders, 2);
       final processing = ledger.finalize();
       expect(processing.images, hasLength(1));
-      expect(processing.images.single.documents, hasLength(2));
-      for (final document in processing.images.single.documents) {
+      final documentLogs = processing.images.single.documents;
+      expect(documentLogs, hasLength(2));
+      expect(
+        documentLogs.map((document) => document.id),
+        ['reserved-item-card-1', 'reserved-item-card-2'],
+      );
+      expect(
+        documentLogs.map((document) => document.layoutItemId),
+        ['reserved-item-card-1', 'reserved-item-card-2'],
+      );
+      expect(documentLogs.first.succeeded, isTrue);
+      expect(documentLogs.first.placed, isTrue);
+      final unconfirmedSize = documentLogs.last.stageOf(
+        ProcessingStage.typeSideSize,
+      )!;
+      expect(unconfirmedSize.status, StageStatus.reviewRequired);
+      expect(unconfirmedSize.reason, contains('لا يتوفر مقاس موثق'));
+      expect(unconfirmedSize.results['sizeConfirmed'], isFalse);
+      expect(
+        unconfirmedSize.diagnostics,
+        contains('size_definition_missing'),
+      );
+      final unplaced = documentLogs.last.stageOf(ProcessingStage.placement)!;
+      expect(unplaced.status, StageStatus.reviewRequired);
+      expect(unplaced.reason, contains('لم يُحاول وضعه'));
+      expect(unplaced.results['placed'], isFalse);
+      expect(documentLogs.last.placed, isFalse);
+      expect(processing.documentsPlaced, 1);
+      expect(processing.documentsNotPlaced, 1);
+      expect(processing.documentsPlacementUnverified, 0);
+      for (final document in documentLogs) {
         final crop = document.stageOf(ProcessingStage.crop)!;
         expect(crop.status, StageStatus.succeeded);
         expect(crop.durationMs, isNotNull);
@@ -165,7 +196,7 @@ void main() {
         for (final item in saved.items)
           if (derived.any((a) => a.id == item.assetId)) item.documentKind,
       };
-      expect(kinds, {DocumentKind.unifiedNationalId, DocumentKind.rationCard});
+      expect(kinds, {DocumentKind.unifiedNationalId, DocumentKind.other});
       // The source photograph itself was never replaced.
       expect(
         saved.assets.firstWhere((a) => a.id == source.id).originalPath,

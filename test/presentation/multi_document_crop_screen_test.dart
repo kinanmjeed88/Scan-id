@@ -366,6 +366,9 @@ void main() {
         closeTo(printable.x + printable.width / 2, 1e-6),
       );
       final document = ledger.report.images.single.documents.single;
+      expect(document.id, item.id);
+      expect(document.layoutItemId, item.id);
+      expect(document.placed, isTrue);
       final centering = document.stageOf(ProcessingStage.centering)!;
       expect(centering.status, StageStatus.succeeded);
       expect(

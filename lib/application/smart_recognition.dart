@@ -1329,17 +1329,96 @@ class SmartIntake {
           },
           actionTaken: 'تأكد النوع والمقاس قبل متابعة الإضافة.',
         );
-      } else {
-        ledger.documentStopped(
+      } else if (item == null) {
+        ledger.documentFailed(
           imageId,
           document.id,
           ProcessingStage.typeSideSize,
-          reason: kind == DocumentKind.unknown
-              ? 'لم يُحسم نوع المستند؛ بقي النوع والمقاس للمراجعة.'
-              : item == null
-              ? 'لم يُعثر على عنصر المستند لتأكيد النوع والمقاس.'
-              : 'المقاس مبدئي وغير مؤكد؛ بقي المستند للمراجعة.',
-          actionTaken: 'لم تُسجَّل نتيجة النوع والمقاس كنجاح.',
+          reason: 'لم يُنشأ عنصر للمستند لتثبيت النوع والمقاس.',
+          errorType: 'MissingLayoutItem',
+          errorCode: 'layout_item_missing',
+          diagnostics: const ['layout_item_missing'],
+          actionTaken: 'راجع إنشاء عنصر الصفحة قبل متابعة الإضافة.',
+        );
+      } else {
+        final detection = record.sides
+            .map((entry) => entry.detection)
+            .whereType<DetectionRef>()
+            .firstOrNull;
+        final shapeMismatch = detection?.detectionTrace.contains(
+              'catalogShape=mismatch',
+            ) ??
+            false;
+        final recognition = record.recognition;
+        final classificationConfidence =
+            recognition?.confidences.classification?.value;
+        final classificationConfirmed =
+            recognition?.status == RecognitionStatus.recognized &&
+            (options?.assertsKind == true ||
+                (classificationConfidence != null &&
+                    classificationConfidence >=
+                        thresholds.classificationAcceptance));
+        final perspectiveAccepted =
+            document.statusOf(ProcessingStage.perspective) ==
+                StageStatus.succeeded &&
+            document.statusOf(ProcessingStage.crop) == StageStatus.succeeded;
+        final (reason, diagnostic) = kind == DocumentKind.unknown
+            ? (
+                'لم يُحسم نوع المستند؛ اختر النوع أو أدخل قياساً يدوياً.',
+                'document_kind_unconfirmed',
+              )
+            : current.catalog.natural(kind) == null
+            ? (
+                'لا يوجد مقاس موثق لهذا النوع؛ أدخل قياس النسخة يدوياً قبل وضعها على A4.',
+                'size_definition_missing',
+              )
+            : presetStatusFor(kind) == PresetStatus.estimated
+            ? (
+                'مقاس الكتالوج لهذا النوع تقديري وغير موثق؛ راجعه وأكّده يدوياً.',
+                'estimated_size_requires_confirmation',
+              )
+            : !classificationConfirmed
+            ? (
+                'لا يكفي دليل التصنيف لتثبيت مقاس الكتالوج؛ اختر النوع يدوياً أو أكّده.',
+                'classification_confidence_below_threshold',
+              )
+            : !perspectiveAccepted
+            ? (
+                'لا يتوفر قص منظور معتمد لهذا المستند؛ لم يُثبت مقاس الكتالوج.',
+                'approved_perspective_crop_missing',
+              )
+            : shapeMismatch
+            ? (catalogShapeUnconfirmedMessage(), 'catalog_shape_mismatch')
+            : (
+                'لم تُتحقق شروط تثبيت مقاس الكتالوج؛ بقي القياس المؤقت للمراجعة.',
+                'catalog_size_not_confirmed',
+              );
+        ledger.documentNeedsReview(
+          imageId,
+          document.id,
+          ProcessingStage.typeSideSize,
+          reason: reason,
+          inputs: {
+            'kind': kind.name,
+            'side': side.side.name,
+            'kindSource': document.kindSource.name,
+            'sideSource': document.sideSource.name,
+            'sizeProvidedByUser': false,
+          },
+          results: {
+            'kind': kind.name,
+            'side': side.side.name,
+            'sizeConfirmed': false,
+            'sizeSource': 'provisional_image_dimensions',
+            'width_mm': item.width,
+            'height_mm': item.height,
+            if (classificationConfidence != null)
+              'classificationConfidence': classificationConfidence,
+            if (detection != null) 'detectionId': detection.detectionId,
+            if (shapeMismatch) 'catalogShape': 'mismatch',
+          },
+          diagnostics: [diagnostic, 'user_measurement_missing'],
+          actionTaken: 'ثبّت النوع أو أدخل القياس الفعلي قبل ترتيب المستند.',
         );
       }
     }
@@ -1441,6 +1520,76 @@ class SmartIntake {
               : 'وُضع على الورقة.',
         );
       }
+      if (item == null) {
+        ledger.documentFailed(
+          imageId,
+          document.id,
+          ProcessingStage.placement,
+          reason: 'تعذر التحقق من الوضع لأن عنصر المستند مفقود.',
+          errorType: 'MissingItem',
+          errorCode: 'item_missing',
+          diagnostics: const ['layout_item_missing'],
+          actionTaken: 'راجع إضافة العنصر إلى المشروع.',
+        );
+      } else if (item.pageIndex != null) {
+        ledger.documentSucceeded(
+          imageId,
+          document.id,
+          ProcessingStage.placement,
+          reason: 'وُضع عنصر هذا المستند على ورقة A4.',
+          evidence: StageEvidence(
+            verified: true,
+            checks: [EvidenceCheck(name: 'item_on_page', passed: true)],
+            counts: {'page': item.pageIndex! + 1},
+          ),
+          results: {
+            'itemId': item.id,
+            'placed': true,
+            'page': item.pageIndex!,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          actionTaken: 'أُكد موضع المستند على الورقة.',
+        );
+      } else if (!arranged) {
+        ledger.documentStopped(
+          imageId,
+          document.id,
+          ProcessingStage.placement,
+          reason: 'أُجّل ترتيب هذا العنصر؛ لم تُحسم نتيجة وضعه بعد.',
+          results: {
+            'itemId': item.id,
+            'placed': false,
+            'page': -1,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          diagnostics: const ['arrangement_deferred'],
+          actionTaken: 'تُحدّث هذه المرحلة بعد ترتيب الدفعة.',
+        );
+      } else {
+        final placementDiagnostic = switch (autoLayoutStatus(current, item)) {
+          AutoLayoutStatus.locked => 'placement_locked',
+          AutoLayoutStatus.sizeUnconfirmed => 'placement_size_unconfirmed',
+          AutoLayoutStatus.tooLarge => 'placement_too_large',
+          AutoLayoutStatus.groupNeedsSpace => 'placement_group_no_space',
+          AutoLayoutStatus.eligible => 'placement_no_space',
+        };
+        ledger.documentNeedsReview(
+          imageId,
+          document.id,
+          ProcessingStage.placement,
+          reason: unplacedDocumentMessage(current, item),
+          results: {
+            'itemId': item.id,
+            'placed': false,
+            'page': -1,
+            'sizeConfirmed': item.sizeConfirmed,
+          },
+          diagnostics: [placementDiagnostic],
+          actionTaken: item.sizeConfirmed
+              ? 'أُبقي المستند محفوظاً؛ أعد الترتيب بعد توفير مساحة.'
+              : 'أُبقي المستند محفوظاً؛ ثبّت المقاس قبل محاولة الوضع.',
+        );
+      }
       if (readBack == null) {
         ledger.documentFailed(
           imageId,
@@ -1500,9 +1649,14 @@ class SmartIntake {
         }
       }
       if (item != null && current.layout.centerCaptures) {
-        if (arranged &&
-            item.pageIndex != null &&
-            centeredItemIds.contains(item.id)) {
+        if (item.pageIndex == null) {
+          ledger.documentNotApplicable(
+            imageId,
+            document.id,
+            ProcessingStage.centering,
+            reason: 'لا ينطبق التوسيط؛ لم يُوضع المستند على ورقة A4.',
+          );
+        } else if (arranged && centeredItemIds.contains(item.id)) {
           ledger.documentSucceeded(
             imageId,
             document.id,

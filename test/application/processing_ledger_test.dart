@@ -83,6 +83,14 @@ DocumentProcessingLog _succeedDocument(
   ledger.documentSucceeded(
     imageId,
     document.id,
+    ProcessingStage.placement,
+    reason: 'وُضع على الورقة.',
+    evidence: _ok(),
+    results: const {'placed': true, 'page': 0},
+  );
+  ledger.documentSucceeded(
+    imageId,
+    document.id,
     ProcessingStage.saveDocument,
     reason: 'حُفظ المستند.',
     evidence: _ok(),
@@ -529,7 +537,7 @@ void main() {
       final image = report.images.single;
       expect(
         image.stageOf(ProcessingStage.completion)!.status,
-        StageStatus.succeeded,
+        StageStatus.failed,
       );
       final dimensions = image.filledStages().firstWhere(
         (stage) => stage.stage == ProcessingStage.dimensions,
@@ -626,11 +634,28 @@ void main() {
         reason: 'أُنتجت صورة مقصوصة.',
         evidence: _ok(),
       );
-      ledger.documentStopped(
+      ledger.documentNeedsReview(
         'img',
         document.id,
         ProcessingStage.typeSideSize,
-        reason: 'المقاس مبدئي وغير مؤكد.',
+        reason: 'لا يوجد مقاس موثق لهذا النوع ولم يُدخل المستخدم قياساً يدوياً.',
+        inputs: const {'kind': 'other', 'sizeProvidedByUser': false},
+        results: const {
+          'kind': 'other',
+          'sizeConfirmed': false,
+          'sizeSource': 'provisional_image_dimensions',
+        },
+        diagnostics: const ['size_definition_missing', 'user_measurement_missing'],
+        actionTaken: 'أدخل المقاس الفعلي ثم ثبّته.',
+      );
+      ledger.documentNeedsReview(
+        'img',
+        document.id,
+        ProcessingStage.placement,
+        reason: 'لم يُحاول وضع العنصر لأن القياس غير مؤكّد.',
+        results: const {'placed': false, 'page': -1, 'sizeConfirmed': false},
+        diagnostics: const ['placement_size_unconfirmed'],
+        actionTaken: 'ثبّت المقاس قبل الترتيب.',
       );
       ledger.documentSucceeded(
         'img',
@@ -656,7 +681,17 @@ void main() {
 
       final report = ledger.finalize();
       expect(document.succeeded, isFalse);
+      expect(document.placed, isFalse);
       expect(document.needsAttention, isTrue);
+      expect(
+        document.stageOf(ProcessingStage.typeSideSize)!.status,
+        StageStatus.reviewRequired,
+      );
+      expect(
+        document.stageOf(ProcessingStage.placement)!.diagnostics,
+        contains('placement_size_unconfirmed'),
+      );
+      expect(report.stagesReviewRequired, 2);
       expect(report.documentsSaved, 1);
       expect(report.documentsAdded, 1);
       expect(report.images.single.outcome, ImageOutcome.completedWithReview);
@@ -1167,8 +1202,14 @@ void main() {
       ledger.settleCentering(
         centerEnabled: true,
         placed: (id) => id == 'item-1',
+        pageIndex: (_) => 0,
         centeredItemIds: {'item-1'},
       );
+      final placed = ledger.report.images.single.documents.single.stageOf(
+        ProcessingStage.placement,
+      )!;
+      expect(placed.status, StageStatus.succeeded);
+      expect(placed.results['page'], 0);
       final centering = ledger.report.images.single.documents.single.stageOf(
         ProcessingStage.centering,
       )!;
@@ -1215,9 +1256,11 @@ void main() {
         ProcessingStage.centering,
         reason: 'ينتظر الترتيب.',
       );
+      ledger.linkDocument('img', disabled.id, itemId: 'item-disabled');
       ledger.settleCentering(
         centerEnabled: false,
-        placed: (_) => false,
+        placed: (_) => true,
+        pageIndex: (_) => 0,
         centeredItemIds: const {},
       );
       final disabledCentering = ledger.report.images.single.documents.single
@@ -1226,7 +1269,7 @@ void main() {
       expect(disabledCentering.reason, contains('عطّل المستخدم'));
     });
 
-    test('an enabled but unplaced document stays stopped', () {
+    test('an unplaced document records its reason; centering is inapplicable', () {
       final ledger = _ledger();
       ledger.image('img');
       final unplaced = ledger.document('img', documentId: 'doc-unplaced');
@@ -1240,13 +1283,18 @@ void main() {
       ledger.settleCentering(
         centerEnabled: true,
         placed: (_) => false,
+        unplacedReason: (_) => 'لا يوجد مقاس موثق ولم يثبت القياس اليدوي.',
         centeredItemIds: const {},
       );
-      final centering = ledger.report.images.single.documents.single.stageOf(
-        ProcessingStage.centering,
-      )!;
-      expect(centering.status, StageStatus.stopped);
-      expect(centering.diagnostics, ['item_not_placed']);
+      final saved = ledger.report.images.single.documents.single;
+      final placement = saved.stageOf(ProcessingStage.placement)!;
+      expect(placement.status, StageStatus.reviewRequired);
+      expect(placement.reason, contains('لا يوجد مقاس موثق'));
+      expect(placement.diagnostics, ['item_not_placed']);
+      expect(
+        saved.stageOf(ProcessingStage.centering)!.status,
+        StageStatus.notApplicable,
+      );
     });
   });
 

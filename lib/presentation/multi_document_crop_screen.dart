@@ -336,9 +336,14 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
     for (final selection in ordered) {
       final key = '${widget.asset.id}-${selection.id}';
       final log = widget.stageLog?.forAsset(key, name: selection.id);
+      // The reserved item id is generated once when the selection is created;
+      // it survives edits and retries and is also the saved item's identity.
+      // Keep it as this subdocument's ledger id instead of using the transient
+      // display slot (`sel-1`, `sel-2`, ...).
+      final processingDocumentId = _itemIds[selection.id] ?? selection.id;
       final document = widget.ledger?.document(
         widget.asset.id,
-        documentId: selection.id,
+        documentId: processingDocumentId,
         index: _set.selections.indexWhere((s) => s.id == selection.id) + 1,
         label: _labelFor(selection.id),
         kind: selection.kindForExtraction,
@@ -354,7 +359,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
         if (document != null) {
           widget.ledger?.documentSucceeded(
             widget.asset.id,
-            selection.id,
+            processingDocumentId,
             ProcessingStage.boundaryCorners,
             reason: 'رُسمت أربع زوايا يدوياً لهذا المستند.',
             evidence: StageEvidence(
@@ -400,7 +405,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           sourceWidth: source.width,
           sourceHeight: source.height,
           ledger: widget.ledger,
-          processingDocumentId: selection.id,
+          processingDocumentId: processingDocumentId,
         );
         _saved = project;
         _partners.remove(selection.id);
@@ -429,7 +434,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
               if (error is OperationCancelled) {
                 widget.ledger?.documentCancelled(
                   widget.asset.id,
-                  selection.id,
+                  processingDocumentId,
                   pendingStage,
                   reason: 'أُلغيت المعالجة اليدوية قبل اكتمال المستند.',
                   actionTaken: 'لم يُضف هذا المستند.',
@@ -437,7 +442,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
               } else {
                 widget.ledger?.documentFailed(
                   widget.asset.id,
-                  selection.id,
+                  processingDocumentId,
                   pendingStage,
                   error: error,
                   reason:
@@ -450,7 +455,7 @@ class _MultiDocumentCropScreenState extends State<MultiDocumentCropScreen> {
           }
           widget.ledger?.linkDocument(
             widget.asset.id,
-            selection.id,
+            processingDocumentId,
             outcome: error is OperationCancelled
                 ? 'أُلغيت العملية قبل اكتمال هذا المستند.'
                 : 'فشل: ${describeFailure(error)}',

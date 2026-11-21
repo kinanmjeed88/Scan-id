@@ -64,6 +64,11 @@ DocumentProcessingLog _document({
     else ...[
       _stage(ProcessingStage.typeSideSize, StageStatus.succeeded),
       _stage(
+        ProcessingStage.placement,
+        StageStatus.succeeded,
+        results: const {'placed': true, 'page': 0},
+      ),
+      _stage(
         ProcessingStage.saveDocument,
         save,
         reason: save == StageStatus.succeeded ? 'حُفظ.' : 'لم يُحفظ.',
@@ -271,6 +276,24 @@ void main() {
       expect(restored.evidence!.counts['corners'], 4);
       expect(restored.actionTaken, original.actionTaken);
     });
+
+    test('review-required results survive JSON without becoming failures', () {
+      final original = StageRecord(
+        stage: ProcessingStage.typeSideSize,
+        status: StageStatus.reviewRequired,
+        reason: 'لم يتوفر مقاس موثق ولم يُدخل قياس يدوي.',
+        results: const {'sizeConfirmed': false},
+        diagnostics: const ['size_definition_missing'],
+        actionTaken: 'أدخل القياس يدوياً.',
+      );
+      final restored = StageRecord.fromJson(original.toJson());
+
+      expect(restored.status, StageStatus.reviewRequired);
+      expect(restored.status.needsAttention, isTrue);
+      expect(restored.status.isProblem, isFalse);
+      expect(restored.status.delivered, isFalse);
+      expect(restored.diagnostics, ['size_definition_missing']);
+    });
   });
 
   group('ImageProcessingLog fills every stage honestly', () {
@@ -400,6 +423,90 @@ void main() {
         StageStatus.stopped,
       );
       expect(document.recordingGaps, contains(ProcessingStage.geometryCheck));
+    });
+
+    test('legacy addition page results preserve placement meaning', () {
+      final placed = DocumentProcessingLog(
+        id: 'legacy-placed',
+        imageId: 'img',
+        selectionIndex: 1,
+        stages: [
+          _stage(ProcessingStage.saveDocument, StageStatus.succeeded),
+          _stage(
+            ProcessingStage.addToProject,
+            StageStatus.succeeded,
+            results: const {'page': 0},
+          ),
+          _stage(ProcessingStage.verifyAddition, StageStatus.succeeded),
+        ],
+      );
+      final unplaced = DocumentProcessingLog(
+        id: 'legacy-unplaced',
+        imageId: 'img',
+        selectionIndex: 2,
+        stages: [
+          _stage(ProcessingStage.saveDocument, StageStatus.succeeded),
+          _stage(
+            ProcessingStage.addToProject,
+            StageStatus.succeeded,
+            results: const {'page': -1},
+          ),
+          _stage(ProcessingStage.verifyAddition, StageStatus.succeeded),
+        ],
+      );
+
+      expect(placed.placementStatus, StageStatus.succeeded);
+      expect(placed.placed, isTrue);
+      expect(
+        placed
+            .filledStages()
+            .firstWhere((stage) => stage.stage == ProcessingStage.placement)
+            .status,
+        StageStatus.succeeded,
+      );
+      expect(unplaced.placementStatus, StageStatus.reviewRequired);
+      expect(unplaced.placed, isFalse);
+      expect(
+        unplaced
+            .filledStages()
+            .firstWhere((stage) => stage.stage == ProcessingStage.placement)
+            .status,
+        StageStatus.reviewRequired,
+      );
+    });
+
+    test('legacy completed outcome is downgraded by saved off-sheet evidence', () {
+      final document = DocumentProcessingLog(
+        id: 'legacy-off-sheet',
+        imageId: 'img',
+        selectionIndex: 1,
+        stages: [
+          _stage(ProcessingStage.crop, StageStatus.succeeded),
+          _stage(ProcessingStage.typeSideSize, StageStatus.succeeded),
+          _stage(ProcessingStage.saveDocument, StageStatus.succeeded),
+          _stage(
+            ProcessingStage.addToProject,
+            StageStatus.succeeded,
+            results: const {'page': -1},
+          ),
+          _stage(ProcessingStage.verifyAddition, StageStatus.succeeded),
+        ],
+      );
+      final image = ImageProcessingLog(
+        operationId: 'legacy',
+        imageId: 'img',
+        startedAt: DateTime.utc(2026, 1, 1),
+        endedAt: DateTime.utc(2026, 1, 1, 0, 1),
+        documents: [document],
+        outcomeOverride: ImageOutcome.completed,
+      );
+
+      expect(image.outcome, ImageOutcome.completedWithReview);
+      expect(image.toJson()['outcome'], ImageOutcome.completedWithReview.name);
+      expect(
+        image.toJson()['outcome_forced'],
+        ImageOutcome.completedWithReview.name,
+      );
     });
 
     test('each document is independent and partial success is reported', () {

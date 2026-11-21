@@ -106,7 +106,11 @@ enum ProcessingStage {
   ),
   typeSideSize(
     'تمرير النوع والوجه والمقاس',
-    'تثبيت النوع والوجه والمقاس على المستند والعنصر.',
+    'تثبيت النوع والوجه ومصدر القرار والمقاس على المستند والعنصر.',
+  ),
+  placement(
+    'الوضع على الورقة',
+    'تسجيل ما إذا وُضع العنصر على A4 أو سبب بقائه خارجها.',
   ),
   saveDocument('حفظ المستند', 'كتابة ملف المستند وحفظ المشروع الذي يشير إليه.'),
   addToProject(
@@ -129,9 +133,10 @@ enum ProcessingStage {
 
   /// Whether this stage is recorded per document rather than per image.
   ///
-  /// A photograph with four selected documents has four independent answers to
-  /// «هل صُحح المنظور؟» and «هل حُفظ المستند؟», so those answers live on the
-  /// document record, never averaged into one image-level claim.
+  /// A photograph with several selected documents has independent answers to
+  /// «هل صُحح المنظور؟», «هل ثُبّت المقاس؟» and «هل وُضع على الورقة؟», so those
+  /// answers live on each document record, never averaged into one image-level
+  /// claim.
   bool get documentScoped => switch (this) {
     boundaryCorners ||
     boundaryReview ||
@@ -142,6 +147,7 @@ enum ProcessingStage {
     outputEnhancement ||
     documentModel ||
     typeSideSize ||
+    placement ||
     saveDocument ||
     addToProject ||
     verifyAddition => true,
@@ -166,6 +172,10 @@ enum ProcessingStage {
 /// «لماذا؟».
 enum StageStatus {
   succeeded('ناجحة', 'نُفذت المرحلة واكتمل عملها، وتحققت النتيجة.'),
+  reviewRequired(
+    'تحتاج مراجعة',
+    'سُجلت النتيجة، لكنها لا تكفي للمتابعة التلقائية أو تحتاج قرار المستخدم.',
+  ),
   failed('فاشلة', 'جرت محاولة تنفيذها لكنها لم تحقق النتيجة المطلوبة.'),
   overridden('تم التجاوز', 'لم تُنفذ بسبب قرار منطقي أو خيار اختاره المستخدم.'),
   notApplicable('غير مطلوبة', 'المرحلة لا تنطبق على مسار المعالجة الحالي.'),
@@ -187,7 +197,11 @@ enum StageStatus {
 
   /// Whether a human has to act on this stage.
   bool get needsAttention =>
-      this == failed || this == stopped || this == cancelled || this == running;
+      this == reviewRequired ||
+      this == failed ||
+      this == stopped ||
+      this == cancelled ||
+      this == running;
 
   /// Whether the stage reached a settled result.
   bool get isTerminal => this != running;
@@ -631,12 +645,60 @@ class DocumentProcessingLog {
   bool get saved =>
       statusOf(ProcessingStage.saveDocument) == StageStatus.succeeded;
 
-  /// Complete means both persistence and the saved-project read-back were
-  /// verified. A persisted crop that has not been linked, or an item that is
-  /// still awaiting a manual crop, is not represented as a completed document.
+  /// Whether the recorded item has a confirmed placement on a print sheet.
+  ///
+  /// Older reports did not have a placement stage, but their add-stage result
+  /// already stored the page (`-1` means saved outside the sheet). Read that
+  /// evidence as a backwards-compatible fallback rather than treating every
+  /// legacy document as an unexplained gap.
+  StageStatus? get placementStatus =>
+      statusOf(ProcessingStage.placement) ?? _legacyPlacementRecord?.status;
+
+  StageRecord? get _legacyPlacementRecord {
+    final addition = stageOf(ProcessingStage.addToProject);
+    if (addition?.status != StageStatus.succeeded) return null;
+    final page = addition?.results['page'];
+    if (page is! num || !page.isFinite) return null;
+    final placed = page >= 0;
+    return StageRecord(
+      stage: ProcessingStage.placement,
+      status: placed ? StageStatus.succeeded : StageStatus.reviewRequired,
+      reason: placed
+          ? 'تُستنتج حالة الوضع من رقم الصفحة في سجل الإضافة القديم.'
+          : 'تُستنتج حالة عدم الوضع من page=-1 في سجل الإضافة القديم.',
+      results: {
+        'page': page.toInt(),
+        'placed': placed,
+        'source': 'legacy_add_result',
+      },
+      diagnostics: placed ? const [] : const ['legacy_unplaced_page'],
+      evidence: placed
+          ? StageEvidence(
+              verified: true,
+              checks: [
+                EvidenceCheck(name: 'legacy_page_recorded', passed: true),
+              ],
+            )
+          : null,
+    );
+  }
+
+  /// A placement is confirmed only when the project save and read-back also
+  /// contain the item. The stage can record a calculated placement before that
+  /// persistence check completes.
+  bool get placed =>
+      placementStatus == StageStatus.succeeded && saved && added;
+
+  bool get placementUnverified =>
+      placementStatus == StageStatus.succeeded && !placed;
+
+  /// Complete means the crop, confirmed type/size, placement, save, addition
+  /// and saved-project read-back all succeeded. A saved-but-unplaced document
+  /// is retained in the project, but is not reported as fully complete.
   bool get succeeded =>
       statusOf(ProcessingStage.crop) == StageStatus.succeeded &&
       statusOf(ProcessingStage.typeSideSize) == StageStatus.succeeded &&
+      placed &&
       saved &&
       added;
 
@@ -661,6 +723,9 @@ class DocumentProcessingLog {
         if (stage.documentScoped)
           if (recorded[stage] case final record?)
             record
+          else if (stage == ProcessingStage.placement &&
+              _legacyPlacementRecord != null)
+            _legacyPlacementRecord!
           else if (blocking != null && stage.index > blocking.stage.index)
             StageRecord(
               stage: stage,
@@ -693,7 +758,9 @@ class DocumentProcessingLog {
       for (final stage in ProcessingStage.values)
         if (stage.documentScoped &&
             stage.index < last &&
-            !recorded.contains(stage))
+            !recorded.contains(stage) &&
+            !(stage == ProcessingStage.placement &&
+                _legacyPlacementRecord != null))
           stage,
     ];
   }
@@ -1028,7 +1095,12 @@ class ImageProcessingLog {
   }
 
   ImageOutcome get outcome {
-    if (outcomeOverride != null) return outcomeOverride!;
+    final forced = outcomeOverride;
+    if (forced != null &&
+        forced != ImageOutcome.completed &&
+        forced != ImageOutcome.completedWithReview) {
+      return forced;
+    }
     final filled = filledStages();
     if (stages.any((s) => s.status == StageStatus.cancelled) ||
         documents.any(
@@ -1059,13 +1131,22 @@ class ImageProcessingLog {
     final needsReview =
         filled.any(
           (stage) =>
+              stage.status == StageStatus.reviewRequired ||
               stage.status == StageStatus.running ||
               stage.status == StageStatus.notReached,
         ) ||
         documents.any((document) => document.needsAttention);
-    return needsReview
+    final derived = needsReview
         ? ImageOutcome.completedWithReview
         : ImageOutcome.completed;
+    // A legacy report could have cached «completed» before the per-document
+    // placement stage existed. New evidence may only make that result more
+    // cautious, never erase an earlier review decision.
+    if (forced == ImageOutcome.completedWithReview &&
+        derived == ImageOutcome.completed) {
+      return forced;
+    }
+    return derived;
   }
 
   int get _lastRealIndex => stages.isEmpty
@@ -1081,7 +1162,7 @@ class ImageProcessingLog {
     'started_utc': startedAt.toUtc().toIso8601String(),
     if (endedAt != null) 'ended_utc': endedAt!.toUtc().toIso8601String(),
     'outcome': outcome.name,
-    if (outcomeOverride != null) 'outcome_forced': outcomeOverride!.name,
+    if (outcomeOverride != null) 'outcome_forced': outcome.name,
     'stages': [for (final record in stages) record.toJson()],
     if (documents.isNotEmpty)
       'documents': [for (final document in documents) document.toJson()],
@@ -1214,6 +1295,23 @@ class ProcessingReport {
   int get documentsAdded =>
       documents.where((document) => document.added).length;
 
+  /// Documents explicitly placed on a page, including legacy page evidence.
+  int get documentsPlaced =>
+      documents.where((document) => document.placed).length;
+
+  /// Documents with a recorded placement result that explicitly stayed off-sheet.
+  int get documentsNotPlaced => documents
+      .where(
+        (document) =>
+            document.placementStatus != null &&
+            document.placementStatus != StageStatus.succeeded,
+      )
+      .length;
+
+  /// Placement was calculated, but saving or read-back did not confirm the item.
+  int get documentsPlacementUnverified =>
+      documents.where((document) => document.placementUnverified).length;
+
   /// Documents that failed at any document-level stage.
   int get documentsFailed =>
       documents.where((document) => document.failed).length;
@@ -1222,6 +1320,12 @@ class ProcessingReport {
   int get stagesSucceeded => _stageRecords
       .where((record) => record.status == StageStatus.succeeded)
       .length;
+
+  /// Stages whose measured result needs a human decision.
+  int get stagesReviewRequired => _stageRecords
+      .where((record) => record.status == StageStatus.reviewRequired)
+      .length;
+
   int get stagesFailed => _stageRecords
       .where((record) => record.status == StageStatus.failed)
       .length;

@@ -18,7 +18,8 @@
 |---|---|
 | الفرع | `arena/f3dba97f-scan-id` |
 | البصمة المُختبَرة (SHA) | `aaf2aac0c52dba685f4ce8698dff002a6b91cedf` |
-| آخر رسالة إيداع | `docs: record the flaky emulator timeout honestly` |
+| بصمة هذا التقرير | `90969bec088a95e77744c5196fcdc8a19508371b` (وثيقة فقط، بلا كود) |
+| آخر إيداع داخل البصمة المُختبَرة | `docs: record the flaky emulator timeout honestly` |
 | قاعدة التفريع `searchidf` | `569f89a34a448013127eb0eca394a4fa17369218` |
 | دمج / إصدار | **لا شيء** — الحالة `active` |
 
@@ -50,6 +51,14 @@
 | `export-isolation` | 11/11 |
 | بناء Android (debug APK) | ناجح |
 | بناء Windows (release) | ناجح |
+
+> **تشغيل لاحق على بصمة هذا التقرير:** إيداع `90969be` (وهو **توثيق فقط**: ملف واحد
+> بـ290 سطراً، صفر تغيير في الكود أو الاختبارات أو الأوزان) أنتج التشغيل
+> **`45062849956`** — **نجاح**، والوظائف الأربع خضراء
+> (`android`, `windows`, `Android debug/diagnostic differential`, `Android 16 startup evidence`)،
+> وداخلها: `+1868 ~1: All tests passed!` و`No issues found! (ran in 16.2s)` و
+> `Formatted 360 files (0 changed)`. هذا يؤكد أن البصمة `aaf2aac0` التي قِيست هنا هي
+> نفس الشجرة المُتحقَّق منها بعد إضافة الوثيقة — لا أن الوثيقة غيّرت أي سلوك.
 
 > **ملاحظة أمانة لازم تُقرأ:** التشغيل السابق `45031925045` على `ce3cc8cd` **فشل مرة
 > واحدة** ببيان `TimeoutException` في `integration_test/docquad_inference_test.dart`

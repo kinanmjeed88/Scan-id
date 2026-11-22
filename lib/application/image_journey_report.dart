@@ -364,17 +364,30 @@ JourneyStep _detectionStep(
   final confidence = detections.length == 1
       ? detections.single.detectionConfidence?.value
       : null;
+  // The score only means something when the boundary it describes was actually
+  // accepted. Printing it under "a boundary was accepted" while the decision
+  // was `needsReview` said the acceptance was weaker than it was, and it made a
+  // stored proposal look like a satisfied gate. When review is the outcome the
+  // number is reported as a proposal score, in its own words.
   return JourneyStep(
     stage: JourneyStage.detection,
     outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
     fields: records.length > 1 || records.single.sides.length > 1
         ? _readEachDetection(records).fields
-        : {if (accepted) 'accepted': true},
+        : {
+            if (accepted) 'accepted': true,
+            if (!accepted && confidence != null)
+              'proposedBoundaryScore': confidence,
+          },
     detail: accepted
         ? confidence == null
               ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
               : 'حُفظت حدود مقبولة بدرجة كشف ${_percent(confidence)}.'
-        : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.',
+        : confidence == null
+        ? 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.'
+        : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ '
+              'اقتراح الزوايا للمراجعة بدرجة ${_percent(confidence)} '
+              'ولم يُعتمد قصّ تلقائي.',
   );
 }
 

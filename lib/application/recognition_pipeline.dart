@@ -9,10 +9,12 @@
 /// intake coordinator's job.
 library;
 
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
 import '../domain/boundary_decision.dart';
 import '../domain/document_kind.dart';
+import '../domain/frame_edge_band.dart';
 import '../domain/geometry.dart';
 import '../domain/intake_options.dart';
 import '../domain/ocr_evidence.dart';
@@ -21,6 +23,7 @@ import '../domain/recognition.dart';
 import '../domain/recognition_classifier.dart';
 import '../domain/recognition_routing.dart';
 import '../domain/validation.dart';
+import '../imaging/boundary_arbitration.dart';
 import '../imaging/document_segmenter.dart';
 import '../imaging/ocr_region.dart';
 import 'cancellation.dart';
@@ -355,16 +358,40 @@ class RecognitionPipeline {
         final regionIndex = index;
         index++;
         if (candidate.corners == null) {
-          issues.add(
-            const BatchItemFailure(
-              category: RecognitionErrorCategory.detectionFailure,
-              message:
-                  'منطقة مستند بلا حدود موثوقة؛ حُفظت كما هي لتُقصّ يدوياً من المحرر.',
-            ),
+          // A measured region with no trustworthy quadrilateral used to stop
+          // here, which meant a learned detector could never run on it: the
+          // whole-frame path below was gated on `detections.isEmpty &&
+          // unresolved.isEmpty`, so the presence of ONE unresolved region
+          // suppressed both models for the entire photograph. The region then
+          // carried `modelConfidence == null` into `verifyBoundary`, which
+          // always reports `lowModelConfidence`, so automatic cropping was
+          // structurally impossible on this path no matter how good the
+          // detector was.
+          //
+          // The attempt is made now, under the region's own consent: the
+          // proposal is kept only when every corner lies inside the measured
+          // region. A learned model that answers with some OTHER document in
+          // the frame — the sibling card in a two-card photo — is discarded
+          // rather than attached to this region, because a region's boundary
+          // may only describe that region.
+          final recovered = await _proposeWithinRegion(
+            input,
+            candidate.region,
+            token,
           );
+          if (recovered == null) {
+            issues.add(
+              const BatchItemFailure(
+                category: RecognitionErrorCategory.detectionFailure,
+                message:
+                    'منطقة مستند بلا حدود موثوقة؛ حُفظت كما هي لتُقصّ يدوياً من المحرر.',
+              ),
+            );
+          }
           // KEEP the region instead of dropping it. No rectangle is guessed:
-          // the measured bounds are carried through so the intake can preserve
-          // the document as a reviewable crop for a manual boundary.
+          // when the attempt fails, the measured bounds are still carried
+          // through so the intake can preserve the document as a reviewable
+          // crop for a manual boundary.
           unresolved.add(
             await _analyzeDetection(
               input,
@@ -374,12 +401,25 @@ class RecognitionPipeline {
               // finds the boundary it missed — which is what lets the retry
               // update that document instead of duplicating it.
               detectionId: regionDetectionId(input.assetId, regionIndex),
-              corners: null,
-              detectionConfidence: candidate.detectionConfidence,
-              producer: candidate.producer,
-              minAutoAcceptConfidence: candidate.minAutoAcceptConfidence,
-              touchesFrameEdge: candidate.touchesFrameEdge,
-              forceReview: candidate.requiresReview,
+              corners: recovered?.corners,
+              detectionConfidence:
+                  recovered?.modelConfidence ?? candidate.detectionConfidence,
+              producer: recovered == null
+                  ? candidate.producer
+                  : BoundaryProducer.learnedModel,
+              minAutoAcceptConfidence:
+                  recovered?.minAutoAcceptConfidence ??
+                  candidate.minAutoAcceptConfidence,
+              touchesFrameEdge:
+                  recovered?.touchesFrameEdge ?? candidate.touchesFrameEdge,
+              forceReview:
+                  (recovered?.forceReview ?? false) ||
+                  candidate.requiresReview,
+              forceReviewReason:
+                  (recovered?.forceReview ?? false)
+                  ? recovered!.forceReviewReason
+                  : null,
+              edgeBand: recovered?.edgeBand ?? FrameEdgeBand.legacy,
               region: candidate.region,
               regionIndex: regionIndex,
               isolatedRegion: true,
@@ -430,12 +470,13 @@ class RecognitionPipeline {
             () => suggestProposal!(input.previewBytes),
             phase: 'boundary',
           );
-          corners = prop?.corners;
-          detConf = prop?.modelConfidence;
-          minAutoConf = prop?.minAutoAcceptConfidence;
-          touchesEdge = prop?.touchesFrameEdge ?? false;
-          forceReview = prop?.forceReview ?? false;
-          forceReviewReason = prop?.forceReviewReason;
+          final fields = _proposalFields(prop);
+          corners = fields.corners;
+          detConf = fields.confidence;
+          minAutoConf = fields.minAutoAcceptConfidence;
+          touchesEdge = fields.touchesFrameEdge;
+          forceReview = fields.forceReview;
+          forceReviewReason = fields.forceReviewReason;
           if (prop != null) producer = prop.producer;
         } else {
           corners = await ImportTrace.stage(
@@ -472,6 +513,7 @@ class RecognitionPipeline {
           forceReviewReason: forceReviewReason,
           traces: prop?.traces ?? const [],
           disagreementFraction: prop?.disagreementFraction,
+          edgeBand: prop?.edgeBand ?? FrameEdgeBand.legacy,
           issues: issues,
           token: token,
         ),
@@ -610,6 +652,89 @@ class RecognitionPipeline {
     }
   }
 
+  /// A learned proposal for one measured region, or null when there is nothing
+  /// trustworthy to attach to it.
+  ///
+  /// Three conditions must all hold, and each one is a different question:
+  ///
+  /// 1. A learned proposer exists. Without one there is no second opinion to
+  ///    ask for, and the region keeps exactly its previous outcome.
+  /// 2. The proposal's corners stay inside the measured region. This is the
+  ///    region's consent, not a quality vote: a learned model that answers with
+  ///    a different document in the frame must not be attached to this region.
+  /// 3. Its geometry is usable at all. A rejected quad is not an improvement on
+  ///    "no quad", so it is discarded and the region stays unresolved.
+  ///
+  /// Nothing here decides acceptance. The returned proposal still goes through
+  /// `verifyBoundary` exactly once, in `_analyzeDetection`, carrying its own
+  /// confidence, edge band and review flags — so this stage cannot authorize a
+  /// crop, and a low score is still a low score.
+  ///
+  /// A failure of the MODEL is not a failure of the REGION. The error type is
+  /// logged for the developer and nothing else is added: a broken second
+  /// opinion must not downgrade a region the segmenter measured correctly, and
+  /// it must not be reported as a detection failure the user has to act on.
+  /// The region continues exactly as it did before this attempt existed.
+  Future<BoundaryProposal?> _proposeWithinRegion(
+    PipelineImageInput input,
+    List<double> region,
+    CancellationToken? token,
+  ) async {
+    final proposer = suggestProposal;
+    if (proposer == null || region.length != 4) return null;
+    token?.throwIfCancelled();
+    BoundaryProposal? proposal;
+    try {
+      proposal = await ImportTrace.stage(
+        'detection',
+        () => proposer(input.previewBytes),
+        phase: 'boundary-region',
+      );
+    } on OperationCancelled {
+      rethrow;
+    } on Object catch (error) {
+      // The message may carry a path or document content; keep only the type.
+      developer.log(
+        'Region boundary recovery failed type=${error.runtimeType}; '
+        'region kept unresolved.',
+        name: 'scan_id.recognition',
+      );
+      return null;
+    }
+    final corners = proposal?.corners;
+    if (proposal == null || corners == null || corners.length != 4) return null;
+    if (!quadInRegion(corners, region)) return null;
+    if (!verifyBoundary(
+      proposal,
+      sourceWidth: input.sourceWidth,
+      sourceHeight: input.sourceHeight,
+    ).verification.hasUsableGeometry) {
+      return null;
+    }
+    return proposal;
+  }
+
+  /// The fields of a learned proposal that the analysis stage needs, lifted out
+  /// so the whole-frame path and the per-region recovery path cannot drift.
+  static ({
+    List<Point2>? corners,
+    double? confidence,
+    double? minAutoAcceptConfidence,
+    bool touchesFrameEdge,
+    bool forceReview,
+    BoundaryReviewReason? forceReviewReason,
+    FrameEdgeBand edgeBand,
+  })
+  _proposalFields(BoundaryProposal? proposal) => (
+    corners: proposal?.corners,
+    confidence: proposal?.modelConfidence,
+    minAutoAcceptConfidence: proposal?.minAutoAcceptConfidence,
+    touchesFrameEdge: proposal?.touchesFrameEdge ?? false,
+    forceReview: proposal?.forceReview ?? false,
+    forceReviewReason: proposal?.forceReviewReason,
+    edgeBand: proposal?.edgeBand ?? FrameEdgeBand.legacy,
+  );
+
   Future<DetectionAnalysis> _analyzeDetection(
     PipelineImageInput input, {
     required String detectionId,
@@ -627,6 +752,7 @@ class RecognitionPipeline {
     bool isolatedRegion = false,
     List<BoundaryDetectorTrace> traces = const [],
     double? disagreementFraction,
+    FrameEdgeBand edgeBand = FrameEdgeBand.legacy,
   }) async {
     QuadAssessment? assessment;
     var usableCorners = corners;
@@ -701,6 +827,7 @@ class RecognitionPipeline {
         forceReviewReason: forceReviewReason,
         traces: traces,
         disagreementFraction: disagreementFraction,
+        edgeBand: edgeBand,
       ),
       sourceWidth: input.sourceWidth,
       sourceHeight: input.sourceHeight,

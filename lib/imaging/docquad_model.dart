@@ -10,6 +10,7 @@ import '../application/retirable_resource.dart';
 import '../application/stage_budget.dart';
 import '../domain/acceptance_policy.dart';
 import '../domain/boundary_decision.dart';
+import '../domain/frame_edge_band.dart';
 import '../domain/geometry.dart';
 import 'prepare_image.dart';
 
@@ -51,16 +52,44 @@ List<Point2> docQuadCorners(
   required double offsetY,
   required int frameWidth,
   required int frameHeight,
+  double? scaleY,
 }) {
+  // The two axes of the 256x256 tensor are independent: the resized copy is
+  // placed at integer `left`/`top` with its own rounded width and height, so its
+  // horizontal and vertical scales only coincide when the frame happened to land
+  // on an exact ratio. Mapping both axes with one isotropic `scale` therefore
+  // nudged every corner, by a different amount on each axis. [scaleY] carries
+  // the vertical figure; omitting it keeps the single-scale behaviour.
+  final scaleX = scale;
+  final verticalScale = scaleY ?? scale;
   final spanX = math.max(1, frameWidth - 1).toDouble();
   final spanY = math.max(1, frameHeight - 1).toDouble();
   return [
     for (final peak in peaks)
       Point2(
-        _snapToFrame(((peak.x256 - offsetX) / scale) / spanX),
-        _snapToFrame(((peak.y256 - offsetY) / scale) / spanY),
+        _axisFraction(peak.x256, offsetX, scaleX, spanX),
+        _axisFraction(peak.y256, offsetY, verticalScale, spanY),
       ),
   ];
+}
+
+/// One axis of the back-mapping: tensor coordinate to a `0..1` frame fraction.
+///
+/// [scale] converts tensor pixels to source pixels; [span] converts source
+/// pixels to a fraction of the frame. Both divisors are guarded here, in one
+/// place, because a degenerate scale (a one-pixel resized axis) or a degenerate
+/// span (a one-pixel-wide frame) would otherwise produce infinity or NaN that a
+/// downstream gate could mistake for a deliberate out-of-frame corner.
+double _axisFraction(
+  double tensorCoordinate,
+  double offset,
+  double scale,
+  double span,
+) {
+  final safeScale = scale.isFinite && scale > 0 ? scale : 1.0;
+  final safeSpan = span.isFinite && span > 0 ? span : 1.0;
+  final fraction = (tensorCoordinate - offset) / safeScale / safeSpan;
+  return fraction.isFinite ? fraction : 0;
 }
 
 /// Absorbs floating-point overshoot at the frame edge, and nothing else.
@@ -216,6 +245,7 @@ class DocQuadNet256 implements BoundaryProposalModel {
             scale: input.scale,
             offsetX: input.offsetX,
             offsetY: input.offsetY,
+            scaleY: input.scaleY,
             frameWidth: sourceWidth,
             frameHeight: sourceHeight,
           );
@@ -226,6 +256,17 @@ class DocQuadNet256 implements BoundaryProposalModel {
             // A score of 55% is the requested routing threshold, not an
             // accuracy claim. Geometry and cascade agreement still apply.
             minAutoAcceptConfidence: automaticAcceptanceThreshold,
+            // This model's corners are cell centres of a 64x64 map over a
+            // 256px letterboxed input, so how close to a border a corner has to
+            // be before the contact is real is a property of THIS model and
+            // this frame, not a constant. Reporting it lets the edge gate
+            // measure in the model's own resolution.
+            edgeBand: FrameEdgeBand.quantisation(
+              frameWidth: sourceWidth,
+              frameHeight: sourceHeight,
+              inputPixels: inputWidth.toDouble(),
+              heatmapCells: heatmapWidth,
+            ),
           );
           final verified = verifyBoundary(
             proposal,
@@ -276,8 +317,6 @@ class DocQuadNet256 implements BoundaryProposalModel {
         .round()
         .clamp(1, inputHeight)
         .toInt();
-    final offsetX = (inputWidth - source.width * scale) / 2;
-    final offsetY = (inputHeight - source.height * scale) / 2;
     final left = ((inputWidth - scaledWidth) / 2).floor();
     final top = ((inputHeight - scaledHeight) / 2).floor();
     final resized = img.copyResize(
@@ -297,8 +336,32 @@ class DocQuadNet256 implements BoundaryProposalModel {
         chw[2 * hw + index] = pixel.b.toDouble() / 255;
       }
     }
-    return _DocQuadInput(chw, scale, offsetX, offsetY);
+    // Record the placement ACTUALLY used, not the ideal one.
+    //
+    // The resized copy is written at the integer `left`/`top` with its own
+    // rounded `scaledWidth`/`scaledHeight`, so the forward map is
+    // `tensor = left + sourceX * (scaledWidth - 1) / (sourceWidth - 1)`:
+    // `copyResize` aligns the two extents, not the two scale factors. The back
+    // mapping is only exact if it inverts THOSE integers. Recording the ideal
+    // fractional offset instead left the corner a few source pixels off, always
+    // inward and always by the same sign, which no downstream geometry gate
+    // could see because the quadrilateral stayed rectangular.
+    return _DocQuadInput(
+      chw,
+      _axisScale(source.width, scaledWidth, scale),
+      left.toDouble(),
+      top.toDouble(),
+      scaleY: _axisScale(source.height, scaledHeight, scale),
+    );
   }
+
+  /// Source pixels per tensor pixel on one axis, for a `copyResize` that aligns
+  /// both endpoints. Falls back to the ideal resize factor for degenerate
+  /// extents (a one-pixel axis), where no such alignment exists.
+  static double _axisScale(int sourceExtent, int scaledExtent, double fallback) =>
+      sourceExtent > 1 && scaledExtent > 1
+      ? (scaledExtent - 1) / (sourceExtent - 1)
+      : fallback;
 
   static List<_Peak> _peaks(List<num> heatmaps) => [
     for (var channel = 0; channel < 4; channel++) _peak(heatmaps, channel),
@@ -367,9 +430,23 @@ Future<(int, int, _DocQuadInput)> _prepareDocQuadIsolated(
 );
 
 class _DocQuadInput {
-  const _DocQuadInput(this.values, this.scale, this.offsetX, this.offsetY);
+  const _DocQuadInput(
+    this.values,
+    this.scale,
+    this.offsetX,
+    this.offsetY, {
+    double? scaleY,
+  }) : scaleY = scaleY ?? scale;
+
   final Float32List values;
+
+  /// Horizontal source-pixels-per-tensor-pixel for the placement used.
   final double scale;
+
+  /// Vertical source-pixels-per-tensor-pixel. Equal to [scale] only when both
+  /// axes were resized by the same factor.
+  final double scaleY;
+
   final double offsetX;
   final double offsetY;
 }

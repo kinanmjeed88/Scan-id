@@ -2109,6 +2109,15 @@ class ProjectService {
         measuredAspect: warpedAspect,
         landscape: asset.width >= asset.height,
       );
+      // Only a DOCUMENTED size may be confirmed without the user, and that is
+      // what [DocumentSizeCatalog.sizeForWarp] already enforces through
+      // [DocumentSizeRecord.mayBeConfirmedAutomatically]. An estimated default
+      // (residence and ration cards) is deliberately NOT confirmable here: the
+      // catalog cannot tell an untouched default from a value the user
+      // measured, so treating "a number exists" as confirmation would publish
+      // an unmeasured estimate as the document's size. Such a kind is placed
+      // with a provisional size and stays unconfirmed until the user confirms
+      // it, which is what keeps the A4 layout gate honest.
       final size =
           catalogSize ??
           provisionalSize(width: asset.width, height: asset.height);

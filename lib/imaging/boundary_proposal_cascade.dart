@@ -1,11 +1,11 @@
 import 'dart:developer' as developer;
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../application/cancellation.dart';
 import '../application/import_trace.dart';
 import '../domain/boundary_decision.dart';
 import '../domain/acceptance_policy.dart';
+import '../domain/corner_order.dart';
 import '../domain/geometry.dart';
 import 'docquad_model.dart';
 import 'prepare_image.dart';
@@ -208,24 +208,33 @@ class BoundaryProposalCascade implements BoundaryProposalModel {
   /// Largest corner displacement between the two models, as a fraction of the
   /// image diagonal. A malformed pair reports total disagreement (1.0) rather
   /// than a friendly zero.
+  ///
+  /// The comparison is over the best CYCLIC re-indexing of the two ordered
+  /// rings, because the two models number their four output channels
+  /// independently. Pairing corner `i` with corner `i` assumed both models
+  /// start at the same physical corner. When they do not — one starts at
+  /// top-left and the other at bottom-right, say — the same rectangle is
+  /// reported as four diagonal mismatches, which is larger than the whole
+  /// document, so a perfect pair of detections was routed to manual review as
+  /// `modelDisagreement`. Re-indexing is not tolerance for a different shape:
+  /// direction is preserved, so a mirrored proposal still disagrees, and four
+  /// genuinely different corners still exceed the threshold under every
+  /// rotation.
   double _disagreementFraction(
     List<Point2> first,
     List<Point2> second,
     int width,
     int height,
   ) {
-    final diagonalSquared = (width * width + height * height).toDouble();
-    if (first.length != 4 || second.length != 4 || diagonalSquared <= 0) {
+    if (first.length != 4 || second.length != 4 || width < 2 || height < 2) {
       return 1;
     }
-    var worst = 0.0;
-    for (var i = 0; i < 4; i++) {
-      final dx = (first[i].x - second[i].x) * width;
-      final dy = (first[i].y - second[i].y) * height;
-      final fraction = math.sqrt((dx * dx + dy * dy) / diagonalSquared);
-      if (fraction > worst) worst = fraction;
-    }
-    return worst;
+    return minimumCyclicCornerDisplacementFraction(
+      first,
+      second,
+      width: width,
+      height: height,
+    );
   }
 }
 

@@ -122,12 +122,8 @@ void main() {
       bottom: .023,
     );
     final cascade = BoundaryProposalCascade(
-      primary: _FakeModel('primary', learned(quad(), score: .95), band: band),
-      secondary: _FakeModel(
-        'secondary',
-        learned(quad(), score: .95),
-        band: band,
-      ),
+      primary: _FakeModel('primary', learned(quad(), score: .95), band),
+      secondary: _FakeModel('secondary', learned(quad(), score: .95), band),
     );
 
     final proposal = await cascade.suggestProposal(preview);

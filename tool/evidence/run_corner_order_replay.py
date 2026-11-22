@@ -141,31 +141,41 @@ for width, height in [(1200, 900), (1200, 700), (700, 1200)]:
     check(f"{width}x{height}: two cells inside is not frame contact", not touched)
 
 print("\n=== RC-01: corner round-trip error of the fixed mapping ===")
+#
+# Models the production scheme exactly:
+#   forward : tensor = fractional_offset + source_pixel * (scaled-1)/(source-1)
+#   inverse : source = (tensor - fractional_offset) / same_scale
+# The pre-fix scheme used the IDEAL resize factor and the ideal offset, which
+# do not describe the panel the tensor actually contains.
 random.seed(20261118)
 worst_new = 0.0
 worst_old = 0.0
 worst_old_frame = None
-for frame_w, frame_h in [(1200, 900), (900, 1200), (1200, 1200), (1200, 275), (320, 1200), (64, 48), (40, 40)]:
+for frame_w, frame_h in [
+    (1200, 900),
+    (900, 1200),
+    (1200, 1200),
+    (1200, 275),
+    (320, 1200),
+    (64, 48),
+    (40, 40),
+]:
     scale = min(256 / frame_w, 256 / frame_h)
     scaled_w = max(1, min(256, round(frame_w * scale)))
     scaled_h = max(1, min(256, round(frame_h * scale)))
-    left = (256 - scaled_w) // 2
-    top = (256 - scaled_h) // 2
-    # What the fixed code records, and therefore inverts exactly.
+    offset_x = (256 - scaled_w) / 2
+    offset_y = (256 - scaled_h) / 2
     sx = (scaled_w - 1) / (frame_w - 1) if scaled_w > 1 and frame_w > 1 else scale
     sy = (scaled_h - 1) / (frame_h - 1) if scaled_h > 1 and frame_h > 1 else scale
-    # What the pre-fix code assumed: ideal fractional offsets, one isotropic scale.
-    ideal_ox = (256 - frame_w * scale) / 2
-    ideal_oy = (256 - frame_h * scale) / 2
     for _ in range(2000):
         px = random.uniform(0, max(0, frame_w - 1))
         py = random.uniform(0, max(0, frame_h - 1))
-        # The tensor coordinate is produced by the REAL placement.
-        tx = left + px * sx
-        ty = top + py * sy
-        worst_new = max(worst_new, abs((tx - left) / sx - px), abs((ty - top) / sy - py))
-        old_px = (tx - ideal_ox) / scale
-        old_py = (ty - ideal_oy) / scale
+        tx = offset_x + px * sx
+        ty = offset_y + py * sy
+        worst_new = max(worst_new, abs((tx - offset_x) / sx - px), abs((ty - offset_y) / sy - py))
+        # Pre-fix decode: ideal isotropic scale, ideal offset.
+        old_px = (tx - (256 - frame_w * scale) / 2) / scale
+        old_py = (ty - (256 - frame_h * scale) / 2) / scale
         err = max(abs(old_px - px), abs(old_py - py))
         if err > worst_old:
             worst_old = err
@@ -175,6 +185,33 @@ print(f"worst fixed round-trip error: {worst_new:.3e} px over 14,000 samples")
 print(f"worst pre-fix round-trip error: {worst_old:.2f} px on {worst_old_frame}")
 check("the fixed mapping round-trips to floating-point precision", worst_new < 1e-9)
 check("the pre-fix mapping was measurably wrong (>1 px)", worst_old > 1.0)
+
+print("\n=== RC-01: a peak in letterbox padding must decode OUTSIDE the frame ===")
+# Regression for a defect introduced and then removed during this change: when
+# the recorded offset disagreed with the offset the pixels were written at, a
+# peak in the padding decoded to a fraction of 4.38 instead of >1, turning a
+# bogus detection into a plausible-looking corner.
+for frame_w, frame_h in [(1200, 275), (1200, 900), (320, 1200)]:
+    scale = min(256 / frame_w, 256 / frame_h)
+    scaled_w = max(1, min(256, round(frame_w * scale)))
+    scaled_h = max(1, min(256, round(frame_h * scale)))
+    offset_x = (256 - scaled_w) / 2
+    offset_y = (256 - scaled_h) / 2
+    sx = (scaled_w - 1) / (frame_w - 1) if scaled_w > 1 and frame_w > 1 else scale
+    sy = (scaled_h - 1) / (frame_h - 1) if scaled_h > 1 and frame_h > 1 else scale
+    panel_bottom = offset_y + scaled_h - 1
+    peak_y = offset_y + (63 + .5) * 4  # heatmap cell 63 centre
+    fraction = ((peak_y - offset_y) / sy) / (frame_h - 1)
+    inside_panel = peak_y <= panel_bottom
+    print(
+        f"{frame_w}x{frame_h}: panel rows {offset_y:.1f}..{panel_bottom:.1f}, "
+        f"cell-63 peak at {peak_y:.1f} -> fraction {fraction:.4f} "
+        f"({'inside panel' if inside_panel else 'in padding'})"
+    )
+    check(
+        f"{frame_w}x{frame_h}: a padding peak is not turned into an in-frame corner",
+        inside_panel or fraction > 1 or fraction < 0,
+    )
 
 print()
 if FAILS:

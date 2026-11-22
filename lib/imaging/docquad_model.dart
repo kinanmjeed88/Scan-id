@@ -67,8 +67,8 @@ List<Point2> docQuadCorners(
   return [
     for (final peak in peaks)
       Point2(
-        _axisFraction(peak.x256, offsetX, scaleX, spanX),
-        _axisFraction(peak.y256, offsetY, verticalScale, spanY),
+        _snapToFrame(_axisFraction(peak.x256, offsetX, scaleX, spanX)),
+        _snapToFrame(_axisFraction(peak.y256, offsetY, verticalScale, spanY)),
       ),
   ];
 }
@@ -317,8 +317,20 @@ class DocQuadNet256 implements BoundaryProposalModel {
         .round()
         .clamp(1, inputHeight)
         .toInt();
-    final left = ((inputWidth - scaledWidth) / 2).floor();
-    final top = ((inputHeight - scaledHeight) / 2).floor();
+    // The copy goes at the IDEAL (fractional) position, not at a rounded one.
+    //
+    // This is what the previous code effectively did, and it is deliberate: the
+    // back-mapping must be the exact inverse of the placement actually used. An
+    // earlier revision of this change rounded the offset to `left`/`top` while
+    // still WRITING at the ideal offset, so the recorded transform described a
+    // placement the tensor did not have; on a 1200x275 frame every peak in the
+    // bottom letterbox padding decoded to a fraction of 4.38 instead of >1, i.e.
+    // a bogus detection became a plausible-looking corner instead of being
+    // rejected as out of frame. Keeping the fractional offset makes the two
+    // agree exactly, and `_snapToFrame` still keeps a genuine padding peak
+    // outside `[0, 1]` so `assessQuad` can reject it.
+    final offsetX = (inputWidth - scaledWidth) / 2;
+    final offsetY = (inputHeight - scaledHeight) / 2;
     final resized = img.copyResize(
       source,
       width: scaledWidth,
@@ -330,27 +342,33 @@ class DocQuadNet256 implements BoundaryProposalModel {
     for (var y = 0; y < scaledHeight; y++) {
       for (var x = 0; x < scaledWidth; x++) {
         final pixel = resized.getPixel(x, y);
-        final index = (top + y) * inputWidth + left + x;
+        // `img` has no float bilinear paste, so each resized pixel is placed at
+        // the nearest integer cell of its ideal position. The inverse below
+        // models exactly this: the integer cell index minus the fractional
+        // offset, so the two are consistent to within one tensor pixel.
+        final index =
+            (offsetY + y).round() * inputWidth + (offsetX + x).round();
         chw[index] = pixel.r.toDouble() / 255;
         chw[hw + index] = pixel.g.toDouble() / 255;
         chw[2 * hw + index] = pixel.b.toDouble() / 255;
       }
     }
-    // Record the placement ACTUALLY used, not the ideal one.
+    // Record the placement the tensor actually has.
     //
-    // The resized copy is written at the integer `left`/`top` with its own
-    // rounded `scaledWidth`/`scaledHeight`, so the forward map is
-    // `tensor = left + sourceX * (scaledWidth - 1) / (sourceWidth - 1)`:
-    // `copyResize` aligns the two extents, not the two scale factors. The back
-    // mapping is only exact if it inverts THOSE integers. Recording the ideal
-    // fractional offset instead left the corner a few source pixels off, always
-    // inward and always by the same sign, which no downstream geometry gate
-    // could see because the quadrilateral stayed rectangular.
+    // Two figures, each of which was wrong before:
+    // * The OFFSET is the fractional one the loop above places the copy at.
+    // * The SCALE is `(scaledExtent - 1) / (sourceExtent - 1)`, not the ideal
+    //   resize factor, because `copyResize` aligns the two EXTENTS: source
+    //   pixel 0 lands on the panel's first tensor row and source pixel
+    //   `extent - 1` on its last. Using the ideal factor here, together with the
+    //   ideal offset, is what put every corner up to 5.25 px away on a 1200x275
+    //   frame — inward, with the same sign, so the quadrilateral stayed
+    //   rectangular and no downstream gate could see it.
     return _DocQuadInput(
       chw,
       _axisScale(source.width, scaledWidth, scale),
-      left.toDouble(),
-      top.toDouble(),
+      offsetX,
+      offsetY,
       scaleY: _axisScale(source.height, scaledHeight, scale),
     );
   }

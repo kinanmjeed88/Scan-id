@@ -72,52 +72,62 @@ void main() {
     final proposal = await cascade.suggestProposal(preview);
 
     expect(proposal!.forceReview, isTrue);
-    expect(
-      proposal.forceReviewReason,
-      BoundaryReviewReason.modelDisagreement,
-    );
+    expect(proposal.forceReviewReason, BoundaryReviewReason.modelDisagreement);
     expect(proposal.disagreementFraction, greaterThan(.04));
   });
 
-  test('a lone strong proposal reports its own score, not a substitute',
-      () async {
-    // RC-09: a proposal that was never corroborated must keep the score the
-    // model actually produced, so nothing downstream can read a routing
-    // constant as if it were measured confidence.
-    final cascade = BoundaryProposalCascade(
-      primary: _FakeModel('primary', learned(quad(), score: .93)),
-      secondary: _FakeModel('secondary')..fail = true,
-    );
+  test(
+    'a lone strong proposal reports its own score, not a substitute',
+    () async {
+      // RC-09: a proposal that was never corroborated must keep the score the
+      // model actually produced, so nothing downstream can read a routing
+      // constant as if it were measured confidence.
+      final cascade = BoundaryProposalCascade(
+        primary: _FakeModel('primary', learned(quad(), score: .93)),
+        secondary: _FakeModel('secondary')..fail = true,
+      );
 
-    final proposal = await cascade.suggestProposal(preview);
+      final proposal = await cascade.suggestProposal(preview);
 
-    expect(proposal!.modelConfidence, .93);
-    expect(
-      proposal.forceReviewReason,
-      BoundaryReviewReason.modelNotCorroborated,
-    );
-  });
+      expect(proposal!.modelConfidence, .93);
+      expect(
+        proposal.forceReviewReason,
+        BoundaryReviewReason.modelNotCorroborated,
+      );
+    },
+  );
 
-  test('a low lone proposal keeps its low score rather than being rounded up',
-      () async {
-    final cascade = BoundaryProposalCascade(
-      primary: _FakeModel('primary', learned(quad(), score: .21)),
-      secondary: _FakeModel('secondary')..fail = true,
-    );
+  test(
+    'a low lone proposal keeps its low score rather than being rounded up',
+    () async {
+      final cascade = BoundaryProposalCascade(
+        primary: _FakeModel('primary', learned(quad(), score: .21)),
+        secondary: _FakeModel('secondary')..fail = true,
+      );
 
-    final proposal = await cascade.suggestProposal(preview);
+      final proposal = await cascade.suggestProposal(preview);
 
-    expect(proposal!.modelConfidence, .21);
-  });
+      expect(proposal!.modelConfidence, .21);
+    },
+  );
 
   test('an edge band from the winning producer survives the cascade', () async {
     // The band is a property of the model that produced the corners. If the
     // cascade rebuilt the proposal without it, the edge gate would silently
     // fall back to the legacy constant and re-measure the wrong thing.
-    const band = FrameEdgeBand(left: .011, top: .023, right: .011, bottom: .023);
+    const band = FrameEdgeBand(
+      left: .011,
+      top: .023,
+      right: .011,
+      bottom: .023,
+    );
     final cascade = BoundaryProposalCascade(
       primary: _FakeModel('primary', learned(quad(), score: .95), band: band),
-      secondary: _FakeModel('secondary', learned(quad(), score: .95), band: band),
+      secondary: _FakeModel(
+        'secondary',
+        learned(quad(), score: .95),
+        band: band,
+      ),
     );
 
     final proposal = await cascade.suggestProposal(preview);

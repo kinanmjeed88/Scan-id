@@ -142,8 +142,6 @@ enum BoundaryReviewReason {
   /// exceeds the frame, so it is not kept as a suggestion: the whole image
   /// stays for the person to approve or crop.
   excludesDocumentText,
-
-
 }
 
 /// What one boundary detector actually did in one cascade run.
@@ -300,8 +298,9 @@ class BoundaryProposal {
   ///
   /// Measured over the best CYCLIC re-indexing of the two rings, so a model
   /// that returns the same corners starting from a different channel is not
-  /// reported as a material disagreement. Direction is never flipped: a
-  /// mirrored proposal still disagrees.
+  /// reported as a material disagreement. The search only ever tries a
+  /// rotation, never a reversal, so it cannot call two genuinely different
+  /// rings the same.
   final double? disagreementFraction;
 
   /// How close to the frame border this claim's corners may sit before the
@@ -312,15 +311,6 @@ class BoundaryProposal {
   /// of a stored recipe) keeps exactly the behaviour it had. A learned producer
   /// records the band its heatmap actually justifies.
   final FrameEdgeBand edgeBand;
-
-  /// The score [verifyBoundary] compares against [minAutoAcceptConfidence].
-  ///
-  /// This is the SINGLE field that decides whether the claim cleared its own
-  /// acceptance bar. It is [modelConfidence] unless a caller explicitly states
-  /// that the corroborating evidence — not the model's raw output — is what
-  /// should be judged. Keeping it separate is what stops a routing score from
-  /// being persisted in a field that reports the model's measured confidence.
-  double? get acceptanceScore => modelConfidence;
 
   /// The same claim with cascade diagnostics attached, keeping corners,
   /// confidence and review flags untouched.
@@ -738,17 +728,21 @@ BoundaryDecision verifyBoundary(
   if (learned || minAutoConf != null) {
     final scoreUsable = _usableScore(modelConf);
     final thresholdUsable = minAutoConf == null || _usableScore(minAutoConf);
-    final failed = !scoreUsable || !thresholdUsable;
-    // Only compare a usable score against a usable threshold, so a malformed
-    // value can never be read as a comfortable margin.
+    // Type promotion does not follow two nullable locals, so the comparisons
+    // are made against values already proved non-null by the guards above.
+    final minimum = minAutoConf;
     final belowModelThreshold =
         learned && !meetsAcceptanceThreshold(modelConf, acceptanceThreshold);
     final belowStatedMinimum =
-        minAutoConf != null &&
+        minimum != null &&
         scoreUsable &&
         thresholdUsable &&
-        modelConf < minAutoConf;
-    if (failed || belowModelThreshold || belowStatedMinimum) {
+        modelConf != null &&
+        modelConf < minimum;
+    if (!scoreUsable ||
+        !thresholdUsable ||
+        belowModelThreshold ||
+        belowStatedMinimum) {
       reasons.add(BoundaryReviewReason.lowModelConfidence);
     }
   }

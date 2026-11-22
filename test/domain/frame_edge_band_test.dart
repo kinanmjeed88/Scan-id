@@ -116,31 +116,27 @@ void main() {
     );
 
     test('a corner on the left edge reports only the left side', () {
-      expect(
-        band.sidesTouchedBy([Point2(.001, .5), Point2(.5, .5)]),
-        {FrameEdgeSide.left},
-      );
+      expect(band.sidesTouchedBy([Point2(.001, .5), Point2(.5, .5)]), {
+        FrameEdgeSide.left,
+      });
     });
 
     test('a corner on the right edge reports only the right side', () {
-      expect(
-        band.sidesTouchedBy([Point2(.999, .5), Point2(.5, .5)]),
-        {FrameEdgeSide.right},
-      );
+      expect(band.sidesTouchedBy([Point2(.999, .5), Point2(.5, .5)]), {
+        FrameEdgeSide.right,
+      });
     });
 
     test('a corner on the top edge reports only the top side', () {
-      expect(
-        band.sidesTouchedBy([Point2(.5, .001), Point2(.5, .5)]),
-        {FrameEdgeSide.top},
-      );
+      expect(band.sidesTouchedBy([Point2(.5, .001), Point2(.5, .5)]), {
+        FrameEdgeSide.top,
+      });
     });
 
     test('a corner on the bottom edge reports only the bottom side', () {
-      expect(
-        band.sidesTouchedBy([Point2(.5, .999), Point2(.5, .5)]),
-        {FrameEdgeSide.bottom},
-      );
+      expect(band.sidesTouchedBy([Point2(.5, .999), Point2(.5, .5)]), {
+        FrameEdgeSide.bottom,
+      });
     });
 
     test('a corner well inside reports no side at all', () {

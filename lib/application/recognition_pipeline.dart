@@ -413,10 +413,8 @@ class RecognitionPipeline {
               touchesFrameEdge:
                   recovered?.touchesFrameEdge ?? candidate.touchesFrameEdge,
               forceReview:
-                  (recovered?.forceReview ?? false) ||
-                  candidate.requiresReview,
-              forceReviewReason:
-                  (recovered?.forceReview ?? false)
+                  (recovered?.forceReview ?? false) || candidate.requiresReview,
+              forceReviewReason: (recovered?.forceReview ?? false)
                   ? recovered!.forceReviewReason
                   : null,
               edgeBand: recovered?.edgeBand ?? FrameEdgeBand.legacy,

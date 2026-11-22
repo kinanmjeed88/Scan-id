@@ -367,20 +367,53 @@ void main() {
           (width * .82, height * .85),
           (width * .18, height * .85),
         ];
-        final corners = map(source, box, frameWidth: width, frameHeight: height);
+        final corners = map(
+          source,
+          box,
+          frameWidth: width,
+          frameHeight: height,
+        );
 
         expect(corners, hasLength(4));
         // TL then TR: the first edge runs LEFT to RIGHT along the top.
-        expect(corners[0].x, lessThan(corners[1].x), reason: '$name TL->TR is rightward');
-        expect(corners[0].y, closeTo(corners[1].y, 1e-9), reason: '$name top edge is level');
+        expect(
+          corners[0].x,
+          lessThan(corners[1].x),
+          reason: '$name TL->TR is rightward',
+        );
+        expect(
+          corners[0].y,
+          closeTo(corners[1].y, 1e-9),
+          reason: '$name top edge is level',
+        );
         // TR then BR: the second edge runs TOP to BOTTOM along the right.
-        expect(corners[1].y, lessThan(corners[2].y), reason: '$name TR->BR is downward');
-        expect(corners[1].x, closeTo(corners[2].x, 1e-9), reason: '$name right edge is upright');
+        expect(
+          corners[1].y,
+          lessThan(corners[2].y),
+          reason: '$name TR->BR is downward',
+        );
+        expect(
+          corners[1].x,
+          closeTo(corners[2].x, 1e-9),
+          reason: '$name right edge is upright',
+        );
         // BR then BL: the third edge runs RIGHT to LEFT along the bottom.
-        expect(corners[2].x, greaterThan(corners[3].x), reason: '$name BR->BL is leftward');
-        expect(corners[2].y, closeTo(corners[3].y, 1e-9), reason: '$name bottom edge is level');
+        expect(
+          corners[2].x,
+          greaterThan(corners[3].x),
+          reason: '$name BR->BL is leftward',
+        );
+        expect(
+          corners[2].y,
+          closeTo(corners[3].y, 1e-9),
+          reason: '$name bottom edge is level',
+        );
         // BL closes back up to TL.
-        expect(corners[3].y, greaterThan(corners[0].y), reason: '$name BL->TL is upward');
+        expect(
+          corners[3].y,
+          greaterThan(corners[0].y),
+          reason: '$name BL->TL is upward',
+        );
 
         // Screen space is y-down, so a clockwise ring has POSITIVE signed area.
         var twiceArea = 0.0;
@@ -389,7 +422,11 @@ void main() {
           final b = corners[(i + 1) % 4];
           twiceArea += a.x * b.y - b.x * a.y;
         }
-        expect(twiceArea, greaterThan(0), reason: '$name is clockwise, not inverted');
+        expect(
+          twiceArea,
+          greaterThan(0),
+          reason: '$name is clockwise, not inverted',
+        );
 
         // And the ring is a convex quadrilateral, never a bow-tie.
         expect(
@@ -415,12 +452,7 @@ void main() {
       const height = 900;
       final box = letterbox(width, height);
       final corners = map(
-        [
-          (216.0, 135.0),
-          (738.0, 765.0),
-          (984.0, 135.0),
-          (216.0, 765.0),
-        ],
+        [(216.0, 135.0), (738.0, 765.0), (984.0, 135.0), (216.0, 765.0)],
         box,
         frameWidth: width,
         frameHeight: height,

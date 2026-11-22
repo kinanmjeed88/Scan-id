@@ -358,8 +358,11 @@ class DocQuadNet256 implements BoundaryProposalModel {
   /// Source pixels per tensor pixel on one axis, for a `copyResize` that aligns
   /// both endpoints. Falls back to the ideal resize factor for degenerate
   /// extents (a one-pixel axis), where no such alignment exists.
-  static double _axisScale(int sourceExtent, int scaledExtent, double fallback) =>
-      sourceExtent > 1 && scaledExtent > 1
+  static double _axisScale(
+    int sourceExtent,
+    int scaledExtent,
+    double fallback,
+  ) => sourceExtent > 1 && scaledExtent > 1
       ? (scaledExtent - 1) / (sourceExtent - 1)
       : fallback;
 

@@ -164,7 +164,13 @@ void main() {
     });
 
     test('a malformed score fails closed rather than passing', () {
-      for (final score in <double?>[null, -.01, 1.01, double.nan, double.infinity]) {
+      for (final score in <double?>[
+        null,
+        -.01,
+        1.01,
+        double.nan,
+        double.infinity,
+      ]) {
         final decision = verifyBoundary(
           BoundaryProposal(
             producer: BoundaryProducer.learnedModel,

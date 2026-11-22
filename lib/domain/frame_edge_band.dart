@@ -38,14 +38,6 @@ class FrameEdgeBand {
   /// fallback for producers that report no quantisation (classical detector,
   /// segmenter, manual input, recovery replay of an older recipe), so their
   /// behaviour does not change.
-  factory FrameEdgeBand.uniform(double value) => FrameEdgeBand(
-    left: value,
-    top: value,
-    right: value,
-    bottom: value,
-  );
-
-  /// Default for producers with no modelled quantisation.
   static const FrameEdgeBand legacy = FrameEdgeBand(
     left: agentlessBand,
     top: agentlessBand,
@@ -86,10 +78,7 @@ class FrameEdgeBand {
       return legacy;
     }
     // The producer letterboxes by the smaller of the two axis scales.
-    final scale = math.min(
-      inputPixels / frameWidth,
-      inputPixels / frameHeight,
-    );
+    final scale = math.min(inputPixels / frameWidth, inputPixels / frameHeight);
     if (!scale.isFinite || scale <= 0) return legacy;
     final cellPixels = inputPixels / heatmapCells / scale;
     // Fraction of an axis measured in index units: the frame spans
@@ -113,10 +102,8 @@ class FrameEdgeBand {
   final double right;
   final double bottom;
 
-  double get maximumSide => math.max(
-    math.max(left, top),
-    math.max(right, bottom),
-  );
+  double get maximumSide =>
+      math.max(math.max(left, top), math.max(right, bottom));
 
   /// Sides whose own band at least one corner reaches.
   ///

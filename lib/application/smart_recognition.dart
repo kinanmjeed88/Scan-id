@@ -965,7 +965,8 @@ class SmartIntake {
           checks: [
             EvidenceCheck(
               name: 'scores_measured',
-              passed: boundaryScores.isNotEmpty || classificationScores.isNotEmpty,
+              passed:
+                  boundaryScores.isNotEmpty || classificationScores.isNotEmpty,
             ),
             EvidenceCheck(
               name: 'scores_in_range',

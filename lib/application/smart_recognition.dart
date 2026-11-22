@@ -97,6 +97,58 @@ class _Analyzed {
   final int importIndex;
 }
 
+/// One short Arabic fragment naming why a boundary decision was not accepted.
+///
+/// The journey's crop/detection stages carry this alongside the machine-readable
+/// reason code: the person reading the log should meet a readable cause, not a
+/// raw enum, and the reader should not have to decode it first. It is a pure
+/// label — never a measurement, never a code to act on.
+String boundaryCauseLabel(BoundaryReviewReason reason) => switch (reason) {
+  BoundaryReviewReason.noBoundary => 'لم تُقترَح حدود',
+  BoundaryReviewReason.notABoundary => 'اقتراح غير صالح شكلاً',
+  BoundaryReviewReason.geometryRejected => 'حدود مرفوضة هندسياً',
+  BoundaryReviewReason.aspectMismatch => 'شكل الحدود لا يطابق المقاس',
+  BoundaryReviewReason.quadOutsideRegion => 'الحدود لا تصف المنطقة المقاسة',
+  BoundaryReviewReason.lowModelConfidence => 'درجة كشف حدود منخفضة',
+  BoundaryReviewReason.touchesFrameEdge => 'تلامس الحدود حافة الإطار',
+  BoundaryReviewReason.multiSceneNotCorroborated =>
+    'دليل تعدد المشاهد غير مؤيد',
+  BoundaryReviewReason.uncalibratedClassicalScore =>
+    'اقتراح كلاسيكي غير مُعايَر',
+  BoundaryReviewReason.modelDisagreement => 'تعارض داخل نموذج الحدود',
+  BoundaryReviewReason.modelNotCorroborated => 'كاشف حدود وحيد غير مؤيد',
+  BoundaryReviewReason.excludesDocumentText => 'الحدود جزئية لا تغطي النص',
+};
+
+/// Why an automatic crop did not happen, or null when one did.
+///
+/// The whole decision is read from the analysis the batch just produced — a
+/// crop that did not happen says which reason kept the boundary in review, so
+/// the person sees the cause instead of the generic «بقيت الصورة كاملة».
+String? _cropNotProducedCause(List<String> reasons) {
+  if (reasons.isEmpty) {
+    return 'لم يُعتمد قصّ تلقائي لهذه الصورة';
+  }
+  final parsed = <BoundaryReviewReason>[];
+  for (final code in reasons) {
+    for (final reason in BoundaryReviewReason.values) {
+      if (reason.name == code) {
+        parsed.add(reason);
+        break;
+      }
+    }
+  }
+  if (parsed.isEmpty) {
+    // An unrecognized reason code still names the failure mode; the code
+    // itself travels in the fields, so nothing is lost.
+    return 'لم يُعتمد قصّ تلقائي: ${reasons.join('، ')}';
+  }
+  if (parsed.length == 1) {
+    return 'لم يُعتمد قصّ تلقائي: ${boundaryCauseLabel(parsed.first)}';
+  }
+  return 'لم يُعتمد قصّ تلقائي: ${parsed.map(boundaryCauseLabel).join('، ')}';
+}
+
 /// The bounded analysis of a batch of source images, in input order.
 /// Records what analysis MEASURED and what applying it PRODUCED.
 ///
@@ -106,7 +158,11 @@ class _Analyzed {
 /// the segmenter actually returned, including the ones it rejected and why it
 /// routed to the multi-region path; apply reports the outcome of the crop.
 ///
-/// Only measured numbers are recorded — never a path, a name or recognized text.
+/// Only measured numbers and decision facts are recorded — never a path, a
+/// name or recognized text. The boundary decision — whether the crop was
+/// authorized, which reason kept it in review, and whether a person approved
+/// it — travels with the crop record so a refusal can never be read as a
+/// silent gap.
 void _recordApplyStage(
   IntakeBatchLog? stageLog,
   _Analyzed analyzed, {
@@ -114,6 +170,7 @@ void _recordApplyStage(
   required int notDetected,
   required int multi,
   required int applyDurationMs,
+  List<DocumentItem> items = const [],
 }) {
   final log = stageLog?.forAsset(analyzed.asset.id, name: analyzed.asset.name);
   if (log == null) return;
@@ -123,29 +180,57 @@ void _recordApplyStage(
         (r) => r.region != null || r.boundaryDecision?.proposal.corners != null,
       )
       .length;
-  // Detection PASSED when the segmenter measured at least one region, or when
-  // the whole-frame detector produced a usable one. Anything else is a review:
-  // the image is still usable, it simply has no measured boundary.
+  // Detection PASSES only when the boundary the crop path would have used
+  // was actually accepted. A measured region that the decision rejects is not
+  // a pass: it leaves the crop without permission, and a log that says
+  // "passed" there is a log that lied about the boundary it measured. The
+  // image is still usable — the detail says so and the stage routes to review.
   final measured = regions > 0;
   final rejected = analysis.rejectedRegions.length;
   final measuredDetail = regions > 1
       ? 'قِيست $regions مناطق (متعددة)'
       : 'قِيست $regions منطقة';
+  final decisions = [
+    for (final region in analysis.allRegions)
+      if (region.boundaryDecision case final decision?) decision,
+  ];
+  final reasons = [
+    for (final decision in decisions)
+      for (final reason in decision.verification.reasons) reason.name,
+  ];
+  final userApproved = decisions.any(
+    (decision) => decision.verification.userApproved == true,
+  );
+  final accepted = decisions.any(
+    (decision) => decision.kind == BoundaryDecisionKind.accepted,
+  );
   log.record(
     IntakeStageRecord(
       stage: JourneyStage.detection,
-      outcome: measured ? JourneyOutcome.passed : JourneyOutcome.review,
-      detail: measured
+      outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
+      detail: !measured
+          ? 'لم تُقَس أي منطقة مستند في هذه الصورة.'
+          : accepted
           ? (rejected == 0
                 ? measuredDetail
                 : '$measuredDetail، ورُفضت $rejected.')
-          : 'لم تُقَس أي منطقة مستند في هذه الصورة.',
+          : '$measuredDetail — ${_cropNotProducedCause(reasons)}.',
       fields: {
         'regions': regions,
         'detections': analysis.detections.length,
         'unresolved': analysis.unresolvedRegions.length,
         'rejected': rejected,
         'multi': multi > 0,
+        // The decision, the reasons that kept it in review, and the user
+        // approval — read from the same decision the crop path consults, so
+        // the record can never claim more than the decision grants.
+        if (decisions.isNotEmpty) ...{
+          'decision': decisions.first.kind.name,
+          if (reasons.isNotEmpty) 'reason': reasons.first,
+          if (reasons.length > 1) 'reasonCount': reasons.length,
+        },
+        'accepted': accepted,
+        if (userApproved) 'userApproved': true,
       },
     ),
   );
@@ -158,17 +243,75 @@ void _recordApplyStage(
       outcome: cropped > 0 ? JourneyOutcome.passed : JourneyOutcome.review,
       detail: cropped > 0
           ? 'قُصّت $cropped منطقة وأُنشئت نسخة مشتقة.'
-          : 'بقيت الصورة كاملة بلا قص؛ يمكن قصّها يدوياً.',
+          : !measured
+          ? 'لم تُقَس منطقة مستند؛ بقيت الصورة كاملة يمكن قصّها يدوياً.'
+          : 'بقيت الصورة كاملة بلا قص؛ '
+                '${_cropNotProducedCause(reasons)}.',
       fields: {
         'applyDurationMs': applyDurationMs,
         'cropped': cropped,
         'notDetected': notDetected,
-        'userApproved': analysis.detections.any(
-          (d) => d.boundaryDecision?.verification.userApproved == true,
-        ),
+        'userApproved': userApproved,
+        'accepted': accepted,
+        if (decisions.isNotEmpty) ...{
+          'decision': decisions.first.kind.name,
+          if (reasons.isNotEmpty) 'reason': reasons.first,
+          if (reasons.length > 1) 'reasonCount': reasons.length,
+        },
+        // The measurement the batch produced, per document: the kind, the
+        // size confirmation and the provisional/catalog source and size. A
+        // reader should never have to decode the item to learn the outcome.
+        if (items.isNotEmpty)
+          for (var i = 0; i < items.length; i++)
+            ..._measurementFields(
+              items[i],
+              prefix: items.length == 1 ? '' : 'i${i + 1}_',
+            ),
       },
     ),
   );
+}
+
+/// Per-document recognition facts for the recognition record.
+///
+/// [prefix] distinguishes documents inside one image in the multi-document
+/// report shape (`i1_`, `i2_`, …); it is empty for a single-document result
+/// so the keys stay short. Every value below is read from the classification the batch
+/// measured — the kind, the status and the classification value — never
+/// recomputed, so the record can never claim a recognition the pipeline did
+/// not make.
+Map<String, Object?> _recognitionFields(
+  DetectionAnalysis region, {
+  String prefix = '',
+}) {
+  final classification = region.classification;
+  final confidence = classification.confidences.classification?.value;
+  return {
+    '${prefix}kind': classification.kind.name,
+    '${prefix}status': classification.status.name,
+    if (confidence != null)
+      '${prefix}confidence': double.parse(confidence.toStringAsFixed(4)),
+  };
+}
+
+/// Per-document measurement facts for the crop record.
+///
+/// [prefix] distinguishes documents inside one image in the multi-document
+/// report shape (`i1_`, `i2_`, …); it is empty for a single-document crop
+/// so the keys stay short.
+Map<String, Object?> _measurementFields(
+  DocumentItem item, {
+  String prefix = '',
+}) {
+  return {
+    '${prefix}kind': item.documentKind.name,
+    '${prefix}sizeConfirmed': item.sizeConfirmed,
+    '${prefix}sizeSource': item.sizeConfirmed
+        ? 'catalog'
+        : 'provisional_image_dimensions',
+    '${prefix}widthMm': double.parse(item.width.toStringAsFixed(2)),
+    '${prefix}heightMm': double.parse(item.height.toStringAsFixed(2)),
+  };
 }
 
 class _Analysis {
@@ -434,6 +577,7 @@ class SmartIntake {
           notDetected: imageNotDetected,
           multi: imageMulti,
           applyDurationMs: applyClock.elapsedMilliseconds,
+          items: imageItems,
         );
         _recordAppliedDocuments(
           current,
@@ -606,6 +750,7 @@ class SmartIntake {
         arranged: true,
         centeredItemIds: centeredItemIds,
       );
+      _recordPlacementStages(stageLog, current, newDocuments);
       if (arrangement.unplaced.isNotEmpty) {
         warnings.add(
           '${arrangement.unplaced.length} مستمسك بقي خارج الورقة؛ '
@@ -1431,6 +1576,95 @@ class SmartIntake {
   /// Verification reads the project back from the repository — not from the
   /// value this method was handed — because the question is «هل أصبح المستند
   /// جزءاً من المشروع المحفوظ؟», and only a read can answer it.
+  ///
+  /// Records the placement result of every document this batch committed,
+  /// one placement step per image, aggregated over its documents.
+  ///
+  /// The placement facts the journey report derives from the project, written
+  /// as the stage the batch recorded during processing.
+  ///
+  /// The derived report already states which items sit on the page and where;
+  /// for a single-document image it carries nothing machine-readable at all,
+  /// and it is silent about whether each item's size was confirmed. This
+  /// record fills exactly those gaps — the placed flag, the page number and
+  /// the size confirmation per document — read from the item itself, never
+  /// recomputed. The detail strings and the per-item key scheme are the same
+  /// ones the derived step uses, so the two agree and the overlay merge keeps
+  /// them consistent rather than showing two shapes of the same fact.
+  void _recordPlacementStages(
+    IntakeBatchLog? stageLog,
+    Project current,
+    List<DocumentRecord> documents,
+  ) {
+    if (stageLog == null || documents.isEmpty) return;
+    final byImage = <String, List<DocumentRecord>>{};
+    for (final record in documents) {
+      byImage.putIfAbsent(record.sourceImageId, () => []).add(record);
+    }
+    for (final entry in byImage.entries) {
+      final imageId = entry.key;
+      final records = entry.value;
+      final items = [
+        for (final record in records)
+          current.items
+              .where((item) => item.documentId == record.id)
+              .firstOrNull,
+      ];
+      final placed = [
+        for (final item in items)
+          if (item?.pageIndex != null) item!,
+      ];
+      final log = stageLog.forAsset(imageId);
+      if (items.every((item) => item == null)) continue;
+      final fields = <String, Object?>{
+        'items': items.length,
+        'placedItems': placed.length,
+        for (var i = 0; i < items.length; i++) ...{
+          'i${i + 1}_placed': items[i]?.pageIndex != null,
+          if (items[i]?.pageIndex != null)
+            'i${i + 1}_page': items[i]!.pageIndex! + 1,
+          if (items[i] != null)
+            'i${i + 1}_sizeConfirmed': items[i]!.sizeConfirmed,
+          if (items[i] != null)
+            'i${i + 1}_sizeSource': items[i]!.sizeConfirmed
+                ? 'catalog'
+                : 'provisional_image_dimensions',
+        },
+      };
+      final String detail;
+      final allPlaced = items.every((item) => item?.pageIndex != null);
+      if (allPlaced) {
+        final pages = {for (final item in placed) item.pageIndex! + 1}.toList()
+          ..sort();
+        final pageText = pages.length == 1
+            ? 'الصفحة ${pages.single}'
+            : 'الصفحات ${pages.join('، ')}';
+        final count = items.length > 1 ? ' (${items.length} عناصر)' : '';
+        detail = 'وُضع في $pageText داخل حدود الورقة$count.';
+      } else if (placed.isNotEmpty) {
+        detail =
+            'وُضع ${placed.length} من ${items.length} عناصر على الورقة؛ '
+            'البقية خارجها وتحتاج مراجعة.';
+      } else {
+        final firstMissing = items.firstWhere(
+          (item) => item?.pageIndex == null,
+          orElse: () => items.first,
+        );
+        detail = firstMissing == null
+            ? 'لم يُعثر على عنصر هذا المستند في المشروع.'
+            : unplacedDocumentMessage(current, firstMissing);
+      }
+      log.record(
+        IntakeStageRecord(
+          stage: JourneyStage.placement,
+          outcome: allPlaced ? JourneyOutcome.passed : JourneyOutcome.review,
+          detail: detail,
+          fields: fields,
+        ),
+      );
+    }
+  }
+
   Future<void> _recordCommittedDocuments(
     Project current,
     List<DocumentRecord> documents, {
@@ -1939,6 +2173,15 @@ class SmartIntake {
                           'known': known,
                           if (options case final chosen?)
                             'side': chosen.side.name,
+                          // Per-document recognition facts: the kind, the
+                          // classification status and the value the classifier
+                          // emitted for each region, so a reader sees the
+                          // measurement rather than only the count.
+                          for (var i = 0; i < regions.length; i++)
+                            ..._recognitionFields(
+                              regions[i],
+                              prefix: regions.length == 1 ? '' : 'i${i + 1}_',
+                            ),
                         },
                       ),
                     );

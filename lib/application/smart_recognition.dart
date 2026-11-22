@@ -1615,7 +1615,6 @@ class SmartIntake {
           if (item?.pageIndex != null) item!,
       ];
       final log = stageLog.forAsset(imageId);
-      if (log == null) continue;
       if (items.every((item) => item == null)) continue;
       final fields = <String, Object?>{
         'items': items.length,

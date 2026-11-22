@@ -71,26 +71,26 @@ void main() {
     return Uint8List.fromList(img.encodePng(source));
   }
 
-  Future<SegmentationResult> _unresolvedRegion(Uint8List bytes) async =>
+  Future<SegmentationResult> unresolvedRegion(Uint8List bytes) async =>
       SegmentationResult(
         multi: false,
-        candidates: const [
+        candidates: [
           SegmentCandidate(
             // A measured region with no usable quadrilateral: the review
             // vocabulary of an unresolved boundary, in the honest form.
-            region: const [.1, .1, .9, .6045],
+            region: [.1, .1, .9, .6045],
             reason: 'no-trustworthy-quad',
           ),
         ],
       );
 
-  Future<SegmentationResult> _acceptedRegion(Uint8List bytes) async =>
+  Future<SegmentationResult> acceptedRegion(Uint8List bytes) async =>
       SegmentationResult(
         multi: false,
         candidates: [
           SegmentCandidate(
-            region: const [.1, .1, .9, .6045],
-            corners: const [
+            region: [.1, .1, .9, .6045],
+            corners: [
               Point2(.1, .1),
               Point2(.9, .1),
               Point2(.9, .6045),
@@ -151,7 +151,7 @@ void main() {
     test(
       'detection and crop records name the decision and the cause',
       () async {
-        final (log, assetId) = await runBatch(_unresolvedRegion);
+        final (log, assetId) = await runBatch(unresolvedRegion);
         final detection = recordFor(log, assetId, JourneyStage.detection);
         final crop = recordFor(log, assetId, JourneyStage.crop);
 
@@ -180,7 +180,7 @@ void main() {
     );
 
     test('the recognition record names what the region classified', () async {
-      final (log, assetId) = await runBatch(_unresolvedRegion);
+      final (log, assetId) = await runBatch(unresolvedRegion);
       final recognition = recordFor(log, assetId, JourneyStage.recognition);
 
       expect(recognition.outcome, JourneyOutcome.review);
@@ -194,7 +194,7 @@ void main() {
     test(
       'the placement record names the unplaced document per-document',
       () async {
-        final (log, assetId) = await runBatch(_unresolvedRegion);
+        final (log, assetId) = await runBatch(unresolvedRegion);
         final placement = recordFor(log, assetId, JourneyStage.placement);
 
         expect(placement.outcome, JourneyOutcome.review);
@@ -214,7 +214,7 @@ void main() {
     test(
       'detection passes on the accepted decision; crop names state and facts',
       () async {
-        final (log, assetId) = await runBatch(_acceptedRegion);
+        final (log, assetId) = await runBatch(acceptedRegion);
         final detection = recordFor(log, assetId, JourneyStage.detection);
         final crop = recordFor(log, assetId, JourneyStage.crop);
 
@@ -236,7 +236,7 @@ void main() {
     );
 
     test('the placement record names the unplaced, unconfirmed item', () async {
-      final (log, assetId) = await runBatch(_acceptedRegion);
+      final (log, assetId) = await runBatch(acceptedRegion);
       final placement = recordFor(log, assetId, JourneyStage.placement);
 
       // Cropped, but its kind is unknown, so its size is not confirmed and it

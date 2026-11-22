@@ -54,12 +54,18 @@ void main() {
     img.fill(source, color: img.ColorRgb8(50, 60, 75));
     img.fillRect(
       source,
-      x1: 100, y1: 100, x2: 900, y2: 604,
+      x1: 100,
+      y1: 100,
+      x2: 900,
+      y2: 604,
       color: img.ColorRgb8(240, 238, 232),
     );
     img.fillRect(
       source,
-      x1: 200, y1: 620, x2: 800, y2: 998,
+      x1: 200,
+      y1: 620,
+      x2: 800,
+      y2: 998,
       color: img.ColorRgb8(226, 230, 235),
     );
     return Uint8List.fromList(img.encodePng(source));
@@ -133,41 +139,45 @@ void main() {
     String assetId,
     JourneyStage stage,
   ) {
-    final matches = recordsFor(log, assetId)
-        .where((r) => r.stage == stage)
-        .toList();
+    final matches = recordsFor(
+      log,
+      assetId,
+    ).where((r) => r.stage == stage).toList();
     expect(matches, isNotEmpty, reason: 'expected a record for ${stage.name}');
     return matches.single;
   }
 
   group('crop not produced (the sample’s five crop-review journeys)', () {
-    test('detection and crop records name the decision and the cause', () async {
-      final (log, assetId) = await runBatch(_unresolvedRegion);
-      final detection = recordFor(log, assetId, JourneyStage.detection);
-      final crop = recordFor(log, assetId, JourneyStage.crop);
+    test(
+      'detection and crop records name the decision and the cause',
+      () async {
+        final (log, assetId) = await runBatch(_unresolvedRegion);
+        final detection = recordFor(log, assetId, JourneyStage.detection);
+        final crop = recordFor(log, assetId, JourneyStage.crop);
 
-      // A measured region the decision rejects is NOT a detection pass.
-      expect(detection.outcome, JourneyOutcome.review);
-      expect(detection.fields['accepted'], isFalse);
-      expect(detection.fields['regions'], 1);
-      expect(detection.fields['decision'], isNotNull);
-      expect(detection.fields['reason'], isNotNull);
+        // A measured region the decision rejects is NOT a detection pass.
+        expect(detection.outcome, JourneyOutcome.review);
+        expect(detection.fields['accepted'], isFalse);
+        expect(detection.fields['regions'], 1);
+        expect(detection.fields['decision'], isNotNull);
+        expect(detection.fields['reason'], isNotNull);
 
-      // The crop did not happen, and the cause is named, never silent.
-      expect(crop.outcome, JourneyOutcome.review);
-      expect(crop.fields['cropped'], 0);
-      expect(crop.fields['notDetected'], 1);
-      expect(crop.fields['accepted'], isFalse);
-      expect(crop.fields['decision'], isNotNull);
-      expect(crop.fields['reason'], isNotNull);
-      expect(crop.detail, contains('قص'));
-      // The committed document carries its own measurement facts.
-      expect(crop.fields['kind'], 'unknown');
-      expect(crop.fields['sizeConfirmed'], isFalse);
-      expect(crop.fields['sizeSource'], 'provisional_image_dimensions');
-      expect(crop.fields['widthMm'], isA<double>());
-      expect(crop.fields['heightMm'], isA<double>());
-    });
+        // The crop did not happen, and the cause is named, never silent.
+        expect(crop.outcome, JourneyOutcome.review);
+        expect(crop.fields['cropped'], 0);
+        expect(crop.fields['notDetected'], 1);
+        expect(crop.fields['accepted'], isFalse);
+        expect(crop.fields['decision'], isNotNull);
+        expect(crop.fields['reason'], isNotNull);
+        expect(crop.detail, contains('قص'));
+        // The committed document carries its own measurement facts.
+        expect(crop.fields['kind'], 'unknown');
+        expect(crop.fields['sizeConfirmed'], isFalse);
+        expect(crop.fields['sizeSource'], 'provisional_image_dimensions');
+        expect(crop.fields['widthMm'], isA<double>());
+        expect(crop.fields['heightMm'], isA<double>());
+      },
+    );
 
     test('the recognition record names what the region classified', () async {
       final (log, assetId) = await runBatch(_unresolvedRegion);
@@ -181,41 +191,49 @@ void main() {
       expect(recognition.fields['confidence'], isNull);
     });
 
-    test('the placement record names the unplaced document per-document', () async {
-      final (log, assetId) = await runBatch(_unresolvedRegion);
-      final placement = recordFor(log, assetId, JourneyStage.placement);
+    test(
+      'the placement record names the unplaced document per-document',
+      () async {
+        final (log, assetId) = await runBatch(_unresolvedRegion);
+        final placement = recordFor(log, assetId, JourneyStage.placement);
 
-      expect(placement.outcome, JourneyOutcome.review);
-      expect(placement.fields['placedItems'], 0);
-      expect(placement.fields['i1_placed'], isFalse);
-      expect(placement.fields['i1_sizeConfirmed'], isFalse);
-      expect(placement.fields['i1_sizeSource'],
-          'provisional_image_dimensions');
-      expect(placement.detail, contains('حدّد النوع'));
-    });
+        expect(placement.outcome, JourneyOutcome.review);
+        expect(placement.fields['placedItems'], 0);
+        expect(placement.fields['i1_placed'], isFalse);
+        expect(placement.fields['i1_sizeConfirmed'], isFalse);
+        expect(
+          placement.fields['i1_sizeSource'],
+          'provisional_image_dimensions',
+        );
+        expect(placement.detail, contains('حدّد النوع'));
+      },
+    );
   });
 
   group('crop produced (the sample’s five crop-passed journeys)', () {
-    test('detection passes on the accepted decision; crop names state and facts', () async {
-      final (log, assetId) = await runBatch(_acceptedRegion);
-      final detection = recordFor(log, assetId, JourneyStage.detection);
-      final crop = recordFor(log, assetId, JourneyStage.crop);
+    test(
+      'detection passes on the accepted decision; crop names state and facts',
+      () async {
+        final (log, assetId) = await runBatch(_acceptedRegion);
+        final detection = recordFor(log, assetId, JourneyStage.detection);
+        final crop = recordFor(log, assetId, JourneyStage.crop);
 
-      expect(detection.outcome, JourneyOutcome.passed);
-      expect(detection.fields['accepted'], isTrue);
-      expect(detection.fields['decision'], 'accepted');
-      expect(detection.fields['reason'], isNull);
-      expect(detection.fields['regions'], 1);
+        expect(detection.outcome, JourneyOutcome.passed);
+        expect(detection.fields['accepted'], isTrue);
+        expect(detection.fields['decision'], 'accepted');
+        expect(detection.fields['reason'], isNull);
+        expect(detection.fields['regions'], 1);
 
-      expect(crop.outcome, JourneyOutcome.passed);
-      expect(crop.fields['cropped'], 1);
-      expect(crop.fields['notDetected'], 0);
-      expect(crop.fields['accepted'], isTrue);
-      expect(crop.fields['kind'], 'unknown');
-      expect(crop.fields['sizeConfirmed'], isFalse);
-      expect(crop.fields['widthMm'], isA<double>());
-      expect(crop.fields['heightMm'], isA<double>());
-    });
+        expect(crop.outcome, JourneyOutcome.passed);
+        expect(crop.fields['cropped'], 1);
+        expect(crop.fields['notDetected'], 0);
+        expect(crop.fields['accepted'], isTrue);
+        expect(crop.fields['kind'], 'unknown');
+        expect(crop.fields['sizeConfirmed'], isFalse);
+        expect(crop.fields['widthMm'], isA<double>());
+        expect(crop.fields['heightMm'], isA<double>());
+      },
+    );
 
     test('the placement record names the unplaced, unconfirmed item', () async {
       final (log, assetId) = await runBatch(_acceptedRegion);

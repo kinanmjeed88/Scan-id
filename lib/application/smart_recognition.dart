@@ -108,8 +108,7 @@ String boundaryCauseLabel(BoundaryReviewReason reason) => switch (reason) {
   BoundaryReviewReason.notABoundary => 'اقتراح غير صالح شكلاً',
   BoundaryReviewReason.geometryRejected => 'حدود مرفوضة هندسياً',
   BoundaryReviewReason.aspectMismatch => 'شكل الحدود لا يطابق المقاس',
-  BoundaryReviewReason.quadOutsideRegion =>
-    'الحدود لا تصف المنطقة المقاسة',
+  BoundaryReviewReason.quadOutsideRegion => 'الحدود لا تصف المنطقة المقاسة',
   BoundaryReviewReason.lowModelConfidence => 'درجة كشف حدود منخفضة',
   BoundaryReviewReason.touchesFrameEdge => 'تلامس الحدود حافة الإطار',
   BoundaryReviewReason.multiSceneNotCorroborated =>
@@ -247,7 +246,7 @@ void _recordApplyStage(
           : !measured
           ? 'لم تُقَس منطقة مستند؛ بقيت الصورة كاملة يمكن قصّها يدوياً.'
           : 'بقيت الصورة كاملة بلا قص؛ '
-              '${_cropNotProducedCause(reasons)}.',
+                '${_cropNotProducedCause(reasons)}.',
       fields: {
         'applyDurationMs': applyDurationMs,
         'cropped': cropped,
@@ -264,7 +263,10 @@ void _recordApplyStage(
         // reader should never have to decode the item to learn the outcome.
         if (items.isNotEmpty)
           for (var i = 0; i < items.length; i++)
-            ..._measurementFields(items[i], prefix: items.length == 1 ? '' : 'i${i + 1}_'),
+            ..._measurementFields(
+              items[i],
+              prefix: items.length == 1 ? '' : 'i${i + 1}_',
+            ),
       },
     ),
   );
@@ -278,13 +280,17 @@ void _recordApplyStage(
 /// measured — the kind, the status and the classification value — never
 /// recomputed, so the record can never claim a recognition the pipeline did
 /// not make.
-Map<String, Object?> _recognitionFields(DetectionAnalysis region, {String prefix = ''}) {
+Map<String, Object?> _recognitionFields(
+  DetectionAnalysis region, {
+  String prefix = '',
+}) {
   final classification = region.classification;
   final confidence = classification.confidences.classification?.value;
   return {
     '${prefix}kind': classification.kind.name,
     '${prefix}status': classification.status.name,
-    if (confidence != null) '${prefix}confidence': double.parse(confidence.toStringAsFixed(4)),
+    if (confidence != null)
+      '${prefix}confidence': double.parse(confidence.toStringAsFixed(4)),
   };
 }
 
@@ -293,11 +299,16 @@ Map<String, Object?> _recognitionFields(DetectionAnalysis region, {String prefix
 /// [prefix] distinguishes documents inside one image in the multi-document
 /// report shape (`i1_`, `i2_`, …); it is empty for a single-document crop
 /// so the keys stay short.
-Map<String, Object?> _measurementFields(DocumentItem item, {String prefix = ''}) {
+Map<String, Object?> _measurementFields(
+  DocumentItem item, {
+  String prefix = '',
+}) {
   return {
     '${prefix}kind': item.documentKind.name,
     '${prefix}sizeConfirmed': item.sizeConfirmed,
-    '${prefix}sizeSource': item.sizeConfirmed ? 'catalog' : 'provisional_image_dimensions',
+    '${prefix}sizeSource': item.sizeConfirmed
+        ? 'catalog'
+        : 'provisional_image_dimensions',
     '${prefix}widthMm': double.parse(item.width.toStringAsFixed(2)),
     '${prefix}heightMm': double.parse(item.height.toStringAsFixed(2)),
   };
@@ -1595,7 +1606,9 @@ class SmartIntake {
       final records = entry.value;
       final items = [
         for (final record in records)
-          current.items.where((item) => item.documentId == record.id).firstOrNull,
+          current.items
+              .where((item) => item.documentId == record.id)
+              .firstOrNull,
       ];
       final placed = [
         for (final item in items)
@@ -1611,7 +1624,8 @@ class SmartIntake {
           'i${i + 1}_placed': items[i]?.pageIndex != null,
           if (items[i]?.pageIndex != null)
             'i${i + 1}_page': items[i]!.pageIndex! + 1,
-          if (items[i] != null) 'i${i + 1}_sizeConfirmed': items[i]!.sizeConfirmed,
+          if (items[i] != null)
+            'i${i + 1}_sizeConfirmed': items[i]!.sizeConfirmed,
           if (items[i] != null)
             'i${i + 1}_sizeSource': items[i]!.sizeConfirmed
                 ? 'catalog'

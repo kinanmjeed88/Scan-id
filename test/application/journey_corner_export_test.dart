@@ -92,6 +92,8 @@ DocumentRecord _oneDocument(
   String? sideId,
   List<Point2>? suggested,
   String producer = 'cascade',
+  List<String> trace = const [],
+  List<String> diagnostics = const [],
 }) => _record(
   id: id,
   sides: [
@@ -100,6 +102,8 @@ DocumentRecord _oneDocument(
       polygon: polygon,
       suggested: suggested,
       producer: producer,
+      trace: trace,
+      diagnostics: diagnostics,
     ),
   ],
 );
@@ -164,11 +168,7 @@ void main() {
     ];
 
     test('the four corners come back in the app ring order', () {
-      final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
-      );
+      final step = _detection(_project([_oneDocument(quad)]));
 
       expect(step.fields['quadStatus'], 'accepted');
       expect(step.fields['quadSpace'], 'originalNorm');
@@ -182,11 +182,7 @@ void main() {
     });
 
     test('the ring is clockwise from top-left, as the app orders corners', () {
-      final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
-      );
+      final step = _detection(_project([_oneDocument(quad)]));
       final ring = _corners(step.fields);
       // Canonical ring: sums of x+y are minimal at the first corner.
       final sums = [for (final c in ring) c.$1 + c.$2];
@@ -204,9 +200,7 @@ void main() {
 
     test('the reference frame is the copied source frame, in pixels', () {
       final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
+        _project([_oneDocument(quad)]),
         copiedWidth: 3024,
         copiedHeight: 4032,
       );
@@ -217,9 +211,7 @@ void main() {
 
     test('an unknown copy size is stated, never guessed', () {
       final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
+        _project([_oneDocument(quad)]),
         copiedWidth: null,
         copiedHeight: null,
       );
@@ -240,9 +232,7 @@ void main() {
       // Corners that touch all four edges: the padding-absorbing case.
       final quad = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
       final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
+        _project([_oneDocument(quad)]),
         copiedWidth: 4000,
         copiedHeight: 3000,
       );
@@ -264,11 +254,7 @@ void main() {
         Point2(1199 / 1199, 1599 / 1599),
         Point2(1 / 1199, 1599 / 1599),
       ];
-      final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
-      );
+      final step = _detection(_project([_oneDocument(quad)]));
       final ring = _corners(step.fields);
       // 4-decimal rounding is the documented export precision.
       expect(ring[0], (0.0008, 0.0013));
@@ -313,12 +299,7 @@ void main() {
         Point2(.1, .9),
       ];
       final step = _detection(
-        _project([
-          _record(
-            id: 'd1',
-            sides: [_side(suggested: bowTie)],
-          ),
-        ]),
+        _project([_oneDocument(null, suggested: bowTie)]),
       );
       expect(step.fields['quadStatus'], 'invalid');
       expect(step.fields['quadReason'], 'notConvex');
@@ -335,9 +316,7 @@ void main() {
         Point2(.1, .9),
       ];
       final step = _detection(
-        _project([
-          _oneDocument(null, suggested: outside),
-        ]),
+        _project([_oneDocument(null, suggested: outside)]),
       );
       expect(step.fields['quadStatus'], 'invalid');
       expect(step.fields['quadReason'], 'outOfBounds');
@@ -358,15 +337,10 @@ void main() {
       ];
       final withDiagnostics = _detection(
         _project([
-          _record(
-            id: 'd1',
-            sides: [
-              _side(
-                polygon: quad,
-                diagnostics: const ['يلامس حافة الصورة'],
-                trace: const ['review=touchesFrameEdge'],
-              ),
-            ],
+          _oneDocument(
+            quad,
+            diagnostics: const ['يلامس حافة الصورة'],
+            trace: const ['review=touchesFrameEdge'],
           ),
         ]),
       );
@@ -375,12 +349,7 @@ void main() {
 
       final withoutPolygon = _detection(
         _project([
-          _record(
-            id: 'd1',
-            sides: [
-              _side(trace: const ['review=touchesFrameEdge']),
-            ],
-          ),
+          _oneDocument(null, trace: const ['review=touchesFrameEdge']),
         ]),
       );
       expect(withoutPolygon.fields.containsKey('accepted'), isFalse);
@@ -392,14 +361,7 @@ void main() {
       // it would report four perfect corners nobody measured.
       final full = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
       final step = _detection(
-        _project([
-          _record(
-            id: 'd1',
-            sides: [
-              _side(polygon: full, producer: 'legacy-import'),
-            ],
-          ),
-        ]),
+        _project([_oneDocument(full, producer: 'legacy-import')]),
       );
       expect(step.fields['quadStatus'], 'none');
       expect(step.fields.containsKey('quadCorners'), isFalse);
@@ -412,14 +374,7 @@ void main() {
     // absence, never as a quad of zeros.
     test('a detection that produced no usable quad reports absence', () {
       final step = _detection(
-        _project([
-          _record(
-            id: 'd1',
-            sides: [
-              _side(trace: const ['aspect=1.5']),
-            ],
-          ),
-        ]),
+        _project([_oneDocument(null, trace: const ['aspect=1.5'])]),
       );
       expect(step.fields['quadStatus'], 'none');
       expect(step.fields.containsKey('quadCorners'), isFalse);
@@ -558,11 +513,7 @@ void main() {
         Point2(.9, .9),
         Point2(.1, .9),
       ];
-      final step = _detection(
-        _project([
-          _oneDocument(quad),
-        ]),
-      );
+      final step = _detection(_project([_oneDocument(quad)]));
       for (final entry in step.fields.entries) {
         if (!entry.key.startsWith('quad')) continue;
         final value = entry.value;
@@ -619,9 +570,7 @@ void main() {
         batchId: 'batch-0001',
         startedAt: DateTime.utc(2026, 11, 22, 10),
         images: const [ImportedImageFact(name: 'ورقة.jpg', assetId: 'a1')],
-        project: _project([
-          _oneDocument(quad),
-        ]),
+        project: _project([_oneDocument(quad)]),
       ).single;
 
       final encoded = jsonEncode(journey.toJson());

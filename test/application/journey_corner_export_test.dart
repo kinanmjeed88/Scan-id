@@ -317,8 +317,10 @@ void main() {
       expect(step.fields['quadStatus'], 'invalid');
       expect(step.fields['quadReason'], 'notConvex');
       expect(step.fields.containsKey('quadCorners'), isFalse);
-      // Never a zero-filled quad as a stand-in for a refused one.
-      expect(step.fields.containsKey('quadSource'), isFalse);
+      // Never a zero-filled quad as a stand-in for a refused one, and no
+      // reference frame either: a refused ring has no geometry to measure.
+      expect(step.fields.containsKey('quadWidth'), isFalse);
+      expect(step.fields.containsKey('quadHeight'), isFalse);
     });
 
     test('an out-of-frame proposal is refused by name', () {

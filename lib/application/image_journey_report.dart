@@ -409,6 +409,14 @@ JourneyStep _detectionStep(
 /// document has no corners".
 const int _cornerFieldBudget = 96;
 
+/// The one coordinate space this export ever writes.
+///
+/// Spelled out rather than implied, because a reader that guesses the space
+/// from context is exactly how a tensor coordinate gets mistaken for a source
+/// position. Every `quadCorners` value in every entry is fractions of the
+/// EXIF-oriented source frame under this name.
+const String _cornerSpaceName = 'originalNorm';
+
 /// The detector's four corners as normalized source-image fractions, plus the
 /// reference frame and the geometry verdict they belong to.
 ///

@@ -84,6 +84,26 @@ DocumentRecord _record({
   ),
 );
 
+/// One single-sided document. Kept as a helper so a test reads as the case it
+/// exercises instead of a nest of collection literals.
+DocumentRecord _oneDocument(
+  List<Point2>? polygon, {
+  String id = 'd1',
+  String? sideId,
+  List<Point2>? suggested,
+  String producer = 'cascade',
+}) => _record(
+  id: id,
+  sides: [
+    _side(
+      id: sideId ?? 's-$id',
+      polygon: polygon,
+      suggested: suggested,
+      producer: producer,
+    ),
+  ],
+);
+
 Project _project(
   List<DocumentRecord> records, {
   int width = 1200,
@@ -127,10 +147,7 @@ List<(double, double)> _corners(
   expect(raw, isA<String>(), reason: 'expected ${prefix}quadCorners');
   return [
     for (final pair in (raw! as String).split(' '))
-      (
-        double.parse(pair.split(',')[0]),
-        double.parse(pair.split(',')[1]),
-      ),
+      (double.parse(pair.split(',')[0]), double.parse(pair.split(',')[1])),
   ];
 }
 
@@ -149,7 +166,7 @@ void main() {
     test('the four corners come back in the app ring order', () {
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
       );
 
@@ -167,7 +184,7 @@ void main() {
     test('the ring is clockwise from top-left, as the app orders corners', () {
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
       );
       final ring = _corners(step.fields);
@@ -188,7 +205,7 @@ void main() {
     test('the reference frame is the copied source frame, in pixels', () {
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
         copiedWidth: 3024,
         copiedHeight: 4032,
@@ -201,7 +218,7 @@ void main() {
     test('an unknown copy size is stated, never guessed', () {
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
         copiedWidth: null,
         copiedHeight: null,
@@ -221,15 +238,10 @@ void main() {
     // ones and that every component is inside [0, 1].
     test('a letterboxed edge quad stays within the normalized frame', () {
       // Corners that touch all four edges: the padding-absorbing case.
-      final quad = [
-        Point2(0, 0),
-        Point2(1, 0),
-        Point2(1, 1),
-        Point2(0, 1),
-      ];
+      final quad = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
         copiedWidth: 4000,
         copiedHeight: 3000,
@@ -254,7 +266,7 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
       );
       final ring = _corners(step.fields);
@@ -275,7 +287,7 @@ void main() {
         final step = _detection(
           _project(
             [
-              _record(id: 'd1', sides: [_side(polygon: quad)]),
+              _oneDocument(quad),
             ],
             width: size.$1,
             height: size.$2,
@@ -324,7 +336,7 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(suggested: outside)]),
+          _oneDocument(null, suggested: outside),
         ]),
       );
       expect(step.fields['quadStatus'], 'invalid');
@@ -378,17 +390,14 @@ void main() {
     test('a legacy-import polygon is a region, not a detection', () {
       // Migration synthesizes a full-frame polygon for old records. Exporting
       // it would report four perfect corners nobody measured.
-      final full = [
-        Point2(0, 0),
-        Point2(1, 0),
-        Point2(1, 1),
-        Point2(0, 1),
-      ];
+      final full = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
       final step = _detection(
         _project([
           _record(
             id: 'd1',
-            sides: [_side(polygon: full, producer: 'legacy-import')],
+            sides: [
+              _side(polygon: full, producer: 'legacy-import'),
+            ],
           ),
         ]),
       );
@@ -466,8 +475,8 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(id: 's1', polygon: first)]),
-          _record(id: 'd2', sides: [_side(id: 's2', polygon: second)]),
+          _oneDocument(first, id: 'd1', sideId: 's1'),
+          _oneDocument(second, id: 'd2', sideId: 's2'),
         ]),
       );
 
@@ -531,7 +540,7 @@ void main() {
               _side(id: 's1', trace: const ['x=1']),
             ],
           ),
-          _record(id: 'd2', sides: [_side(id: 's2', polygon: quad)]),
+          _oneDocument(quad, id: 'd2', sideId: 's2'),
         ]),
       );
       // d2 keeps the "2" it has in every other field of this report.
@@ -551,7 +560,7 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
       );
       for (final entry in step.fields.entries) {
@@ -609,11 +618,9 @@ void main() {
       final journey = buildImageJourneys(
         batchId: 'batch-0001',
         startedAt: DateTime.utc(2026, 11, 22, 10),
-        images: const [
-          ImportedImageFact(name: 'ورقة.jpg', assetId: 'a1'),
-        ],
+        images: const [ImportedImageFact(name: 'ورقة.jpg', assetId: 'a1')],
         project: _project([
-          _record(id: 'd1', sides: [_side(polygon: quad)]),
+          _oneDocument(quad),
         ]),
       ).single;
 

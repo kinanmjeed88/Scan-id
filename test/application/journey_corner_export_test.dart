@@ -862,8 +862,7 @@ void main() {
       expect(bytes, lessThan(8192));
     });
 
-    test('an overflowing frame keeps what was measured and states the rest',
-        () {
+    test('an overflow keeps measured corners and counts the rest', () {
       // Past the ceiling the export must not fall silent about measured
       // documents: the blocks already accrued survive, and the overflow is
       // named once. 13 documents with two sides each is the first frame that

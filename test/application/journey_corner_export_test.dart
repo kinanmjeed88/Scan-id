@@ -29,9 +29,9 @@ ImageAsset _asset(
   id: id,
   name: '$id.jpg',
   derivedFrom: derivedFrom,
-  originalPath: 'projects/p1/assets/$id/original.png',
-  workingPath: 'projects/p1/assets/$id/working.png',
-  thumbnailPath: 'projects/p1/assets/$id/thumb.jpg',
+  originalPath: 'projects/project1/assets/$id/original.png',
+  workingPath: 'projects/project1/assets/$id/working.png',
+  thumbnailPath: 'projects/project1/assets/$id/thumb.jpg',
   width: width,
   height: height,
 );
@@ -50,8 +50,8 @@ DocumentSide _side({
   id: id,
   side: side,
   processedAsset: ProcessedAssetRef(
-    workingPath: 'projects/p1/processed/$id/working.png',
-    thumbnailPath: 'projects/p1/processed/$id/thumb.jpg',
+    workingPath: 'projects/project1/processed/$id/working.png',
+    thumbnailPath: 'projects/project1/processed/$id/thumb.jpg',
     width: 400,
     height: 250,
     corners: processedCorners,
@@ -485,12 +485,7 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(
-            id: 'd1',
-            sides: [
-              _side(id: 's1', trace: const ['x=1']),
-            ],
-          ),
+          _record(id: 'd1', sides: [_side(id: 's1')]),
           _oneDocument(quad, id: 'd2', sideId: 's2'),
         ]),
       );

@@ -402,8 +402,8 @@ JourneyStep _detectionStep(
 /// Fields-per-image ceiling for the corner export.
 ///
 /// A twelve-document image is the most one photo yields, and a stored entry is
-/// bounded, so the corner block is counted rather than merely written: each
-/// document needs at most five fields, and twelve of them fit well under this.
+/// bounded, so the corner block is counted rather than merely written: one
+/// document needs at most six fields, and twelve of them fit well under this.
 /// Over budget, the block is dropped entirely and no `quadStatus` is written,
 /// which a reader must treat as "corners were not exported" — never as "this
 /// document has no corners".

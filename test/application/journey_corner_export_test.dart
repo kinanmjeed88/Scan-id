@@ -373,12 +373,136 @@ void main() {
 
     test('a legacy-import polygon is a region, not a detection', () {
       // Migration synthesizes a full-frame polygon for old records. Exporting
-      // it would report four perfect corners nobody measured.
+      // its four corners would report perfect corners nobody measured, so no
+      // coordinates may be exported. It is a refusal with a reason -- the
+      // record does carry a polygon -- and not the `none` "nothing was
+      // produced" state, which would misdescribe the record.
       final full = [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)];
       final step = _detection(
         _project([_oneDocument(full, producer: 'legacy-import')]),
       );
-      expect(step.fields['quadStatus'], 'none');
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields['quadReason'], 'notAuthorized');
+      expect(step.fields.containsKey('quadCorners'), isFalse);
+    });
+  });
+
+  group('a produced ring the app refused is never reported as absence', () {
+    test('a three-point detection is a refusal, not "nothing produced"', () {
+      // `DetectionRef` accepts any non-empty finite polygon, so a detector
+      // that returned the wrong number of corners is a state this build can
+      // hold. `none` means "no quadrilateral was produced"; reporting that
+      // here would let a mis-shaped detection pass as "the detector found
+      // nothing", which is the opposite conclusion.
+      final step = _detection(
+        _project([
+          _record(
+            id: 'd1',
+            sides: [
+              _side(
+                polygon: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .9)],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields['quadReason'], 'wrongPointCount');
+      expect(step.fields.containsKey('quadCorners'), isFalse);
+    });
+
+    test('a five-point detection names its reason too', () {
+      final step = _detection(
+        _project([
+          _record(
+            id: 'd1',
+            sides: [
+              _side(
+                polygon: [
+                  Point2(.1, .1),
+                  Point2(.9, .1),
+                  Point2(.9, .9),
+                  Point2(.1, .9),
+                  Point2(.5, .5),
+                ],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields['quadReason'], 'wrongPointCount');
+      expect(step.fields.containsKey('quadCorners'), isFalse);
+    });
+
+    test('an out-of-bounds accepted-candidate names outOfBounds', () {
+      // A four-point ring with a corner outside [0,1] must not be `none`
+      // either: the detector produced geometry, and the refusal is geometric.
+      final step = _detection(
+        _project([
+          _record(
+            id: 'd1',
+            sides: [
+              _side(
+                polygon: [
+                  Point2(-.2, .1),
+                  Point2(.9, .1),
+                  Point2(.9, .9),
+                  Point2(.1, .9),
+                ],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields['quadReason'], 'outOfBounds');
+      expect(step.fields.containsKey('quadCorners'), isFalse);
+    });
+
+    test('a refused polygon is not replaced by its review proposal', () {
+      // A refused `polygon` plus a clean `suggestedPolygon` must still report
+      // the refusal. Falling back to the suggestion would relabel a refused
+      // detection as a usable one, which is exactly what the audit forbids.
+      final step = _detection(
+        _project([
+          _record(
+            id: 'd1',
+            sides: [
+              _side(
+                polygon: [
+                  Point2(.1, .1),
+                  Point2(.9, .1),
+                  Point2(.9, .9),
+                ],
+                suggested: [
+                  Point2(.2, .2),
+                  Point2(.8, .2),
+                  Point2(.8, .8),
+                  Point2(.2, .8),
+                ],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields.containsKey('quadCorners'), isFalse);
+    });
+
+    test('a geometrically fine ring refused by the decision says so', () {
+      // `legacy-import` is refused for provenance, not geometry. The reason
+      // must describe that, and must never be invented as a geometry code.
+      final step = _detection(
+        _project([
+          _oneDocument(
+            [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
+            producer: 'legacy-import',
+          ),
+        ]),
+      );
+      expect(step.fields['quadStatus'], 'invalid');
+      expect(step.fields['quadReason'], 'notAuthorized');
       expect(step.fields.containsKey('quadCorners'), isFalse);
     });
   });
@@ -684,6 +808,95 @@ void main() {
       for (var n = 1; n <= 12; n++) {
         expect(fields['d${n}_quadStatus'], 'accepted', reason: 'd$n');
       }
+    });
+
+    test('twelve documents with two quads each keep all 144 corner keys', () {
+      // The old 96-key budget overflowed at nine documents and returned `{}`,
+      // silently turning twelve MEASURED documents into "no corner data".
+      // 12 documents x 2 sides x 6 keys = 144 is the real worst case, and its
+      // measured payload is 7,866 bytes -- inside the 8,192-byte entry cap.
+      final fields = _detection(
+        _project([
+          for (var n = 1; n <= 12; n++)
+            _record(
+              id: 'd$n',
+              sides: [
+                for (var side = 1; side <= 2; side++)
+                  _side(
+                    id: 's$n-$side',
+                    side: side == 1 ? SideKind.front : SideKind.back,
+                    polygon: [
+                      Point2(.1 + side * .01, .1),
+                      Point2(.9, .1 + side * .01),
+                      Point2(.9, .9),
+                      Point2(.1, .9),
+                    ],
+                    trace: const ['aspect=1.5', 'area=0.05'],
+                  ),
+              ],
+            ),
+        ]),
+      ).fields;
+
+      var quads = 0;
+      for (var n = 1; n <= 12; n++) {
+        for (var side = 1; side <= 2; side++) {
+          final prefix = 'd${n}_s${side}_';
+          expect(
+            fields['${prefix}quadStatus'],
+            'accepted',
+            reason: 'd$n side $side',
+          );
+          expect(fields['${prefix}quadSpace'], 'originalNorm');
+          expect(fields.keys.contains('${prefix}quadCorners'), isTrue);
+          quads++;
+        }
+      }
+      expect(quads, 24);
+      expect(
+        fields.containsKey('quadOverflowDocuments'),
+        isFalse,
+        reason: 'nothing overflowed, so nothing may claim it did',
+      );
+      final bytes = utf8.encode(jsonEncode({'fields': fields})).length;
+      expect(bytes, lessThan(8192));
+    });
+
+    test('an overflowing frame keeps what was measured and states the rest',
+        () {
+      // Past the ceiling the export must not fall silent about measured
+      // documents: the blocks already accrued survive, and the overflow is
+      // named once. 13 documents with two sides each is the first frame that
+      // exceeds 144 keys.
+      final fields = _detection(
+        _project([
+          for (var n = 1; n <= 13; n++)
+            _record(
+              id: 'd$n',
+              sides: [
+                for (var side = 1; side <= 2; side++)
+                  _side(
+                    id: 's$n-$side',
+                    polygon: [
+                      Point2(.1, .1),
+                      Point2(.9, .1),
+                      Point2(.9, .9),
+                      Point2(.1, .9),
+                    ],
+                    trace: const ['aspect=1.5', 'area=0.05'],
+                  ),
+              ],
+            ),
+        ]),
+      ).fields;
+
+      // Twelve documents fit (144 keys); the thirteenth is the overflow.
+      for (var n = 1; n <= 12; n++) {
+        expect(fields['d${n}_s1_quadStatus'], 'accepted', reason: 'd$n');
+        expect(fields['d${n}_s2_quadStatus'], 'accepted', reason: 'd$n');
+      }
+      expect(fields['quadOverflowDocuments'], 1);
+      expect(fields.containsKey('d13_s1_quadStatus'), isFalse);
     });
   });
 }

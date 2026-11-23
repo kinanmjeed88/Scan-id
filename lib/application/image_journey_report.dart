@@ -401,13 +401,19 @@ JourneyStep _detectionStep(
 
 /// Fields-per-image ceiling for the corner export.
 ///
-/// A twelve-document image is the most one photo yields, and a stored entry is
-/// bounded, so the corner block is counted rather than merely written: one
-/// document needs at most six fields, and twelve of them fit well under this.
-/// Over budget, the block is dropped entirely and no `quadStatus` is written,
-/// which a reader must treat as "corners were not exported" — never as "this
-/// document has no corners".
-const int _cornerFieldBudget = 96;
+/// Derived from the real worst case, not guessed: twelve documents is the most
+/// one photo yields, a document has at most two sides, and one side needs at
+/// most six keys (`quadSpace`, `quadSource`, `quadStatus`, `quadWidth`,
+/// `quadHeight`, `quadCorners`) — 12 x 2 x 6 = 144. The measured payload for
+/// that frame is 7,866 bytes, inside the 8,192-byte journal entry cap, so this
+/// ceiling is both reachable and affordable.
+///
+/// The previous value of 96 overflowed at nine documents and returned nothing
+/// at all, silently turning measured documents into "no corner data". Past
+/// this ceiling the blocks already accrued are kept and the remainder is
+/// counted in `quadOverflowDocuments`: an unexported document is never written
+/// as `quadStatus: none`, which would claim it has no corners.
+const int _cornerFieldBudget = 144;
 
 /// The one coordinate space this export ever writes.
 ///
@@ -455,33 +461,44 @@ Map<String, Object?> _cornerExportFields(
   ImportedImageFact fact,
 ) {
   final accepted = _hasAcceptedBoundary(detection);
-  final rejected = detection.polygon != null && !accepted;
-  final corners = accepted
-      ? detection.polygon
-      : rejected
-      ? null
-      : detection.suggestedPolygon;
+  final polygon = detection.polygon;
 
+  // Three distinct facts, never merged:
+  //   * a ring the app accepted;
+  //   * a ring a detector produced that the app did NOT accept (wrong shape,
+  //     out of bounds, degenerate) — the refusal must be named, not hidden;
+  //   * an editable proposal held back for review, which is a different field.
   final QuadExportStatus status;
   String? reason;
   List<Point2>? quad;
   if (accepted) {
     status = QuadExportStatus.accepted;
-    quad = corners;
-  } else if (corners != null) {
-    final issue = normalizedQuadIssue(corners);
+    quad = polygon;
+  } else if (polygon != null) {
+    // A detector produced a polygon and the app did not accept it. Whatever
+    // the geometry says, the honest report is a refusal with its measured
+    // reason — never `none` ("nothing was produced"), and never a fallback to
+    // the review proposal, which would present a refused detection as a
+    // usable one. The reason is never invented: if the ring is geometrically
+    // fine, the refusal came from the boundary decision, and `quadReason`
+    // names that instead of a geometry issue.
+    final issue = normalizedQuadIssue(polygon);
+    status = QuadExportStatus.invalid;
+    reason = issue?.name ?? 'notAuthorized';
+  } else if (detection.suggestedPolygon != null) {
+    final suggested = detection.suggestedPolygon!;
+    final issue = normalizedQuadIssue(suggested);
     if (issue == null) {
       status = QuadExportStatus.review;
-      quad = corners;
+      quad = suggested;
     } else {
-      // The proposal the pipeline held back is not a usable ring. Report the
-      // refusal; do not export its numbers.
+      // Held back AND unusable: the refusal is the fact, so export no numbers.
       status = QuadExportStatus.invalid;
       reason = issue.name;
     }
   } else {
-    // Nothing to export for this document; the image-level absence note covers
-    // it. Absence is never written as a zero-coordinate quad.
+    // Genuinely nothing: the image-level absence note covers it. Absence is
+    // never written as a zero-coordinate quad.
     return const {};
   }
 
@@ -536,6 +553,7 @@ Map<String, Object?> _cornerFieldsForNamed(
   // Numbered exactly as [_readEachDetection] numbers its keys: one number per
   // DOCUMENT, with `_s<n>_` inserted only when a document has several sides.
   // A per-side counter would pair a document's corners with another's facts.
+  outer:
   for (var index = 0; index < records.length; index++) {
     final record = records[index];
     final number = index + 1;
@@ -544,9 +562,15 @@ Map<String, Object?> _cornerFieldsForNamed(
       if (detection == null) continue;
       final block = _cornerExportFields(detection, fact);
       if (block.isEmpty) continue;
-      // The budget is a hard ceiling, so a pathological frame degrades to the
-      // absence note instead of growing an entry without limit.
-      if (emitted + block.length > _cornerFieldBudget) return const {};
+      // The budget is a hard ceiling, so a pathological frame degrades instead
+      // of growing an entry without limit. Degrading must not discard what was
+      // already measured: a document whose corners were exported stays
+      // exported, and the overflow is stated once rather than implied by
+      // silence.
+      if (emitted + block.length > _cornerFieldBudget) {
+        fields['quadOverflowDocuments'] = records.length - index;
+        break outer;
+      }
       emitted += block.length;
       final prefix = record.sides.length == 1
           ? 'd${number}_'

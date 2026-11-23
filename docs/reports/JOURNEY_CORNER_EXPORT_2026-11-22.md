@@ -1,6 +1,7 @@
 # تقرير إضافة إحداثيات الزوايا إلى تصدير رحلات المعالجة
 
-الفرع: `arena/f3dba97f-scan-id` · **SHA النهائي: `72b0a9a87304f194eeec8945f5155ef6d9b9b531`**
+الفرع: `arena/f3dba97f-scan-id` · **SHA النهائي للكود: `72b0a9a87304f194eeec8945f5155ef6d9b9b531`**
+· **SHA النهائي للفرع (مع هذا التقرير): `d80506dafc318be57b62ee808a648330800699cb`**
 البناء المرجعي قبل هذا العمل: `aaf2aac0c52dba685f4ce8698dff002a6b91cedf`
 تاريخ: 2026-11-22 · **لا دمج، لا إصدار. الحالة `active`**
 
@@ -245,11 +246,15 @@ a uniform scale of that same frame»).
 
 البحث بـ`head_sha=72b0a9a…` أعاد **تشغيلاً واحداً**: `45113626045` — **نجاح، ٤/٤ وظائف**.
 
+ثم أُضيف هذا التقرير وحده (وثائق فقط، صفر تغيير في الكود) في `d80506d`، وأنتج التشغيل
+**`45115911942`** — **نجاح ٤/٤ أيضاً**، وبنفس الأرقام: `+1891 ~1: All tests passed!`،
+`No issues found! (ran in 14.1s)`، `Formatted 361 files (0 changed)`.
+
 | البوابة | النتيجة |
 |---|---|
 | `Dart format gate` | `Formatted 361 files (0 changed)` |
 | `Flutter analyze` | `No issues found! (ran in 17.3s)` |
-| `Flutter tests` | **`+1891 ~1: All tests passed!`** |
+| `Flutter tests` | **`+1891 ~1: All tests passed!`** (ونفس النتيجة في `45115911942`) |
 | `Source integrity audit` | PASS |
 | `Export tests in isolation` | PASS |
 | `Build Android debug APK` | success |

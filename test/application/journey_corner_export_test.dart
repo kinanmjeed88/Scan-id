@@ -108,6 +108,12 @@ DocumentRecord _oneDocument(
   ],
 );
 
+/// A project holding [records], each placed on the page.
+///
+/// `Project` refuses an active document that has no layout item, so every
+/// record gets the item a real intake would have created for it. The item
+/// carries the record id, which is also what the report's `d<n>_` numbering
+/// follows.
 Project _project(
   List<DocumentRecord> records, {
   int width = 1200,
@@ -115,6 +121,19 @@ Project _project(
 }) => projectFixture(
   assets: [_asset('a1', width: width, height: height)],
   documents: records,
+  items: [
+    for (var i = 0; i < records.length; i++)
+      DocumentItem(
+        id: 'i${i + 1}',
+        assetId: 'a1',
+        documentId: records[i].id,
+        sideId: records[i].sides.first.id,
+        x: 10,
+        y: 10.0 + i,
+        width: 60,
+        height: 40,
+      ),
+  ],
 );
 
 /// Builds the journey and returns the detection step.
@@ -385,26 +404,23 @@ void main() {
     });
 
     test('a side with no detection carries no corner keys of its own', () {
-      final project = projectFixture(
-        assets: [_asset('a1')],
-        documents: [
-          _record(
-            id: 'd1',
-            sides: [
-              DocumentSide(
-                id: 's1',
-                side: SideKind.unknown,
-                processedAsset: ProcessedAssetRef(
-                  workingPath: 'projects/project1/processed/s1/working.png',
-                  thumbnailPath: 'projects/project1/processed/s1/thumb.jpg',
-                  width: 400,
-                  height: 250,
-                ),
+      final project = _project([
+        _record(
+          id: 'd1',
+          sides: [
+            DocumentSide(
+              id: 's1',
+              side: SideKind.unknown,
+              processedAsset: ProcessedAssetRef(
+                workingPath: 'projects/project1/processed/s1/working.png',
+                thumbnailPath: 'projects/project1/processed/s1/thumb.jpg',
+                width: 400,
+                height: 250,
               ),
-            ],
-          ),
-        ],
-      );
+            ),
+          ],
+        ),
+      ]);
       final step = _detection(project);
       expect(step.fields.containsKey('quadStatus'), isFalse);
     });

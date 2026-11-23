@@ -485,7 +485,10 @@ void main() {
       ];
       final step = _detection(
         _project([
-          _record(id: 'd1', sides: [_side(id: 's1')]),
+          _record(
+            id: 'd1',
+            sides: [_side(id: 's1')],
+          ),
           _oneDocument(quad, id: 'd2', sideId: 's2'),
         ]),
       );

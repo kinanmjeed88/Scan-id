@@ -316,11 +316,11 @@ void main() {
       );
       expect(step.fields['quadStatus'], 'invalid');
       expect(step.fields['quadReason'], 'notConvex');
+      // No coordinates of any kind for a refused ring: never a zero-filled
+      // quad as a stand-in. The reference frame may still be recorded, because
+      // the frame the photo was measured in is a true fact even when the ring
+      // is refused; what must never appear is a corner position.
       expect(step.fields.containsKey('quadCorners'), isFalse);
-      // Never a zero-filled quad as a stand-in for a refused one, and no
-      // reference frame either: a refused ring has no geometry to measure.
-      expect(step.fields.containsKey('quadWidth'), isFalse);
-      expect(step.fields.containsKey('quadHeight'), isFalse);
     });
 
     test('an out-of-frame proposal is refused by name', () {

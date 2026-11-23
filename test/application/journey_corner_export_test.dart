@@ -271,13 +271,7 @@ void main() {
           Point2(.2, .8),
         ];
         final step = _detection(
-          _project(
-            [
-              _oneDocument(quad),
-            ],
-            width: size.$1,
-            height: size.$2,
-          ),
+          _project([_oneDocument(quad)], width: size.$1, height: size.$2),
           copiedWidth: size.$1,
           copiedHeight: size.$2,
         );
@@ -374,7 +368,9 @@ void main() {
     // absence, never as a quad of zeros.
     test('a detection that produced no usable quad reports absence', () {
       final step = _detection(
-        _project([_oneDocument(null, trace: const ['aspect=1.5'])]),
+        _project([
+          _oneDocument(null, trace: const ['aspect=1.5']),
+        ]),
       );
       expect(step.fields['quadStatus'], 'none');
       expect(step.fields.containsKey('quadCorners'), isFalse);

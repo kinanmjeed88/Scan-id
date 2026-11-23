@@ -399,9 +399,7 @@ void main() {
           _record(
             id: 'd1',
             sides: [
-              _side(
-                polygon: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .9)],
-              ),
+              _side(polygon: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .9)]),
             ],
           ),
         ]),
@@ -470,11 +468,7 @@ void main() {
             id: 'd1',
             sides: [
               _side(
-                polygon: [
-                  Point2(.1, .1),
-                  Point2(.9, .1),
-                  Point2(.9, .9),
-                ],
+                polygon: [Point2(.1, .1), Point2(.9, .1), Point2(.9, .9)],
                 suggested: [
                   Point2(.2, .2),
                   Point2(.8, .2),
@@ -495,10 +489,12 @@ void main() {
       // must describe that, and must never be invented as a geometry code.
       final step = _detection(
         _project([
-          _oneDocument(
-            [Point2(0, 0), Point2(1, 0), Point2(1, 1), Point2(0, 1)],
-            producer: 'legacy-import',
-          ),
+          _oneDocument([
+            Point2(0, 0),
+            Point2(1, 0),
+            Point2(1, 1),
+            Point2(0, 1),
+          ], producer: 'legacy-import'),
         ]),
       );
       expect(step.fields['quadStatus'], 'invalid');

@@ -586,21 +586,21 @@ BoundaryProposal _classicalWins(MeasuredBoundaryCandidate candidate) =>
     );
 
 BoundaryProposal _keepLearned(BoundaryProposal source, List<Point2> corners) =>
-    BoundaryProposal(
-      producer: source.producer,
-      corners: corners,
-      region: source.region,
-      imposedAspect: source.imposedAspect,
-      imposedKindLabel: source.imposedKindLabel,
-      modelConfidence: source.modelConfidence,
-      minAutoAcceptConfidence: source.minAutoAcceptConfidence,
-      touchesFrameEdge: source.touchesFrameEdge,
+    _withCorners(source, corners).withReview(
       forceReview: true,
-      forceReviewReason: source.forceReview
-          ? (source.forceReviewReason ?? BoundaryReviewReason.modelDisagreement)
-          : BoundaryReviewReason.modelDisagreement,
+      forceReviewReason:
+          source.forceReviewReason ?? BoundaryReviewReason.modelDisagreement,
     );
 
+/// The source claim re-stated with different corners.
+///
+/// Every provenance field travels with it. Rebuilding a proposal field by field
+/// is how the detector trace and the corner disagreement quietly disappeared
+/// from an arbitrated result: the geometry looked right, so nothing failed, but
+/// the record no longer said which models ran or how far apart they were. The
+/// edge band in particular must survive — it is a property of the model that
+/// produced the corners, and a substitution must not silently re-measure the
+/// new corners against the old model's resolution.
 BoundaryProposal _withCorners(BoundaryProposal source, List<Point2> corners) =>
     BoundaryProposal(
       producer: source.producer,
@@ -613,4 +613,7 @@ BoundaryProposal _withCorners(BoundaryProposal source, List<Point2> corners) =>
       touchesFrameEdge: source.touchesFrameEdge,
       forceReview: source.forceReview,
       forceReviewReason: source.forceReviewReason,
+      traces: source.traces,
+      disagreementFraction: source.disagreementFraction,
+      edgeBand: source.edgeBand,
     );

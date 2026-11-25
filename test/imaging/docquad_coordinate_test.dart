@@ -339,4 +339,138 @@ void main() {
     expect(corners[0].x, lessThan(corners[1].x));
     expect(corners[0].y, lessThan(corners[2].y));
   });
+
+  // RC-10: order is a CONTRACT, not a coincidence of one plausible rectangle.
+  //
+  // The channel order of the four heatmaps decides which corner is which. If
+  // the model's channel 0 is not the top-left corner, the returned ring
+  // describes a bow-tie or a rotated ring, and a rotated ring of the SAME
+  // rectangle is a perfectly plausible rectangle in the WRONG place: every
+  // geometry gate accepts it, the crop comes out rotated, and nothing reports a
+  // failure. Only asserting the identity of all four corners catches it.
+  group('all four corners land in TL, TR, BR, BL order', () {
+    const frames = <(String, int, int)>[
+      ('landscape', 1200, 900),
+      ('portrait', 900, 1200),
+      ('square', 1000, 1000),
+      ('wide letterbox', 1200, 275),
+      ('tall letterbox', 320, 1200),
+    ];
+
+    for (final (name, width, height) in frames) {
+      test(name, () {
+        final box = letterbox(width, height);
+        // A document inset from every border on a real-looking frame.
+        final source = <(double, double)>[
+          (width * .18, height * .15),
+          (width * .82, height * .15),
+          (width * .82, height * .85),
+          (width * .18, height * .85),
+        ];
+        final corners = map(
+          source,
+          box,
+          frameWidth: width,
+          frameHeight: height,
+        );
+
+        expect(corners, hasLength(4));
+        // TL then TR: the first edge runs LEFT to RIGHT along the top.
+        expect(
+          corners[0].x,
+          lessThan(corners[1].x),
+          reason: '$name TL->TR is rightward',
+        );
+        expect(
+          corners[0].y,
+          closeTo(corners[1].y, 1e-9),
+          reason: '$name top edge is level',
+        );
+        // TR then BR: the second edge runs TOP to BOTTOM along the right.
+        expect(
+          corners[1].y,
+          lessThan(corners[2].y),
+          reason: '$name TR->BR is downward',
+        );
+        expect(
+          corners[1].x,
+          closeTo(corners[2].x, 1e-9),
+          reason: '$name right edge is upright',
+        );
+        // BR then BL: the third edge runs RIGHT to LEFT along the bottom.
+        expect(
+          corners[2].x,
+          greaterThan(corners[3].x),
+          reason: '$name BR->BL is leftward',
+        );
+        expect(
+          corners[2].y,
+          closeTo(corners[3].y, 1e-9),
+          reason: '$name bottom edge is level',
+        );
+        // BL closes back up to TL.
+        expect(
+          corners[3].y,
+          greaterThan(corners[0].y),
+          reason: '$name BL->TL is upward',
+        );
+
+        // Screen space is y-down, so a clockwise ring has POSITIVE signed area.
+        var twiceArea = 0.0;
+        for (var i = 0; i < 4; i++) {
+          final a = corners[i];
+          final b = corners[(i + 1) % 4];
+          twiceArea += a.x * b.y - b.x * a.y;
+        }
+        expect(
+          twiceArea,
+          greaterThan(0),
+          reason: '$name is clockwise, not inverted',
+        );
+
+        // And the ring is a convex quadrilateral, never a bow-tie.
+        expect(
+          normalizedQuadIssue(corners),
+          isNull,
+          reason: '$name must be a simple convex ring',
+        );
+
+        // The named corners are the corners they claim to be.
+        expect(corners[0].x, closeTo(source[0].$1 / (width - 1), 1e-6));
+        expect(corners[0].y, closeTo(source[0].$2 / (height - 1), 1e-6));
+        expect(corners[2].x, closeTo(source[2].$1 / (width - 1), 1e-6));
+        expect(corners[2].y, closeTo(source[2].$2 / (height - 1), 1e-6));
+      });
+    }
+
+    test('an inverted channel order is rejected, not silently accepted', () {
+      // The same rectangle with its ring reversed describes the same document,
+      // so the ORDER inside the model is not a safety property of the map. What
+      // must never happen is a ring that pairs diagonal corners: that is a
+      // bow-tie, and it must fail the geometry gate rather than become a crop.
+      const width = 1200;
+      const height = 900;
+      final box = letterbox(width, height);
+      final corners = map(
+        [(216.0, 135.0), (738.0, 765.0), (984.0, 135.0), (216.0, 765.0)],
+        box,
+        frameWidth: width,
+        frameHeight: height,
+      );
+      expect(normalizedQuadIssue(corners), isNotNull);
+      expect(
+        verifyBoundary(
+          BoundaryProposal(
+            producer: BoundaryProducer.learnedModel,
+            corners: corners,
+            modelConfidence: .99,
+            minAutoAcceptConfidence: .55,
+          ),
+          sourceWidth: width,
+          sourceHeight: height,
+        ).verification.hasUsableGeometry,
+        isFalse,
+      );
+    });
+  });
 }

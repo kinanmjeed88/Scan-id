@@ -51,6 +51,7 @@ library;
 
 import 'acceptance_policy.dart';
 import 'crop_draft.dart';
+import 'frame_edge_band.dart';
 import 'document_kind.dart';
 import 'geometry.dart';
 import 'image_adjustments.dart';
@@ -248,6 +249,7 @@ class BoundaryProposal {
     this.forceReviewReason,
     this.traces = const [],
     this.disagreementFraction,
+    this.edgeBand = FrameEdgeBand.legacy,
   });
 
   /// Normalized corners (CropGeometry order), or null when the proposer
@@ -293,7 +295,22 @@ class BoundaryProposal {
   /// Largest corresponding-corner displacement divided by the image diagonal,
   /// when two learned detectors both produced usable geometry. Measured from
   /// their own points — never a probability.
+  ///
+  /// Measured over the best CYCLIC re-indexing of the two rings, so a model
+  /// that returns the same corners starting from a different channel is not
+  /// reported as a material disagreement. The search only ever tries a
+  /// rotation, never a reversal, so it cannot call two genuinely different
+  /// rings the same.
   final double? disagreementFraction;
+
+  /// How close to the frame border this claim's corners may sit before the
+  /// touch is a physical statement rather than measurement noise.
+  ///
+  /// Defaults to [FrameEdgeBand.legacy] so every producer that does not model
+  /// its own quantisation (classical detector, segmenter, manual input, replay
+  /// of a stored recipe) keeps exactly the behaviour it had. A learned producer
+  /// records the band its heatmap actually justifies.
+  final FrameEdgeBand edgeBand;
 
   /// The same claim with cascade diagnostics attached, keeping corners,
   /// confidence and review flags untouched.
@@ -313,6 +330,7 @@ class BoundaryProposal {
     forceReviewReason: forceReviewReason,
     traces: traces.isEmpty ? this.traces : traces,
     disagreementFraction: disagreementFraction ?? this.disagreementFraction,
+    edgeBand: edgeBand,
   );
 
   /// The same claim with its review flags replaced; nothing else moves.
@@ -332,6 +350,7 @@ class BoundaryProposal {
     forceReviewReason: forceReviewReason ?? this.forceReviewReason,
     traces: traces,
     disagreementFraction: disagreementFraction,
+    edgeBand: edgeBand,
   );
 }
 
@@ -552,6 +571,12 @@ class AutomaticCropAuthorization {
   List<Point2> get corners => decision.acceptedCorners!;
 }
 
+/// Whether [value] is a score this app may interpret at all: present, finite
+/// and inside `[0, 1]`. A malformed score is an absence of evidence, never a
+/// comfortable margin, so callers treat a false here as a failed threshold.
+bool _usableScore(double? value) =>
+    value != null && value.isFinite && value >= 0 && value <= 1;
+
 /// Verifies [proposal] against the source dimensions it was measured on.
 ///
 /// Conservative by construction: absent or contradictory evidence ends in
@@ -661,31 +686,65 @@ BoundaryDecision verifyBoundary(
     }
   }
 
-  final learnedEdgeTouch =
+  // ---- Frame contact, measured in the producer's own units ----
+  //
+  // A point genuinely outside the frame never reaches this line: `assessQuad`
+  // above rejects it as QuadRejection.outOfBounds and we have already returned
+  // with geometryRejected. So everything here is a corner INSIDE the frame, and
+  // the only open question is how close to a border counts as contact.
+  //
+  // The answer is the producer's own measurement resolution, not one constant
+  // for every producer. A learned model that reads a 64-cell heatmap cannot
+  // resolve a border more finely than one cell, and the two axes do not share a
+  // cell size whenever the frame is not square, so a single 0.016 was simply
+  // wrong for one of the two axes on every real photo. [FrameEdgeBand] carries
+  // that per-axis figure; producers that never modelled it keep the old constant
+  // through [FrameEdgeBand.legacy], so their behaviour is unchanged.
+  //
+  // The check is deliberately NOT skipped for a region-scoped claim. Contact
+  // with the camera frame is a fact about the photograph, not about the region:
+  // a recovered quadrilateral that sits inside its measured region can still
+  // have a corner against the frame border, and that corner is still a place
+  // where the card may continue past the picture. Only [BoundaryProducer]
+  // claims that come with the producer's own flag are exempt, and those are
+  // classical detector output, whose band is [FrameEdgeBand.legacy].
+  final band = proposal.edgeBand;
+  final learnedTouch =
       proposal.producer == BoundaryProducer.learnedModel &&
-      proposal.region == null &&
-      corners.any(
-        (p) => p.x <= 0.016 || p.x >= 0.984 || p.y <= 0.016 || p.y >= 0.984,
-      );
-  if (proposal.touchesFrameEdge || learnedEdgeTouch) {
+      band.sidesTouchedBy(corners).isNotEmpty;
+  if (proposal.touchesFrameEdge || learnedTouch) {
     reasons.add(BoundaryReviewReason.touchesFrameEdge);
   }
+
+  // ---- The acceptance score, on its own ----
+  //
+  // `lowModelConfidence` may only say "this score failed its own bar". A claim
+  // whose score passed is never given that reason, whatever else kept it in
+  // review; the missing corroboration is reported by the cascade itself as
+  // [BoundaryReviewReason.modelNotCorroborated].
   final modelConf = proposal.modelConfidence;
   final minAutoConf = proposal.minAutoAcceptConfidence;
   final learned = proposal.producer == BoundaryProducer.learnedModel;
-  if ((learned || minAutoConf != null) &&
-      (modelConf == null ||
-          !modelConf.isFinite ||
-          modelConf < 0 ||
-          modelConf > 1 ||
-          (learned &&
-              !meetsAcceptanceThreshold(modelConf, acceptanceThreshold)) ||
-          (minAutoConf != null &&
-              (!minAutoConf.isFinite ||
-                  minAutoConf < 0 ||
-                  minAutoConf > 1 ||
-                  modelConf < minAutoConf)))) {
-    reasons.add(BoundaryReviewReason.lowModelConfidence);
+  if (learned || minAutoConf != null) {
+    final scoreUsable = _usableScore(modelConf);
+    final thresholdUsable = minAutoConf == null || _usableScore(minAutoConf);
+    // Type promotion does not follow two nullable locals, so the comparisons
+    // are made against values already proved non-null by the guards above.
+    final minimum = minAutoConf;
+    final belowModelThreshold =
+        learned && !meetsAcceptanceThreshold(modelConf, acceptanceThreshold);
+    final belowStatedMinimum =
+        minimum != null &&
+        scoreUsable &&
+        thresholdUsable &&
+        modelConf != null &&
+        modelConf < minimum;
+    if (!scoreUsable ||
+        !thresholdUsable ||
+        belowModelThreshold ||
+        belowStatedMinimum) {
+      reasons.add(BoundaryReviewReason.lowModelConfidence);
+    }
   }
 
   return BoundaryDecision(

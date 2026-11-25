@@ -223,7 +223,7 @@ List<JourneyStep> _stepsFor(
       if (derivedIds.contains(item.assetId)) item,
   ];
 
-  steps.add(_detectionStep(records, items));
+  steps.add(_detectionStep(records, items, fact));
   steps.add(_cropStep(records, project.assets));
   steps.add(_recognitionStep(records));
   steps.add(_sizingStep(items, records));
@@ -275,6 +275,7 @@ JourneyStep _copyStep(ImportedImageFact fact, ImageAsset? asset) {
 JourneyStep _detectionStep(
   List<DocumentRecord> records,
   List<DocumentItem> items,
+  ImportedImageFact fact,
 ) {
   if (records.isEmpty) {
     final detail = items.isEmpty
@@ -326,6 +327,7 @@ JourneyStep _detectionStep(
         ...measured.fields,
         if (diagnostics.isNotEmpty) 'reasons': diagnostics.length,
         if (accepted) 'accepted': true,
+        ..._cornerFieldsFor(detections.single, fact),
       };
     } else {
       // Several documents were found in this ONE image, each measured and
@@ -334,7 +336,7 @@ JourneyStep _detectionStep(
       // the shape of one document beside the verdict of another.
       final each = _readEachDetection(records);
       sentence = each.sentence;
-      fields = each.fields;
+      fields = {...each.fields, ..._cornerFieldsForNamed(records, fact)};
     }
     final reasons = diagnostics.join(' · ');
     final described = [
@@ -364,18 +366,248 @@ JourneyStep _detectionStep(
   final confidence = detections.length == 1
       ? detections.single.detectionConfidence?.value
       : null;
+  // The score only means something when the boundary it describes was actually
+  // accepted. Printing it under "a boundary was accepted" while the decision
+  // was `needsReview` said the acceptance was weaker than it was, and it made a
+  // stored proposal look like a satisfied gate. When review is the outcome the
+  // number is reported as a proposal score, in its own words.
   return JourneyStep(
     stage: JourneyStage.detection,
     outcome: accepted ? JourneyOutcome.passed : JourneyOutcome.review,
+    // The corner block does not depend on whether trace codes happened to be
+    // recorded: a quad the pipeline accepted is a measurement either way.
     fields: records.length > 1 || records.single.sides.length > 1
-        ? _readEachDetection(records).fields
-        : {if (accepted) 'accepted': true},
+        ? {
+            ..._readEachDetection(records).fields,
+            ..._cornerFieldsForNamed(records, fact),
+          }
+        : {
+            if (accepted) 'accepted': true,
+            if (!accepted && confidence != null)
+              'proposedBoundaryScore': confidence,
+            ..._cornerFieldsFor(detections.single, fact),
+          },
     detail: accepted
         ? confidence == null
               ? 'حُفظت حدود مقبولة؛ درجة الكشف غير متاحة.'
               : 'حُفظت حدود مقبولة بدرجة كشف ${_percent(confidence)}.'
-        : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.',
+        : confidence == null
+        ? 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ راجع الحدود.'
+        : 'لا توجد حدود مقبولة وصالحة لكل أوجه المستندات؛ '
+              'اقتراح الزوايا للمراجعة بدرجة ${_percent(confidence)} '
+              'ولم يُعتمد قصّ تلقائي.',
   );
+}
+
+/// Fields-per-image ceiling for the corner export.
+///
+/// Derived from the real worst case, not guessed: twelve documents is the most
+/// one photo yields, a document has at most two sides, and one side needs at
+/// most six keys (`quadSpace`, `quadSource`, `quadStatus`, `quadWidth`,
+/// `quadHeight`, `quadCorners`) — 12 x 2 x 6 = 144. The measured payload for
+/// that frame is 7,866 bytes, inside the 8,192-byte journal entry cap, so this
+/// ceiling is both reachable and affordable.
+///
+/// The previous value of 96 overflowed at nine documents and returned nothing
+/// at all, silently turning measured documents into "no corner data". Past
+/// this ceiling the blocks already accrued are kept and the remainder is
+/// counted in `quadOverflowDocuments`: an unexported document is never written
+/// as `quadStatus: none`, which would claim it has no corners.
+const int _cornerFieldBudget = 144;
+
+/// The one coordinate space this export ever writes.
+///
+/// Spelled out rather than implied, because a reader that guesses the space
+/// from context is exactly how a tensor coordinate gets mistaken for a source
+/// position. Every `quadCorners` value in every entry is fractions of the
+/// EXIF-oriented source frame under this name.
+const String _cornerSpaceName = 'originalNorm';
+
+/// The detector's four corners as normalized source-image fractions, plus the
+/// reference frame and the geometry verdict they belong to.
+///
+/// This is the measurement a boundary evaluation needs and the journey report
+/// previously could not provide. It is deliberately a *grouped* record rather
+/// than loose scalars: a reader must be able to tell which frame the numbers
+/// belong to, in which order they run, and whether the pipeline accepted them.
+///
+/// Contract, each part of which is asserted by a regression test:
+///
+/// * **Space** is always `originalNorm`: fractions of the EXIF-oriented source
+///   frame, `(0,0)` top-left, `1` = last row/column. The detector's own
+///   tensor/heatmap coordinates are NEVER exported — they are a different
+///   space and would be silently misread as source positions.
+/// * **Order** is the app's `CropGeometry` ring, top-left → top-right →
+///   bottom-right → bottom-left (clockwise), which is also the order
+///   `normalizedQuadIssue` validates.
+/// * **Status** is `accepted` only for a quad the pipeline authorized or kept
+///   as an editable review proposal. A `legacy-import` polygon is a
+///   synthesized full-frame region, not a detection, so it is exported as
+///   [QuadExportStatus.none] — never as corners.
+/// * **Reference size** comes from [ImportedImageFact.copiedWidth]/`Height`,
+///   the frame captured while the asset still described the copy. The project's
+///   asset may hold a cropped revision under the same id, so its size cannot be
+///   used; when the copy size is unknown the export says so instead of guessing.
+/// * An inconsistent or degenerate quad is exported as [QuadExportStatus.invalid]
+///   with the reason and **no coordinates at all**. Invalid numbers are never
+///   clamped, sharpened or "repaired" into plausible ones.
+///
+/// Returns an empty map when the document produced no quadrilateral at all.
+/// That case is stated ONCE for the whole image by [_cornerAbsentFields], so a
+/// twelve-document frame does not spend twelve times the budget saying
+/// "nothing here".
+Map<String, Object?> _cornerExportFields(
+  DetectionRef detection,
+  ImportedImageFact fact,
+) {
+  final accepted = _hasAcceptedBoundary(detection);
+  final polygon = detection.polygon;
+
+  // Three distinct facts, never merged:
+  //   * a ring the app accepted;
+  //   * a ring a detector produced that the app did NOT accept (wrong shape,
+  //     out of bounds, degenerate) — the refusal must be named, not hidden;
+  //   * an editable proposal held back for review, which is a different field.
+  final QuadExportStatus status;
+  String? reason;
+  List<Point2>? quad;
+  if (accepted) {
+    status = QuadExportStatus.accepted;
+    quad = polygon;
+  } else if (polygon != null) {
+    // A detector produced a polygon and the app did not accept it. Whatever
+    // the geometry says, the honest report is a refusal with its measured
+    // reason — never `none` ("nothing was produced"), and never a fallback to
+    // the review proposal, which would present a refused detection as a
+    // usable one. The reason is never invented: if the ring is geometrically
+    // fine, the refusal came from the boundary decision, and `quadReason`
+    // names that instead of a geometry issue.
+    final issue = normalizedQuadIssue(polygon);
+    status = QuadExportStatus.invalid;
+    reason = issue?.name ?? 'notAuthorized';
+  } else if (detection.suggestedPolygon != null) {
+    final suggested = detection.suggestedPolygon!;
+    final issue = normalizedQuadIssue(suggested);
+    if (issue == null) {
+      status = QuadExportStatus.review;
+      quad = suggested;
+    } else {
+      // Held back AND unusable: the refusal is the fact, so export no numbers.
+      status = QuadExportStatus.invalid;
+      reason = issue.name;
+    }
+  } else {
+    // Genuinely nothing: the image-level absence note covers it. Absence is
+    // never written as a zero-coordinate quad.
+    return const {};
+  }
+
+  final fields = <String, Object?>{
+    'quadSpace': _cornerSpaceName,
+    'quadSource': _boundedCode(detection.producer),
+    'quadStatus': status.name,
+  };
+  final width = fact.copiedWidth;
+  final height = fact.copiedHeight;
+  if (width != null && height != null && width > 0 && height > 0) {
+    fields['quadWidth'] = width;
+    fields['quadHeight'] = height;
+  } else {
+    // The frame is unknown, so the fractions describe a frame the reader
+    // cannot reconstruct. Say that; the numbers below are still in range.
+    fields['quadSize'] = 'unknown';
+  }
+  if (quad != null) {
+    fields['quadCorners'] = _encodeCorners(quad);
+  }
+  if (reason != null) fields['quadReason'] = _boundedCode(reason);
+  return fields;
+}
+
+/// Why an image's detection step carries no corner block.
+const Map<String, Object?> _cornerAbsentFields = {'quadStatus': 'none'};
+
+/// Corner fields for an image whose single document was measured: the
+/// unprefixed keys, or — when nothing is known — the one absence note.
+Map<String, Object?> _cornerFieldsFor(
+  DetectionRef detection,
+  ImportedImageFact fact,
+) {
+  final block = _cornerExportFields(detection, fact);
+  return block.isEmpty ? _cornerAbsentFields : block;
+}
+
+/// Corner fields for an image holding several documents, each under its own
+/// `d<n>_` prefix so a document id can never be paired with another's corners.
+///
+/// The order here is the same one [_readEachDetection] uses (records in stored
+/// order, then sides in stored order), so `d1_` means the same document in both
+/// spellings. When no document yields a quad, the image gets one absence note
+/// and no per-document keys at all.
+Map<String, Object?> _cornerFieldsForNamed(
+  List<DocumentRecord> records,
+  ImportedImageFact fact,
+) {
+  final fields = <String, Object?>{};
+  var emitted = 0;
+  // Numbered exactly as [_readEachDetection] numbers its keys: one number per
+  // DOCUMENT, with `_s<n>_` inserted only when a document has several sides.
+  // A per-side counter would pair a document's corners with another's facts.
+  outer:
+  for (var index = 0; index < records.length; index++) {
+    final record = records[index];
+    final number = index + 1;
+    for (var sideIndex = 0; sideIndex < record.sides.length; sideIndex++) {
+      final detection = record.sides[sideIndex].detection;
+      if (detection == null) continue;
+      final block = _cornerExportFields(detection, fact);
+      if (block.isEmpty) continue;
+      // The budget is a hard ceiling, so a pathological frame degrades instead
+      // of growing an entry without limit. Degrading must not discard what was
+      // already measured: a document whose corners were exported stays
+      // exported, and the overflow is stated once rather than implied by
+      // silence.
+      if (emitted + block.length > _cornerFieldBudget) {
+        fields['quadOverflowDocuments'] = records.length - index;
+        break outer;
+      }
+      emitted += block.length;
+      final prefix = record.sides.length == 1
+          ? 'd${number}_'
+          : 'd${number}_s${sideIndex + 1}_';
+      for (final entry in block.entries) {
+        fields['$prefix${entry.key}'] = entry.value;
+      }
+    }
+  }
+  if (fields.isEmpty) return _cornerAbsentFields;
+  return fields;
+}
+
+/// `x,y x,y x,y x,y` in ring order, each component rounded to 4 decimals.
+///
+/// A packed string keeps eight numbers inside the journey field model (one
+/// bounded scalar per key) and stays readable in an exported file. The
+/// separator is a space, so the value has no comma that could be confused with
+/// the four-number `region` code.
+String _encodeCorners(List<Point2> corners) => [
+  for (final corner in corners) '${_round4(corner.x)},${_round4(corner.y)}',
+].join(' ');
+
+/// Which corners a detection actually has, and how far they can be trusted.
+enum QuadExportStatus {
+  /// The pipeline authorized this quad (or the person approved it) for a crop.
+  accepted,
+
+  /// A geometrically usable proposal held back for review; never a crop.
+  review,
+
+  /// The detector returned a ring the geometry validator refuses. No numbers
+  /// are exported for it.
+  invalid,
+
+  /// No quadrilateral was produced at all.
+  none,
 }
 
 /// The stored accepted polygon is a decision, not merely a score or a

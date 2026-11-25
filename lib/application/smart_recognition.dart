@@ -925,16 +925,29 @@ class SmartIntake {
       );
     }
 
-    // Confidence: only scores the pipeline actually produced are recorded.
-    final scores = <double>[
-      for (final detection in regions) ...[
+    // Confidence: only scores the pipeline actually produced are recorded, and
+    // the two kinds are never pooled.
+    //
+    // A boundary score answers "how strongly did a detector propose this
+    // quadrilateral" and a classification score answers "how much of the text
+    // supported this document kind". They are produced by different
+    // mechanisms, on different scales, and are not comparable. Taking the
+    // minimum across a pooled list therefore reported a low CLASSIFICATION
+    // score as the weakest evidence about the BOUNDARY, which is how a
+    // correctly detected card came to look like a weak detection in the
+    // journey log. Each family is summarised on its own.
+    final boundaryScores = <double>[
+      for (final detection in regions)
         if (detection.detectionConfidence case final value?) value,
+    ];
+    final classificationScores = <double>[
+      for (final detection in regions)
         if (detection.classification.confidences.classification?.value
             case final value?)
           value,
-      ],
     ];
-    if (scores.isEmpty) {
+    bool inRange(double score) => score >= 0 && score <= 1;
+    if (boundaryScores.isEmpty && classificationScores.isEmpty) {
       ledger.notApplicable(
         imageId,
         ProcessingStage.confidence,
@@ -944,23 +957,49 @@ class SmartIntake {
       ledger.succeeded(
         imageId,
         ProcessingStage.confidence,
-        reason: 'جُمعت ${scores.length} درجة ثقة مقيسة.',
+        reason:
+            'جُمعت ${boundaryScores.length} درجة حدود و'
+            '${classificationScores.length} درجة تصنيف، كل منها على حدة.',
         evidence: StageEvidence(
           verified: true,
           checks: [
-            EvidenceCheck(name: 'scores_measured', passed: true),
+            EvidenceCheck(
+              name: 'scores_measured',
+              passed:
+                  boundaryScores.isNotEmpty || classificationScores.isNotEmpty,
+            ),
             EvidenceCheck(
               name: 'scores_in_range',
-              passed: scores.every((score) => score >= 0 && score <= 1),
+              passed: [
+                ...boundaryScores,
+                ...classificationScores,
+              ].every(inRange),
             ),
           ],
-          counts: {'scores': scores.length},
+          counts: {
+            'boundaryScores': boundaryScores.length,
+            'classificationScores': classificationScores.length,
+          },
         ),
         results: {
-          'lowest': scores.reduce((a, b) => math.min(a, b)),
-          'highest': scores.reduce((a, b) => math.max(a, b)),
+          // Distinct keys, so no reader can compare one family's minimum with
+          // the other's and call the smaller number "the" confidence.
+          if (boundaryScores.isNotEmpty)
+            'boundaryLowest': boundaryScores.reduce((a, b) => math.min(a, b)),
+          if (boundaryScores.isNotEmpty)
+            'boundaryHighest': boundaryScores.reduce((a, b) => math.max(a, b)),
+          if (classificationScores.isNotEmpty)
+            'classificationLowest': classificationScores.reduce(
+              (a, b) => math.min(a, b),
+            ),
+          if (classificationScores.isNotEmpty)
+            'classificationHighest': classificationScores.reduce(
+              (a, b) => math.max(a, b),
+            ),
         },
-        actionTaken: 'استُخدمت الدرجات في بوابات القبول والمراجعة.',
+        actionTaken:
+            'استُخدمت درجات الحدود في بوابات الحدود ودرجات التصنيف في بوابة '
+            'التصنيف؛ لم تُدمج الفئتان.',
       );
     }
 

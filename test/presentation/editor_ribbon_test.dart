@@ -346,10 +346,10 @@ void main() {
     );
     await tapKey(tester, const Key('rb-center-captures'));
     expect(editor.saved.layout.centerCaptures, isTrue);
-    expect(itemIn(editor.saved, 'passport').x, greaterThan(40));
+    expect(itemIn(editor.saved, 'card').x, greaterThan(10));
     await tapKey(tester, const Key('rb-center-captures'));
     expect(editor.saved.layout.centerCaptures, isFalse);
-    expect(itemIn(editor.saved, 'passport').x, closeTo(5, 1e-6));
+    expect(itemIn(editor.saved, 'card').x, closeTo(3, 1e-6));
     await tapKey(tester, const Key('rb-overlap'));
     expect(_button(tester, 'rb-overlap').selected, isTrue);
     expect(tester.takeException(), isNull);

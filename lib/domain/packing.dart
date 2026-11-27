@@ -29,6 +29,7 @@ PackingProposal proposePacking(
   bool onlyUnplaced = false,
   int pageIndex = 0,
   LayoutOrder? orderOverride,
+  Set<String> nonRotatableIds = const {},
 }) {
   require(
     pageIndex >= 0 && pageIndex < project.pageCount,
@@ -99,9 +100,10 @@ PackingProposal proposePacking(
     DocumentItem? best;
     RectMm? used;
     double bestShort = double.infinity, bestLong = double.infinity;
+    final canRotate = allowRotation && !nonRotatableIds.contains(item.id);
     for (final rotation in [
       item.rotation,
-      if (allowRotation) (item.rotation + 90) % 360,
+      if (canRotate) (item.rotation + 90) % 360,
     ]) {
       final rotated = item.copyWith(rotation: rotation);
       final b = rotated.bounds;

@@ -806,11 +806,15 @@ class LayoutEditorController extends ChangeNotifier {
   }
 
   Future<void> distribute({required bool horizontal}) {
-    final ids = _placedSelectionIds;
+    final editableIds = _placedEditableSelectionIds;
+    final placedIds = _placedSelectionIds;
+    final ids = editableIds.length >= 3
+        ? editableIds
+        : (placedIds.length >= 3 ? placedIds : selected);
     return edit(
       (p) => PageLayout.distribute(
         p,
-        ids.length >= 3 ? ids : selected,
+        ids,
         horizontal: horizontal,
         allowOverlap: allowOverlap,
       ),

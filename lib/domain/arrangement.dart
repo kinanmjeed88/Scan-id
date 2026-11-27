@@ -563,7 +563,13 @@ Map<String, DocumentItem> _compactWithGroups(
       ),
     for (final group in orderedGroups) group.proxy,
   ];
-  final packed = _compact(proxyProject, proxyMovable, rotate);
+  final proxyIds = {for (final group in orderedGroups) group.proxy.id};
+  final packed = _compact(
+    proxyProject,
+    proxyMovable,
+    rotate,
+    nonRotatableIds: proxyIds,
+  );
   final placed = <String, DocumentItem>{
     for (final item in regularMovable)
       if (packed.containsKey(item.id))
@@ -950,13 +956,15 @@ Set<String> _centerPageItems(
 Map<String, DocumentItem> _compact(
   Project project,
   List<DocumentItem> movable,
-  bool rotate,
-) {
+  bool rotate, {
+  Set<String> nonRotatableIds = const {},
+}) {
   final preferred = _compactPass(
     project,
     movable,
     rotate,
     orderOverride: project.layout.order,
+    nonRotatableIds: nonRotatableIds,
   );
   if (project.layout.order != LayoutOrder.input ||
       !_hasMixedAreaWithinCategory(movable)) {
@@ -967,6 +975,7 @@ Map<String, DocumentItem> _compact(
     movable,
     rotate,
     orderOverride: LayoutOrder.area,
+    nonRotatableIds: nonRotatableIds,
   );
   return _compactResultIsBetter(
         largestFirst,
@@ -974,6 +983,7 @@ Map<String, DocumentItem> _compact(
         movable,
         project.paper.printable,
         rotate,
+        nonRotatableIds: nonRotatableIds,
       )
       ? largestFirst
       : preferred;
@@ -995,10 +1005,13 @@ bool _compactResultIsBetter(
   Map<String, DocumentItem> current,
   List<DocumentItem> movable,
   RectMm area,
-  bool rotate,
-) {
+  bool rotate, {
+  Set<String> nonRotatableIds = const {},
+}) {
+  bool canRotate(DocumentItem item) =>
+      rotate && !nonRotatableIds.contains(item.id);
   final eligible = movable
-      .where((item) => _fitting(item, area, rotate) != null)
+      .where((item) => _fitting(item, area, canRotate(item)) != null)
       .length;
   final candidateUnplaced = eligible - candidate.length;
   final currentUnplaced = eligible - current.length;
@@ -1026,12 +1039,15 @@ Map<String, DocumentItem> _compactPass(
   List<DocumentItem> movable,
   bool rotate, {
   required LayoutOrder orderOverride,
+  Set<String> nonRotatableIds = const {},
 }) {
   final area = project.paper.printable;
   final movableIds = {for (final item in movable) item.id};
+  bool canRotate(DocumentItem item) =>
+      rotate && !nonRotatableIds.contains(item.id);
   final ids = {
     for (final item in movable)
-      if (_fitting(item, area, rotate) != null) item.id,
+      if (_fitting(item, area, canRotate(item)) != null) item.id,
   };
   var current = project.copyWith(
     items: [
@@ -1058,6 +1074,7 @@ Map<String, DocumentItem> _compactPass(
       onlyUnplaced: true,
       pageIndex: page,
       orderOverride: orderOverride,
+      nonRotatableIds: nonRotatableIds,
     );
     var progress = false;
     for (final item in proposal.result.items) {

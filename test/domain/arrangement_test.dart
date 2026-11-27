@@ -1266,19 +1266,37 @@ void main() {
         DocumentKind.unifiedNationalId,
       ).copyWith(groupId: groupId);
       final base = _project([singleCard, front, back], layoutGroups: [group]);
-      final project = base.copyWith(
-        layout: LayoutSettings(
-          strategy: ArrangementStrategy.compact,
-          order: LayoutOrder.area,
-        ),
-      );
+      for (final rotate in [false, true]) {
+        final project = base.copyWith(
+          layout: LayoutSettings(
+            strategy: ArrangementStrategy.compact,
+            order: LayoutOrder.area,
+            allowRotation: rotate,
+          ),
+        );
 
-      final arranged = arrangeDocuments(project).result;
-      final frontPlaced = PageLayout.item(arranged, 'front');
-      final singlePlaced = PageLayout.item(arranged, 'single');
-      expect(frontPlaced.y, lessThanOrEqualTo(singlePlaced.y));
-      expect(frontPlaced.x, lessThan(singlePlaced.x));
-      expect(inspectLayout(arranged), isEmpty);
+        final arranged = arrangeDocuments(project).result;
+        final frontPlaced = PageLayout.item(arranged, 'front');
+        final backPlaced = PageLayout.item(arranged, 'back');
+        final singlePlaced = PageLayout.item(arranged, 'single');
+        expect(frontPlaced.y, lessThanOrEqualTo(singlePlaced.y));
+        expect(frontPlaced.x, lessThan(singlePlaced.x));
+        expect(
+          arranged.paper.printable.contains(frontPlaced.bounds),
+          isTrue,
+          reason: 'allowRotation=$rotate',
+        );
+        expect(
+          arranged.paper.printable.contains(backPlaced.bounds),
+          isTrue,
+          reason: 'allowRotation=$rotate',
+        );
+        expect(
+          inspectLayout(arranged),
+          isEmpty,
+          reason: 'allowRotation=$rotate',
+        );
+      }
     },
   );
 }

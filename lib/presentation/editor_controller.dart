@@ -220,7 +220,7 @@ class LayoutEditorController extends ChangeNotifier {
             layout: changed.layout.copyWith(autoFlow: false),
           );
         }
-        return _relayout(changed, layout, forceArrange: forceArrange);
+        return _relayout(changed, layout, forceArrange);
       });
       if (pausesAutoFlow) {
         _say(
@@ -230,13 +230,9 @@ class LayoutEditorController extends ChangeNotifier {
     });
   }
 
-  Project _relayout(
-    Project changed,
-    bool layout, {
-    required bool forceArrange,
-  }) {
+  Project _relayout(Project changed, bool layout, [bool force = false]) {
     if (!layout) return PageLayout.checked(changed, allowOverlap: allowOverlap);
-    if (changed.layout.autoFlow || forceArrange) {
+    if (changed.layout.autoFlow || force) {
       return arrangeDocuments(changed).result;
     }
     final kept = arrangeDocuments(changed, keepPlaced: true).result;

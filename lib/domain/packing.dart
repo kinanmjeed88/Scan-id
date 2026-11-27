@@ -85,14 +85,14 @@ PackingProposal proposePacking(
       project.items[index].id: index,
   };
   pending.sort((a, b) {
-    final kind = a.documentKind.order.compareTo(b.documentKind.order);
-    if (kind != 0) return kind;
     if ((orderOverride ?? project.layout.order) == LayoutOrder.area) {
       final size = (b.bounds.width * b.bounds.height).compareTo(
         a.bounds.width * a.bounds.height,
       );
       if (size != 0) return size;
     }
+    final kind = a.documentKind.order.compareTo(b.documentKind.order);
+    if (kind != 0) return kind;
     return inputOrder[a.id]!.compareTo(inputOrder[b.id]!);
   });
   for (final item in pending) {

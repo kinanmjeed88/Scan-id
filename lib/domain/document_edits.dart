@@ -187,7 +187,22 @@ class DocumentEdits {
     final item = PageLayout.item(project, itemId);
     require(!item.locked, 'العنصر مثبت؛ ألغِ التثبيت أولاً.');
     final turned = ((item.rotation / 90).round() * 90 + 90) % 360;
-    return _replace(project, item.copyWith(rotation: turned.toDouble()));
+    var rotated = item.copyWith(rotation: turned.toDouble());
+    if (rotated.pageIndex != null) {
+      final area = project.paper.printable;
+      final b = rotated.bounds;
+      if (b.width <= area.width && b.height <= area.height) {
+        final clampedX = b.x.clamp(area.x, area.right - b.width).toDouble();
+        final clampedY = b.y.clamp(area.y, area.bottom - b.height).toDouble();
+        if ((clampedX - b.x).abs() > 1e-9 || (clampedY - b.y).abs() > 1e-9) {
+          rotated = rotated.copyWith(
+            x: rotated.x + (clampedX - b.x),
+            y: rotated.y + (clampedY - b.y),
+          );
+        }
+      }
+    }
+    return _replace(project, rotated);
   }
 
   /// Swaps width and height of every document showing [assetId], used after

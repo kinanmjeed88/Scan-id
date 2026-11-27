@@ -187,12 +187,19 @@ void main() {
   });
 
   test('copies start unplaced with fresh ids and can never collide', () {
-    final source = block('item1', 20, 25, rotation: 90, locked: true);
+    final source = block(
+      'item1',
+      20,
+      25,
+      rotation: 90,
+      locked: true,
+    ).copyWith(groupId: 'group-1');
     var counter = 0;
     final copies = PageLayout.copies(source, 3, () => 'copy${counter++}');
     expect(copies.map((e) => e.id), ['copy0', 'copy1', 'copy2']);
     expect(copies.every((e) => e.pageIndex == null), isTrue);
     expect(copies.every((e) => !e.locked), isTrue);
+    expect(copies.every((e) => e.groupId == null), isTrue);
     expect(copies.every((e) => e.rotation == 90), isTrue);
     expect(copies.every((e) => e.width == source.width), isTrue);
     expect(copies.map((e) => e.zIndex), [

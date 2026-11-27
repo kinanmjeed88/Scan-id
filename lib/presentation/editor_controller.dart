@@ -209,6 +209,7 @@ class LayoutEditorController extends ChangeNotifier {
     Project Function(Project) change, {
     bool layout = true,
     bool manual = false,
+    bool forceArrange = false,
   }) {
     final pausesAutoFlow = manual && autoFlow;
     return run(() async {
@@ -219,7 +220,7 @@ class LayoutEditorController extends ChangeNotifier {
             layout: changed.layout.copyWith(autoFlow: false),
           );
         }
-        return _relayout(changed, layout);
+        return _relayout(changed, layout, forceArrange: forceArrange);
       });
       if (pausesAutoFlow) {
         _say(
@@ -229,13 +230,31 @@ class LayoutEditorController extends ChangeNotifier {
     });
   }
 
-  Project _relayout(Project changed, bool layout) {
+  Project _relayout(
+    Project changed,
+    bool layout, {
+    required bool forceArrange,
+  }) {
     if (!layout) return PageLayout.checked(changed, allowOverlap: allowOverlap);
-    if (changed.layout.autoFlow) return arrangeDocuments(changed).result;
-    return PageLayout.checked(
-      arrangeDocuments(changed, keepPlaced: true).result,
-      allowOverlap: allowOverlap,
-    );
+    if (changed.layout.autoFlow || forceArrange) {
+      return arrangeDocuments(changed).result;
+    }
+    final kept = arrangeDocuments(changed, keepPlaced: true).result;
+    if (_canKeepPlaced(kept)) {
+      return PageLayout.checked(kept, allowOverlap: allowOverlap);
+    }
+    return arrangeDocuments(changed).result;
+  }
+
+  bool _canKeepPlaced(Project p) {
+    for (final e in p.items) {
+      if (e.pageIndex == null) continue;
+      if (e.pageIndex! < 0 || e.pageIndex! >= p.pageCount) return false;
+      if (!e.sizeConfirmed) return false;
+      if (!p.paper.printable.contains(e.bounds)) return false;
+    }
+    if (!allowOverlap && inspectLayout(p).isNotEmpty) return false;
+    return true;
   }
 
   Future<void> undo() async {
@@ -364,17 +383,25 @@ class LayoutEditorController extends ChangeNotifier {
     ].join('\n');
   }
 
-  Future<void> setStrategy(ArrangementStrategy strategy) =>
-      edit((p) => p.copyWith(layout: p.layout.copyWith(strategy: strategy)));
+  Future<void> setStrategy(ArrangementStrategy strategy) => edit(
+    (p) => p.copyWith(layout: p.layout.copyWith(strategy: strategy)),
+    forceArrange: true,
+  );
 
-  Future<void> setAllowRotation(bool value) =>
-      edit((p) => p.copyWith(layout: p.layout.copyWith(allowRotation: value)));
+  Future<void> setAllowRotation(bool value) => edit(
+    (p) => p.copyWith(layout: p.layout.copyWith(allowRotation: value)),
+    forceArrange: true,
+  );
 
-  Future<void> setOrder(LayoutOrder order) =>
-      edit((p) => p.copyWith(layout: p.layout.copyWith(order: order)));
+  Future<void> setOrder(LayoutOrder order) => edit(
+    (p) => p.copyWith(layout: p.layout.copyWith(order: order)),
+    forceArrange: true,
+  );
 
-  Future<void> setCenterCaptures(bool value) =>
-      edit((p) => p.copyWith(layout: p.layout.copyWith(centerCaptures: value)));
+  Future<void> setCenterCaptures(bool value) => edit(
+    (p) => p.copyWith(layout: p.layout.copyWith(centerCaptures: value)),
+    forceArrange: true,
+  );
 
   void setAllowOverlap(bool value) {
     allowOverlap = value;
@@ -391,10 +418,13 @@ class LayoutEditorController extends ChangeNotifier {
 
   Future<void> setOrientation(PaperOrientation orientation) => edit(
     (p) => p.copyWith(paper: p.paper.copyWith(orientation: orientation)),
+    forceArrange: true,
   );
 
-  Future<void> setMargins(Margins margins) =>
-      edit((p) => p.copyWith(paper: p.paper.copyWith(margins: margins)));
+  Future<void> setMargins(Margins margins) => edit(
+    (p) => p.copyWith(paper: p.paper.copyWith(margins: margins)),
+    forceArrange: true,
+  );
 
   Future<void> setGaps({double? horizontal, double? vertical}) => edit(
     (p) => p.copyWith(
@@ -403,6 +433,7 @@ class LayoutEditorController extends ChangeNotifier {
         verticalGap: vertical,
       ),
     ),
+    forceArrange: true,
   );
 
   Future<void> addPage() async {
@@ -412,6 +443,7 @@ class LayoutEditorController extends ChangeNotifier {
     );
     if (ok) {
       visiblePage = session.current.pageCount - 1;
+      pendingScrollPage = visiblePage;
       _notify();
     }
   }
@@ -423,7 +455,12 @@ class LayoutEditorController extends ChangeNotifier {
     final item = active;
     if (item == null || selected.length != 1) return;
     final moved = await edit(
-      (p) => PageLayout.moveToPage(p, item.id, targetPage),
+      (p) => PageLayout.moveToPage(
+        p,
+        item.id,
+        targetPage,
+        allowOverlap: allowOverlap,
+      ),
       layout: false,
       manual: true,
     );
@@ -748,22 +785,43 @@ class LayoutEditorController extends ChangeNotifier {
     if (ok) _say('حُذف ${ids.length} عنصر. للتراجع: Ctrl + Z.');
   }
 
-  Future<void> align(PageAlignment alignment) => edit(
-    (p) => PageLayout.align(p, selected, alignment, allowOverlap: allowOverlap),
-    layout: false,
-    manual: true,
-  );
+  Set<String> get _placedEditableSelectionIds => {
+    for (final item in selectedItems)
+      if (item.pageIndex != null && !item.locked) item.id,
+  };
 
-  Future<void> distribute({required bool horizontal}) => edit(
-    (p) => PageLayout.distribute(
-      p,
-      selected,
-      horizontal: horizontal,
-      allowOverlap: allowOverlap,
-    ),
-    layout: false,
-    manual: true,
-  );
+  Set<String> get _placedSelectionIds => {
+    for (final item in selectedItems)
+      if (item.pageIndex != null) item.id,
+  };
+
+  Future<void> align(PageAlignment alignment) {
+    final ids = _placedEditableSelectionIds;
+    return edit(
+      (p) => PageLayout.align(
+        p,
+        ids.isEmpty ? selected : ids,
+        alignment,
+        allowOverlap: allowOverlap,
+      ),
+      layout: false,
+      manual: true,
+    );
+  }
+
+  Future<void> distribute({required bool horizontal}) {
+    final ids = _placedSelectionIds;
+    return edit(
+      (p) => PageLayout.distribute(
+        p,
+        ids.length >= 3 ? ids : selected,
+        horizontal: horizontal,
+        allowOverlap: allowOverlap,
+      ),
+      layout: false,
+      manual: true,
+    );
+  }
 
   // ---------------------------------------------------------------------
   // Importing and cropping

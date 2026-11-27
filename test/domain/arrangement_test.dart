@@ -1212,4 +1212,73 @@ void main() {
     expect(resultIds, originalIds);
     expect(result.result.items.length, project.items.length);
   });
+
+  test(
+    'LayoutOrder.area places larger catalog categories before smaller ones in both strategies',
+    () {
+      for (final strategy in ArrangementStrategy.values) {
+        final base = _project([
+          _doc('id', DocumentKind.unifiedNationalId),
+          _doc('residence', DocumentKind.residenceCard),
+          _doc('passport', DocumentKind.passport),
+        ]);
+        final project = base.copyWith(
+          layout: LayoutSettings(strategy: strategy, order: LayoutOrder.area),
+        );
+
+        final arranged = arrangeDocuments(project).result;
+        final passport = PageLayout.item(arranged, 'passport');
+        final residence = PageLayout.item(arranged, 'residence');
+        final id = PageLayout.item(arranged, 'id');
+        expect(
+          passport.y,
+          lessThan(residence.y),
+          reason: '$strategy: passport (125×88) before residence (92.4×62.8)',
+        );
+        final residenceBeforeId =
+            residence.y < id.y || (residence.y == id.y && residence.x < id.x);
+        expect(
+          residenceBeforeId,
+          isTrue,
+          reason: '$strategy: residence (92.4×62.8) before national ID',
+        );
+        expect(inspectLayout(arranged), isEmpty);
+      }
+    },
+  );
+
+  test(
+    'LayoutOrder.area places a larger paired group before a smaller single card in compact mode',
+    () {
+      const groupId = 'pair-id';
+      final group = LayoutGroup(
+        id: groupId,
+        itemIds: const ['front', 'back'],
+        arrangement: GroupArrangement.stacked,
+      );
+      final singleCard = _doc('single', DocumentKind.unifiedNationalId);
+      final front = _doc(
+        'front',
+        DocumentKind.unifiedNationalId,
+      ).copyWith(groupId: groupId);
+      final back = _doc(
+        'back',
+        DocumentKind.unifiedNationalId,
+      ).copyWith(groupId: groupId);
+      final base = _project([singleCard, front, back], layoutGroups: [group]);
+      final project = base.copyWith(
+        layout: LayoutSettings(
+          strategy: ArrangementStrategy.compact,
+          order: LayoutOrder.area,
+        ),
+      );
+
+      final arranged = arrangeDocuments(project).result;
+      final frontPlaced = PageLayout.item(arranged, 'front');
+      final singlePlaced = PageLayout.item(arranged, 'single');
+      expect(frontPlaced.y, lessThanOrEqualTo(singlePlaced.y));
+      expect(frontPlaced.x, lessThan(singlePlaced.x));
+      expect(inspectLayout(arranged), isEmpty);
+    },
+  );
 }

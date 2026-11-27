@@ -983,7 +983,7 @@ class _LayoutScreenState extends State<LayoutScreen> {
                     icon: Icons.sort,
                     label: 'الأكبر أولاً',
                     selected: project.layout.order == LayoutOrder.area,
-                    tooltip: 'داخل النوع الواحد: الأكبر مساحة أولاً',
+                    tooltip: 'ترتيب المستمسكات من الأكبر مساحة إلى الأصغر',
                     onPressed: busy
                         ? null
                         : () => c.setOrder(
@@ -1223,7 +1223,11 @@ class _LayoutScreenState extends State<LayoutScreen> {
                   icon: Icons.align_horizontal_center,
                   label: 'محاذاة',
                   large: true,
-                  enabled: !busy && editable && item.pageIndex != null,
+                  enabled:
+                      !busy &&
+                      c.selectedItems.any(
+                        (e) => e.pageIndex != null && !e.locked,
+                      ),
                   onSelected: c.align,
                   entries: const [
                     RibbonMenuEntry(

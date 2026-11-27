@@ -328,8 +328,28 @@ void main() {
 
     await tapKey(tester, const Key('rb-rotation'));
     expect(editor.saved.layout.allowRotation, isTrue);
+    expect(
+      itemIn(editor.saved, 'card').y,
+      lessThan(itemIn(editor.saved, 'passport').y),
+    );
     await tapKey(tester, const Key('rb-largest-first'));
     expect(editor.saved.layout.order, LayoutOrder.area);
+    expect(
+      itemIn(editor.saved, 'passport').y,
+      lessThan(itemIn(editor.saved, 'card').y),
+    );
+    await tapKey(tester, const Key('rb-largest-first'));
+    expect(editor.saved.layout.order, LayoutOrder.input);
+    expect(
+      itemIn(editor.saved, 'card').y,
+      lessThan(itemIn(editor.saved, 'passport').y),
+    );
+    await tapKey(tester, const Key('rb-center-captures'));
+    expect(editor.saved.layout.centerCaptures, isTrue);
+    expect(itemIn(editor.saved, 'card').x, greaterThan(10));
+    await tapKey(tester, const Key('rb-center-captures'));
+    expect(editor.saved.layout.centerCaptures, isFalse);
+    expect(itemIn(editor.saved, 'card').x, closeTo(3, 1e-6));
     await tapKey(tester, const Key('rb-overlap'));
     expect(_button(tester, 'rb-overlap').selected, isTrue);
     expect(tester.takeException(), isNull);
@@ -809,6 +829,114 @@ void main() {
     expect(_button(tester, 'rb-autoflow').selected, isFalse);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'page layout commands and sheet rotation work even when autoFlow is paused',
+    (tester) async {
+      final editor = await EditorHarness.pump(
+        tester,
+        project: editorProject(
+          items: [
+            placedDocument(
+              'card',
+              'asset1',
+              DocumentKind.unifiedNationalId,
+              x: 5,
+              y: 5,
+            ),
+            placedDocument(
+              'passport',
+              'asset2',
+              DocumentKind.passport,
+              x: 5,
+              y: 190,
+            ),
+          ],
+        ),
+      );
+      // Pause autoFlow via the toggle button.
+      await tapKey(tester, const Key('rb-autoflow'));
+      expect(editor.saved.layout.autoFlow, isFalse);
+
+      // Rotating a card placed at the top margin (y = 5) while autoFlow is off
+      // clamps its rotated bounds into the printable area instead of failing.
+      await tapKey(tester, const Key('page-item-card'));
+      await tapKey(tester, const Key('ribbon-tab-document'));
+      await tapKey(tester, const Key('rb-rotate-sheet'));
+      expect(find.byKey(const Key('editor-error')), findsNothing);
+      expect(itemIn(editor.saved, 'card').rotation, 90);
+      expect(
+        editor.saved.paper.printable.contains(
+          itemIn(editor.saved, 'card').bounds,
+        ),
+        isTrue,
+      );
+
+      // Page-layout commands apply immediately even when autoFlow is off.
+      await tapKey(tester, const Key('ribbon-tab-layout'));
+      await tapKey(tester, const Key('rb-largest-first'));
+      expect(editor.saved.layout.order, LayoutOrder.area);
+      expect(
+        itemIn(editor.saved, 'passport').y,
+        lessThan(itemIn(editor.saved, 'card').y),
+      );
+
+      await _choose(tester, 'rb-margins', 'عادية · 10 مم');
+      expect(find.byKey(const Key('editor-error')), findsNothing);
+      expect(editor.saved.paper.margins.top, 10);
+      expect(inspectLayout(editor.saved), isEmpty);
+
+      await _choose(tester, 'rb-orientation', 'A4 أفقي');
+      expect(find.byKey(const Key('editor-error')), findsNothing);
+      expect(editor.saved.paper.orientation, PaperOrientation.landscape);
+      expect(inspectLayout(editor.saved), isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'align after selectAll ignores unplaced off-sheet items instead of failing',
+    (tester) async {
+      final editor = await EditorHarness.pump(
+        tester,
+        project: editorProject(
+          items: [
+            placedDocument(
+              'card',
+              'asset1',
+              DocumentKind.unifiedNationalId,
+              x: 15,
+              y: 10,
+            ),
+            placedDocument(
+              'passport',
+              'asset2',
+              DocumentKind.passport,
+              x: 25,
+              y: 80,
+            ),
+            DocumentItem(
+              id: 'pending',
+              assetId: 'asset3',
+              x: 0,
+              y: 0,
+              width: 60,
+              height: 40,
+              pageIndex: null,
+            ),
+          ],
+        ),
+      );
+      await tapKey(tester, const Key('rb-select-all'));
+      await tapKey(tester, const Key('ribbon-tab-document'));
+      await _choose(tester, 'rb-align', 'محاذاة لليسار');
+      expect(find.byKey(const Key('editor-error')), findsNothing);
+      expect(itemIn(editor.saved, 'card').x, 5);
+      expect(itemIn(editor.saved, 'passport').x, 5);
+      expect(itemIn(editor.saved, 'pending').pageIndex, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

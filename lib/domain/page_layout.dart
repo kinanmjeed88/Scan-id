@@ -116,6 +116,7 @@ class PageLayout {
           locked: false,
           keepAspectRatio: item.keepAspectRatio,
           zIndex: item.zIndex + index + 1,
+          clearGroupId: true,
         ),
     ];
   }

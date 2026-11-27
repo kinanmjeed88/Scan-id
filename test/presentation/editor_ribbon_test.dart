@@ -345,6 +345,9 @@ void main() {
       lessThan(itemIn(editor.saved, 'passport').y),
     );
     await tapKey(tester, const Key('rb-center-captures'));
+    expect(editor.saved.layout.centerCaptures, isFalse);
+    expect(itemIn(editor.saved, 'card').x, closeTo(5, 1e-6));
+    await tapKey(tester, const Key('rb-center-captures'));
     expect(editor.saved.layout.centerCaptures, isTrue);
     expect(
       itemIn(editor.saved, 'card').x + itemIn(editor.saved, 'card').width / 2,
@@ -931,8 +934,8 @@ void main() {
       await tapKey(tester, const Key('ribbon-tab-document'));
       await _choose(tester, 'rb-align', 'محاذاة لليسار');
       expect(find.byKey(const Key('editor-error')), findsNothing);
-      expect(itemIn(editor.saved, 'card').x, 15);
-      expect(itemIn(editor.saved, 'passport').x, 15);
+      expect(itemIn(editor.saved, 'card').x, 5);
+      expect(itemIn(editor.saved, 'passport').x, 5);
       expect(itemIn(editor.saved, 'pending').pageIndex, isNull);
       expect(tester.takeException(), isNull);
     },

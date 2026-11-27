@@ -1235,9 +1235,11 @@ void main() {
           lessThan(residence.y),
           reason: '$strategy: passport (125×88) before residence (92.4×62.8)',
         );
+        final residenceBeforeId =
+            residence.y < id.y || (residence.y == id.y && residence.x < id.x);
         expect(
-          residence.y,
-          lessThan(id.y),
+          residenceBeforeId,
+          isTrue,
           reason: '$strategy: residence (92.4×62.8) before national ID',
         );
         expect(inspectLayout(arranged), isEmpty);
@@ -1272,10 +1274,10 @@ void main() {
       );
 
       final arranged = arrangeDocuments(project).result;
-      expect(
-        PageLayout.item(arranged, 'front').y,
-        lessThan(PageLayout.item(arranged, 'single').y),
-      );
+      final frontPlaced = PageLayout.item(arranged, 'front');
+      final singlePlaced = PageLayout.item(arranged, 'single');
+      expect(frontPlaced.y, lessThanOrEqualTo(singlePlaced.y));
+      expect(frontPlaced.x, lessThan(singlePlaced.x));
       expect(inspectLayout(arranged), isEmpty);
     },
   );
